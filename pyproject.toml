@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "embeddedci"
+version = "0.1.0"
+description = "BenchPod pytest client for EmbeddedCI hardware-in-the-loop testing"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "EmbeddedCI" }]
+keywords = ["embedded", "hardware-in-the-loop", "pytest", "benchpod", "swd", "openocd"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Pytest",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.entry-points.pytest11]
+benchpod = "embeddedci.benchpod.pytest_plugin"
+
+[project.urls]
+Homepage = "https://embeddedci.com"
+Repository = "https://github.com/embeddedci-com/embeddedci-python"
+Issues = "https://github.com/embeddedci-com/embeddedci-python/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embeddedci"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["scripts/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
