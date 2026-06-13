@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.embeddedci-com/embeddedci-mcp",
+  "description": "Drive an EmbeddedCI BenchPod hardware-in-the-loop tester: power, flash over SWD, capture UART, and emulate/decode an I2C sensor on a real target board.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/embeddedci-com/embeddedci-python",
+    "source": "github",
+    "subfolder": "packages/embeddedci-mcp"
+  },
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "registry_base_url": "https://pypi.org",
+      "identifier": "embeddedci-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtime_arguments": [
+        {
+          "type": "named",
+          "name": "--connection",
+          "description": "Default BenchPod connection: host[:port], a serial device path, or 'serial'.",
+          "is_required": false,
+          "format": "string"
+        }
+      ],
+      "environment_variables": [
+        {
+          "name": "BENCHPOD_CONNECTION",
+          "description": "Fallback BenchPod connection when --connection / the connect tool is not given one.",
+          "is_required": false
+        }
+      ]
+    }
+  ]
+}

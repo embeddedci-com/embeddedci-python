@@ -1,48 +1,66 @@
 name: Publish to PyPI
 
-# Publishes a release to PyPI when a version tag is pushed, e.g. `v0.1.0`.
+# Each package is released independently via its own tag:
+#   embeddedci-v*      -> publishes packages/embeddedci
+#   embeddedci-mcp-v*  -> publishes packages/embeddedci-mcp
+#
 # Uses PyPI Trusted Publishing (OIDC) — no API token / secret required.
-# One-time setup on PyPI: project settings → Publishing → add a GitHub
-# trusted publisher with:
-#   owner: embeddedci-com   repo: embeddedci-python
-#   workflow: publish.yml    environment: pypi
+# One-time setup on PyPI, per project, add a GitHub trusted publisher with:
+#   owner: embeddedci-com   repo: embeddedci-python   workflow: publish.yml
+#   environment: pypi                 (for the embeddedci project — already set up)
+#   environment: pypi-embeddedci-mcp  (for the embeddedci-mcp project — add this)
+#
+# embeddedci is already on PyPI, so embeddedci-mcp (which depends on it) can be
+# released on its own. To cut a new embeddedci version, bump packages/embeddedci
+# and push an embeddedci-v* tag.
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "embeddedci-v*"
+      - "embeddedci-mcp-v*"
 
 jobs:
-  build:
-    name: Build distribution
+  publish-embeddedci:
+    if: startsWith(github.ref, 'refs/tags/embeddedci-v')
+    name: Publish embeddedci
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for trusted publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
+        working-directory: packages/embeddedci
         run: |
-          python -m pip install --upgrade build
+          python -m pip install --upgrade build twine
           python -m build
-      - name: Check artifacts render
-        run: |
-          python -m pip install --upgrade twine
           twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          name: dist
-          path: dist/
+          packages-dir: packages/embeddedci/dist/
 
-  publish:
-    name: Publish to PyPI
-    needs: build
+  publish-embeddedci-mcp:
+    if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
+    name: Publish embeddedci-mcp
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: pypi-embeddedci-mcp
     permissions:
       id-token: write # required for trusted publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: dist
-          path: dist/
+          python-version: "3.11"
+      - name: Build sdist and wheel
+        working-directory: packages/embeddedci-mcp
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine check dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/embeddedci-mcp/dist/

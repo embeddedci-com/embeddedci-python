@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "embeddedci-mcp"
+version = "0.1.0"
+description = "MCP server exposing the EmbeddedCI BenchPod SDK as tools for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "EmbeddedCI" }]
+keywords = ["embedded", "hardware-in-the-loop", "mcp", "benchpod", "swd", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "embeddedci>=0.1",
+    "mcp[cli]>=1.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+embeddedci-mcp = "embeddedci_mcp.__main__:main"
+
+[project.urls]
+Homepage = "https://embeddedci.com"
+Repository = "https://github.com/embeddedci-com/embeddedci-python"
+Issues = "https://github.com/embeddedci-com/embeddedci-python/issues"
+
+# Inside the workspace, resolve embeddedci from the sibling source tree (see the
+# repo-root pyproject.toml [tool.uv.workspace]). On PyPI this is ignored and the
+# published embeddedci is used.
+[tool.uv.sources]
+embeddedci = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embeddedci_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
