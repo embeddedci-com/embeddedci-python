@@ -162,6 +162,63 @@ class BenchPod:
             _flash.raise_for_result(result)
         return result
 
+    def flash_pyocd(
+        self,
+        *,
+        firmware: str,
+        target: str,
+        swclk: Union[Pin, int],
+        swdio: Union[Pin, int],
+        nreset: Optional[Union[Pin, int]] = None,
+        target_power: Optional[Union[Efuse, int]] = None,
+        options: Optional[dict] = None,
+    ) -> None:
+        """Flash an SWD target with pyOCD over the fast CMSIS-DAP path.
+
+        Unlike :meth:`flash` (which tunnels OpenOCD ``remote_bitbang``), this
+        drives the pod as a CMSIS-DAP probe and batches DAP transfers, so it is
+        dramatically faster over the cloud/internet. ``target`` is a pyOCD target
+        type (e.g. ``"stm32h563xx"``, ``"cortex_m"``). Needs the pyocd extra:
+        ``pip install 'embeddedci[pyocd]'``. Raises on failure.
+        """
+        from . import dap as _dap
+
+        swclk_i = coerce_pin(swclk, "swclk")
+        swdio_i = coerce_pin(swdio, "swdio")
+        if swclk_i == swdio_i:
+            raise BenchPodError("swclk and swdio must be different LA pins")
+        nreset_i = coerce_pin(nreset, "nreset") if nreset is not None else None
+        if target_power is not None:
+            self.power_on(coerce_efuse(target_power))
+        _dap.flash(
+            self._transport, firmware, target=target,
+            swclk=swclk_i, swdio=swdio_i, nreset=nreset_i, options=options,
+        )
+
+    def dap_session(
+        self,
+        *,
+        swclk: Union[Pin, int],
+        swdio: Union[Pin, int],
+        nreset: Optional[Union[Pin, int]] = None,
+        target: Optional[str] = None,
+        options: Optional[dict] = None,
+    ):
+        """Return a pyOCD ``Session`` driving this pod over CMSIS-DAP.
+
+        For debugging beyond flashing (halt, read/write memory, run a gdbserver).
+        Use as a context manager. Needs the pyocd extra.
+        """
+        from . import dap as _dap
+
+        swclk_i = coerce_pin(swclk, "swclk")
+        swdio_i = coerce_pin(swdio, "swdio")
+        nreset_i = coerce_pin(nreset, "nreset") if nreset is not None else None
+        return _dap.dap_session(
+            self._transport, swclk=swclk_i, swdio=swdio_i, nreset=nreset_i,
+            target=target, options=options,
+        )
+
     # -- LA pin pull-ups (LA1-8) --------------------------------------------
 
     def pullup(self, la: Union[Pin, int], on: Optional[bool] = None) -> dict:

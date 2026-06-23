@@ -201,6 +201,12 @@ class TcpTransport(Transport):
             req["nreset"] = nreset
         return self._raw_handshake(req, "swd_start")
 
+    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+        req: dict = {"cmd": "dap_start", "swclk": swclk, "swdio": swdio}
+        if nreset is not None:
+            req["nreset"] = nreset
+        return self._raw_handshake(req, "dap_start")
+
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
         return self._raw_handshake(
             {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud},

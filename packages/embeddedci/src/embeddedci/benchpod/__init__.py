@@ -17,6 +17,7 @@ the result, all from a test::
 
 from __future__ import annotations
 
+from . import dap
 from . import i2c
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
@@ -57,6 +58,7 @@ __all__ = [
     "BenchPod",
     "FlashResult",
     "UartCapture",
+    "dap",
     "i2c",
     "I2CByte",
     "I2CMessage",

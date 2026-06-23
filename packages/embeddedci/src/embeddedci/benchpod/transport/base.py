@@ -49,6 +49,14 @@ class Transport(ABC):
     def swd_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
         """Arm the SWD probe and return the raw remote_bitbang link."""
 
+    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+        """Arm the SWD engine and return a raw link carrying length-framed
+        CMSIS-DAP packets — the fast, batched flash/debug path that pyOCD drives
+        (see :mod:`embeddedci.benchpod.dap`). Not every backend implements it."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support CMSIS-DAP (dap_start)"
+        )
+
     @abstractmethod
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
         """Enter transparent UART-proxy mode and return the raw byte link.

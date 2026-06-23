@@ -38,10 +38,36 @@ pip install embeddedci
 pip install "embeddedci[cloud]"
 ```
 
-Flashing shells out to **OpenOCD**, which must be on your `PATH`
-(`brew install open-ocd` / `apt install openocd`). The `[cloud]` extra pulls in a
-WebSocket client used only by the `embeddedci:` destination; local wifi/serial use
-needs nothing extra.
+The `[cloud]` extra pulls in a WebSocket client used only by the `embeddedci:` destination;
+local wifi/serial use needs nothing extra.
+
+### OpenOCD (required for flashing)
+
+Flashing shells out to **OpenOCD**, which must be on your `PATH`. It drives the pod's SWD probe
+through OpenOCD's `remote_bitbang` adapter in **SWD** mode — and **SWD support for `remote_bitbang`
+only exists in OpenOCD *master* (post‑0.12.0)**. The stock packages (`apt install openocd`,
+`brew install open-ocd`) are **0.12.0**, whose `remote_bitbang` is `jtag_only`; flashing with them
+fails immediately:
+
+```
+Info : only one transport option; autoselect 'jtag'
+Error: Can't change session's transport after the initial selection was made
+```
+
+Install a master snapshot instead — the easiest is **xPack OpenOCD**:
+
+```bash
+# macOS / Linux via npm (xpm), or grab a release tarball directly:
+npm install -g @xpack-dev-tools/openocd
+# or: https://github.com/xpack-dev-tools/openocd-xpack/releases  (extract, add bin/ to PATH)
+```
+
+Verify your OpenOCD can do SWD over `remote_bitbang`:
+
+```bash
+openocd -c "adapter driver remote_bitbang" -c "transport list" -c "exit"
+# must list:  jtag  swd     (if only 'jtag', it's too old)
+```
 
 ## Named constants (no magic numbers)
 
