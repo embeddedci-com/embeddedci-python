@@ -37,11 +37,16 @@ class BenchPod:
         *,
         timeout: float = 30.0,
         transport: Optional[Transport] = None,
+        api_base: Optional[str] = None,
+        cloud_token: Optional[str] = None,
+        cloud_audience: Optional[str] = None,
     ) -> None:
         """Open a BenchPod.
 
-        ``connection`` is a host[:port], a serial device path, or ``"serial"``;
-        when omitted the ``BENCHPOD_CONNECTION`` environment variable is used.
+        ``connection`` is a host[:port], a serial device path, ``"serial"``, or
+        ``"embeddedci:<device-name>"`` to drive a named device through embeddedci.com; when
+        omitted the ``BENCHPOD_CONNECTION`` environment variable is used. ``api_base`` /
+        ``cloud_token`` / ``cloud_audience`` apply only to the ``embeddedci`` destination.
         Pass ``transport`` directly to inject a custom/standalone backend.
         """
         self.timeout = timeout
@@ -49,7 +54,13 @@ class BenchPod:
             self._transport: Transport = transport
         else:
             spec = resolve_connection(connection)
-            self._transport = open_transport(spec, timeout=timeout)
+            self._transport = open_transport(
+                spec,
+                timeout=timeout,
+                api_base=api_base,
+                token=cloud_token,
+                audience=cloud_audience,
+            )
 
     # -- lifecycle ----------------------------------------------------------
 

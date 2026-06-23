@@ -17,11 +17,22 @@ __all__ = [
     "open_transport",
     "TcpTransport",
     "SerialTransport",
+    "CloudTransport",
 ]
 
 
-def open_transport(spec: ConnSpec, *, timeout: float = 30.0) -> Transport:
-    """Construct a transport for ``spec``. Imports backends lazily."""
+def open_transport(
+    spec: ConnSpec,
+    *,
+    timeout: float = 30.0,
+    api_base: "str | None" = None,
+    token: "str | None" = None,
+    audience: "str | None" = None,
+) -> Transport:
+    """Construct a transport for ``spec``. Imports backends lazily.
+
+    ``api_base``/``token``/``audience`` apply only to the cloud (``embeddedci``) destination.
+    """
     if spec.is_wifi():
         from .tcp import TcpTransport
 
@@ -30,6 +41,17 @@ def open_transport(spec: ConnSpec, *, timeout: float = 30.0) -> Transport:
         from .serial import SerialTransport
 
         return SerialTransport(spec.device, timeout=timeout)
+    if spec.is_cloud():
+        from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE
+        from .cloud import CloudTransport
+
+        return CloudTransport(
+            spec.device_name,
+            api_base=api_base or DEFAULT_API_BASE,
+            token=token,
+            audience=audience or DEFAULT_AUDIENCE,
+            timeout=timeout,
+        )
     raise ConnectionConfigError(f"unknown connection kind {spec.kind!r}")
 
 
@@ -43,4 +65,8 @@ def __getattr__(name: str):
         from .serial import SerialTransport
 
         return SerialTransport
+    if name == "CloudTransport":
+        from .cloud import CloudTransport
+
+        return CloudTransport
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

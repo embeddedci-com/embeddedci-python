@@ -1,10 +1,11 @@
 """Resolve a connection string into a concrete transport spec.
 
-Mirrors the Go CLI's ``connection.go``:
+Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 
 * ``host`` or ``host:port``        -> TCP/wifi (default port 8080)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
 * ``serial`` / ``usb``             -> serial, auto-detect by USB VID 0x2E8A
+* ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (CI only)
 
 Precedence is handled by the caller: an explicit argument wins over the
 ``BENCHPOD_CONNECTION`` environment variable.
@@ -20,6 +21,7 @@ from .errors import ConnectionConfigError
 
 DEFAULT_PORT = 8080
 ENV_VAR = "BENCHPOD_CONNECTION"
+CLOUD_PREFIX = "embeddedci:"
 
 _COM_RE = re.compile(r"^COM[0-9]+$", re.IGNORECASE)
 
@@ -28,15 +30,19 @@ _COM_RE = re.compile(r"^COM[0-9]+$", re.IGNORECASE)
 class ConnSpec:
     """A resolved connection target."""
 
-    kind: str  # "tcp" or "serial"
+    kind: str  # "tcp", "serial" or "embeddedci"
     addr: str = ""  # "host:port" when kind == "tcp"
     device: str = ""  # device path when kind == "serial"; "" means auto-detect
+    device_name: str = ""  # named device when kind == "embeddedci"
 
     def is_wifi(self) -> bool:
         return self.kind == "tcp"
 
     def is_serial(self) -> bool:
         return self.kind == "serial"
+
+    def is_cloud(self) -> bool:
+        return self.kind == "embeddedci"
 
 
 def _is_device_path(s: str) -> bool:
@@ -65,6 +71,13 @@ def parse_connection(raw: str) -> ConnSpec:
     s = raw.strip()
     if not s:
         raise ConnectionConfigError("connection string is empty")
+    if s.lower().startswith(CLOUD_PREFIX):
+        name = s[len(CLOUD_PREFIX):].strip()
+        if not name:
+            raise ConnectionConfigError(
+                "embeddedci destination requires a device name, e.g. 'embeddedci:my-bench'"
+            )
+        return ConnSpec(kind="embeddedci", device_name=name)
     if s.lower() in ("serial", "usb"):
         return ConnSpec(kind="serial", device="")
     if _is_device_path(s):

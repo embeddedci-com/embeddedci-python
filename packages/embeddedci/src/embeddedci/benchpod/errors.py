@@ -17,6 +17,15 @@ class TransportError(BenchPodError):
     """A transport-level failure: could not reach or talk to the pod."""
 
 
+class CloudAuthError(BenchPodError):
+    """Could not obtain a cloud session token for the ``embeddedci`` destination.
+
+    Raised when minting the GitHub OIDC token fails (not in a GitHub Action, missing
+    ``id-token: write`` permission, or the request failed) or the token exchange with the
+    embeddedci server is rejected. The message explains which of these applies.
+    """
+
+
 class FirmwareError(BenchPodError):
     """The pod accepted the request but replied ``{"status":"error"}``."""
 

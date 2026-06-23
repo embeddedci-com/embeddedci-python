@@ -8,7 +8,7 @@ captures its UART, and emulates/decodes an I2C sensor.
 
 | Package | Path | What it is |
 | --- | --- | --- |
-| [`embeddedci`](packages/embeddedci) | `packages/embeddedci/` | The BenchPod SDK and pytest plugin. `from embeddedci import benchpod`. |
+| [`embeddedci`](packages/embeddedci) | `packages/embeddedci/` | The BenchPod SDK and pytest plugin. `from embeddedci import benchpod`. Connects over wifi, serial, or the **cloud** (`embeddedci:<device-name>`) to drive a remote pod from a GitHub Action via OIDC — see the [package README](packages/embeddedci/README.md#running-in-github-actions-cloud). |
 | [`embeddedci-mcp`](packages/embeddedci-mcp) | `packages/embeddedci-mcp/` | An [MCP](https://modelcontextprotocol.io) server that exposes the SDK as tools, so AI agents can drive the bench. Thin consumer of `embeddedci`. |
 
 The dependency direction is strictly **`embeddedci-mcp` → `embeddedci`** (never the

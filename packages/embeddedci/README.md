@@ -4,10 +4,16 @@ A pytest-friendly Python client for an [EmbeddedCI](https://embeddedci.com)
 **BenchPod** — the same device operations you do today with `benchpod-cli`,
 available straight from your tests:
 
-* connect to a BenchPod over **wifi/network or serial**
+* connect to a BenchPod over **wifi/network, serial, or the cloud** (`embeddedci.com`)
 * power the target on/off
 * **flash** firmware to the target and **assert ok / not ok**
 * emulate an I2C sensor (BMP280) and decode the bus traffic
+
+The same test runs against a pod on your desk *or* a remote pod in CI: point
+`--benchpod-connection` at an IP, a serial port, or `embeddedci:<device-name>` to
+drive a named device through embeddedci.com from a GitHub Action (no secrets — it
+authenticates with the workflow's GitHub OIDC token). See
+[Running in GitHub Actions](#running-in-github-actions-cloud).
 
 ```python
 from embeddedci import benchpod
@@ -28,10 +34,14 @@ with benchpod.BenchPod("192.168.1.213") as bp:   # or "/dev/ttyACM0", or "serial
 
 ```bash
 pip install embeddedci
+# for the cloud (embeddedci:<device>) destination, add the cloud extra:
+pip install "embeddedci[cloud]"
 ```
 
 Flashing shells out to **OpenOCD**, which must be on your `PATH`
-(`brew install open-ocd` / `apt install openocd`).
+(`brew install open-ocd` / `apt install openocd`). The `[cloud]` extra pulls in a
+WebSocket client used only by the `embeddedci:` destination; local wifi/serial use
+needs nothing extra.
 
 ## Named constants (no magic numbers)
 
@@ -75,15 +85,64 @@ suite stays green in CI runners without hardware.
 | `192.168.1.213` or `host:8080` | wifi/network (JSON over TCP, port 8080 default) |
 | `/dev/ttyACM0`, `COM3` | serial (USB CDC-ACM console) |
 | `serial` / `usb` | serial, auto-detected by USB VID `0x2E8A` |
+| `embeddedci:<device-name>` | cloud — drive a named device through embeddedci.com (CI only; see below) |
 
 Resolution order: explicit argument / `--benchpod-connection` →
 `benchpod_connection` ini option → `BENCHPOD_CONNECTION` env var.
+
+## Running in GitHub Actions (cloud)
+
+The `embeddedci:<device-name>` destination drives a pod that lives somewhere else
+— behind NAT, in a lab — through `embeddedci.com`. Your workflow proves *which
+repo it is* with a GitHub OIDC token; the server exchanges that for a short-lived
+session token scoped to the devices that repo is allowed to drive, then bridges a
+raw byte tunnel to the device. **The full API works** — including flashing (SWD)
+and UART/scope captures — so the same test you run locally runs unchanged in CI.
+
+One-time setup (in the EmbeddedCI web app):
+
+1. Give the device a stable name on the **BenchPod** page (the editable name;
+   letters/digits/`-_.`, unique per org).
+2. On **BenchPod → GitHub Actions**, add your repo (click *Look up* to fill the
+   numeric ids) and choose **Any device** or the specific device(s) this repo may drive.
+
+Then in `.github/workflows/hil.yml`:
+
+```yaml
+permissions:
+  id-token: write          # REQUIRED — lets the job mint a GitHub OIDC token
+  contents: read
+
+jobs:
+  hil:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install "embeddedci[cloud]"
+      - run: pytest --benchpod-connection=embeddedci:my-bench-01
+```
+
+No API key or secret is stored — auth is the GitHub OIDC token, exactly like PyPI
+Trusted Publishing.
+
+Config knobs (only the `embeddedci:` destination uses these):
+
+| Option / env | Default | Purpose |
+|---|---|---|
+| `--benchpod-api-base` / `BENCHPOD_API_BASE` | `https://embeddedci.com` | embeddedci server base URL |
+
+If the token can't be minted, the error says exactly why — one of: **not running
+inside a GitHub Action**, the job is **missing `id-token: write` permission**, or
+the **token request itself failed**.
 
 ## Status of features
 
 | Feature | State |
 |---|---|
 | Connect (wifi + serial) | ✅ |
+| Connect (cloud via GitHub OIDC) | ✅ server + SDK; device firmware tunnel pending on-hardware bring-up |
 | Power on/off (+ scheduled delay) | ✅ |
 | Flash + assert ok/not ok | ✅ (pure-Python OpenOCD `remote_bitbang` bridge) |
 | Emulated I2C sensor (BMP280) | ✅ wifi + serial (serial via `json` console mode) |

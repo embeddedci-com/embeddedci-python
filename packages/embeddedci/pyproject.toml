@@ -29,7 +29,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "websocket-client>=1.6"]
+# Cloud destination (embeddedci:<device>): a synchronous WebSocket client for the byte tunnel.
+# OIDC mint + token exchange use the stdlib (urllib), so no extra HTTP dependency is needed.
+cloud = ["websocket-client>=1.6"]
 
 [project.entry-points.pytest11]
 benchpod = "embeddedci.benchpod.pytest_plugin"

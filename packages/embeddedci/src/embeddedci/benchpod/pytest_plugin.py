@@ -54,8 +54,17 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         action="store",
         default=None,
         dest="benchpod_connection",
-        help="BenchPod connection: host[:port], a serial device path, or 'serial'. "
+        help="BenchPod connection: host[:port], a serial device path, 'serial', or "
+        "'embeddedci:<device-name>' to drive a named device through embeddedci.com. "
         f"Falls back to the {ENV_VAR} env var.",
+    )
+    group.addoption(
+        "--benchpod-api-base",
+        action="store",
+        default=None,
+        dest="benchpod_api_base",
+        help="embeddedci API base URL for the 'embeddedci:' destination "
+        "(default https://embeddedci.com; falls back to BENCHPOD_API_BASE).",
     )
     group.addoption(
         "--benchpod-firmware",
@@ -105,9 +114,10 @@ def benchpod_connection(pytestconfig: "pytest.Config") -> str:
 
 
 @pytest.fixture(scope="session")
-def benchpod(benchpod_connection: str) -> Iterator[BenchPod]:
+def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
     """A connected :class:`BenchPod` for the test session."""
-    device = BenchPod(benchpod_connection)
+    api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
+    device = BenchPod(benchpod_connection, api_base=api_base)
     try:
         yield device
     finally:
