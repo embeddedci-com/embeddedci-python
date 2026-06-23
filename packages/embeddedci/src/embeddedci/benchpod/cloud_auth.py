@@ -19,8 +19,20 @@ import urllib.request
 
 from .errors import CloudAuthError
 
+# The OIDC audience is a logical identifier the server matches against the token's `aud` claim; it
+# does not have to be a reachable URL. The API base is the actual canonical host (note: the apex
+# embeddedci.com 301-redirects to www, which urllib would mishandle on a POST).
 DEFAULT_AUDIENCE = "https://embeddedci.com"
-DEFAULT_API_BASE = "https://embeddedci.com"
+DEFAULT_API_BASE = "https://www.embeddedci.com"
+
+# A real User-Agent is required: the apex/edge (Cloudflare) bans the default "Python-urllib/x.y"
+# signature (HTTP 403, error 1010). Identify the SDK explicitly instead.
+try:  # pragma: no cover - trivial
+    from importlib.metadata import version as _pkg_version
+
+    USER_AGENT = f"embeddedci-python/{_pkg_version('embeddedci')}"
+except Exception:  # pragma: no cover
+    USER_AGENT = "embeddedci-python"
 
 _HTTP_TIMEOUT = 15.0
 
@@ -52,7 +64,12 @@ def mint_oidc_token(audience: str = DEFAULT_AUDIENCE) -> str:
     sep = "&" if "?" in req_url else "?"
     url = f"{req_url}{sep}audience={urllib.parse.quote(audience, safe='')}"
     request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {req_token}", "Accept": "application/json"}
+        url,
+        headers={
+            "Authorization": f"Bearer {req_token}",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
@@ -75,7 +92,11 @@ def exchange_token(api_base: str, oidc_token: str) -> dict:
     data = json.dumps({"token": oidc_token}).encode("utf-8")
     request = urllib.request.Request(
         url, data=data, method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, get_session_token
+from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, get_session_token
 from ..errors import TransportError
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
@@ -36,7 +36,12 @@ class _WsTunnelSocket:
                 "the 'embeddedci' destination needs the cloud extra: pip install 'embeddedci[cloud]'"
             ) from exc
         try:
-            self._ws = websocket.create_connection(url, timeout=timeout, enable_multithread=True)
+            # Send an explicit User-Agent on the WS upgrade too — the edge (Cloudflare) bans the
+            # default Python/websocket-client signature (HTTP 403, error 1010).
+            self._ws = websocket.create_connection(
+                url, timeout=timeout, enable_multithread=True,
+                header=[f"User-Agent: {USER_AGENT}"],
+            )
         except Exception as exc:
             raise TransportError(f"could not open cloud tunnel: {exc}") from exc
         self._buf = bytearray()
