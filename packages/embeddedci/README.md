@@ -251,18 +251,20 @@ project → *Settings → Publishing → Add a pending publisher* with
 owner `embeddedci-com`, repo `embeddedci-python`, workflow `publish.yml`,
 environment `pypi`.
 
-To cut a release:
+This is a monorepo, so each package releases on its **own** tag — `publish.yml`
+triggers on `embeddedci-v*` for this package (and `embeddedci-mcp-v*` for the MCP
+server). To cut a release:
 
 ```bash
-# 1. bump the version in pyproject.toml (e.g. 0.1.0 -> 0.1.1), commit it
-# 2. tag and push — the tag must match the version
-git tag v0.1.1
-git push origin v0.1.1
+# 1. bump the version in pyproject.toml (e.g. 0.1.0 -> 0.2.0), commit it
+# 2. tag and push — the tag is embeddedci-v<version> and must match the version
+git tag embeddedci-v0.2.0
+git push origin embeddedci-v0.2.0
 ```
 
 The tag push builds the sdist + wheel, runs `twine check`, and publishes. The
-git tag is the source of truth for what shipped; keep it equal to the
-`version` in `pyproject.toml`.
+git tag is the source of truth for what shipped; keep `embeddedci-v<version>`
+equal to the `version` in `pyproject.toml`.
 
 Build and verify locally before tagging:
 
