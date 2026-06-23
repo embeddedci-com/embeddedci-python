@@ -33,15 +33,9 @@ dev = ["pytest>=7.0", "websocket-client>=1.6"]
 # Cloud destination (embeddedci:<device>): a synchronous WebSocket client for the byte tunnel.
 # OIDC mint + token exchange use the stdlib (urllib), so no extra HTTP dependency is needed.
 cloud = ["websocket-client>=1.6"]
-# Fast CMSIS-DAP flash/debug over the cloud/TCP transport (embeddedci.benchpod.dap).
-pyocd = ["pyocd>=0.36"]
 
 [project.entry-points.pytest11]
 benchpod = "embeddedci.benchpod.pytest_plugin"
-
-# Lets `pyocd flash --uid benchpod:<connection> ...` drive a pod from the CLI.
-[project.entry-points."pyocd.probe"]
-benchpod = "embeddedci.benchpod.dap:BenchPodProbePlugin"
 
 [project.urls]
 Homepage = "https://embeddedci.com"

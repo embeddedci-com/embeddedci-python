@@ -104,15 +104,62 @@ class _FakeSock:
         pass
 
 
-def test_cloud_transport_command_roundtrip(monkeypatch):
+def test_cloud_transport_command_uses_command_channel(monkeypatch):
+    # Non-streaming commands go over the HTTP command channel (not a byte tunnel),
+    # so they work while a streaming session holds a tunnel.
+    import urllib.request
+
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
-    fake = _FakeSock(b'{"status":"ok","data":"pong"}\n')
-    monkeypatch.setattr(t, "_dial", lambda: fake)
+    captured = {}
+
+    class _Resp:
+        def __init__(self, body):
+            self._b = body
+
+        def read(self):
+            return self._b
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["body"] = request.data
+        captured["auth"] = request.get_header("Authorization")
+        return _Resp(b'{"status":"ok","data":"pong"}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     assert t.command({"cmd": "ping"}) == "pong"
-    # The request was framed as a newline-terminated JSON line.
-    assert fake.sent.endswith(b"\n")
-    assert b'"cmd":"ping"' in bytes(fake.sent)
+    assert "/api/cloud/devices/command" in captured["url"]
+    assert "device=dev-a" in captured["url"]
+    assert captured["auth"] == "Bearer x"
+    assert b'"ping"' in captured["body"]
+
+
+def test_cloud_transport_command_error_raises(monkeypatch):
+    import urllib.request
+
+    from embeddedci.benchpod.errors import FirmwareError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+
+    class _Resp:
+        def read(self):
+            return b'{"status":"error","error":"swd busy"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+    with pytest.raises(FirmwareError):
+        t.command({"cmd": "swd_start"})
 
 
 def test_cloud_transport_swd_handshake_returns_raw_link(monkeypatch):

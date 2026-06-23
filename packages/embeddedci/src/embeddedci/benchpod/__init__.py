@@ -17,7 +17,6 @@ the result, all from a test::
 
 from __future__ import annotations
 
-from . import dap
 from . import i2c
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
@@ -50,15 +49,17 @@ from .errors import (
     FlashError,
     TargetUnreachableError,
     TransportError,
+    UartTimeout,
 )
 from .flash import FlashResult
-from .uart import UartCapture
+from .uart import UartCapture, UartSession
 
 __all__ = [
     "BenchPod",
     "FlashResult",
     "UartCapture",
-    "dap",
+    "UartSession",
+    "UartTimeout",
     "i2c",
     "I2CByte",
     "I2CMessage",

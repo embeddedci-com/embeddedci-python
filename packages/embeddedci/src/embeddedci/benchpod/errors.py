@@ -47,3 +47,15 @@ class TargetUnreachableError(FlashError):
 
     Almost always means the target is unpowered, mis-wired, or held in reset.
     """
+
+
+class UartTimeout(BenchPodError):
+    """An event-based UART read (``UartSession.expect``) timed out.
+
+    Carries the text accumulated so far in :attr:`text` so the caller can see
+    what the DUT actually sent.
+    """
+
+    def __init__(self, message: str, *, text: str = "") -> None:
+        self.text = text
+        super().__init__(message)

@@ -14,14 +14,19 @@ from embeddedci.benchpod import flash as flashmod
 from embeddedci.benchpod.errors import FlashError, TargetUnreachableError
 
 FAKE_OPENOCD = """#!{python}
-import os, sys, socket
+import os, sys, socket, struct
+if any(a == "shutdown" for a in sys.argv):
+    sys.exit(0)  # config-stage backend probe (supports_cmsis_dap_tcp)
 port = None
 for a in sys.argv[1:]:
-    if a.startswith("remote_bitbang port "):
+    if a.startswith("cmsis-dap tcp port "):
         port = int(a.split()[-1])
 if port is not None:
     s = socket.create_connection(("127.0.0.1", port))
-    s.sendall(b"bitbang-hello")
+    # one cmsis_dap_tcp request frame: "DAP\\0" + len(u16) + type(u8) + rsv(u8) + payload
+    payload = b"DAPREQ"
+    frame = b"DAP\\x00" + struct.pack("<H", len(payload)) + b"\\x00\\x00" + payload
+    s.sendall(frame)
     s.settimeout(0.5)
     try:
         s.recv(64)
@@ -90,8 +95,9 @@ def test_successful_flash(fake_openocd):
     assert result.ok
     assert result.returncode == 0
     assert not result.target_unreachable
-    # OpenOCD's bytes reached the pod link.
-    assert b"bitbang-hello" in bytes(link.written)
+    # OpenOCD's DAP request frame was translated (2-byte len prefix) onto the pod.
+    assert b"DAPREQ" in bytes(link.written)
+    assert bytes(link.written)[:2] == b"\x06\x00"  # len=6, little-endian
 
 
 def test_failed_flash_nonzero_exit(fake_openocd):

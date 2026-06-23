@@ -13,10 +13,14 @@ TCP transport's one-connection-per-command model.
 
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
+from typing import Any
 from urllib.parse import quote
 
 from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, get_session_token
-from ..errors import TransportError
+from ..errors import FirmwareError, TransportError
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
 
@@ -135,6 +139,43 @@ class CloudTransport(TcpTransport):
         sock = _WsTunnelSocket(self._ws_url(), self.timeout)
         sock.settimeout(self.timeout)
         return sock
+
+    def command(self, req: dict) -> Any:  # type: ignore[override]
+        """Run one non-streaming command over the cloud *command channel*
+        (``POST /api/cloud/devices/command``) instead of dialing a byte tunnel.
+
+        The firmware services the command channel (``command.request``) and the
+        byte tunnel as independent connections, so this works **while a streaming
+        session holds a tunnel** — e.g. powering the target with
+        :meth:`~embeddedci.benchpod.client.BenchPod.power_on` during an
+        :meth:`~embeddedci.benchpod.client.BenchPod.open_uart` session. It is also
+        faster than dialing a fresh WebSocket per command. Streaming modes
+        (``dap_start``/``uart_proxy_start``) still use the tunnel via ``_dial``.
+        """
+        url = (f"{self.api_base}/api/cloud/devices/command"
+               f"?device={quote(self.device_name, safe='')}")
+        body = json.dumps(
+            {"command": req, "timeout_ms": int(self.timeout * 1000)}
+        ).encode("utf-8")
+        request = urllib.request.Request(url, data=body, method="POST")
+        request.add_header("Content-Type", "application/json")
+        request.add_header("Authorization", f"Bearer {self._session_token()}")
+        request.add_header("Accept", "application/json")
+        request.add_header("User-Agent", USER_AGENT)
+        cmd = req.get("cmd")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            raise TransportError(
+                f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise TransportError(f"cloud command {cmd!r} failed: {exc}") from exc
+        if payload.get("status") == "error":
+            raise FirmwareError(payload.get("error") or "device returned an error", cmd=cmd)
+        return payload.get("data")
 
     def close(self) -> None:
         # Each command/raw session owns its own tunnel; nothing persistent to release.

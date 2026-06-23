@@ -162,63 +162,6 @@ class BenchPod:
             _flash.raise_for_result(result)
         return result
 
-    def flash_pyocd(
-        self,
-        *,
-        firmware: str,
-        target: str,
-        swclk: Union[Pin, int],
-        swdio: Union[Pin, int],
-        nreset: Optional[Union[Pin, int]] = None,
-        target_power: Optional[Union[Efuse, int]] = None,
-        options: Optional[dict] = None,
-    ) -> None:
-        """Flash an SWD target with pyOCD over the fast CMSIS-DAP path.
-
-        Unlike :meth:`flash` (which tunnels OpenOCD ``remote_bitbang``), this
-        drives the pod as a CMSIS-DAP probe and batches DAP transfers, so it is
-        dramatically faster over the cloud/internet. ``target`` is a pyOCD target
-        type (e.g. ``"stm32h563xx"``, ``"cortex_m"``). Needs the pyocd extra:
-        ``pip install 'embeddedci[pyocd]'``. Raises on failure.
-        """
-        from . import dap as _dap
-
-        swclk_i = coerce_pin(swclk, "swclk")
-        swdio_i = coerce_pin(swdio, "swdio")
-        if swclk_i == swdio_i:
-            raise BenchPodError("swclk and swdio must be different LA pins")
-        nreset_i = coerce_pin(nreset, "nreset") if nreset is not None else None
-        if target_power is not None:
-            self.power_on(coerce_efuse(target_power))
-        _dap.flash(
-            self._transport, firmware, target=target,
-            swclk=swclk_i, swdio=swdio_i, nreset=nreset_i, options=options,
-        )
-
-    def dap_session(
-        self,
-        *,
-        swclk: Union[Pin, int],
-        swdio: Union[Pin, int],
-        nreset: Optional[Union[Pin, int]] = None,
-        target: Optional[str] = None,
-        options: Optional[dict] = None,
-    ):
-        """Return a pyOCD ``Session`` driving this pod over CMSIS-DAP.
-
-        For debugging beyond flashing (halt, read/write memory, run a gdbserver).
-        Use as a context manager. Needs the pyocd extra.
-        """
-        from . import dap as _dap
-
-        swclk_i = coerce_pin(swclk, "swclk")
-        swdio_i = coerce_pin(swdio, "swdio")
-        nreset_i = coerce_pin(nreset, "nreset") if nreset is not None else None
-        return _dap.dap_session(
-            self._transport, swclk=swclk_i, swdio=swdio_i, nreset=nreset_i,
-            target=target, options=options,
-        )
-
     # -- LA pin pull-ups (LA1-8) --------------------------------------------
 
     def pullup(self, la: Union[Pin, int], on: Optional[bool] = None) -> dict:
@@ -357,6 +300,36 @@ class BenchPod:
         self.power_on(efuse, delay=delay)
         return self.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration,
                                  until=until)
+
+    def open_uart(
+        self,
+        *,
+        rx: Union[Pin, int],
+        tx: Union[Pin, int],
+        baud: int = 115200,
+        max_buffer: int = 1 << 20,
+    ) -> "_uart.UartSession":
+        """Open an event-based UART session (background reader) on the DUT.
+
+        Unlike :meth:`capture_uart` (a fixed window) this starts buffering
+        immediately and lets you read at a later point, so you can begin
+        listening *before* an action and still catch its output — e.g. a
+        **non-delayed** eFuse power-on whose boot banner you still want to see::
+
+            with bp.open_uart(rx=5, tx=4, baud=115200) as uart:
+                bp.power_on(bp.INTERNAL)            # immediate, no pod-side delay
+                uart.expect("APP_OK", timeout=6)    # banner buffered since power-up
+
+        ``rx`` is the LA channel the pod samples (wire the DUT's TX here); ``tx``
+        is driven (DUT's RX). Use as a context manager (or call ``.close()``).
+        Over the cloud transport, running other commands (``power_on``, ...) while
+        a session is open needs them to use the cloud command channel rather than
+        a second tunnel — see ``docs/event-uart-design.md``.
+        """
+        link = self._transport.uart_proxy_start(
+            coerce_pin(rx, "rx"), coerce_pin(tx, "tx"), int(baud)
+        )
+        return _uart.UartSession(link, max_buffer=max_buffer)
 
     # -- low-level pass-throughs (TCP transport only) -----------------------
 

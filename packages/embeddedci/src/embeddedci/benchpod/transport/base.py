@@ -51,8 +51,9 @@ class Transport(ABC):
 
     def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
         """Arm the SWD engine and return a raw link carrying length-framed
-        CMSIS-DAP packets — the fast, batched flash/debug path that pyOCD drives
-        (see :mod:`embeddedci.benchpod.dap`). Not every backend implements it."""
+        CMSIS-DAP packets — the fast, batched flash path that OpenOCD's cmsis-dap
+        TCP backend drives (see :mod:`embeddedci.benchpod.flash`). Not every
+        backend implements it."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support CMSIS-DAP (dap_start)"
         )

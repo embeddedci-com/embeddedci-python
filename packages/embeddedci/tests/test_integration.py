@@ -1,9 +1,9 @@
 """End-to-end: BenchPod facade -> TCP transport -> flash bridge -> fake openocd.
 
 Wires the whole stack together with no real hardware and no real openocd. A fake
-pod speaks the JSON protocol (ping/target_power/swd_start) and, after the
-swd_start ack, holds the connection open as the raw bitbang link; a fake openocd
-connects to the bridge and exits with a chosen code.
+pod speaks the JSON protocol (ping/target_power/dap_start) and, after the
+dap_start ack, holds the connection open as the raw CMSIS-DAP link; a fake
+openocd connects to the bridge and exits with a chosen code.
 """
 
 import json
@@ -23,7 +23,7 @@ from test_flash_bridge import FAKE_OPENOCD
 
 
 class FakePod:
-    """JSON/TCP fake that also bridges raw bytes after swd_start."""
+    """JSON/TCP fake that also bridges raw bytes after dap_start."""
 
     def __init__(self):
         self.power_calls = []
@@ -60,9 +60,9 @@ class FakePod:
             elif cmd == "target_power":
                 self.power_calls.append(req)
                 conn.sendall(b'{"status":"ok","data":null}\n')
-            elif cmd == "swd_start":
-                conn.sendall(b'{"status":"ok","data":"swd ready"}\n')
-                # Now act as the raw bitbang link: drain bytes until closed.
+            elif cmd == "dap_start":
+                conn.sendall(b'{"status":"ok","data":"dap ready"}\n')
+                # Now act as the raw CMSIS-DAP link: drain bytes until closed.
                 conn.settimeout(5)
                 try:
                     while True:
@@ -107,7 +107,7 @@ def test_full_flash_flow_ok(fake_openocd):
         # target was powered first, and openocd's bytes reached the pod.
         assert pod.power_calls and pod.power_calls[0]["efuse"] == 1
         time.sleep(0.1)
-        assert b"bitbang-hello" in bytes(pod.raw_received)
+        assert b"DAPREQ" in bytes(pod.raw_received)
     finally:
         pod.close()
 
