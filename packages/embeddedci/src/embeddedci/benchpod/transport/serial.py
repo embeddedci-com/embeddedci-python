@@ -22,6 +22,8 @@ RP_VID = 0x2E8A  # Raspberry Pi (RP2350) USB vendor id
 BAUD = 115200
 PROMPT = "> "
 SWD_READY = "swd ready"
+DAP_READY = "dap ready"          # console prints "dap ready" then carries framed CMSIS-DAP
+DAP_LEAVE = b"\x00\x00"          # zero-length frame — leaves the console DAP passthrough
 UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to exit)"
 CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
@@ -327,6 +329,12 @@ class SerialTransport(Transport):
         if nreset is not None:
             cmd += f" {nreset}"
         return self._console_raw_handshake(cmd, SWD_READY, quit_byte=b"Q")
+
+    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+        cmd = f"dap-start {swclk} {swdio}"
+        if nreset is not None:
+            cmd += f" {nreset}"
+        return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
         return self._console_raw_handshake(
