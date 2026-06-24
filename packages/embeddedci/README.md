@@ -187,10 +187,10 @@ from embeddedci import benchpod
 
 with benchpod.BenchPod("192.168.1.213") as bp:
     bp.flash(file="app.elf", target="target/stm32f4x.cfg",
-             swclk=benchpod.PIN13, swdio=benchpod.PIN14, target_power=benchpod.INTERNAL)
+             swclk=benchpod.PIN11, swdio=benchpod.PIN12, target_power=benchpod.INTERNAL)
 
-    # I2C is open-drain — enable the pod's pull-ups on SDA/SCL (LA1-8 only),
-    # then have the pod become a BMP280 on those lines.
+    # I2C is open-drain — enable the pod's pull-ups on SDA/SCL. Pull-ups exist
+    # only on LA1-8 (LA1/2=4.7k, LA3/4=2.2k, LA5-8=10k), so put SDA/SCL on LA1/2.
     bp.enable_pullup(benchpod.PIN1, benchpod.PIN2)
     bp.enable_i2c_sensor(benchpod.Sensor.BMP280, sda=benchpod.PIN1, scl=benchpod.PIN2,
                          temperature_c=22.5, pressure_pa=101000)
@@ -259,8 +259,10 @@ pytest examples/test_bmp280.py \
 
 It uses the plugin's `benchpod`, `pins` and `firmware` fixtures and the
 `@pytest.mark.hardware` marker, and **skips automatically** without a connection.
-The pin map comes from `--benchpod-swclk/-swdio/-nreset/-uart-rx/-uart-tx/-i2c-sda/-i2c-scl/-efuse`
-options (sensible defaults) so tests aren't hardcoded to your wiring. See
+The `pins` fixture exposes the pod's 12 generic LA channels (`pins.pin_1` …
+`pins.pin_12`) plus `pins.efuse` — there are no role-named pins, since any DUT
+signal can be on any channel. The example maps its own wiring (which signal is on
+which channel) in a small `wiring` fixture at the top. See
 [`examples/README.md`](examples/README.md) for the full wiring table.
 
 A more thorough multi-case version (present/absent + I2C-bus decode) lives in

@@ -27,18 +27,24 @@ Without `--benchpod-connection` the test **skips** (so it's safe in CI). The
 
 ### Wiring
 
-The defaults match a typical bench; override any pin with `--benchpod-<name>`:
+The pod has **no dedicated SWD/UART/I2C pins** — it exposes 12 generic LA channels
+(`pins.pin_1` … `pins.pin_12`) and any DUT signal can be on any of them. The example
+maps its own wiring in a `wiring` fixture at the top of `test_bmp280.py`; the table
+below is what that fixture uses — edit it to match your board.
 
-| DUT pin | Pod LA channel | Flag |
+| DUT pin | Pod LA channel | `wiring` field |
 |---|---|---|
-| SWCLK | LA11 | `--benchpod-swclk` |
-| SWDIO | LA12 | `--benchpod-swdio` |
-| NRST | LA3 | `--benchpod-nreset` |
-| UART TX (DUT→pod samples) | LA5 | `--benchpod-uart-rx` |
-| UART RX (pod→DUT drives) | LA4 | `--benchpod-uart-tx` |
-| I2C SDA (LA1–8 have pull-ups) | LA2 | `--benchpod-i2c-sda` |
-| I2C SCL (LA1–8 have pull-ups) | LA1 | `--benchpod-i2c-scl` |
+| SWCLK | LA11 | `wiring.swclk` |
+| SWDIO | LA12 | `wiring.swdio` |
+| NRST | LA3 | `wiring.nreset` |
+| UART TX (DUT→pod samples) | LA5 | `wiring.uart_rx` |
+| UART RX (pod→DUT drives) | LA4 | `wiring.uart_tx` |
+| I2C SDA (needs a pull-up) | LA2 | `wiring.i2c_sda` |
+| I2C SCL (needs a pull-up) | LA1 | `wiring.i2c_scl` |
 | Target 5V eFuse (1=int, 2=ext) | — | `--benchpod-efuse` |
+
+Pull-ups exist only on **LA1–8** (LA1/2 = 4.7k, LA3/4 = 2.2k, LA5–8 = 10k); LA9–12
+have none, so the open-drain I2C lines must sit on a pull-up-capable channel.
 
 ### Notes
 

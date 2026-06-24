@@ -14,22 +14,24 @@ Run against hardware:
 Skipped automatically without a connection and a firmware image.
 
 ============================ WIRING / PIN MAP =============================
-The pod's LA channels (1-12) must be wired to the DUT. Defaults below match
-the --benchpod-* options; override them to match your bench.
+The pod has no dedicated SWD/UART/I2C pins — it exposes 12 generic LA channels
+(``pins.pin_1`` .. ``pins.pin_12``) and any DUT signal can be on any of them.
+The ``wiring`` fixture below is THIS bench's map; edit it for your board.
 
-  DUT (STM32F446, scenario-sensors-stm32)      Pod LA channel (default flag)
-  ------------------------------------------   -----------------------------
-  SWCLK  (SWD clock)                           --benchpod-swclk   (11)
-  SWDIO  (SWD data)                            --benchpod-swdio   (12)
-  NRST   (optional reset)                      --benchpod-nreset  (3)
-  USART1 TX = PA9   -> pod samples (LA5)       --benchpod-uart-rx (5)
-  USART1 RX = PA10  <- pod drives  (LA4)        --benchpod-uart-tx (4)
-  I2C1 SDA  = PB9   <-> LA2 (4.7k pull-up)     --benchpod-i2c-sda (2)
-  I2C1 SCL  = PB8   <-> LA1 (4.7k pull-up)     --benchpod-i2c-scl (1)
-  Target 5V power                              --benchpod-efuse   (1 = internal)
+  DUT (STM32F446, scenario-sensors-stm32)      Pod LA channel (wiring fixture)
+  ------------------------------------------   ------------------------------
+  SWCLK  (SWD clock)                           LA11   (wiring.swclk)
+  SWDIO  (SWD data)                            LA12   (wiring.swdio)
+  NRST   (optional reset)                      LA3    (wiring.nreset)
+  USART1 TX = PA9   -> pod samples             LA5    (wiring.uart_rx)
+  USART1 RX = PA10  <- pod drives              LA4    (wiring.uart_tx)
+  I2C1 SDA  = PB9   <-> LA2 (4.7k pull-up)     LA2    (wiring.i2c_sda)
+  I2C1 SCL  = PB8   <-> LA1 (4.7k pull-up)     LA1    (wiring.i2c_scl)
+  Target 5V power                              --benchpod-efuse (1 = internal)
 
-I2C needs pull-ups: LA1-8 have switchable pull-ups (LA1/2 = 4.7k). The test
-enables them on the SDA/SCL pins via `enable_pullup(...)` before arming the
+I2C needs pull-ups, and only LA1-8 have them (LA1/2=4.7k, LA3/4=2.2k, LA5-8=10k);
+LA9-12 have none. So the I2C lines must sit on a pull-up-capable channel — here
+LA1/LA2. The test enables them via `enable_pullup(...)` before arming the
 emulated sensor, so the open-drain bus idles high.
 
 The DUT app prints (see examples/scenario-sensors-stm32/main.c):
@@ -42,11 +44,29 @@ The DUT app prints (see examples/scenario-sensors-stm32/main.c):
 
 import re
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from embeddedci import benchpod as bp
 from embeddedci.benchpod import i2c
+
+
+@pytest.fixture
+def wiring(pins):
+    """This bench's wiring: DUT signal → BenchPod LA channel (see the PIN MAP
+    in the module docstring). Bench-specific — any signal can be on any of the 12
+    channels, except that I2C SDA/SCL must sit on a pull-up-capable LA (1-8)."""
+    return SimpleNamespace(
+        swclk=pins.pin_11,
+        swdio=pins.pin_12,
+        nreset=pins.pin_3,
+        uart_rx=pins.pin_5,    # pod samples the DUT's TX
+        uart_tx=pins.pin_4,    # pod drives the DUT's RX
+        i2c_sda=pins.pin_2,    # LA2 — 4.7k pull-up
+        i2c_scl=pins.pin_1,    # LA1 — 4.7k pull-up
+        efuse=pins.efuse,
+    )
 
 APP_OK = re.compile(r"APP_OK")
 PRESENT = re.compile(r"chip id match=0x58|bmp280_detected=yes")
@@ -58,7 +78,7 @@ BMP280_CHIP_ID = 0x58
 # `firmware` fixture comes from the plugin (embeddedci.benchpod.pytest_plugin).
 
 
-def _flash(device, pins, firmware):
+def _flash(device, wiring, firmware):
     # verify=False: over the bit-bang-SWD-over-serial link the long read-heavy
     # verify phase is unreliable (it can drop the link even though programming
     # finished). Programming itself is solid, so we skip verify for serial; for
@@ -66,29 +86,29 @@ def _flash(device, pins, firmware):
     result = device.flash(
         file=firmware,
         target="target/stm32f4x.cfg",
-        swclk=pins.swclk,
-        swdio=pins.swdio,
-        nreset=pins.nreset,
-        target_power=pins.efuse,
+        swclk=wiring.swclk,
+        swdio=wiring.swdio,
+        nreset=wiring.nreset,
+        target_power=wiring.efuse,
         verify=False,
     )
     assert result.ok
 
 
-def test_app_boots_with_bmp280(benchpod_sensor, benchpod_pins, firmware):
-    device, pins = benchpod_sensor, benchpod_pins
-    _flash(device, pins, firmware)
+def test_app_boots_with_bmp280(benchpod_sensor, wiring, firmware):
+    device = benchpod_sensor
+    _flash(device, wiring, firmware)
 
     # I2C is open-drain: enable the pod's pull-ups on SDA/SCL so the bus idles
     # high, then have the pod pretend to be a BMP280 on those lines.
-    device.enable_pullup(pins.i2c_sda, pins.i2c_scl)
+    device.enable_pullup(wiring.i2c_sda, wiring.i2c_scl)
     device.enable_i2c_sensor(
-        bp.Sensor.BMP280, sda=pins.i2c_sda, scl=pins.i2c_scl,
+        bp.Sensor.BMP280, sda=wiring.i2c_sda, scl=wiring.i2c_scl,
         address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
     )
 
     cap = device.power_cycle_and_capture(
-        rx=pins.uart_rx, tx=pins.uart_tx, efuse=pins.efuse,
+        rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
         delay=1.5, duration=6.0, until=PRESENT,
     )
 
@@ -99,13 +119,13 @@ def test_app_boots_with_bmp280(benchpod_sensor, benchpod_pins, firmware):
     assert device.i2c_sensor_status().get("transactions", 0) > 0
 
 
-def test_app_boots_without_bmp280(benchpod, benchpod_pins, firmware):
-    device, pins = benchpod, benchpod_pins
-    _flash(device, pins, firmware)
+def test_app_boots_without_bmp280(benchpod, wiring, firmware):
+    device = benchpod
+    _flash(device, wiring, firmware)
     device.disable_i2c_sensor()  # ensure nothing answers on I2C
 
     cap = device.power_cycle_and_capture(
-        rx=pins.uart_rx, tx=pins.uart_tx, efuse=pins.efuse,
+        rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
         delay=1.5, duration=6.0, until=ABSENT,
     )
 
@@ -113,7 +133,7 @@ def test_app_boots_without_bmp280(benchpod, benchpod_pins, firmware):
     assert cap.match(ABSENT), f"expected BMP280 absent:\n{cap.text}"
 
 
-def test_bmp280_i2c_bus_decode(benchpod_sensor, benchpod_pins, firmware):
+def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
     """Prove at the protocol level that the DUT read the chip-id register.
 
     Decodes the actual I2C waveform the pod sampled while serving the emulated
@@ -122,17 +142,17 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, benchpod_pins, firmware):
     while the DUT boots and probes the sensor a few ms later. We sweep a handful
     of back-to-back capture windows to span the boot-to-probe interval.
     """
-    device, pins = benchpod_sensor, benchpod_pins
-    _flash(device, pins, firmware)
-    device.enable_pullup(pins.i2c_sda, pins.i2c_scl)
+    device = benchpod_sensor
+    _flash(device, wiring, firmware)
+    device.enable_pullup(wiring.i2c_sda, wiring.i2c_scl)
     device.enable_i2c_sensor(
-        bp.Sensor.BMP280, sda=pins.i2c_sda, scl=pins.i2c_scl,
+        bp.Sensor.BMP280, sda=wiring.i2c_sda, scl=wiring.i2c_scl,
         address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
     )
 
-    device.power_off(pins.efuse)
+    device.power_off(wiring.efuse)
     time.sleep(0.3)
-    device.power_on(pins.efuse)  # returns immediately; capture below covers boot
+    device.power_on(wiring.efuse)  # returns immediately; capture below covers boot
 
     # ~6 windows of ~33 ms (4096 bytes @ 0.5 MS/s = 5 samples/bit @ 100 kHz)
     # collectively span ~200 ms — enough to catch the one-shot boot probe.

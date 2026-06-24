@@ -11,40 +11,56 @@ without hardware.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import ClassVar, Dict, Iterator, Optional
 
 import pytest
 
 from .client import BenchPod
 from .connection import ENV_VAR
 
-# LA pin / eFuse defaults used by the pin-map options. Override per-wiring with
-# the --benchpod-* flags below; they exist so HIL tests aren't hardcoded.
-_PIN_OPTS = {
-    "swclk": ("--benchpod-swclk", 11, "LA pin for SWCLK"),
-    "swdio": ("--benchpod-swdio", 12, "LA pin for SWDIO"),
-    "nreset": ("--benchpod-nreset", 3, "LA pin for NRESET (0 = none)"),
-    "uart_rx": ("--benchpod-uart-rx", 5, "LA pin the pod samples (DUT TX)"),
-    "uart_tx": ("--benchpod-uart-tx", 4, "LA pin the pod drives (DUT RX)"),
-    "i2c_sda": ("--benchpod-i2c-sda", 2, "LA pin for I2C SDA (has a pull-up)"),
-    "i2c_scl": ("--benchpod-i2c-scl", 1, "LA pin for I2C SCL (has a pull-up)"),
-    "efuse": ("--benchpod-efuse", 1, "target-power eFuse (1=int 5V, 2=ext)"),
+# Pull-up resistors exist only on LA1-8, with a value fixed per channel (the pod
+# has none on LA9-12). Source of truth: bench-pod-firmware/docs/API.md (`pullup`).
+_PULLUP_OHMS: Dict[int, str] = {
+    1: "4.7k", 2: "4.7k", 3: "2.2k", 4: "2.2k",
+    5: "10k", 6: "10k", 7: "10k", 8: "10k",
 }
 
 
-@dataclass
 class BenchPodPins:
-    """Resolved pin map for HIL tests (LA channels 1-12, eFuse 1/2)."""
+    """The pod's 12 generic logic-analyzer channels (``pin_1`` .. ``pin_12``)
+    plus the target-power ``efuse``.
 
-    swclk: int
-    swdio: int
-    nreset: Optional[int]
-    uart_rx: int
-    uart_tx: int
-    i2c_sda: int
-    i2c_scl: int
-    efuse: int
+    The pod has **no dedicated SWD/UART/I2C pins** — it exposes 12 identical LA
+    channels (LA1..LA12) and any DUT signal can be wired to any of them. So this
+    fixture names the channels by number, not by role: ``pins.pin_11`` is LA
+    channel 11, nothing more. A test maps its own bench wiring at the top of the
+    file, e.g. ``swclk = pins.pin_11`` — that mapping is bench-specific and lives
+    with the test, not here.
+
+    Pull-ups are available on **LA1-8 only** (LA1/2=4.7k, LA3/4=2.2k, LA5-8=10k);
+    LA9-12 have none. Use :meth:`has_pullup` / :data:`pullup_ohms` to check before
+    relying on one (e.g. for an open-drain I2C bus).
+    """
+
+    #: channel -> fixed pull-up resistance, for channels that have one.
+    PULLUP_OHMS: ClassVar[Dict[int, str]] = dict(_PULLUP_OHMS)
+
+    def __init__(self, efuse: int = 1) -> None:
+        # LA1..LA12 are identity-numbered: pin_<n> is simply channel <n>.
+        for channel in range(1, 13):
+            setattr(self, f"pin_{channel}", channel)
+        #: target-power eFuse rail (1 = internal 5V, 2 = external).
+        self.efuse = efuse
+
+    @staticmethod
+    def has_pullup(channel: int) -> bool:
+        """True if LA ``channel`` has a (fixed) pull-up resistor (LA1-8 only)."""
+        return channel in _PULLUP_OHMS
+
+    @staticmethod
+    def pullup_ohms(channel: int) -> Optional[str]:
+        """The pull-up value on LA ``channel`` (e.g. ``"4.7k"``), or None."""
+        return _PULLUP_OHMS.get(channel)
 
 
 def pytest_addoption(parser: "pytest.Parser") -> None:
@@ -73,11 +89,11 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         dest="benchpod_firmware",
         help="Path to a firmware image, for tests that flash a real target.",
     )
-    for key, (flag, default, help_text) in _PIN_OPTS.items():
-        group.addoption(
-            flag, action="store", type=int, default=default,
-            dest=f"benchpod_{key}", help=f"{help_text} (default {default}).",
-        )
+    group.addoption(
+        "--benchpod-efuse", action="store", type=int, default=1,
+        dest="benchpod_efuse",
+        help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default 1).",
+    )
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, or 'serial').",
@@ -138,24 +154,17 @@ def benchpod_target(benchpod: BenchPod) -> Iterator[BenchPod]:
 
 @pytest.fixture(scope="session")
 def benchpod_pins(pytestconfig: "pytest.Config") -> BenchPodPins:
-    """The wiring pin map, from --benchpod-* options (with defaults)."""
-    get = pytestconfig.getoption
-    nreset = get("benchpod_nreset")
-    return BenchPodPins(
-        swclk=get("benchpod_swclk"),
-        swdio=get("benchpod_swdio"),
-        nreset=(None if not nreset else nreset),
-        uart_rx=get("benchpod_uart_rx"),
-        uart_tx=get("benchpod_uart_tx"),
-        i2c_sda=get("benchpod_i2c_sda"),
-        i2c_scl=get("benchpod_i2c_scl"),
-        efuse=get("benchpod_efuse"),
-    )
+    """The pod's generic LA channels (``pin_1`` .. ``pin_12``) and the eFuse rail.
+
+    Channels are not roles — map your bench wiring (which signal is on which LA
+    channel) in the test itself. The eFuse rail comes from ``--benchpod-efuse``.
+    """
+    return BenchPodPins(efuse=pytestconfig.getoption("benchpod_efuse"))
 
 
 @pytest.fixture(scope="session")
 def pins(benchpod_pins: BenchPodPins) -> BenchPodPins:
-    """Short alias for :func:`benchpod_pins` — the wiring pin map."""
+    """Short alias for :func:`benchpod_pins` — the pod's LA channels + eFuse."""
     return benchpod_pins
 
 

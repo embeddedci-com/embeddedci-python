@@ -455,8 +455,9 @@ def measure(
 # -- resources (read-only context for the agent) ----------------------------
 
 _WIRING = """\
-BenchPod LA channel wiring (defaults from the BMP280 HIL example).
-The pod's logic-analyzer channels (LA1-12) are wired to the DUT:
+BenchPod LA channel wiring (example mapping from the BMP280 HIL example).
+The pod has no fixed pin roles — it exposes 12 generic LA channels (LA1-12) and
+any DUT signal can be on any of them. This is just how this bench is wired:
 
   DUT signal                         Pod LA channel   eFuse / notes
   ---------------------------------  --------------   -----------------------
