@@ -94,6 +94,14 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         dest="benchpod_efuse",
         help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default 1).",
     )
+    group.addoption(
+        "--benchpod-discover",
+        action="store_true",
+        default=False,
+        dest="benchpod_discover",
+        help="When no connection is configured, find a BenchPod on the LAN via "
+        "mDNS (needs the 'zeroconf' extra). Errors if zero or several are found.",
+    )
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, or 'serial').",
@@ -110,11 +118,18 @@ def pytest_configure(config: "pytest.Config") -> None:
 
 
 def _resolve_connection(config: "pytest.Config") -> Optional[str]:
-    return (
+    explicit = (
         config.getoption("benchpod_connection")
         or config.getini("benchpod_connection")
         or os.environ.get(ENV_VAR)
     )
+    if explicit:
+        return explicit
+    # No explicit target: opt into LAN auto-discovery. "discover" is turned into
+    # an mDNS lookup by connection.parse_connection().
+    if config.getoption("benchpod_discover"):
+        return "discover"
+    return None
 
 
 @pytest.fixture(scope="session")

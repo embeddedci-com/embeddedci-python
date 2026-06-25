@@ -43,6 +43,46 @@ def test_resolve_errors_when_unset(monkeypatch):
         resolve_connection()
 
 
+@pytest.mark.parametrize("keyword", ["discover", "mdns", "auto", "AUTO"])
+def test_discover_single_pod(keyword, monkeypatch):
+    from embeddedci.benchpod import connection as conn
+    from embeddedci.benchpod.discovery import DiscoveredPod
+
+    pod = DiscoveredPod(
+        name="BenchPod a1b2c3",
+        hostname="benchpod-a1b2c3.local",
+        addresses=["192.168.1.7"],
+        port=8080,
+        pod_id="abc",
+    )
+    monkeypatch.setattr(conn, "_discover_one", conn._discover_one)
+    monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: [pod])
+
+    spec = parse_connection(keyword)
+    assert spec.kind == "tcp"
+    assert spec.addr == "192.168.1.7:8080"
+
+
+def test_discover_none_found(monkeypatch):
+    monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: [])
+    with pytest.raises(ConnectionConfigError, match="no BenchPod found"):
+        parse_connection("discover")
+
+
+def test_discover_multiple_is_ambiguous(monkeypatch):
+    from embeddedci.benchpod.discovery import DiscoveredPod
+
+    pods = [
+        DiscoveredPod(name="BenchPod a1", hostname="benchpod-a1.local",
+                      addresses=["192.168.1.7"], port=8080, pod_id="aaaaaaaaaaaa1"),
+        DiscoveredPod(name="BenchPod b2", hostname="benchpod-b2.local",
+                      addresses=["192.168.1.8"], port=8080, pod_id="bbbbbbbbbbbb2"),
+    ]
+    monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: pods)
+    with pytest.raises(ConnectionConfigError, match="2 BenchPods found"):
+        parse_connection("discover")
+
+
 def test_constant_coercion():
     assert constants.coerce_efuse(constants.INTERNAL) == 1
     assert constants.coerce_efuse(2) == 2

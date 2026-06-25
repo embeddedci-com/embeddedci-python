@@ -33,6 +33,9 @@ dev = ["pytest>=7.0", "websocket-client>=1.6"]
 # Cloud destination (embeddedci:<device>): a synchronous WebSocket client for the byte tunnel.
 # OIDC mint + token exchange use the stdlib (urllib), so no extra HTTP dependency is needed.
 cloud = ["websocket-client>=1.6"]
+# LAN auto-discovery (connection="discover" / --benchpod-discover): browse mDNS for pods.
+# Kept optional so headless CI (cloud/explicit path, multicast often blocked) stays lean.
+discovery = ["zeroconf>=0.131"]
 
 [project.entry-points.pytest11]
 benchpod = "embeddedci.benchpod.pytest_plugin"

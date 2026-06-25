@@ -5,6 +5,7 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 * ``host`` or ``host:port``        -> TCP/wifi (default port 8080)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
 * ``serial`` / ``usb``             -> serial, auto-detect by USB VID 0x2E8A
+* ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (CI only)
 
 Precedence is handled by the caller: an explicit argument wins over the
@@ -22,6 +23,7 @@ from .errors import ConnectionConfigError
 DEFAULT_PORT = 8080
 ENV_VAR = "BENCHPOD_CONNECTION"
 CLOUD_PREFIX = "embeddedci:"
+DISCOVER_KEYWORDS = ("discover", "mdns", "auto")
 
 _COM_RE = re.compile(r"^COM[0-9]+$", re.IGNORECASE)
 
@@ -80,9 +82,36 @@ def parse_connection(raw: str) -> ConnSpec:
         return ConnSpec(kind="embeddedci", device_name=name)
     if s.lower() in ("serial", "usb"):
         return ConnSpec(kind="serial", device="")
+    if s.lower() in DISCOVER_KEYWORDS:
+        return _discover_one()
     if _is_device_path(s):
         return ConnSpec(kind="serial", device=s)
     return ConnSpec(kind="tcp", addr=_normalize_addr(s))
+
+
+def _discover_one() -> ConnSpec:
+    """Resolve a single LAN pod via mDNS, or raise a helpful error.
+
+    Zero pods -> nothing answered; more than one -> ambiguous, so list them and
+    ask the caller to pick (by address or ``<hostname>.local``).
+    """
+    from .discovery import discover
+
+    pods = discover()
+    if not pods:
+        raise ConnectionConfigError(
+            "no BenchPod found on the local network via mDNS — check it is "
+            "powered and on this subnet, or pass an explicit address"
+        )
+    if len(pods) > 1:
+        listing = "\n".join(
+            f"  - {p.name}  {p.addr}  id={p.pod_id[:12]}…" for p in pods
+        )
+        raise ConnectionConfigError(
+            f"{len(pods)} BenchPods found — disambiguate with an address or "
+            f"hostname (e.g. {pods[0].hostname}):\n{listing}"
+        )
+    return ConnSpec(kind="tcp", addr=_normalize_addr(pods[0].addr))
 
 
 def resolve_connection(connection: "str | None" = None) -> ConnSpec:
