@@ -8,13 +8,13 @@ version = "0.2.2"
 description = "BenchPod pytest client for EmbeddedCI hardware-in-the-loop testing"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "EmbeddedCI" }]
 keywords = ["embedded", "hardware-in-the-loop", "pytest", "benchpod", "swd", "openocd"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: Pytest",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
