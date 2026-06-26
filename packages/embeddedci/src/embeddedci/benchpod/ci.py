@@ -142,6 +142,22 @@ class BuildReporter:
         )
         self._request("POST", url, body=data, content_type=content_type)
 
+    def upload_logs(self, name: str, text: str) -> None:
+        """Upload a plain-text log (e.g. captured pytest output) to the build's pytest step."""
+        if not text:
+            return
+        build_id = self._ensure_build()
+        if not build_id:
+            return
+        url = (
+            f"{self._api_base}/api/cloud/builds/{build_id}/logs"
+            f"?name={urllib.parse.quote(name, safe='')}"
+        )
+        try:
+            self._request("POST", url, body=text.encode("utf-8"), content_type="text/plain")
+        except CloudAuthError as exc:
+            warnings.warn(f"embeddedci: failed to upload log: {exc}", stacklevel=2)
+
     def set_result(self, success: bool, reason: str = "") -> None:
         """Record the test outcome; sent to the server by :meth:`finalize`."""
         self._result = (bool(success), reason)
@@ -235,6 +251,9 @@ class NoopBuildReporter:
         pass
 
     def upload_artifact(self, _path: str) -> None:
+        pass
+
+    def upload_logs(self, _name: str, _text: str) -> None:
         pass
 
     def set_result(self, _success: bool, _reason: str = "") -> None:

@@ -70,6 +70,18 @@ def test_reporter_lazy_create_and_finalize(tmp_path):
     assert methods_urls.count(("POST", "cloud/builds/build-123/status")) == 1
 
 
+def test_reporter_upload_logs(tmp_path):
+    r = _FakeReporter()
+    r.upload_logs("pytest.log", "line1\nline2\n")
+    urls = [u.split("/api/")[-1] for (_m, u, _ct) in r.calls]
+    assert "cloud/builds" in urls  # build created lazily
+    assert any(u.startswith("cloud/builds/build-123/logs?name=pytest.log") for u in urls)
+    # Empty text uploads nothing.
+    r2 = _FakeReporter()
+    r2.upload_logs("pytest.log", "")
+    assert r2.calls == []
+
+
 def test_reporter_finalize_without_artifacts_still_creates_build():
     r = _FakeReporter()
     r.set_result(False, "boom")

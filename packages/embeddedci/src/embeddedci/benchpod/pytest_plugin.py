@@ -245,7 +245,28 @@ def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config"
             reporter.set_result(rep_call.passed, "" if rep_call.passed else rep_call.longreprtext)
         else:
             reporter.set_result(False, "test did not run")
+        log_text = _collect_pytest_log(request.node)
+        if log_text:
+            reporter.upload_logs("pytest.log", log_text)
         reporter.finalize()
+
+
+def _collect_pytest_log(node: "pytest.Item") -> str:
+    """Assemble the captured pytest output (stdout/stderr/log + any traceback) across the test's
+    setup/call/teardown phases, so it can be uploaded as the build's pytest log."""
+    parts = []
+    for phase in ("setup", "call", "teardown"):
+        rep = getattr(node, f"rep_{phase}", None)
+        if rep is None:
+            continue
+        for label, attr in (("stdout", "capstdout"), ("stderr", "capstderr"), ("log", "caplog")):
+            text = (getattr(rep, attr, "") or "").rstrip()
+            if text:
+                parts.append(f"===== {phase} {label} =====\n{text}")
+        longrepr = (getattr(rep, "longreprtext", "") or "").rstrip()
+        if longrepr:
+            parts.append(f"===== {phase} traceback =====\n{longrepr}")
+    return "\n\n".join(parts)
 
 
 @pytest.fixture
