@@ -51,6 +51,7 @@ from .errors import (
     TransportError,
     UartTimeout,
 )
+from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
 from .flash import FlashResult
 from .uart import UartCapture, UartSession
 
@@ -95,4 +96,8 @@ __all__ = [
     "FirmwareError",
     "FlashError",
     "TargetUnreachableError",
+    # CI build reporting
+    "BuildReporter",
+    "NoopBuildReporter",
+    "make_build_reporter",
 ]

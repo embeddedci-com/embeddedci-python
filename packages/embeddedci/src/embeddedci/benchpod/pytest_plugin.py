@@ -102,6 +102,14 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="When no connection is configured, find a BenchPod on the LAN via "
         "mDNS (needs the 'zeroconf' extra). Errors if zero or several are found.",
     )
+    group.addoption(
+        "--benchpod-build-target",
+        action="store",
+        default=None,
+        dest="benchpod_build_target",
+        help="Target/platform id recorded with a reported build (e.g. 'stm32f4'); "
+        "used by the 'build_report' fixture. Falls back to BENCHPOD_BUILD_TARGET.",
+    )
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, or 'serial').",
@@ -190,6 +198,54 @@ def firmware(pytestconfig: "pytest.Config") -> str:
     if not fw:
         pytest.skip("no DUT firmware set; pass --benchpod-firmware=<path-to.elf>")
     return fw
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: "pytest.Item", call: "pytest.CallInfo"):  # type: ignore[name-defined]
+    """Stash each phase's report on the item so the ``build_report`` fixture's teardown can read
+    the test outcome (``item.rep_call`` etc.)."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
+@pytest.fixture
+def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config") -> Iterator[object]:
+    """Opt a test into reporting its run as a GitHub-sourced build on embeddedci.com.
+
+    Requesting this fixture is the explicit opt-in: a test that does not request it never makes any
+    cloud build call. Even when requested, reporting is *active only* inside GitHub Actions with a
+    mintable OIDC token — locally and in non-GitHub CI the fixture yields an inert no-op reporter, so
+    the same test keeps running unchanged.
+
+    Use it to upload the firmware that was tested and record the wiring, e.g.::
+
+        def test_boots(dut, wiring, firmware, build_report):
+            build_report.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=3)
+            build_report.upload_artifacts([firmware])
+            ...  # the pytest pass/fail is captured automatically
+
+    The build status (pass/fail) is captured automatically from the test result at teardown.
+    """
+    from .ci import make_build_reporter
+
+    target = pytestconfig.getoption("benchpod_build_target") or os.environ.get("BENCHPOD_BUILD_TARGET") or ""
+    reporter = make_build_reporter(
+        api_base=pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE"),
+        target=target,
+    )
+    try:
+        yield reporter
+    finally:
+        rep_call = getattr(request.node, "rep_call", None)
+        rep_setup = getattr(request.node, "rep_setup", None)
+        if rep_setup is not None and not rep_setup.passed:
+            reporter.set_result(False, "test setup failed")
+        elif rep_call is not None:
+            reporter.set_result(rep_call.passed, "" if rep_call.passed else rep_call.longreprtext)
+        else:
+            reporter.set_result(False, "test did not run")
+        reporter.finalize()
 
 
 @pytest.fixture
