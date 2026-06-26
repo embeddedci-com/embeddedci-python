@@ -25,7 +25,9 @@ from .constants import Efuse, Pin, Sensor, coerce_efuse, coerce_pin
 from .connection import resolve_connection
 from .errors import BenchPodError
 from .flash import FlashResult
+from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .transport import Transport, open_transport
+from .transport.cloud import CloudTransport
 
 
 class BenchPod:
@@ -40,6 +42,9 @@ class BenchPod:
         api_base: Optional[str] = None,
         cloud_token: Optional[str] = None,
         cloud_audience: Optional[str] = None,
+        lease: bool = True,
+        lease_wait: float = DEFAULT_LEASE_WAIT,
+        lease_ttl: int = DEFAULT_LEASE_TTL,
     ) -> None:
         """Open a BenchPod.
 
@@ -48,8 +53,14 @@ class BenchPod:
         omitted the ``BENCHPOD_CONNECTION`` environment variable is used. ``api_base`` /
         ``cloud_token`` / ``cloud_audience`` apply only to the ``embeddedci`` destination.
         Pass ``transport`` directly to inject a custom/standalone backend.
+
+        For the ``embeddedci`` (cloud) destination the device is *shared*, so by default the client
+        takes an exclusive **lease** on it for the life of this BenchPod — a concurrent run that
+        finds it busy waits up to ``lease_wait`` seconds for it to free (raising ``DeviceBusyError``
+        on timeout). Set ``lease=False`` to skip locking. Local TCP/serial connections never lease.
         """
         self.timeout = timeout
+        self._lease: Optional[DeviceLease] = None
         if transport is not None:
             self._transport: Transport = transport
         else:
@@ -61,6 +72,20 @@ class BenchPod:
                 token=cloud_token,
                 audience=cloud_audience,
             )
+        if lease and isinstance(self._transport, CloudTransport):
+            self._lease = DeviceLease(
+                api_base=self._transport.api_base,
+                token_provider=self._transport._session_token,
+                device_name=self._transport.device_name,
+                ttl_seconds=lease_ttl,
+            )
+            try:
+                self._lease.acquire(wait_timeout=lease_wait)
+            except BaseException:
+                self._lease = None
+                self._transport.close()
+                raise
+            self._transport.lease_id = self._lease.lease_id
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -69,7 +94,12 @@ class BenchPod:
         return self._transport
 
     def close(self) -> None:
-        self._transport.close()
+        try:
+            self._transport.close()
+        finally:
+            if self._lease is not None:
+                self._lease.release()
+                self._lease = None
 
     def __enter__(self) -> "BenchPod":
         return self

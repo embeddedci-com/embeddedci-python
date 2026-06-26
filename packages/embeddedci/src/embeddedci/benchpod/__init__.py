@@ -45,12 +45,14 @@ from .constants import (
 from .errors import (
     BenchPodError,
     ConnectionConfigError,
+    DeviceBusyError,
     FirmwareError,
     FlashError,
     TargetUnreachableError,
     TransportError,
     UartTimeout,
 )
+from .lease import DeviceLease
 from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
 from .flash import FlashResult
 from .uart import UartCapture, UartSession
@@ -96,6 +98,9 @@ __all__ = [
     "FirmwareError",
     "FlashError",
     "TargetUnreachableError",
+    "DeviceBusyError",
+    # device lease
+    "DeviceLease",
     # CI build reporting
     "BuildReporter",
     "NoopBuildReporter",

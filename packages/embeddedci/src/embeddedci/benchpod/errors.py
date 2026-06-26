@@ -17,6 +17,11 @@ class TransportError(BenchPodError):
     """A transport-level failure: could not reach or talk to the pod."""
 
 
+class DeviceBusyError(BenchPodError):
+    """The shared cloud BenchPod is held by another consumer and did not free within the wait
+    timeout. Raised when acquiring the device lease times out."""
+
+
 class CloudAuthError(BenchPodError):
     """Could not obtain a cloud session token for the ``embeddedci`` destination.
 

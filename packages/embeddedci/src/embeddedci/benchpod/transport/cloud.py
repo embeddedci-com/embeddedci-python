@@ -115,6 +115,9 @@ class CloudTransport(TcpTransport):
         self.addr = ""  # unused; the inherited _split_addr is never called
         self.dial_timeout = DEFAULT_DIAL_TIMEOUT
         self._token = token
+        # Set by BenchPod once it holds a device lease; sent on tunnel/command requests so the server
+        # confirms this client is the lease holder (and lets concurrent runs serialize). None = none.
+        self.lease_id: "str | None" = None
 
     def _session_token(self) -> str:
         if not self._token:
@@ -130,10 +133,13 @@ class CloudTransport(TcpTransport):
         else:
             ws_base = base
         token = self._session_token()
-        return (
+        url = (
             f"{ws_base}/api/cloud/devices/ws"
             f"?device={quote(self.device_name, safe='')}&token={quote(token, safe='')}"
         )
+        if self.lease_id:
+            url += f"&lease_id={quote(self.lease_id, safe='')}"
+        return url
 
     def _dial(self) -> _WsTunnelSocket:  # type: ignore[override]
         sock = _WsTunnelSocket(self._ws_url(), self.timeout)
@@ -162,6 +168,8 @@ class CloudTransport(TcpTransport):
         request.add_header("Authorization", f"Bearer {self._session_token()}")
         request.add_header("Accept", "application/json")
         request.add_header("User-Agent", USER_AGENT)
+        if self.lease_id:
+            request.add_header("X-Benchpod-Lease", self.lease_id)
         cmd = req.get("cmd")
         try:
             with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:

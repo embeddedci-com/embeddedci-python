@@ -110,6 +110,23 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="Target/platform id recorded with a reported build (e.g. 'stm32f4'); "
         "used by the 'build_report' fixture. Falls back to BENCHPOD_BUILD_TARGET.",
     )
+    group.addoption(
+        "--benchpod-lease-wait",
+        action="store",
+        type=float,
+        default=600.0,
+        dest="benchpod_lease_wait",
+        help="For the cloud ('embeddedci:') destination, how long (seconds) to wait for a busy "
+        "shared device to free before failing (default 600). Concurrent runs queue on the device.",
+    )
+    group.addoption(
+        "--benchpod-no-lease",
+        action="store_true",
+        default=False,
+        dest="benchpod_no_lease",
+        help="Do not take an exclusive lease on the cloud device (allows concurrent access; "
+        "only safe when you know no other run will use the same device).",
+    )
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, or 'serial').",
@@ -154,9 +171,19 @@ def benchpod_connection(pytestconfig: "pytest.Config") -> str:
 
 @pytest.fixture(scope="session")
 def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
-    """A connected :class:`BenchPod` for the test session."""
+    """A connected :class:`BenchPod` for the test session.
+
+    For the cloud (``embeddedci:``) destination this takes an exclusive lease on the shared device,
+    waiting up to ``--benchpod-lease-wait`` seconds if another run is using it (so concurrent CI
+    runs queue instead of colliding). Disable with ``--benchpod-no-lease``.
+    """
     api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
-    device = BenchPod(benchpod_connection, api_base=api_base)
+    device = BenchPod(
+        benchpod_connection,
+        api_base=api_base,
+        lease=not pytestconfig.getoption("benchpod_no_lease"),
+        lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
+    )
     try:
         yield device
     finally:
