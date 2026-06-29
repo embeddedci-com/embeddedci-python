@@ -89,15 +89,16 @@ class FakeTransport(Transport):
             return None
         if cmd == "sensor_status":
             return {"active": self._sensor.get("active", False), "transactions": 3}
-        if cmd == "pullup":
+        if cmd == "la":
+            if "steps" in req:
+                return {"la": req["la"], "steps": req["steps"],
+                        "delay_us": req["delay_us"], "status": "started"}
+            if "la" not in req:
+                return {"la_pullup_mask": 3}
             return {"la": req["la"],
-                    "pullup": 1 if req.get("state") == "on" else 0, "ohms": "4.7k"}
-        if cmd == "pullup_status":
-            return {"la_pullup_mask": 3}
+                    "pullup": 1 if req.get("pullup") == "on" else 0, "ohms": "4.7k"}
         if cmd == "target_status":
             return {"efuse1": {"enabled": 1, "fault": 0, "valid": 1}}
-        if cmd == "gpio_set":
-            return {"la": req["la"], "state": req["state"]}
         if cmd == "generate":
             return None
         return None

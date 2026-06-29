@@ -80,9 +80,9 @@ class FakeConsolePort:
             self._emit('{"status":"ok","data":"json mode exited"}\n> ')
         elif cmd == "ping":
             self._emit('{"status":"ok","data":"pong"}\n')
-        elif cmd == "pullup":
+        elif cmd == "la":
             la = req["la"]
-            on = 1 if req.get("state", "on") in ("on", 1, "1") else 0
+            on = 1 if req.get("pullup", "on") in ("on", 1, "1") else 0
             self._emit('{"status":"ok","data":{"la":%d,"pullup":%d,"ohms":"4.7k"}}\n'
                        % (la, on))
         elif cmd == "sensor_start":

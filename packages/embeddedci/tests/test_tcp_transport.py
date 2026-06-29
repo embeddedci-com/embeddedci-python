@@ -87,7 +87,7 @@ def test_firmware_error_raised():
     try:
         t = TcpTransport(pod.addr, timeout=2)
         with pytest.raises(FirmwareError):
-            t.command({"cmd": "gpio_set", "la": 99, "state": 1})
+            t.command({"cmd": "la", "la": 99, "pullup": "on"})
     finally:
         pod.close()
 

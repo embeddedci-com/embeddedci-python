@@ -37,9 +37,9 @@ def test_parse_rejects_garbage():
 def test_raise_for_status_on_error():
     r = protocol.parse_reply(b'{"status":"error","message":"invalid la channel"}')
     with pytest.raises(FirmwareError) as exc:
-        protocol.raise_for_status(r, cmd="gpio_set")
+        protocol.raise_for_status(r, cmd="la")
     assert "invalid la channel" in str(exc.value)
-    assert exc.value.cmd == "gpio_set"
+    assert exc.value.cmd == "la"
 
 
 def test_raise_for_status_passes_ok():

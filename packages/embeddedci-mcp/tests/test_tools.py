@@ -174,7 +174,7 @@ def test_all_tools_registered():
         "i2c_sensor_status", "i2c_sensor_regs", "i2c_sensor_la_decoded",
         "i2c_read_register",
         "enable_pullup", "disable_pullup", "pullup_status",
-        "command", "gpio_set", "capture_adc", "signal_generate", "measure",
+        "command", "la_step", "capture_adc", "signal_generate", "measure",
     }
     assert expected <= names
 

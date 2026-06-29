@@ -205,9 +205,9 @@ class BenchPod:
         la_i = coerce_pin(la, "la")
         if not 1 <= la_i <= 8:
             raise BenchPodError("pull-ups are only on LA1-8")
-        req: dict = {"cmd": "pullup", "la": la_i}
+        req: dict = {"cmd": "la", "la": la_i}
         if on is not None:
-            req["state"] = "on" if on else "off"
+            req["pullup"] = "on" if on else "off"
         return self.command(req)
 
     def enable_pullup(self, *las: Union[Pin, int]) -> None:
@@ -222,7 +222,7 @@ class BenchPod:
 
     def pullup_status(self) -> dict:
         """Return ``{"la_pullup_mask": <bitmask>}`` (bit la-1 set = pull-up on)."""
-        return self.command({"cmd": "pullup_status"})
+        return self.command({"cmd": "la"})
 
     # -- emulated I2C sensor (TCP transport only) ---------------------------
 
@@ -380,6 +380,20 @@ class BenchPod:
             req["sample_rate_mhz"] = sample_rate_mhz
         return fn(req)
 
-    def gpio_set(self, la: Union[Pin, int], state: Union[int, str]) -> Any:
-        """Drive an LA channel high/low/high-Z (TCP transport only)."""
-        return self.command({"cmd": "gpio_set", "la": coerce_pin(la, "la"), "state": state})
+    def la_step(self, la: Union[Pin, int], steps: int, delay_us: int,
+                dir_la: Optional[Union[Pin, int]] = None, direction: int = 0) -> Any:
+        """Emit a step pulse train on an LA channel (TCP transport only).
+
+        The FPGA runs the train autonomously. With ``dir_la`` set, that channel is
+        driven to ``direction`` (0/1) before stepping (step/dir stepper drivers).
+        """
+        req: dict = {
+            "cmd": "la",
+            "la": coerce_pin(la, "la"),
+            "steps": int(steps),
+            "delay_us": int(delay_us),
+        }
+        if dir_la is not None:
+            req["dir_la"] = coerce_pin(dir_la, "dir_la")
+            req["direction"] = int(direction)
+        return self.command(req)

@@ -397,9 +397,14 @@ def command(request: Dict[str, Any]) -> Any:
 
 @mcp.tool()
 @_safe
-def gpio_set(la: int, state: Union[int, str]) -> Any:
-    """Drive an LA channel: ``state`` 1 = high, 0 = low, ``"z"`` = high-Z."""
-    return SESSION.require().gpio_set(la, state)
+def la_step(la: int, steps: int, delay_us: int,
+            dir_la: Optional[int] = None, direction: int = 0) -> Any:
+    """Emit a step pulse train on an LA channel (step/dir stepper drivers).
+
+    The FPGA runs the train autonomously. With ``dir_la`` set, that channel is
+    driven to ``direction`` (0/1) before stepping.
+    """
+    return SESSION.require().la_step(la, steps, delay_us, dir_la=dir_la, direction=direction)
 
 
 @mcp.tool()

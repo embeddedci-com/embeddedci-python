@@ -70,7 +70,7 @@ claude mcp add benchpod -- uvx embeddedci-mcp
 | UART | `capture_uart`, `power_cycle_and_capture` |
 | I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_la_decoded`, `i2c_read_register` |
 | Pull-ups | `enable_pullup`, `disable_pullup`, `pullup_status` |
-| Low-level | `command`, `gpio_set`, `capture_adc`, `signal_generate`, `measure` |
+| Low-level | `command`, `la_step`, `capture_adc`, `signal_generate`, `measure` |
 
 Device/firmware failures come back as `{"ok": false, "error": ..., "error_type": ...}`
 rather than raising, so the agent can reason about them.

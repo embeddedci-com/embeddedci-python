@@ -174,7 +174,7 @@ the **token request itself failed**.
 | Emulated I2C sensor (BMP280) | ✅ wifi + serial (serial via `json` console mode) |
 | I2C bus decode (`benchpod.i2c`) | ✅ START/STOP, R/W, ACK, register reads |
 | UART capture (`capture_uart`) | ✅ wifi + serial |
-| Signal helpers (`capture`, `gpio_set`) | ✅ minimal, TCP transport only |
+| Signal helpers (`capture`, `la_step`) | ✅ minimal, TCP transport only |
 
 ## Emulated I2C sensor + UART capture (HIL)
 

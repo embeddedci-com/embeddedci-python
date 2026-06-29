@@ -135,7 +135,7 @@ backward-compatible.
   `command.request`/`command.response`) instead of dialing a second byte tunnel.
   The firmware services the command channel (`CH_CLOUD_CONN`) and the byte tunnel
   (`CH_CLOUD_TUNNEL_CONN`) as independent connections and announces
-  `"command":true` in its capabilities, so `power_on`/`power_off`/`gpio_set`/etc.
+  `"command":true` in its capabilities, so `power_on`/`power_off`/`la`/etc.
   run *while* `uart_proxy_start` holds the tunnel. Streaming modes
   (`dap_start`/`uart_proxy_start`) still use the tunnel via `_dial`. This both
   removes the two-concurrent-tunnels requirement and makes every command faster
