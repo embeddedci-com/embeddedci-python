@@ -43,16 +43,12 @@ local wifi/serial use needs nothing extra.
 
 ### OpenOCD (required for flashing)
 
-Flashing shells out to **OpenOCD**, which must be on your `PATH`. It drives the pod's SWD probe
-through OpenOCD's `remote_bitbang` adapter in **SWD** mode — and **SWD support for `remote_bitbang`
-only exists in OpenOCD *master* (post‑0.12.0)**. The stock packages (`apt install openocd`,
-`brew install open-ocd`) are **0.12.0**, whose `remote_bitbang` is `jtag_only`; flashing with them
-fails immediately:
-
-```
-Info : only one transport option; autoselect 'jtag'
-Error: Can't change session's transport after the initial selection was made
-```
+Flashing shells out to **OpenOCD**, which must be on your `PATH`. The pod runs a **CMSIS-DAP**
+processor locally; the library drives it through OpenOCD's `cmsis-dap` adapter using its **TCP
+backend** (`cmsis_dap_tcp`), shipping whole DAP transfers rather than per-bit toggles. That backend
+**only exists in OpenOCD *master* (post‑0.12.0)**. The stock packages (`apt install openocd`,
+`brew install open-ocd`) are **0.12.0** and lack it; flashing with them fails up front with a clear
+message.
 
 Install a master snapshot instead — the easiest is **xPack OpenOCD**:
 
@@ -62,11 +58,11 @@ npm install -g @xpack-dev-tools/openocd
 # or: https://github.com/xpack-dev-tools/openocd-xpack/releases  (extract, add bin/ to PATH)
 ```
 
-Verify your OpenOCD can do SWD over `remote_bitbang`:
+Verify your OpenOCD has the CMSIS-DAP TCP backend:
 
 ```bash
-openocd -c "adapter driver remote_bitbang" -c "transport list" -c "exit"
-# must list:  jtag  swd     (if only 'jtag', it's too old)
+openocd -c "adapter driver cmsis-dap" -c "cmsis-dap backend tcp" -c "exit"
+# must NOT error on the 'backend tcp' line (if it errors, the build is too old)
 ```
 
 ## Named constants (no magic numbers)
@@ -170,7 +166,7 @@ the **token request itself failed**.
 | Connect (wifi + serial) | ✅ |
 | Connect (cloud via GitHub OIDC) | ✅ server + SDK; device firmware tunnel pending on-hardware bring-up |
 | Power on/off (+ scheduled delay) | ✅ |
-| Flash + assert ok/not ok | ✅ (pure-Python OpenOCD `remote_bitbang` bridge) |
+| Flash + assert ok/not ok | ✅ (pure-Python OpenOCD `cmsis-dap` TCP bridge) |
 | Emulated I2C sensor (BMP280) | ✅ wifi + serial (serial via `json` console mode) |
 | I2C bus decode (`benchpod.i2c`) | ✅ START/STOP, R/W, ACK, register reads |
 | UART capture (`capture_uart`) | ✅ wifi + serial |

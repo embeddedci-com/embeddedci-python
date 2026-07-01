@@ -1,14 +1,16 @@
 name: Publish to PyPI
 
 # Each package is released independently via its own tag:
-#   embeddedci-v*      -> publishes packages/embeddedci
-#   embeddedci-mcp-v*  -> publishes packages/embeddedci-mcp
+#   embeddedci-v*          -> publishes packages/embeddedci
+#   embeddedci-mcp-v*      -> publishes packages/embeddedci-mcp
+#   embeddedci-openhtf-v*  -> publishes packages/embeddedci-openhtf
 #
 # Uses PyPI Trusted Publishing (OIDC) — no API token / secret required.
 # One-time setup on PyPI, per project, add a GitHub trusted publisher with:
 #   owner: embeddedci-com   repo: embeddedci-python   workflow: publish.yml
-#   environment: pypi                 (for the embeddedci project — already set up)
-#   environment: pypi-embeddedci-mcp  (for the embeddedci-mcp project — add this)
+#   environment: pypi                     (for the embeddedci project — already set up)
+#   environment: pypi-embeddedci-mcp      (for the embeddedci-mcp project — add this)
+#   environment: pypi-embeddedci-openhtf  (for the embeddedci-openhtf project — add this)
 #
 # embeddedci is already on PyPI, so embeddedci-mcp (which depends on it) can be
 # released on its own. To cut a new embeddedci version, bump packages/embeddedci
@@ -19,6 +21,7 @@ on:
     tags:
       - "embeddedci-v*"
       - "embeddedci-mcp-v*"
+      - "embeddedci-openhtf-v*"
 
 jobs:
   publish-embeddedci:
@@ -64,3 +67,25 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/embeddedci-mcp/dist/
+
+  publish-embeddedci-openhtf:
+    if: startsWith(github.ref, 'refs/tags/embeddedci-openhtf-v')
+    name: Publish embeddedci-openhtf
+    runs-on: ubuntu-latest
+    environment: pypi-embeddedci-openhtf
+    permissions:
+      id-token: write # required for trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdist and wheel
+        working-directory: packages/embeddedci-openhtf
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine check dist/*
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/embeddedci-openhtf/dist/

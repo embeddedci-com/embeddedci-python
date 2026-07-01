@@ -63,7 +63,15 @@ class FakeTransport(Transport):
         self.power[efuse] = on
         self.calls.append(("target_power", efuse, on, delay_ms))
 
-    def swd_start(self, swclk: int, swdio: int, nreset: Optional[int]):
+    def set_la_voltage(self, mv: int) -> Any:
+        self.calls.append(("set_la_voltage", mv))
+        self._la_mv = mv
+        return {"mv": mv, "st": 1}
+
+    def get_la_voltage(self) -> Any:
+        return {"mv": getattr(self, "_la_mv", 0), "st": 1}
+
+    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]):
         return FakeRawLink()
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int):

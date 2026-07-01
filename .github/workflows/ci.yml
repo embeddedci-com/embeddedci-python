@@ -17,22 +17,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install both packages + test deps
-        # embeddedci-mcp depends on embeddedci, so install the SDK first from
-        # the sibling source tree, then the MCP server.
+      - name: Install all packages + test deps
+        # embeddedci-mcp and embeddedci-openhtf both depend on embeddedci, so
+        # install the SDK first from the sibling source tree, then the consumers.
         run: |
           python -m pip install -e "packages/embeddedci[dev]"
           python -m pip install -e "packages/embeddedci-mcp[dev]"
+          python -m pip install -e "packages/embeddedci-openhtf[dev]"
       - name: Run tests
         # Hardware fixtures skip automatically without a BENCHPOD_CONNECTION,
         # so the suite stays green on runners without a pod attached.
-        run: pytest -q packages/embeddedci packages/embeddedci-mcp
+        run: pytest -q packages/embeddedci packages/embeddedci-mcp packages/embeddedci-openhtf
 
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        package: [embeddedci, embeddedci-mcp]
+        package: [embeddedci, embeddedci-mcp, embeddedci-openhtf]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

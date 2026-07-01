@@ -4,7 +4,7 @@ A :class:`Transport` exposes the high-level operations every BenchPod backend
 must provide. The TCP transport additionally offers raw ``command``/``samples``
 JSON access (the serial console speaks text commands, not JSON, so those extras
 are TCP-only). :class:`RawLink` is the bidirectional byte stream that
-``swd_start`` hands to the flash bridge.
+``dap_start`` hands to the flash bridge.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 @runtime_checkable
 class RawLink(Protocol):
-    """A raw, bidirectional byte stream (remote_bitbang during a flash).
+    """A raw, bidirectional byte stream (length-framed CMSIS-DAP during a flash).
 
     ``read`` blocks until at least one byte is available and returns ``b""``
     only when the stream has ended (EOF) or been closed. ``close`` returns the
@@ -45,17 +45,29 @@ class Transport(ABC):
         connection can move on to e.g. UART capture meanwhile.
         """
 
-    @abstractmethod
-    def swd_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
-        """Arm the SWD probe and return the raw remote_bitbang link."""
-
     def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
         """Arm the SWD engine and return a raw link carrying length-framed
-        CMSIS-DAP packets — the fast, batched flash path that OpenOCD's cmsis-dap
-        TCP backend drives (see :mod:`embeddedci.benchpod.flash`). Not every
-        backend implements it."""
+        CMSIS-DAP packets — the batched flash path that OpenOCD's cmsis-dap TCP
+        backend drives (see :mod:`embeddedci.benchpod.flash`). This is the only
+        SWD flash path; not every backend implements it."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support CMSIS-DAP (dap_start)"
+        )
+
+    def set_la_voltage(self, mv: int) -> Any:
+        """Select the LA I/O-bank voltage via the pod's TPS2116 mux; ``mv`` is
+        1800 or 3300. Must be set before any LA-bank op (flash/SWD, UART proxy,
+        LA capture, pull-ups, I2C-sensor). Returns the pod's ``{"mv","st"}`` state.
+        Not every backend implements it."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support set_la_voltage"
+        )
+
+    def get_la_voltage(self) -> Any:
+        """Report the current LA I/O-bank voltage state (``{"mv","st"}``); ``mv``
+        is 0 when not yet set. Not every backend implements it."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support get_la_voltage"
         )
 
     @abstractmethod

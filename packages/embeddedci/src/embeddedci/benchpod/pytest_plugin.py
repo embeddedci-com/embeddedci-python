@@ -95,6 +95,14 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default 1).",
     )
     group.addoption(
+        "--benchpod-la-voltage", action="store", type=float, default=None,
+        dest="benchpod_la_voltage",
+        help="LA I/O-bank voltage for the DUT: 1.8 or 3.3 (volts; 1800/3300 mV also "
+        "accepted). Set on the pod once per session before any LA op (flash/SWD, "
+        "UART, LA capture, pull-ups, I2C-sensor). Required — the pod refuses LA ops "
+        "until a voltage is chosen. Falls back to BENCHPOD_LA_VOLTAGE.",
+    )
+    group.addoption(
         "--benchpod-discover",
         action="store_true",
         default=False,
@@ -185,6 +193,13 @@ def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterato
         lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
     )
     try:
+        la_voltage = pytestconfig.getoption("benchpod_la_voltage")
+        if la_voltage is None:
+            env_v = os.environ.get("BENCHPOD_LA_VOLTAGE")
+            la_voltage = float(env_v) if env_v else None
+        if la_voltage is not None:
+            # Select the LA I/O-bank voltage once, before any LA-bank op runs.
+            device.set_la_voltage(la_voltage)
         yield device
     finally:
         device.close()

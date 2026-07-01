@@ -2,8 +2,8 @@
 
 Mirrors the Go ``serialconsole``: the firmware exposes a line-oriented text
 console over USB CDC-ACM (VID 0x2E8A). Commands are echoed and each reply ends
-with a ``"> "`` prompt. ``swd-start`` switches the port to a raw remote_bitbang
-stream until the ``Q`` quit byte is sent.
+with a ``"> "`` prompt. ``dap-start`` switches the port to a raw length-framed
+CMSIS-DAP stream until the quit byte is sent.
 
 ``pyserial`` is imported lazily so the TCP-only path has no hard dependency on
 it at import time.
@@ -21,13 +21,12 @@ from .base import RawLink, Transport
 RP_VID = 0x2E8A  # Raspberry Pi (RP2350) USB vendor id
 BAUD = 115200
 PROMPT = "> "
-SWD_READY = "swd ready"
 DAP_READY = "dap ready"          # console prints "dap ready" then carries framed CMSIS-DAP
 DAP_LEAVE = b"\x00\x00"          # zero-length frame — leaves the console DAP passthrough
 UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to exit)"
 CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
-_RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw bitbang bytes
+_RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
 
 
 def _import_serial():
@@ -132,7 +131,7 @@ class SerialTransport(Transport):
         # Terminate any partial line the pod's editor may hold, let it drain,
         # then send the command cleanly. A long backspace clear-prefix can
         # overflow the UART RX FIFO on flow-control-less USB-serial adapters and
-        # corrupt the command (e.g. "swd-start 1 2 3" -> "wsr1"), so we flush
+        # corrupt the command (e.g. "dap-start 1 2 3" -> "dp1"), so we flush
         # with a single newline instead.
         self._port.write(b"\r")
         self._port.flush()
@@ -266,6 +265,12 @@ class SerialTransport(Transport):
             if line.strip().startswith("ERROR:"):
                 raise TransportError(f"firmware rejected target-power: {line.strip()}")
 
+    def set_la_voltage(self, mv: int) -> Any:
+        return self.command({"cmd": "la_voltage", "mv": mv})
+
+    def get_la_voltage(self) -> Any:
+        return self.command({"cmd": "la_voltage"})
+
     def _console_raw_handshake(
         self, cmd: str, ready: str, quit_byte: bytes
     ) -> RawLink:
@@ -323,12 +328,6 @@ class SerialTransport(Transport):
         _recover_and_raise(
             f"{verb}: pod never reported {ready!r}; pod output:\n{acc.decode('utf-8', 'replace').strip()}"
         )
-
-    def swd_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
-        cmd = f"swd-start {swclk} {swdio}"
-        if nreset is not None:
-            cmd += f" {nreset}"
-        return self._console_raw_handshake(cmd, SWD_READY, quit_byte=b"Q")
 
     def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
         cmd = f"dap-start {swclk} {swdio}"

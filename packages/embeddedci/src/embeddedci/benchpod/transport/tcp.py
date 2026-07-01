@@ -2,9 +2,9 @@
 
 Mirrors the Go ``tcpclient``: each command dials a fresh connection (the
 firmware serves one client at a time), disables Nagle, sends one JSON line and
-reads the reply. ``swd_start`` is special — after its ack the same socket
-switches to raw remote_bitbang, so the ack must be read one byte at a time so no
-bitbang bytes are swallowed.
+reads the reply. ``dap_start`` is special — after its ack the same socket
+switches to a raw length-framed CMSIS-DAP stream, so the ack must be read one
+byte at a time so no DAP bytes are swallowed.
 """
 
 from __future__ import annotations
@@ -111,14 +111,14 @@ class TcpTransport(Transport):
     def _recv_line_exact(sock: socket.socket) -> bytes:
         """Read one line a byte at a time, leaving everything after ``\\n``.
 
-        Used for the ``swd_start`` ack: the bytes after the newline are the raw
-        remote_bitbang stream and must not be consumed here.
+        Used for the ``dap_start`` ack: the bytes after the newline are the raw
+        CMSIS-DAP stream and must not be consumed here.
         """
         out = bytearray()
         while True:
             b = sock.recv(1)
             if not b:
-                raise TransportError("connection closed before swd_start ack")
+                raise TransportError("connection closed before dap_start ack")
             if b == b"\n":
                 return bytes(out)
             out.extend(b)
@@ -166,6 +166,12 @@ class TcpTransport(Transport):
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
 
+    def set_la_voltage(self, mv: int) -> Any:
+        return self.command({"cmd": "la_voltage", "mv": mv})
+
+    def get_la_voltage(self) -> Any:
+        return self.command({"cmd": "la_voltage"})
+
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         req: dict = {"cmd": "target_power", "efuse": efuse, "state": 1 if on else 0}
         if delay_ms:
@@ -175,7 +181,7 @@ class TcpTransport(Transport):
     def _raw_handshake(self, req: dict, cmd: str) -> RawLink:
         """Send a mode-switch command and hand back the raw byte link.
 
-        Shared by ``swd_start`` and ``uart_proxy_start``: both ack one JSON line
+        Shared by ``dap_start`` and ``uart_proxy_start``: both ack one JSON line
         and then the same socket carries raw bytes, so the ack must be read one
         byte at a time (``_recv_line_exact``) to not swallow what follows.
         """
@@ -194,12 +200,6 @@ class TcpTransport(Transport):
                 pass
             raise
         return _SocketRawLink(sock)
-
-    def swd_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
-        req: dict = {"cmd": "swd_start", "swclk": swclk, "swdio": swdio}
-        if nreset is not None:
-            req["nreset"] = nreset
-        return self._raw_handshake(req, "swd_start")
 
     def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
         req: dict = {"cmd": "dap_start", "swclk": swclk, "swdio": swdio}

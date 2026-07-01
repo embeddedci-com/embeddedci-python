@@ -10,10 +10,12 @@ captures its UART, and emulates/decodes an I2C sensor.
 | --- | --- | --- |
 | [`embeddedci`](packages/embeddedci) | `packages/embeddedci/` | The BenchPod SDK and pytest plugin. `from embeddedci import benchpod`. Connects over wifi, serial, or the **cloud** (`embeddedci:<device-name>`) to drive a remote pod from a GitHub Action via OIDC — see the [package README](packages/embeddedci/README.md#running-in-github-actions-cloud). |
 | [`embeddedci-mcp`](packages/embeddedci-mcp) | `packages/embeddedci-mcp/` | An [MCP](https://modelcontextprotocol.io) server that exposes the SDK as tools, so AI agents can drive the bench. Thin consumer of `embeddedci`. |
+| [`embeddedci-openhtf`](packages/embeddedci-openhtf) | `packages/embeddedci-openhtf/` | An [OpenHTF](https://www.openhtf.com/) plug + phase helpers for driving a pod **directly over TCP/serial** (no cloud) from an OpenHTF test. Thin consumer of `embeddedci`. |
 
-The dependency direction is strictly **`embeddedci-mcp` → `embeddedci`** (never the
-reverse). Both live here so an SDK change and the matching tool wrapper land in one
-commit; each is published to PyPI on its own version tag.
+The dependency direction is strictly **`embeddedci-mcp` → `embeddedci`** and
+**`embeddedci-openhtf` → `embeddedci`** (never the reverse). All live here so an SDK
+change and the matching wrapper land in one commit; each is published to PyPI on its
+own version tag.
 
 ## Layout
 
@@ -22,8 +24,9 @@ embeddedci-python/
 ├── pyproject.toml            # uv workspace root (not published)
 ├── packages/
 │   ├── embeddedci/           # SDK + pytest plugin
-│   └── embeddedci-mcp/       # MCP server (console script: embeddedci-mcp)
-└── .github/workflows/        # CI for both packages; per-package publish tags
+│   ├── embeddedci-mcp/       # MCP server (console script: embeddedci-mcp)
+│   └── embeddedci-openhtf/   # OpenHTF plug (direct TCP/serial, no cloud)
+└── .github/workflows/        # CI for all packages; per-package publish tags
 ```
 
 ## Development

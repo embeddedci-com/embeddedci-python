@@ -92,13 +92,13 @@ def test_firmware_error_raised():
         pod.close()
 
 
-def test_swd_start_ack_does_not_swallow_bitbang_bytes():
+def test_dap_start_ack_does_not_swallow_dap_bytes():
     """The ack reader must leave everything after the newline for the bridge."""
 
     def handler(conn, line):
-        assert b'"cmd":"swd_start"' in line
-        # ack line immediately followed by raw remote_bitbang bytes
-        conn.sendall(b'{"status":"ok","data":"swd ready"}\nRAWBITS')
+        assert b'"cmd":"dap_start"' in line
+        # ack line immediately followed by raw framed CMSIS-DAP bytes
+        conn.sendall(b'{"status":"ok","data":"dap ready"}\nRAWDAP0')
         # keep the connection open so the link can read the trailing bytes
         import time
 
@@ -107,10 +107,70 @@ def test_swd_start_ack_does_not_swallow_bitbang_bytes():
     pod = FakePod(handler)
     try:
         t = TcpTransport(pod.addr, timeout=2)
-        link = t.swd_start(1, 2, None)
+        link = t.dap_start(1, 2, None)
         try:
-            assert link.read(7) == b"RAWBITS"
+            assert link.read(7) == b"RAWDAP0"
         finally:
             link.close()
     finally:
         pod.close()
+
+
+def test_set_la_voltage_sends_mv_and_returns_state():
+    seen = {}
+
+    def handler(conn, line):
+        seen["line"] = line
+        conn.sendall(b'{"status":"ok","data":{"mv":3300,"st":1}}\n')
+
+    pod = FakePod(handler)
+    try:
+        t = TcpTransport(pod.addr, timeout=2)
+        data = t.set_la_voltage(3300)
+        assert b'"cmd":"la_voltage"' in seen["line"]
+        assert b'"mv":3300' in seen["line"]
+        assert data == {"mv": 3300, "st": 1}
+    finally:
+        pod.close()
+
+
+def test_get_la_voltage_queries_without_mv():
+    seen = {}
+
+    def handler(conn, line):
+        seen["line"] = line
+        conn.sendall(b'{"status":"ok","data":{"mv":0,"st":1}}\n')
+
+    pod = FakePod(handler)
+    try:
+        t = TcpTransport(pod.addr, timeout=2)
+        data = t.get_la_voltage()
+        assert b'"cmd":"la_voltage"' in seen["line"]
+        assert b'"mv"' not in seen["line"]  # query form omits mv
+        assert data == {"mv": 0, "st": 1}
+    finally:
+        pod.close()
+
+
+def test_client_set_la_voltage_normalizes_volts_and_mv():
+    """BenchPod.set_la_voltage accepts volts or mV and rejects other levels."""
+    from embeddedci.benchpod.client import BenchPod
+
+    class _Xport:
+        def __init__(self):
+            self.mv = None
+
+        def set_la_voltage(self, mv):
+            self.mv = mv
+            return {"mv": mv, "st": 1}
+
+    bp = BenchPod.__new__(BenchPod)   # bypass __init__/connect
+    bp._transport = _Xport()
+
+    assert bp.set_la_voltage(3.3)["mv"] == 3300 and bp._transport.mv == 3300
+    assert bp.set_la_voltage(1.8)["mv"] == 1800 and bp._transport.mv == 1800
+    assert bp.set_la_voltage(3300)["mv"] == 3300
+    assert bp.set_la_voltage(1800)["mv"] == 1800
+    for bad in (5.0, 1200, 0, 2.5):
+        with pytest.raises(ValueError):
+            bp.set_la_voltage(bad)

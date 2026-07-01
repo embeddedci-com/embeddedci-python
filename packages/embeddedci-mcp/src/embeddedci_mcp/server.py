@@ -127,6 +127,29 @@ def status() -> Any:
     return SESSION.require().status()
 
 
+# -- LA I/O-bank voltage ----------------------------------------------------
+
+@mcp.tool()
+@_safe
+def set_la_voltage(voltage: float) -> Any:
+    """Select the LA I/O-bank voltage on the pod's TPS2116 mux.
+
+    Accepts volts (1.8 / 3.3) or millivolts (1800 / 3300). This MUST be set
+    before ANY LA-bank operation — flashing/SWD, the UART proxy, LA capture,
+    pull-ups, or I2C-sensor emulation — otherwise the pod refuses those commands
+    with "la voltage not set". Returns the pod's ``{"mv", "st"}`` state.
+    """
+    return SESSION.require().set_la_voltage(voltage)
+
+
+@mcp.tool()
+@_safe
+def get_la_voltage() -> Any:
+    """Report the LA I/O-bank voltage state (``{"mv", "st"}``); ``mv`` is 0 when
+    a voltage has not been selected yet."""
+    return SESSION.require().get_la_voltage()
+
+
 # -- power ------------------------------------------------------------------
 
 @mcp.tool()
@@ -185,14 +208,16 @@ def flash(
     timeout: float = 300.0,
     connect_attempts: int = 5,
 ) -> dict:
-    """Flash an SWD target via the OpenOCD remote_bitbang bridge.
+    """Flash an SWD target via the pod's on-pod CMSIS-DAP probe (``dap_start``).
 
-    ``swclk``/``swdio``/``nreset`` are LA channels (1-12). ``target`` is an
-    OpenOCD target cfg (e.g. ``target/stm32f4x.cfg``); ``file`` is the firmware
-    image. ``target_power`` (1/2) powers the target before flashing. Returns a
-    structured result with ``ok`` plus ``stdout_tail``/``stderr_tail`` — inspect
-    ``target_unreachable``/``stalled`` to diagnose failures. Over a serial
-    bit-bang link, set ``verify=false`` (the long verify phase is flaky there).
+    OpenOCD's ``cmsis-dap`` TCP backend drives the batched DAP transfers; the pod
+    executes each transfer on the SWD wire. ``swclk``/``swdio``/``nreset`` are LA
+    channels (1-12). ``target`` is an OpenOCD target cfg (e.g.
+    ``target/stm32f4x.cfg``); ``file`` is the firmware image. ``target_power``
+    (1/2) powers the target before flashing. Returns a structured result with
+    ``ok`` plus ``stdout_tail``/``stderr_tail`` — inspect
+    ``target_unreachable``/``stalled`` to diagnose failures. Over a serial link,
+    set ``verify=false`` (the long verify phase is flaky there).
     """
     result = SESSION.require().flash(
         swclk=swclk, swdio=swdio, nreset=nreset,

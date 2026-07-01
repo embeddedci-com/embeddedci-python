@@ -117,6 +117,30 @@ class BenchPod:
         """Return firmware/connection status."""
         return self._transport.status()
 
+    # -- LA I/O-bank voltage ------------------------------------------------
+
+    def set_la_voltage(self, voltage: Union[int, float]) -> Any:
+        """Select the LA I/O-bank voltage on the pod's TPS2116 mux.
+
+        Accepts volts (``1.8`` / ``3.3``) or millivolts (``1800`` / ``3300``).
+        This MUST be set before any LA-bank operation — flashing/SWD, the UART
+        proxy, LA capture, pull-ups, or I2C-sensor emulation — otherwise the pod
+        refuses those commands with "la voltage not set". Returns the pod's
+        ``{"mv", "st"}`` state.
+        """
+        v = float(voltage)
+        mv = int(round(v * 1000)) if v < 100 else int(round(v))
+        if mv not in (1800, 3300):
+            raise ValueError(
+                f"la voltage must be 1.8/3.3 V (or 1800/3300 mV), got {voltage!r}"
+            )
+        return self._transport.set_la_voltage(mv)
+
+    def get_la_voltage(self) -> Any:
+        """Report the LA I/O-bank voltage state (``{"mv", "st"}``); ``mv`` is 0
+        when a voltage has not been selected yet."""
+        return self._transport.get_la_voltage()
+
     # -- power --------------------------------------------------------------
 
     def target_power(self, efuse: Union[Efuse, int] = Efuse.INTERNAL, *,
