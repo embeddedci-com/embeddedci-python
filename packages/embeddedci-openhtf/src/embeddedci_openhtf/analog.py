@@ -33,9 +33,14 @@ __all__ = [
     "signal_generate",
     "signal_stop",
     "measure",
+    "analog_path",
+    "dac_output",
+    "adc_read",
     "signal_generate_phase",
     "adc_capture_phase",
     "loopback_measure_phase",
+    "dac_output_phase",
+    "adc_read_phase",
 ]
 
 _Range = Optional[tuple]  # (min, max) inclusive, or None for no limit
@@ -85,6 +90,25 @@ def measure(bench: Any, *, waveform: str, freq: float, amplitude: float,
     if sample_rate_mhz is not None:
         req["sample_rate_mhz"] = sample_rate_mhz
     return fn(req)
+
+
+# -- high-level analog paths (named, calibrated; switches flip automatically) -
+
+def analog_path(bench: Any, path: str) -> Any:
+    """Apply a named analog path (see :meth:`BenchPod.analog_path`)."""
+    return bench.analog_path(path)
+
+
+def dac_output(bench: Any, path: str, volts: Optional[float] = None) -> Any:
+    """Route a DAC output path ('3v3'/'5v'/'12v'/'off') and optionally set a
+    calibrated ``volts``. Returns ``{path, mv, code}``."""
+    return bench.dac_output(path, volts)
+
+
+def adc_read(bench: Any, source: str = "ext") -> Any:
+    """Read a CALIBRATED ADC value ``{source, mv, count}`` from a named source
+    ('ext'/'cal1'/'cal2'/'amp'); 'ext' applies the front-SMA ÷12 divider."""
+    return bench.adc_read(source)
 
 
 # -- phase factories ---------------------------------------------------------
@@ -182,3 +206,40 @@ def loopback_measure_phase(plug: type, *, waveform: str, freq: float,
                          stats[f"{prefix}_pp"])
 
     return _meas
+
+
+def dac_output_phase(plug: type, *, path: str, volts: Optional[float] = None,
+                     name: str = "dac_output") -> object:
+    """A setup phase that routes a DAC output path and sets a calibrated voltage
+    (switches flip automatically). ``path`` is '3v3'/'5v'/'12v'/'off'."""
+
+    @htf.PhaseOptions(name=name)
+    @htf.plug(bench=plug)
+    def _out(test, bench):
+        r = dac_output(bench, path, volts)
+        test.logger.info("DAC %s -> %s mV (code %s)",
+                         r.get("path"), r.get("mv"), r.get("code"))
+
+    return _out
+
+
+def adc_read_phase(plug: type, *, source: str = "ext",
+                   mv_range: _Range = None, name: str = "adc_read") -> object:
+    """A phase that routes a named ADC ``source`` and records the CALIBRATED
+    reading as ``<source>_mv`` (millivolts). ``source='ext'`` applies the
+    front-SMA ÷12 divider. Pass ``mv_range=(low, high)`` for a pass/fail limit."""
+    meas_name = f"{source}_mv"
+    meas = htf.Measurement(meas_name).with_units("mV")
+    if mv_range is not None:
+        meas = meas.in_range(mv_range[0], mv_range[1])
+
+    @htf.PhaseOptions(name=name)
+    @htf.measures(meas)
+    @htf.plug(bench=plug)
+    def _rd(test, bench):
+        r = adc_read(bench, source)
+        test.measurements[meas_name] = r["mv"]
+        test.logger.info("ADC %s = %s mV (count %s)",
+                         r.get("source"), r.get("mv"), r.get("count"))
+
+    return _rd

@@ -47,6 +47,7 @@ class FakeTransport(Transport):
     def __init__(self) -> None:
         self.power: dict[int, bool] = {}
         self.calls: list[tuple] = []
+        self.analog_reqs: list[dict] = []   # analog_path / dac_out / adc_read requests
         self.uart_data = b"boot\r\nAPP_OK\r\n"
         self._sensor: dict[str, Any] = {"active": False}
         self._regs = list(range(256))
@@ -109,6 +110,21 @@ class FakeTransport(Transport):
             return {"efuse1": {"enabled": 1, "fault": 0, "valid": 1}}
         if cmd == "generate":
             return None
+        if cmd == "analog_path":
+            self.analog_reqs.append(req)
+            return {"path": req["path"], "u55": 0x03, "u58": 0x09}
+        if cmd == "dac_out":
+            self.analog_reqs.append(req)
+            has_v = "volts" in req
+            return {"path": req["path"],
+                    "mv": int(round(float(req["volts"]) * 1000)) if has_v else 0,
+                    "code": 128 if has_v else -1}
+        if cmd == "adc_read":
+            self.analog_reqs.append(req)
+            src = req.get("source", "ext")
+            # ext applies the ÷12 divider on the pod, so it reads ~12× a cal node
+            return {"source": src, "mv": 12034 if src == "ext" else 2502,
+                    "count": 63049}
         return None
 
     def samples(self, req: dict) -> list:

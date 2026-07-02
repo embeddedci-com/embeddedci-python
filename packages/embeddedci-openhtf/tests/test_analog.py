@@ -13,6 +13,7 @@ from embeddedci_openhtf import (
     signal_generate,
     signal_generate_phase,
 )
+from embeddedci_openhtf.analog import adc_read_phase, dac_output_phase
 from _fake import FakeTransport
 
 # default fake waveform: triangle 0..255 -> min 0, max 255, mean 128, pp 255
@@ -86,3 +87,28 @@ def test_signal_generate_helper_through_plug_proxy():
     signal_generate(plug, waveform="square", freq=5000, amplitude=64)
     assert tx.commands[-1]["cmd"] == "generate"
     assert tx.commands[-1]["waveform"] == "square"
+
+
+def test_dac_output_phase_routes_and_sets_volts():
+    tx = FakeTransport()
+    bench = benchpod_plug(transport=tx)
+    rec = _run(dac_output_phase(bench, path="5v", volts=2.5))
+    assert rec.outcome == tr.Outcome.PASS
+    assert tx.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
+
+
+def test_adc_read_phase_records_calibrated_mv():
+    tx = FakeTransport()
+    bench = benchpod_plug(transport=tx)
+    rec = _run(adc_read_phase(bench, source="ext", mv_range=(11000, 13000)))
+    assert rec.outcome == tr.Outcome.PASS
+    assert tx.commands[-1] == {"cmd": "adc_read", "source": "ext"}
+    p = _phase(rec, "adc_read")
+    assert p.measurements["ext_mv"].measured_value.value == 12034
+
+
+def test_adc_read_phase_fails_out_of_range():
+    tx = FakeTransport()
+    bench = benchpod_plug(transport=tx)
+    rec = _run(adc_read_phase(bench, source="ext", mv_range=(0, 100)))  # 12034 > 100
+    assert rec.outcome == tr.Outcome.FAIL

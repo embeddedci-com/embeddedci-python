@@ -150,12 +150,43 @@ def get_la_voltage() -> Any:
     return SESSION.require().get_la_voltage()
 
 
-# -- analog path switching (DAC mux + calibration relays) -------------------
+# -- analog paths (RECOMMENDED: named paths, switches flip automatically) ----
+
+@mcp.tool()
+@_safe
+def analog_path(path: str) -> Any:
+    """Apply a named analog path — flips every mux/relay the path needs in one
+    step (no manual switch flipping). path: 'off' | 'dac_3v3'|'3v3' |
+    'dac_5v'|'5v' | 'dac_12v'|'12v' | 'adc_ext'|'ext'|'sma' | 'cal1' | 'cal2' |
+    'amp'. Returns the resulting register state {path, u55, u58}."""
+    return SESSION.require().analog_path(path)
+
+
+@mcp.tool()
+@_safe
+def dac_output(path: str, volts: Optional[float] = None) -> Any:
+    """Set a DAC OUTPUT: route the path ('3v3'/'5v'/'12v'/'off') and, if volts is
+    given, output that CALIBRATED voltage — switches flip automatically. '12v' is
+    bipolar ±12V. Returns {path, mv, code} (achieved millivolts + DAC code)."""
+    return SESSION.require().dac_output(path, volts)
+
+
+@mcp.tool()
+@_safe
+def adc_read(source: str = "ext") -> Any:
+    """Read the ADC from a named source and return a CALIBRATED value
+    {source, mv, count}. source: 'ext' (front SMA, high-Z; the ÷12 divider is
+    applied so mv is the true SMA voltage) | 'cal1' | 'cal2' | 'amp'."""
+    return SESSION.require().adc_read(source)
+
+
+# -- low-level analog switching (prefer analog_path/dac_output/adc_read) ------
 
 @mcp.tool()
 @_safe
 def dac_mux(ctrl1: Optional[str] = None, ctrl2: Optional[str] = None) -> Any:
-    """Route the buffered DAC through the analog muxes (U55 → U47/U48).
+    """LOW-LEVEL: route the buffered DAC through the analog muxes (U55 → U47/U48).
+    Prefer ``dac_output``/``analog_path``.
 
     ``ctrl1`` = which output path the DAC drives: '3v3' / '5v' / '12v' /
     '12v_adc', 'off' to disable, or None to leave unchanged. ``ctrl2`` = buffer

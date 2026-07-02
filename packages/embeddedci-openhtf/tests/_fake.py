@@ -76,9 +76,21 @@ class FakeTransport(Transport):
         return FakeUartLink(self.banner)
 
     # TCP-only extras used by the analog helpers (generate / measure / capture).
+    # Returns the reply *data* (what the real TCP transport.command yields).
     def command(self, req: dict):
         self.commands.append(req)
-        return {"status": "ok", "data": None}
+        cmd = req.get("cmd")
+        if cmd == "analog_path":
+            return {"path": req.get("path"), "u55": 0x03, "u58": 0x09}
+        if cmd == "dac_out":
+            has_v = "volts" in req
+            return {"path": req.get("path"),
+                    "mv": int(round(float(req["volts"]) * 1000)) if has_v else 0,
+                    "code": 128 if has_v else -1}
+        if cmd == "adc_read":
+            src = req.get("source", "ext")
+            return {"source": src, "mv": 12034 if src == "ext" else 2502, "count": 63049}
+        return None
 
     def samples(self, req: dict) -> List[int]:
         self.commands.append(req)

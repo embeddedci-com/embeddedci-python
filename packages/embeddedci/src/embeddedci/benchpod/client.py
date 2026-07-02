@@ -368,26 +368,60 @@ class BenchPod:
         """Report the current calibration-relay (U58) state without changing it."""
         return self.command({"cmd": "cal_switch"})
 
+    # -- high-level analog paths (RECOMMENDED) ------------------------------
+    # One named path == one fully-specified switch state, defined once in the
+    # firmware (analog_path_set), so the SDK never hand-flips muxes/relays and
+    # can never disagree with the pod about how a path is wired.
+
+    #: Named analog paths accepted by :meth:`analog_path` / :meth:`dac_output` /
+    #: :meth:`adc_read`.  Output paths: 3v3/5v/12v (12v is bipolar ±12V, diff).
+    #: ADC sources: ext (front SMA, high-Z ÷12), cal1/cal2 (internal loopbacks),
+    #: amp (amps screw terminal).
+    ANALOG_PATHS = ("off", "dac_3v3", "dac_5v", "dac_12v",
+                    "adc_ext", "cal1", "cal2", "amp")
+
+    def analog_path(self, path: str) -> dict:
+        """Apply a named analog path — flips every mux/relay the path needs in
+        one step. ``path`` is one of :attr:`ANALOG_PATHS` (aliases ``3v3``/``5v``/
+        ``12v`` = ``dac_*``, ``ext``/``sma`` = ``adc_ext``). Returns the pod's
+        resulting register state ``{"path", "u55", "u58"}``."""
+        return self.command({"cmd": "analog_path", "path": path})
+
+    def dac_output(self, path: str, volts: Optional[float] = None) -> dict:
+        """Route a DAC **output** path (``'3v3'``/``'5v'``/``'12v'``/``'off'``)
+        and, if ``volts`` is given, set that CALIBRATED voltage — switches flip
+        automatically. Returns ``{"path", "mv", "code"}`` (achieved millivolts and
+        the DAC code; ``code`` is ``-1`` when only routing)."""
+        req: dict = {"cmd": "dac_out", "path": path}
+        if volts is not None:
+            req["volts"] = float(volts)
+        return self.command(req)
+
+    def adc_read(self, source: str = "ext") -> dict:
+        """Route an ADC ``source`` (``'ext'`` front SMA / ``'cal1'`` / ``'cal2'`` /
+        ``'amp'``) and return a CALIBRATED reading ``{"source", "mv", "count"}``.
+        ``'ext'`` applies the front-SMA ÷12 divider, so ``mv`` is the true voltage
+        at the ADC input SMA."""
+        return self.command({"cmd": "adc_read", "source": source})
+
+    def measure_volts(self, source: str = "ext") -> float:
+        """Convenience: :meth:`adc_read` returning just the calibrated volts."""
+        return self.adc_read(source)["mv"] / 1000.0
+
     def route_dac_to_adc(self, rail: str = "5v") -> dict:
         """Convenience: loop the DAC back into the ADC through the calibration
-        path for a quick self-cal. ``rail='5v'`` uses the 5V path + CAL1;
-        ``'12v'`` uses the 12V-ADC path + CAL2. Enables ``cal_path`` so the ADC
-        reads the calibration input. Returns the resulting relay state.
-        """
+        path for a quick self-cal. ``rail='5v'`` = CAL1 loop, ``'12v'`` = CAL2
+        loop. Thin wrapper over :meth:`analog_path` (single source of truth)."""
         rail = rail.lower()
         if rail == "5v":
-            self.dac_mux(ctrl1="5v", ctrl2="adc_vmid")
-            return self.cal_switch(cal1=True, cal_path=True)
+            return self.analog_path("cal1")
         if rail == "12v":
-            self.dac_mux(ctrl1="12v_adc", ctrl2="adc_vmid")
-            return self.cal_switch(cal2=True, cal_path=True)
+            return self.analog_path("cal2")
         raise ValueError("rail must be '5v' or '12v'")
 
     def adc_from_sma(self) -> dict:
-        """Return the ADC to the front-panel SMA input: all calibration relays
-        off and the DAC unrouted from any output path."""
-        self.dac_mux(ctrl1="off", ctrl2="off")
-        return self.cal_switch()
+        """Return the ADC to the front-panel SMA input (external, high-Z ÷12)."""
+        return self.analog_path("adc_ext")
 
     # -- UART capture -------------------------------------------------------
 
