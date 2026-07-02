@@ -150,6 +150,49 @@ def get_la_voltage() -> Any:
     return SESSION.require().get_la_voltage()
 
 
+# -- analog path switching (DAC mux + calibration relays) -------------------
+
+@mcp.tool()
+@_safe
+def dac_mux(ctrl1: Optional[str] = None, ctrl2: Optional[str] = None) -> Any:
+    """Route the buffered DAC through the analog muxes (U55 → U47/U48).
+
+    ``ctrl1`` = which output path the DAC drives: '3v3' / '5v' / '12v' /
+    '12v_adc', 'off' to disable, or None to leave unchanged. ``ctrl2`` = buffer
+    VMID reference: '12v_vmid' / 'adc_vmid' / 'gnd' / 'off' / None. Returns state.
+    """
+    return SESSION.require().dac_mux(ctrl1=ctrl1, ctrl2=ctrl2)
+
+
+@mcp.tool()
+@_safe
+def cal_switch(cal1: bool = False, cal2: bool = False,
+               amp_measure: bool = False, cal_path: bool = False) -> Any:
+    """Set the calibration relays (U58). ``cal1``/``cal2`` route the 5V/12V DAC
+    path to the ADC (mutually exclusive); ``amp_measure`` switches the ADC to the
+    amps screw-terminal; ``cal_path`` switches the ADC from the front SMA to the
+    calibration path. Returns the decoded relay state."""
+    return SESSION.require().cal_switch(cal1=cal1, cal2=cal2,
+                                        amp_measure=amp_measure, cal_path=cal_path)
+
+
+@mcp.tool()
+@_safe
+def route_dac_to_adc(rail: str = "5v") -> Any:
+    """Convenience: loop the DAC back into the ADC through the calibration path
+    for a quick self-cal. rail='5v' (5V path + CAL1) or '12v' (12V-ADC + CAL2);
+    also enables cal_path so the ADC reads the calibration input."""
+    return SESSION.require().route_dac_to_adc(rail)
+
+
+@mcp.tool()
+@_safe
+def adc_from_sma() -> Any:
+    """Return the ADC to the front-panel SMA input: all calibration relays off
+    and the DAC unrouted from any output path."""
+    return SESSION.require().adc_from_sma()
+
+
 # -- power ------------------------------------------------------------------
 
 @mcp.tool()

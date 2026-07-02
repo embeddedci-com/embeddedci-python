@@ -308,6 +308,87 @@ class BenchPod:
         raw = self.i2c_sensor_la(samples, sample_rate_mhz)
         return _i2c.decode(raw)
 
+    # -- analog path switching (v2: DAC mux U55 + calibration relays U58) ----
+
+    #: DAC output paths for :meth:`dac_mux` ``ctrl1`` (U47 TMUX): which SMA/ADC
+    #: path the buffered DAC drives.
+    _DAC_RAILS = {"3v3": 0, "5v": 1, "12v": 2, "12v_adc": 3}
+    #: Buffer VMID reference for :meth:`dac_mux` ``ctrl2`` (U48 TMUX).
+    _DAC_VMIDS = {"12v_vmid": 0, "adc_vmid": 1, "gnd": 2}
+
+    def dac_mux(self, *, ctrl1: Optional[str] = None,
+                ctrl2: Optional[str] = None) -> dict:
+        """Route the buffered DAC through the analog muxes (U55 → U47/U48).
+
+        ``ctrl1`` selects which output path the DAC drives:
+        ``'3v3'`` / ``'5v'`` / ``'12v'`` / ``'12v_adc'``, ``'off'`` to disable,
+        or ``None`` to leave it unchanged. ``ctrl2`` selects the buffer VMID
+        reference: ``'12v_vmid'`` / ``'adc_vmid'`` / ``'gnd'`` / ``'off'`` / ``None``.
+        Returns the pod's decoded mux state.
+        """
+        req: dict = {"cmd": "dac_mux"}
+        if ctrl1 is not None:
+            if ctrl1 == "off":
+                req["ctrl1_en"] = 0
+            elif ctrl1 in self._DAC_RAILS:
+                req["ctrl1_en"] = 1
+                req["ctrl1_sel"] = self._DAC_RAILS[ctrl1]
+            else:
+                raise ValueError(f"ctrl1 must be one of {list(self._DAC_RAILS)}, 'off', or None")
+        if ctrl2 is not None:
+            if ctrl2 == "off":
+                req["ctrl2_en"] = 0
+            elif ctrl2 in self._DAC_VMIDS:
+                req["ctrl2_en"] = 1
+                req["ctrl2_sel"] = self._DAC_VMIDS[ctrl2]
+            else:
+                raise ValueError(f"ctrl2 must be one of {list(self._DAC_VMIDS)}, 'off', or None")
+        return self.command(req)
+
+    def dac_mux_status(self) -> dict:
+        """Report the current DAC-mux (U55) state without changing it."""
+        return self.command({"cmd": "dac_mux"})
+
+    def cal_switch(self, *, cal1: bool = False, cal2: bool = False,
+                   amp_measure: bool = False, cal_path: bool = False) -> dict:
+        """Set the calibration relays (U58 → U53). ``cal1``/``cal2`` route the
+        5V/12V DAC path to the ADC (mutually exclusive); ``amp_measure`` switches
+        the ADC to the amps screw-terminal; ``cal_path`` switches the ADC from
+        the front SMA to the calibration path. Returns the decoded relay state.
+        """
+        if cal1 and cal2:
+            raise ValueError("cal1 and cal2 are mutually exclusive")
+        return self.command({
+            "cmd": "cal_switch",
+            "cal1": int(cal1), "cal2": int(cal2),
+            "amp_measure": int(amp_measure), "cal_path": int(cal_path),
+        })
+
+    def cal_switch_status(self) -> dict:
+        """Report the current calibration-relay (U58) state without changing it."""
+        return self.command({"cmd": "cal_switch"})
+
+    def route_dac_to_adc(self, rail: str = "5v") -> dict:
+        """Convenience: loop the DAC back into the ADC through the calibration
+        path for a quick self-cal. ``rail='5v'`` uses the 5V path + CAL1;
+        ``'12v'`` uses the 12V-ADC path + CAL2. Enables ``cal_path`` so the ADC
+        reads the calibration input. Returns the resulting relay state.
+        """
+        rail = rail.lower()
+        if rail == "5v":
+            self.dac_mux(ctrl1="5v", ctrl2="adc_vmid")
+            return self.cal_switch(cal1=True, cal_path=True)
+        if rail == "12v":
+            self.dac_mux(ctrl1="12v_adc", ctrl2="adc_vmid")
+            return self.cal_switch(cal2=True, cal_path=True)
+        raise ValueError("rail must be '5v' or '12v'")
+
+    def adc_from_sma(self) -> dict:
+        """Return the ADC to the front-panel SMA input: all calibration relays
+        off and the DAC unrouted from any output path."""
+        self.dac_mux(ctrl1="off", ctrl2="off")
+        return self.cal_switch()
+
     # -- UART capture -------------------------------------------------------
 
     def capture_uart(
