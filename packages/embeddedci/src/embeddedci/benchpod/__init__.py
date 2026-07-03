@@ -17,7 +17,9 @@ the result, all from a test::
 
 from __future__ import annotations
 
+from . import can
 from . import i2c
+from .can import CanBus, CanFrame
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
 from .i2c import I2CByte, I2CMessage, I2CTransaction
@@ -44,6 +46,7 @@ from .constants import (
 )
 from .errors import (
     BenchPodError,
+    CanTimeout,
     ConnectionConfigError,
     DeviceBusyError,
     FirmwareError,
@@ -63,6 +66,10 @@ __all__ = [
     "UartCapture",
     "UartSession",
     "UartTimeout",
+    "can",
+    "CanBus",
+    "CanFrame",
+    "CanTimeout",
     "i2c",
     "I2CByte",
     "I2CMessage",

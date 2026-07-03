@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from typing import Any, List, Optional, Sequence, Union
 
+from . import can as _can
 from . import flash as _flash
 from . import i2c as _i2c
 from . import sensor as _sensor
@@ -422,6 +423,77 @@ class BenchPod:
     def adc_from_sma(self) -> dict:
         """Return the ADC to the front-panel SMA input (external, high-Z ÷12)."""
         return self.analog_path("adc_ext")
+
+    # -- CAN (v2: FDCAN1 / TCAN1044 transceiver) ----------------------------
+    # Single-node board: use a loopback ``mode`` to self-test on one pod. See
+    # :mod:`embeddedci.benchpod.can`.
+
+    def can_config(self, *, bitrate: int = 500_000, mode: str = "normal",
+                   term: bool = False, fd: bool = False) -> dict:
+        """Bring FDCAN1 up. ``mode`` is ``normal``/``internal``/``external``/
+        ``listen`` (the two loopback modes let a lone pod self-test). ``term``
+        engages the 120 Ω bus termination. Returns ``{bitrate, mode, term}``."""
+        return self.command({
+            "cmd": "can_config", "bitrate": int(bitrate), "mode": mode,
+            "term": bool(term), "fd": bool(fd),
+        })
+
+    def can_write(self, can_id: int, data: Union[bytes, Sequence[int], None] = None,
+                  *, ext: bool = False, rtr: bool = False) -> dict:
+        """Queue one classic frame (0..8 data bytes)."""
+        payload = list(bytes(data)) if data else []
+        return self.command({
+            "cmd": "can_write", "id": int(can_id), "ext": bool(ext),
+            "rtr": bool(rtr), "data": payload,
+        })
+
+    def can_read(self, *, max: int = 8) -> dict:
+        """Drain up to ``max`` received frames. Returns
+        ``{"frames": [...], "overflow": N}`` (raw dict; see :meth:`open_can`
+        / :class:`~embeddedci.benchpod.can.CanBus` for decoded frames)."""
+        return self.command({"cmd": "can_read", "max": int(max)})
+
+    def can_status(self) -> dict:
+        """Return the CAN link state (mode, bitrate, error counters, bus-off…)."""
+        return self.command({"cmd": "can_status"})
+
+    def can_term(self, on: bool) -> dict:
+        """Switch the 120 Ω bus termination in/out (works even with CAN off)."""
+        return self.command({"cmd": "can_term", "on": bool(on)})
+
+    def can_respond(self, match_id: int, reply_id: int,
+                    reply_data: Union[bytes, Sequence[int], None] = None, *,
+                    match_ext: bool = False, reply_ext: bool = False) -> dict:
+        """Install an autonomous-responder rule: when a frame with ``match_id``
+        arrives, the *firmware* immediately replies with ``reply_id`` +
+        ``reply_data`` (answered from the RX ISR — microsecond latency, no host
+        round-trip). Turns the pod into a live ECU simulator. Returns
+        ``{"rule", "rules"}``."""
+        payload = list(bytes(reply_data)) if reply_data else []
+        return self.command({
+            "cmd": "can_respond", "match_id": int(match_id), "ext": bool(match_ext),
+            "reply_id": int(reply_id), "reply_ext": bool(reply_ext),
+            "reply_data": payload,
+        })
+
+    def can_respond_clear(self) -> dict:
+        """Remove all autonomous-responder rules."""
+        return self.command({"cmd": "can_respond", "clear": True})
+
+    def can_disable(self) -> dict:
+        """Stop FDCAN1 and release the peripheral."""
+        return self.command({"cmd": "can_disable"})
+
+    def open_can(self, *, bitrate: int = 500_000, mode: str = "normal",
+                 term: bool = False, fd: bool = False) -> "_can.CanBus":
+        """Configure CAN and return a :class:`~embeddedci.benchpod.can.CanBus`
+        session (disables CAN on exit)::
+
+            with bp.open_can(bitrate=500_000, mode="internal") as can:
+                can.write(0x123, [1, 2, 3])
+                frame = can.expect(can_id=0x123, timeout=1.0)
+        """
+        return _can.CanBus(self, bitrate=bitrate, mode=mode, term=term, fd=fd)
 
     # -- UART capture -------------------------------------------------------
 

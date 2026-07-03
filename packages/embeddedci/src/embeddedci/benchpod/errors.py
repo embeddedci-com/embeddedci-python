@@ -64,3 +64,15 @@ class UartTimeout(BenchPodError):
     def __init__(self, message: str, *, text: str = "") -> None:
         self.text = text
         super().__init__(message)
+
+
+class CanTimeout(BenchPodError):
+    """A :meth:`CanBus.expect` waited for a matching CAN frame but none arrived.
+
+    Carries the frames seen so far in :attr:`frames` so the caller can inspect
+    what actually landed on the bus.
+    """
+
+    def __init__(self, message: str, *, frames=None) -> None:
+        self.frames = list(frames or [])
+        super().__init__(message)
