@@ -160,6 +160,23 @@ def decode(packed: Iterable[int]) -> List[I2CTransaction]:
     return decode_samples(unpack_samples(packed))
 
 
+def decode_from_la(words: Iterable[int], sda_ch: int, scl_ch: int) -> List[I2CTransaction]:
+    """Decode I2C from a raw 12-channel LA capture (the unified-capture path).
+
+    ``words`` are 12-bit LA samples (bit ``n`` = channel ``LA{n+1}``); ``sda_ch`` /
+    ``scl_ch`` are 1-based channel numbers.  This is how I2C is decoded now that the
+    FPGA captures raw LA only and protocol interpretation lives off-device — the
+    Python mirror of the Go server's ``decodeI2CFromLA`` (verified in lock-step by
+    the shared parity vectors).
+    """
+    sda_bit = sda_ch - 1
+    scl_bit = scl_ch - 1
+    samples: List[Sample] = [
+        ((w >> scl_bit) & 1, (w >> sda_bit) & 1) for w in words
+    ]
+    return decode_samples(samples)
+
+
 # --------------------------------------------------------------------------
 # Query / format helpers
 # --------------------------------------------------------------------------
