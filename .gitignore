@@ -11,3 +11,8 @@ dist/
 # Virtualenvs
 .venv/
 venv/
+
+# ADC FFT capture outputs (scripts/adc_fft_capture.py)
+adc_capture_*.csv
+adc_capture_*.json
+adc_capture_*.png
