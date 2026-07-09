@@ -1,12 +1,23 @@
 """Go<->Python I2C decode parity.
 
-Verifies the Python ``decode_from_la`` against the SAME shared vector file the Go
-server checks (embeddedci-common/testdata/i2c_decode_vectors.json): raw 12-channel
-LA words + expected decode.  Keeping both decoders locked to one vector file stops
-them drifting now that all protocol interpretation lives off the FPGA.
+Verifies the Python ``decode_from_la`` against the SAME vector file the Go server
+checks (embeddedci-common/testdata/i2c_decode_vectors.json): raw 12-channel LA words
++ expected decode.  Keeping both decoders locked to one vector file stops them
+drifting now that all protocol interpretation lives off the FPGA.
 
-Regenerate the vectors with scratchpad/gen_i2c_vectors.go.
+embeddedci-python is published on its own, so the sibling embeddedci-common repo is
+NOT available in this package's CI (or to downstream users running its tests).  A
+byte-identical copy is therefore vendored under ``tests/testdata/`` and the parity
+suite always runs against that copy.  ``test_vendored_vectors_in_sync`` guards
+against drift: whenever the source-of-truth sibling IS present (local dev), it
+asserts the vendored copy matches, so a regeneration that forgets to re-vendor
+fails loudly.
+
+Regenerate the vectors with scratchpad/gen_i2c_vectors.go (writes the sibling), then
+re-copy into tests/testdata/i2c_decode_vectors.json.
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -14,15 +25,17 @@ import pytest
 
 from embeddedci.benchpod.i2c import decode_from_la
 
+VENDORED_VECTORS = Path(__file__).resolve().parent / "testdata" / "i2c_decode_vectors.json"
 
-def _find_vectors() -> Path:
-    """Walk up to the repo root and locate the shared vector file."""
+
+def _find_source_vectors() -> Path | None:
+    """Locate the source-of-truth sibling vector file, if this is a full checkout."""
     here = Path(__file__).resolve()
     for parent in here.parents:
         cand = parent / "embeddedci-common" / "testdata" / "i2c_decode_vectors.json"
         if cand.exists():
             return cand
-    raise FileNotFoundError("shared i2c_decode_vectors.json not found (need embeddedci-common sibling)")
+    return None
 
 
 def _canon(txn) -> dict:
@@ -44,8 +57,23 @@ def _canon(txn) -> dict:
 
 
 def _load_cases():
-    doc = json.loads(_find_vectors().read_text())
+    doc = json.loads(VENDORED_VECTORS.read_text())
     return doc["cases"]
+
+
+def test_vendored_vectors_in_sync():
+    """The vendored copy must match the source-of-truth sibling when it's present.
+
+    Skips on published-package / CI checkouts where the sibling is absent; there the
+    vendored copy is authoritative and nothing to compare against.
+    """
+    source = _find_source_vectors()
+    if source is None:
+        pytest.skip("embeddedci-common sibling not present (published/CI checkout)")
+    assert json.loads(VENDORED_VECTORS.read_text()) == json.loads(source.read_text()), (
+        f"vendored {VENDORED_VECTORS} has drifted from source {source}; "
+        "re-copy embeddedci-common/testdata/i2c_decode_vectors.json into tests/testdata/"
+    )
 
 
 @pytest.mark.parametrize("case", _load_cases(), ids=lambda c: c["name"])

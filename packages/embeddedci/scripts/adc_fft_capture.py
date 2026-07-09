@@ -50,7 +50,22 @@ from embeddedci import benchpod  # noqa: E402
 # samples; larger requests return "capture failed". 4096 @ ~100 kS/s is ~40 cycles
 # of a 1 kHz tone -- plenty of FFT resolution.
 ADC_CAP_RELIABLE = 4096
-ADC_MAX_RATE_HZ = 400_000  # gateware v12: ADC floor divider 60 -> 24 MHz/60 = 400 kS/s ceiling
+FPGA_HFOSC_HZ = 24_000_000  # iCE40 control clock the ADC/DAC engines divide down
+ADC_MIN_DIVIDER = 60        # gateware v12 ADC sample-period floor
+ADC_MAX_RATE_HZ = 400_000   # 24 MHz / 60 = 400 kS/s ceiling
+# The adc_mcp33131 sequencer's real sample period is (divider + 1) clocks, not
+# `divider` (sim-measured: it alternates div / div+2, averaging div+1). Ignoring
+# that +1 makes the FFT frequency axis read high by (div+1)/div -- ~+1.7% at the
+# 400 kS/s max, ~+0.3% at 100 kS/s. So compute the ADC rate from the true period.
+ADC_PERIOD_OVERHEAD = 1
+
+
+def actual_adc_fs_hz(req_rate_hz: float) -> float:
+    """True ADC sample rate for a requested rate: the firmware picks
+    div = max(round(HFOSC/req), ADC_MIN_DIVIDER), and the engine's real period is
+    div + ADC_PERIOD_OVERHEAD clocks."""
+    div = max(round(FPGA_HFOSC_HZ / req_rate_hz), ADC_MIN_DIVIDER)
+    return FPGA_HFOSC_HZ / (div + ADC_PERIOD_OVERHEAD)
 
 
 # The firmware now models the DAC8551 sequencer's per-sample cost (the SPI shift +
@@ -146,7 +161,7 @@ def capture(args):
             bp.analog_path(args.source)
             if not args.no_generate:
                 rate = args.rate_mhz if args.rate_mhz else loopback_rate_mhz(args.freq)
-                fs_hz = rate * 1e6
+                fs_hz = actual_adc_fs_hz(rate * 1e6)
                 # The firmware plays `freq` accurately at any divider, but for a clean
                 # loopback FFT the DAC's update rate must stay below the ADC's Nyquist
                 # (else its zero-order-hold images alias in and swamp the fundamental).
@@ -160,7 +175,7 @@ def capture(args):
                 time.sleep(args.settle)
             else:
                 rate = args.rate_mhz if args.rate_mhz else 0.2
-                fs_hz = rate * 1e6
+                fs_hz = actual_adc_fs_hz(rate * 1e6)
             if gen is not None:
                 print(f"[adc ] capturing {n} samples @ {fs_hz/1e3:.1f} kS/s "
                       f"({n/fs_hz*1e3:.2f} ms, ~{n*args.freq/fs_hz:.0f} cycles of {args.freq:.0f} Hz)...")
