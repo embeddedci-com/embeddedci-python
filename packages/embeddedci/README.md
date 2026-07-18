@@ -231,12 +231,14 @@ with benchpod.BenchPod("embeddedci:my-bench", api_key="eci_…") as bp:
     handle.stop()
 ```
 
-> **Auth note.** The cloud waveform library and server-side replay require an **API key**
-> (`eci_…`, scope `benchpod:control`) — pass `api_key=` / `--benchpod-api-key` / `BENCHPOD_API_KEY`.
-> A GitHub Actions OIDC token authenticates *device driving* (power/flash/capture/replay over the
-> tunnel) but **cannot** reach the library endpoints (its identity is the repo, not a user). So in
-> CI: OIDC drives the device; add an API key if the run needs the shared waveform library. Capture
-> and direct `replay(...)` need no API key — only the S3 library does.
+> **Auth note.** The cloud waveform library and server-side replay carry the `benchpod:control`
+> capability. Over the cloud destination (`embeddedci:<device>`) the SDK reuses the connection's
+> session token — including the **GitHub Actions OIDC** token minted in CI — so no API key is
+> needed: a workflow that already drives the device can also load/save library waveforms and run
+> server-side replay, scoped to the devices/org the OIDC token is allowed to drive. On a
+> **LAN/serial** connection there is no session token, so pass an API key (`api_key=` /
+> `--benchpod-api-key` / `BENCHPOD_API_KEY`) to reach the shared library. Capture and direct
+> `replay(...)` never need one — they run over the device transport.
 
 In pytest, the `benchpod_waveforms` fixture gives you the library with automatic cleanup of
 anything created during the test, and `@pytest.mark.benchpod_capability("dac_deep_replay")` skips a

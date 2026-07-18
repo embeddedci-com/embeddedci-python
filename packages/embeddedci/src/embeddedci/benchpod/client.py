@@ -874,9 +874,9 @@ class BenchPod:
         api = self._try_server_api()
         if api is None:
             raise BenchPodError(
-                "this operation needs embeddedci server access: pass api_key='eci_…' (or set "
-                "BENCHPOD_API_KEY). The cloud waveform library / server replay cannot be reached "
-                "with a GitHub OIDC token alone."
+                "this operation needs embeddedci server access. Connect over the cloud "
+                "('embeddedci:<device>', which reuses its session token) or pass api_key='eci_…' "
+                "(or set BENCHPOD_API_KEY) on a LAN/serial connection."
             )
         return api
 

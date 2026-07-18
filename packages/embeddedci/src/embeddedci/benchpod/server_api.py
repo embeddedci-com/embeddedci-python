@@ -5,11 +5,12 @@ server's own endpoints for things that live server-side, above all the **cloud w
 (S3-backed recordings) and the server's DAC replay (``/dac/replay/start``). It is also a fallback
 path for server-orchestrated captures (``/capture/start`` + ``/capture/{id}``).
 
-Auth. These endpoints require a real user / API key (scope ``benchpod:control``) — **a GitHub
-Actions OIDC token cannot reach them** (its subject is the repo, not a user; the server's
-``requireUser``/``requireBenchpodHTTPUser`` reject it). So the library needs an API key
-(``eci_…``) even when the device itself is driven over OIDC. Pass ``api_key`` (or set
-``BENCHPOD_API_KEY``); a bearer ``token_provider`` is accepted for real-user/cloud-session tokens.
+Auth. These endpoints require the ``benchpod:control`` capability. They accept any of: an API key
+(``eci_…``), a real-user session, or a **cloud session token** — the ``github_action`` token the
+SDK already mints from GitHub OIDC, or a ``cloud_session`` token from an API key. So over the cloud
+(``embeddedci:<device>``) destination the SDK reuses the transport's session token automatically
+(no API key needed); on a LAN/serial connection, pass ``api_key`` (or set ``BENCHPOD_API_KEY``) to
+reach the shared library.
 """
 
 from __future__ import annotations
@@ -48,9 +49,9 @@ class ServerApi:
     ) -> None:
         if not api_key and token_provider is None:
             raise CloudAuthError(
-                "the embeddedci server API needs an API key: pass api_key='eci_…' or set "
-                "BENCHPOD_API_KEY. A GitHub OIDC token cannot reach the waveform-library / "
-                "capture / replay endpoints (they require a user or API-key credential)."
+                "the embeddedci server API needs a credential: connect over the cloud "
+                "('embeddedci:<device>', which reuses its session token) or pass api_key='eci_…' "
+                "(or set BENCHPOD_API_KEY) for a LAN/serial connection."
             )
         self.api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
         self.api_key = api_key
@@ -111,8 +112,9 @@ class ServerApi:
                 pass
             hint = ""
             if exc.code in (401, 403):
-                hint = (" — this endpoint needs a user/API-key credential with the "
-                        "'benchpod:control' scope; a GitHub OIDC token will not authorize it")
+                hint = (" — this endpoint needs the 'benchpod:control' capability; a cloud "
+                        "(OIDC/github_action) session token authorizes it for its allowed devices, "
+                        "as does an API key or a real-user session")
             raise ServerApiError(
                 f"{method} {path} failed (HTTP {exc.code}): {detail}{hint}", status=exc.code
             ) from exc
