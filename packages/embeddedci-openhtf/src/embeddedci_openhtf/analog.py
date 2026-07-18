@@ -36,11 +36,16 @@ __all__ = [
     "analog_path",
     "dac_output",
     "adc_read",
+    "scope_capture",
+    "replay",
+    "replay_waveform",
     "signal_generate_phase",
     "adc_capture_phase",
+    "scope_capture_phase",
     "loopback_measure_phase",
     "dac_output_phase",
     "adc_read_phase",
+    "dac_replay_phase",
 ]
 
 _Range = Optional[tuple]  # (min, max) inclusive, or None for no limit
@@ -109,6 +114,27 @@ def adc_read(bench: Any, source: str = "ext") -> Any:
     """Read a CALIBRATED ADC value ``{source, mv, count}`` from a named source
     ('ext'/'cal1'/'cal2'/'amp'); 'ext' applies the front-SMA ÷12 divider."""
     return bench.adc_read(source)
+
+
+# -- calibrated capture + DAC replay -----------------------------------------
+
+def scope_capture(bench: Any, *, samples: int = 4096,
+                  sample_rate_mhz: Optional[float] = None, source: str = "ext"):
+    """Capture the ADC and return a calibrated :class:`~embeddedci.benchpod.results.Capture`."""
+    return bench.scope_capture(samples, sample_rate_mhz=sample_rate_mhz, source=source)
+
+
+def replay(bench: Any, source, **kwargs):
+    """Replay a captured/volts/codes waveform on the DAC (see :meth:`BenchPod.replay`).
+
+    Returns a :class:`~embeddedci.benchpod.replay.ReplayHandle`; the replay loops until stopped.
+    """
+    return bench.replay(source, **kwargs)
+
+
+def replay_waveform(bench: Any, waveform_id: str, **kwargs):
+    """Load a cloud-stored waveform and replay it on the DAC (needs an API key)."""
+    return bench.replay_waveform(waveform_id, **kwargs)
 
 
 # -- phase factories ---------------------------------------------------------
@@ -243,3 +269,66 @@ def adc_read_phase(plug: type, *, source: str = "ext",
                          r.get("source"), r.get("mv"), r.get("count"))
 
     return _rd
+
+
+def _volts_measures(prefix: str, *, mean_range: _Range, pp_range: _Range,
+                    rms_range: _Range) -> list:
+    """Declare calibrated-volts mean/pp/rms measurements with optional limits."""
+    spec = {"mean_v": mean_range, "pp_v": pp_range, "rms_v": rms_range}
+    out = []
+    for suffix, rng in spec.items():
+        meas = htf.Measurement(f"{prefix}_{suffix}").with_units("V")
+        if rng is not None:
+            meas = meas.in_range(rng[0], rng[1])
+        out.append(meas)
+    return out
+
+
+def scope_capture_phase(plug: type, *, samples: int = 4096,
+                        sample_rate_mhz: Optional[float] = None, source: str = "ext",
+                        prefix: str = "scope", mean_range: _Range = None,
+                        pp_range: _Range = None, rms_range: _Range = None,
+                        name: str = "scope_capture") -> object:
+    """A phase that captures the ADC and records CALIBRATED volts stats (mean/pp/rms).
+
+    Unlike :func:`adc_capture_phase` (raw counts), this records real voltages via the device's
+    ADC calibration, so limits are expressed in volts, e.g. ``mean_range=(3.2, 3.4)`` for a 3.3 V
+    rail. Works over any transport (LAN/serial or cloud).
+    """
+
+    @htf.PhaseOptions(name=name)
+    @htf.measures(*_volts_measures(prefix, mean_range=mean_range, pp_range=pp_range,
+                                   rms_range=rms_range))
+    @htf.plug(bench=plug)
+    def _cap(test, bench):
+        cap = scope_capture(bench, samples=samples, sample_rate_mhz=sample_rate_mhz, source=source)
+        test.measurements[f"{prefix}_mean_v"] = cap.mean()
+        test.measurements[f"{prefix}_pp_v"] = cap.peak_to_peak()
+        test.measurements[f"{prefix}_rms_v"] = cap.rms()
+        test.logger.info("scope %d samples @ %.0f Hz: mean=%.3f V pp=%.3f V rms=%.3f V",
+                         len(cap), cap.sample_rate_hz, cap.mean(), cap.peak_to_peak(), cap.rms())
+
+    return _cap
+
+
+def dac_replay_phase(plug: type, *, waveform_id: str, dac_path: str = "5v",
+                     mapping: str = "faithful", target_samples: int = 4096,
+                     stop_after: bool = False, name: str = "dac_replay") -> object:
+    """A phase that loads a cloud-stored waveform and replays it (looping) on the DAC.
+
+    Needs an API key (``BENCHPOD_API_KEY``). By default the replay keeps looping after the phase
+    (so a later capture phase can observe it, incl. concurrently on v18); set ``stop_after=True``
+    to stop it at the end of this phase.
+    """
+
+    @htf.PhaseOptions(name=name)
+    @htf.plug(bench=plug)
+    def _replay(test, bench):
+        handle = replay_waveform(bench, waveform_id, dac_path=dac_path, mapping=mapping,
+                                 target_samples=target_samples)
+        test.logger.info("replaying waveform %s on %s (%d samples)",
+                         waveform_id, dac_path, handle.samples)
+        if stop_after:
+            handle.stop()
+
+    return _replay

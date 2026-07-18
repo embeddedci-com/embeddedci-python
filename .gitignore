@@ -16,3 +16,5 @@ venv/
 adc_capture_*.csv
 adc_capture_*.json
 adc_capture_*.png
+
+.DS_Store

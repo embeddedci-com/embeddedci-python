@@ -556,6 +556,147 @@ def measure(
     return _summarize_samples(fn(req))
 
 
+# -- calibrated capture, decode, replay, waveform library -------------------
+
+def _summarize_capture(cap) -> dict:
+    """Summarize a Capture (calibrated volts) for an agent."""
+    return {
+        "count": len(cap),
+        "sample_rate_hz": cap.sample_rate_hz,
+        "volts_head": [round(v, 4) for v in cap.volts[:32]],
+        "mean_v": round(cap.mean(), 4),
+        "min_v": round(cap.min(), 4),
+        "max_v": round(cap.max(), 4),
+        "peak_to_peak_v": round(cap.peak_to_peak(), 4),
+        "rms_v": round(cap.rms(), 4),
+    }
+
+
+@mcp.tool()
+@_safe
+def scope_capture(samples: int = 256, sample_rate_mhz: Optional[float] = None) -> dict:
+    """Capture ADC samples and return CALIBRATED volts + a summary (mean/rms/min/max/p2p).
+
+    Works over any transport (LAN/serial or cloud). Raw counts are scaled to volts using the
+    device's ADC calibration, so the numbers are the real probe voltages.
+    """
+    cap = SESSION.require().scope_capture(samples, sample_rate_mhz=sample_rate_mhz)
+    return _summarize_capture(cap)
+
+
+@mcp.tool()
+@_safe
+def capture_logic(samples: int = 4096, sample_rate_mhz: Optional[float] = None) -> dict:
+    """Capture raw 12-channel logic-analyzer words; returns count + the first 32 words."""
+    la = SESSION.require().capture_la(samples, sample_rate_mhz=sample_rate_mhz)
+    return {"count": len(la), "sample_rate_hz": la.sample_rate_hz, "head": la.words[:32]}
+
+
+@mcp.tool()
+@_safe
+def capture_analog(adc_samples: int = 256, adc_rate_mhz: Optional[float] = None,
+                   la_samples: int = 256, la_rate_mhz: Optional[float] = None) -> dict:
+    """Correlated ADC + LA capture from ONE hardware trigger (aligned timebases)."""
+    ac = SESSION.require().capture_analog(
+        adc_samples=adc_samples, adc_rate_mhz=adc_rate_mhz,
+        la_samples=la_samples, la_rate_mhz=la_rate_mhz)
+    return {"adc": _summarize_capture(ac.adc),
+            "la": {"count": len(ac.la), "sample_rate_hz": ac.la.sample_rate_hz,
+                   "head": ac.la.words[:32]}}
+
+
+@mcp.tool()
+@_safe
+def logic_decode(protocol: str, samples: int = 4096, sample_rate_mhz: float = 1.0,
+                 sda: Optional[int] = None, scl: Optional[int] = None,
+                 rx: Optional[int] = None, baud: Optional[int] = None,
+                 sclk: Optional[int] = None, mosi: Optional[int] = None,
+                 miso: Optional[int] = None, cs: Optional[int] = None,
+                 mode: int = 0) -> dict:
+    """Capture the LA bus and decode a protocol (``i2c``/``uart``/``spi``) off-device.
+
+    Provide the channels the protocol needs: i2c=(sda,scl); uart=(rx,baud); spi=(sclk[,mosi,
+    miso,cs,mode]). Returns the decoded transactions/frames.
+    """
+    pod = SESSION.require()
+    la = pod.capture_la(samples, sample_rate_mhz=sample_rate_mhz)
+    kw: Dict[str, Any] = {}
+    for name, val in (("sda", sda), ("scl", scl), ("rx", rx), ("baud", baud),
+                      ("sclk", sclk), ("mosi", mosi), ("miso", miso), ("cs", cs)):
+        if val is not None:
+            kw[name] = val
+    if protocol == "spi":
+        kw["mode"] = mode
+    result = la.decode(protocol, **kw)
+    if protocol == "i2c":
+        return {"transactions": i2c.format_transactions(result), "count": len(result)}
+    return {"frames": [vars(f) for f in result], "count": len(result)}
+
+
+@mcp.tool()
+@_safe
+def dac_stop() -> dict:
+    """Stop any running DAC output (generate or replay)."""
+    SESSION.require().dac_stop()
+    return {"ok": True}
+
+
+@mcp.tool()
+@_safe
+def power_status() -> dict:
+    """Read the INA power monitor (per-rail ok / bus_mv / current_ua)."""
+    return SESSION.require().power_status()
+
+
+@mcp.tool()
+@_safe
+def capabilities() -> dict:
+    """Report the device's resolved capabilities (ADC bits/scaling, DAC replay depth, flags)."""
+    c = SESSION.require().capabilities
+    return {
+        "board": c.board, "firmware_version": c.firmware_version,
+        "adc_bits": c.adc_bits, "adc_fullscale_mv": c.adc_fullscale_mv,
+        "adc_affine": c.adc_affine is not None,
+        "dac_replay": c.dac_replay, "dac_deep_replay": c.dac_deep_replay,
+        "dac_replay_bits": c.dac_replay_bits, "dac_replay_max_samples": c.dac_replay_max_samples,
+        "scope": c.scope, "analyzer": c.analyzer,
+    }
+
+
+@mcp.tool()
+@_safe
+def list_waveforms() -> dict:
+    """List the cloud waveform library (needs BENCHPOD_API_KEY). Returns id/name/kind per entry."""
+    wfs = SESSION.require().waveforms.list()
+    return {"waveforms": [{"id": w.id, "name": w.name, "kind": w.kind,
+                           "sample_count": w.sample_count} for w in wfs]}
+
+
+@mcp.tool()
+@_safe
+def save_capture_as_recording(name: str, samples: int = 2048,
+                              sample_rate_mhz: float = 0.4) -> dict:
+    """Capture the ADC and save it to the cloud library as a replayable recording (needs API key)."""
+    pod = SESSION.require()
+    cap = pod.scope_capture(samples, sample_rate_mhz=sample_rate_mhz)
+    wf = pod.save_capture_as_recording(cap, name)
+    return {"id": wf.id, "name": wf.name, "kind": wf.kind, "sample_count": wf.sample_count}
+
+
+@mcp.tool()
+@_safe
+def replay_waveform(waveform_id: str, dac_path: str = "5v", mapping: str = "faithful",
+                    target_samples: int = 4096) -> dict:
+    """Load a cloud-stored waveform and replay it (looping) on the DAC (needs API key).
+
+    Call ``dac_stop`` to stop it. ``mapping`` is ``faithful`` (reproduce volts, clip) or ``fit``
+    (auto-scale). Deep recordings stream from PSRAM and can run alongside a capture (v18).
+    """
+    handle = SESSION.require().replay_waveform(
+        waveform_id, dac_path=dac_path, mapping=mapping, target_samples=target_samples)
+    return {"ok": True, "samples": handle.samples, "dac_path": dac_path}
+
+
 # -- resources (read-only context for the agent) ----------------------------
 
 _WIRING = """\

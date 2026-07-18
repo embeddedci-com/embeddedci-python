@@ -83,6 +83,15 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         "(default https://embeddedci.com; falls back to BENCHPOD_API_BASE).",
     )
     group.addoption(
+        "--benchpod-api-key",
+        action="store",
+        default=None,
+        dest="benchpod_api_key",
+        help="embeddedci API key (eci_…) for the cloud waveform library + server-side DAC "
+        "replay. Required to load/save cloud-stored waveforms — a GitHub OIDC token cannot "
+        "reach those endpoints. Falls back to BENCHPOD_API_KEY.",
+    )
+    group.addoption(
         "--benchpod-firmware",
         action="store",
         default=None,
@@ -148,6 +157,28 @@ def pytest_configure(config: "pytest.Config") -> None:
         "hardware: test needs a real BenchPod (and usually a wired DUT); "
         "skipped automatically when no --benchpod-connection is configured.",
     )
+    config.addinivalue_line(
+        "markers",
+        "benchpod_capability(name): skip the test unless the connected device advertises the "
+        "given capability (e.g. 'scope', 'analyzer', 'dac_replay', 'dac_deep_replay').",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
+    """Honor ``@pytest.mark.benchpod_capability(...)`` — skip when the device lacks it.
+
+    Autouse so it runs during setup (when fixtures resolve): a no-op unless the test carries the
+    marker, in which case it resolves the ``benchpod`` device and skips on any missing capability.
+    """
+    marks = list(request.node.iter_markers(name="benchpod_capability"))
+    if not marks:
+        return
+    caps = request.getfixturevalue("benchpod").capabilities  # may itself skip if no connection
+    for mark in marks:
+        for name in mark.args:
+            if not getattr(caps, str(name), False):
+                pytest.skip(f"device does not advertise capability {name!r}")
 
 
 def _resolve_connection(config: "pytest.Config") -> Optional[str]:
@@ -186,9 +217,11 @@ def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterato
     runs queue instead of colliding). Disable with ``--benchpod-no-lease``.
     """
     api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
+    api_key = pytestconfig.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY")
     device = BenchPod(
         benchpod_connection,
         api_base=api_base,
+        api_key=api_key,
         lease=not pytestconfig.getoption("benchpod_no_lease"),
         lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
     )
@@ -321,3 +354,58 @@ def benchpod_sensor(benchpod: BenchPod) -> Iterator[BenchPod]:
             benchpod.disable_i2c_sensor()
         except Exception:
             pass
+
+
+@pytest.fixture(scope="session")
+def benchpod_capabilities(benchpod: BenchPod):
+    """The connected device's resolved :class:`~embeddedci.benchpod.capabilities.Capabilities`."""
+    return benchpod.capabilities
+
+
+@pytest.fixture
+def benchpod_dac(benchpod: BenchPod) -> Iterator[BenchPod]:
+    """A BenchPod that stops any running DAC output (generate/replay) at teardown."""
+    try:
+        yield benchpod
+    finally:
+        try:
+            benchpod.dac_stop()
+        except Exception:
+            pass
+
+
+@pytest.fixture
+def benchpod_waveforms(benchpod: BenchPod):
+    """The cloud waveform library, with automatic cleanup of anything created during the test.
+
+    Yields the :class:`~embeddedci.benchpod.waveforms.WaveformLibrary`; any waveform saved through
+    it (``save_recording`` / ``save_waveform`` / ``save_segments``) is tracked and deleted at
+    teardown so a test never leaves library litter behind. Needs an API key
+    (``--benchpod-api-key`` / ``BENCHPOD_API_KEY``); skips otherwise.
+    """
+    try:
+        lib = benchpod.waveforms
+    except Exception as exc:  # no API key / server access
+        pytest.skip(f"cloud waveform library unavailable: {exc}")
+        return
+
+    created: list = []
+    for meth in ("save_recording", "save_waveform", "save_segments"):
+        orig = getattr(lib, meth)
+
+        def wrap(*a, _orig=orig, **k):
+            wf = _orig(*a, **k)
+            wid = getattr(wf, "id", None)
+            if wid:
+                created.append(wid)
+            return wf
+
+        setattr(lib, meth, wrap)
+    try:
+        yield lib
+    finally:
+        for wid in created:
+            try:
+                lib.delete(wid)
+            except Exception:
+                pass

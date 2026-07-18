@@ -36,10 +36,13 @@ with benchpod.BenchPod("192.168.1.213") as bp:   # or "/dev/ttyACM0", or "serial
 pip install embeddedci
 # for the cloud (embeddedci:<device>) destination, add the cloud extra:
 pip install "embeddedci[cloud]"
+# optional: numpy-backed FFT helpers on captures (Capture.fft / dominant_frequency)
+pip install "embeddedci[analysis]"
 ```
 
 The `[cloud]` extra pulls in a WebSocket client used only by the `embeddedci:` destination;
-local wifi/serial use needs nothing extra.
+local wifi/serial use needs nothing extra. The `[analysis]` extra adds numpy for the FFT helpers
+— the mean/rms/peak-to-peak reductions are pure-Python and always available.
 
 ### OpenOCD (required for flashing)
 
@@ -169,8 +172,75 @@ the **token request itself failed**.
 | Flash + assert ok/not ok | ✅ (pure-Python OpenOCD `cmsis-dap` TCP bridge) |
 | Emulated I2C sensor (BMP280) | ✅ wifi + serial (serial via `json` console mode) |
 | I2C bus decode (`benchpod.i2c`) | ✅ START/STOP, R/W, ACK, register reads |
+| Protocol decode I2C / UART / SPI (`bp.decode`) | ✅ off-device, parity-checked vs the server |
 | UART capture (`capture_uart`) | ✅ wifi + serial |
-| Signal helpers (`capture`, `la_step`) | ✅ minimal, TCP transport only |
+| ADC scope capture → calibrated volts (`scope_capture`) | ✅ LAN + cloud tunnel |
+| Raw 12-ch LA capture (`capture_la`) | ✅ LAN + cloud tunnel |
+| Correlated ADC + LA capture (`capture_analog`) | ✅ one hardware trigger, aligned |
+| DAC generate / DC / replay (`generate`, `dac_set`, `replay`) | ✅ looping, concurrent-with-capture (gw v18) |
+| Cloud waveform library + replay (`bp.waveforms`, `replay_waveform`) | ✅ needs an API key (see below) |
+| Signal helpers (`la_step`) | ✅ minimal, TCP transport only |
+
+## Scope, logic analyzer, and DAC replay
+
+Every capture returns data with the scaling already applied — an ADC `scope_capture` gives you
+**calibrated volts** (the same affine front-end model the web UI uses), so you assert on real
+voltages, not raw counts. It all works over any transport: a LAN/serial pod **or** a cloud device
+over the byte tunnel.
+
+```python
+from embeddedci import benchpod
+
+with benchpod.BenchPod("embeddedci:my-bench") as bp:
+    # ADC scope — calibrated volts + summary helpers
+    cap = bp.scope_capture(4096, sample_rate_mhz=1)
+    assert 3.2 < cap.mean() < 3.4          # a 3.3 V rail
+    print(cap.rms(), cap.peak_to_peak(), cap.dominant_frequency())   # fft needs the [analysis] extra
+
+    # Raw logic analyzer + off-device decode (i2c / uart / spi)
+    la = bp.capture_la(8192, sample_rate_mhz=1)
+    txns = la.decode("i2c", sda=2, scl=1)
+    frames = bp.decode(la, "uart", rx=5, baud=115200)
+
+    # Correlated ADC + LA from one trigger (aligned timebases)
+    both = bp.capture_analog(adc_samples=2048, adc_rate_mhz=0.4, la_samples=2048, la_rate_mhz=1)
+
+    # DAC replay — loops until stopped, and (gateware v18) can run *while* you capture
+    with bp.replay(cap, dac_path="5v"):            # replay the captured waveform back out
+        alongside = bp.capture_la(8192, sample_rate_mhz=1)   # DAC + LA at the same time
+```
+
+`bp.replay(...)` accepts a `Capture` (its volts are replayed), a list of volts, or raw DAC codes
+(`are_codes=True`); `mapping="faithful"` reproduces the voltage (clipping outside the path range),
+`"fit"` auto-scales. Inject a fault with `fault=benchpod.Fault("flatline", start=…, width=…)`.
+
+## Cloud waveform library (load + replay stored recordings)
+
+Save a captured waveform to the cloud library and replay it later — on this pod or another:
+
+```python
+with benchpod.BenchPod("embeddedci:my-bench", api_key="eci_…") as bp:
+    cap = bp.scope_capture(8192, sample_rate_mhz=0.4)
+    wf = bp.save_capture_as_recording(cap, "golden-startup")   # stored raw in S3
+
+    for w in bp.waveforms.list():
+        print(w.id, w.name, w.kind)
+
+    handle = bp.replay_waveform(wf.id, dac_path="5v", mapping="faithful")
+    ...
+    handle.stop()
+```
+
+> **Auth note.** The cloud waveform library and server-side replay require an **API key**
+> (`eci_…`, scope `benchpod:control`) — pass `api_key=` / `--benchpod-api-key` / `BENCHPOD_API_KEY`.
+> A GitHub Actions OIDC token authenticates *device driving* (power/flash/capture/replay over the
+> tunnel) but **cannot** reach the library endpoints (its identity is the repo, not a user). So in
+> CI: OIDC drives the device; add an API key if the run needs the shared waveform library. Capture
+> and direct `replay(...)` need no API key — only the S3 library does.
+
+In pytest, the `benchpod_waveforms` fixture gives you the library with automatic cleanup of
+anything created during the test, and `@pytest.mark.benchpod_capability("dac_deep_replay")` skips a
+test when the device doesn't advertise a capability.
 
 ## Emulated I2C sensor + UART capture (HIL)
 

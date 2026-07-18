@@ -18,11 +18,19 @@ the result, all from a test::
 from __future__ import annotations
 
 from . import can
+from . import decode
+from . import dsp
 from . import i2c
 from .can import CanBus, CanFrame
+from .capabilities import Capabilities
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
+from .decode import SpiFrame, UartFrame
 from .i2c import I2CByte, I2CMessage, I2CTransaction
+from .replay import Fault, ReplayHandle, Segment
+from .results import AnalogCapture, Capture, LaCapture
+from .server_api import ServerApi, ServerApiError
+from .waveforms import Waveform, WaveformLibrary
 from .constants import (
     BMP280_ADDR_PRIMARY,
     BMP280_ADDR_SECONDARY,
@@ -74,6 +82,23 @@ __all__ = [
     "I2CByte",
     "I2CMessage",
     "I2CTransaction",
+    # capture / analysis
+    "decode",
+    "dsp",
+    "Capabilities",
+    "Capture",
+    "LaCapture",
+    "AnalogCapture",
+    "UartFrame",
+    "SpiFrame",
+    # DAC replay + waveform library
+    "Fault",
+    "Segment",
+    "ReplayHandle",
+    "Waveform",
+    "WaveformLibrary",
+    "ServerApi",
+    "ServerApiError",
     # connection
     "ConnSpec",
     "resolve_connection",

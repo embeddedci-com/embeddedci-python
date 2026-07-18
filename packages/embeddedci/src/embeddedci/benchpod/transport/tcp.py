@@ -9,11 +9,12 @@ byte at a time so no DAP bytes are swallowed.
 
 from __future__ import annotations
 
+import json
 import socket
 import time
-from typing import Any, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
-from ..errors import TransportError
+from ..errors import FirmwareError, TransportError
 from ..protocol import encode_request, parse_reply, raise_for_status
 from .base import RawLink, Transport
 
@@ -154,6 +155,71 @@ class TcpTransport(Transport):
                 if not reply.more:
                     break
             return out
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
+        """Send a streaming command and yield each raw chunk object until ``more`` is false.
+
+        Unlike :meth:`samples` (which flattens ``data`` into one int list) this yields the full
+        parsed JSON of every chunk, so callers that need the extra per-chunk fields — achieved
+        rates (``adc_rate_hz``/``la_rate_hz``) or the RLE LA frames (``la``/``la_edges``/
+        ``la_upto``) of a ``capture_dual`` — can see them. Raises on an error chunk.
+        """
+        sock = self._dial()
+        buf = bytearray()
+        cmd = req.get("cmd")
+        try:
+            sock.sendall(encode_request(req))
+            while True:
+                line = self._recv_line(sock, buf)
+                text = line.decode("utf-8", "replace").strip()
+                if not text:
+                    continue
+                try:
+                    obj = json.loads(text)
+                except json.JSONDecodeError:
+                    continue  # skip stray non-JSON fragments, mirroring the server
+                if not isinstance(obj, dict):
+                    continue
+                if obj.get("status") == "error":
+                    raise FirmwareError(obj.get("message") or "capture failed", cmd=cmd)
+                yield obj
+                if not bool(obj.get("more", False)):
+                    return
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    def load_replay(self, *, data: bytes, replay: dict, psram: bool = False) -> Any:
+        """Stream a raw waveform to the pod (``load_bin``) and arm a ``replay`` on one connection.
+
+        Mirrors the firmware protocol: send ``{"cmd":"load_bin","total":N,"psram":…}``, read the
+        ``{"ready":N}`` ack, write ``N`` raw bytes, read the ``{"total":S}`` completion, then send
+        ``replay`` on the same stream connection. A deep (``psram``) replay keeps looping out of
+        PSRAM after the socket closes — so a concurrent capture can run alongside it (gateware
+        v18). Returns the ``replay`` reply data.
+        """
+        sock = self._dial()
+        sock.settimeout(max(self.timeout, 60.0))
+        buf = bytearray()
+        try:
+            begin = {"cmd": "load_bin", "total": len(data)}
+            if psram:
+                begin["psram"] = True
+            sock.sendall(encode_request(begin))
+            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
+            sock.sendall(bytes(data))
+            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
+            sock.sendall(encode_request(replay))
+            reply = parse_reply(self._recv_line(sock, buf))
+            raise_for_status(reply, cmd=replay.get("cmd", "replay"))
+            return reply.data
         finally:
             try:
                 sock.close()

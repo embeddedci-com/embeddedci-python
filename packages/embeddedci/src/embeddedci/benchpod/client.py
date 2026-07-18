@@ -14,19 +14,25 @@ stubbed I2C sensor hook. Designed to drop straight into pytest::
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, List, Optional, Sequence, Union
 
 from . import can as _can
+from . import capture as _capture
+from . import dsp as _dsp
 from . import flash as _flash
 from . import i2c as _i2c
 from . import sensor as _sensor
 from . import uart as _uart
+from .capabilities import Capabilities
 from .constants import Efuse, Pin, Sensor, coerce_efuse, coerce_pin
 from .connection import resolve_connection
 from .errors import BenchPodError
 from .flash import FlashResult
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
+from .replay import Fault, ReplayHandle, normalize_fault
+from .results import AnalogCapture, Capture, LaCapture
 from .transport import Transport, open_transport
 from .transport.cloud import CloudTransport
 
@@ -43,6 +49,7 @@ class BenchPod:
         api_base: Optional[str] = None,
         cloud_token: Optional[str] = None,
         cloud_audience: Optional[str] = None,
+        api_key: Optional[str] = None,
         lease: bool = True,
         lease_wait: float = DEFAULT_LEASE_WAIT,
         lease_ttl: int = DEFAULT_LEASE_TTL,
@@ -62,6 +69,14 @@ class BenchPod:
         """
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
+        # Server-orchestration access (waveform library, server-side replay). The library
+        # endpoints need a user/API-key credential — a GitHub OIDC token cannot reach them — so
+        # keep the API key separate from the device transport's own auth.
+        self._api_base = api_base or os.environ.get("BENCHPOD_API_BASE")
+        self._api_key = api_key or os.environ.get("BENCHPOD_API_KEY")
+        self._caps: Optional[Capabilities] = None
+        self._server_api = None  # lazily built ServerApi
+        self._waveforms = None   # lazily built WaveformLibrary
         if transport is not None:
             self._transport: Transport = transport
         else:
@@ -87,6 +102,11 @@ class BenchPod:
                 self._transport.close()
                 raise
             self._transport.lease_id = self._lease.lease_id
+        # Remember the cloud device name + base so the server-orchestration client can address
+        # the same device (for server-side replay) and reuse the transport's session token.
+        self._device_name = getattr(self._transport, "device_name", "") or ""
+        if not self._api_base:
+            self._api_base = getattr(self._transport, "api_base", None)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -571,6 +591,308 @@ class BenchPod:
             coerce_pin(rx, "rx"), coerce_pin(tx, "tx"), int(baud)
         )
         return _uart.UartSession(link, max_buffer=max_buffer)
+
+    # -- capabilities -------------------------------------------------------
+
+    @property
+    def capabilities(self) -> Capabilities:
+        """The device's resolved :class:`Capabilities` (ADC scaling, DAC replay depth, flags).
+
+        Parsed from the device ``status`` and — when the SDK has server access (an API key) —
+        enriched with the fuller ``cap.*`` set the server holds (explicit calibration + replay
+        depth). Cached after the first call.
+        """
+        if self._caps is None:
+            try:
+                status = self.status() or {}
+            except Exception:
+                status = {}
+            caps = Capabilities.from_status(status if isinstance(status, dict) else {})
+            api = self._try_server_api()
+            if api is not None and self._device_name:
+                try:
+                    params = api.device_parameters(self._device_name)
+                    if params:
+                        caps = caps.merge(Capabilities.from_parameters(params))
+                except Exception:
+                    pass
+            self._caps = caps
+        return self._caps
+
+    def refresh_capabilities(self) -> Capabilities:
+        """Drop the cached capabilities and re-read them."""
+        self._caps = None
+        return self.capabilities
+
+    # -- ADC / logic-analyzer capture ---------------------------------------
+
+    def scope_capture(self, samples: int = 256, *, sample_rate_mhz: Optional[float] = None,
+                      source: str = "ext") -> Capture:
+        """Capture ADC samples and return a :class:`Capture` with CALIBRATED volts.
+
+        Works over any transport (LAN/serial or the cloud tunnel). The raw counts are scaled to
+        volts with the device's affine ADC model (:attr:`capabilities`), matching what the web
+        UI / server streams. For deep multi-second captures pass a large ``samples`` count.
+        """
+        return _capture.scope_capture(self._transport, self.capabilities, samples=samples,
+                                      sample_rate_mhz=sample_rate_mhz, source=source)
+
+    def capture_la(self, samples: int = 4096, *,
+                   sample_rate_mhz: Optional[float] = None) -> LaCapture:
+        """Capture raw 12-channel logic-analyzer words and return a :class:`LaCapture`."""
+        return _capture.capture_la(self._transport, samples=samples,
+                                   sample_rate_mhz=sample_rate_mhz)
+
+    def capture_analog(self, *, adc_samples: int = 256, adc_rate_mhz: Optional[float] = None,
+                       la_samples: int = 256, la_rate_mhz: Optional[float] = None) -> AnalogCapture:
+        """Correlated ADC + LA capture from a single hardware trigger (aligned timebases).
+
+        Set either count to 0 for a single-stream capture. Returns an :class:`AnalogCapture`
+        holding the calibrated ADC :class:`Capture` and the raw :class:`LaCapture`.
+        """
+        return _capture.capture_analog(
+            self._transport, self.capabilities, adc_samples=adc_samples,
+            adc_rate_mhz=adc_rate_mhz, la_samples=la_samples, la_rate_mhz=la_rate_mhz)
+
+    def decode(self, source: "LaCapture | Sequence[int]", protocol: str = "i2c", *,
+               sample_rate_hz: Optional[float] = None, **channels):
+        """Decode a protocol (``i2c``/``uart``/``spi``) from an LA capture or raw words.
+
+        ``source`` may be a :class:`LaCapture` (its sample rate is used) or a raw list of 12-bit
+        words. See :func:`benchpod.decode.decode` for the per-protocol channel/param names.
+        """
+        from . import decode as _decode
+
+        if isinstance(source, LaCapture):
+            words = source.words
+            if sample_rate_hz is None:
+                sample_rate_hz = source.sample_rate_hz
+        else:
+            words = list(source)
+        return _decode.decode(words, protocol, sample_rate_hz=sample_rate_hz or 0.0, **channels)
+
+    # -- DAC generate / DC / stop -------------------------------------------
+
+    def generate(self, waveform: str = "sine", *, freq: float, amplitude: float,
+                 offset: float = 0.0, duration_ms: Optional[int] = None,
+                 sample_rate_mhz: Optional[float] = None) -> Any:
+        """Generate a parametric DAC waveform (``sine``/``square``/``sawtooth``/…).
+
+        ``duration_ms=0`` (or omitted-and-looping firmware) plays until :meth:`dac_stop`.
+        """
+        req: dict = {"cmd": "generate", "waveform": waveform, "freq": freq,
+                     "amplitude": amplitude, "offset": offset}
+        if duration_ms is not None:
+            req["duration_ms"] = int(duration_ms)
+        if sample_rate_mhz is not None:
+            req["sample_rate_mhz"] = sample_rate_mhz
+        return self.command(req)
+
+    def dac_set(self, value: int, *, channel: Optional[int] = None) -> Any:
+        """Hold a raw DAC DC code (v1 ``dac_dc`` path). See :meth:`dac_output` for v2 volts."""
+        req: dict = {"cmd": "dac_set", "value": int(value)}
+        if channel is not None:
+            req["channel"] = int(channel)
+        return self.command(req)
+
+    def dac_stop(self) -> Any:
+        """Stop any running DAC output (generate or replay). Idempotent."""
+        return self.command({"cmd": "dac_stop"})
+
+    # -- power / current monitoring -----------------------------------------
+
+    def power_status(self) -> dict:
+        """Return the INA power-monitor reading (per-rail ``ok``/``bus_mv``/``current_ua``)."""
+        return self.command({"cmd": "power_status"})
+
+    # -- DAC arbitrary-waveform replay --------------------------------------
+
+    def _replay_bits(self) -> int:
+        b = self.capabilities.dac_replay_bits
+        if b and b > 0:
+            return b
+        # v2 (16-bit ADC) pods replay 16-bit; fall back to 8-bit otherwise.
+        return 16 if self.capabilities.adc_bits >= 16 else 8
+
+    def _arm_replay(self, code_bytes: bytes, *, bits: int, dac_path: str,
+                    sample_rate_mhz: Optional[float], deep: Optional[bool]) -> ReplayHandle:
+        """Route the DAC path, upload the codes and arm a looping replay over the tunnel."""
+        fn = getattr(self._transport, "load_replay", None)
+        if fn is None:
+            raise BenchPodError("replay needs a streaming transport (TCP/serial or cloud tunnel)")
+        n_samples = len(code_bytes) // (2 if bits > 8 else 1)
+        if n_samples == 0:
+            raise BenchPodError("replay has no samples")
+        if deep is None:
+            deep = n_samples > 2048  # exceeds the shallow DAC BRAM depth -> stream from PSRAM
+        if dac_path:
+            self.command({"cmd": "dac_out", "path": dac_path})
+        replay_req: dict = {"cmd": "replay", "samples": n_samples}
+        if sample_rate_mhz is not None:
+            replay_req["sample_rate_mhz"] = sample_rate_mhz
+        data = fn(data=code_bytes, replay=replay_req, psram=deep)
+        rate_hz = (sample_rate_mhz or 0.0) * 1e6
+        return ReplayHandle(stop=self.dac_stop, samples=n_samples, sample_rate_hz=rate_hz,
+                            dac_path=dac_path, deep=deep, data=data if isinstance(data, dict) else {})
+
+    def replay(self, source: "Capture | Sequence[float] | Sequence[int]", *,
+               dac_path: str = "5v", mapping: str = "faithful",
+               sample_rate_mhz: Optional[float] = None, deep: Optional[bool] = None,
+               fault: "Fault | dict | None" = None,
+               are_codes: bool = False) -> ReplayHandle:
+        """Replay a waveform on the DAC, streaming it to the device over the transport.
+
+        ``source`` is a captured :class:`Capture` (its volts are replayed), a sequence of volts
+        (floats), or — with ``are_codes=True`` — raw DAC codes. Volts are mapped to codes for the
+        ``dac_path`` output (``faithful`` reproduces the voltage, clipping outside range; ``fit``
+        auto-scales). The replay LOOPS until the returned :class:`ReplayHandle` is stopped, so it
+        can run concurrently with a capture (gateware v18). Use as a context manager::
+
+            with bp.replay(cap, dac_path="5v"):
+                la = bp.capture_la(8192, sample_rate_mhz=1)   # runs alongside the DAC
+        """
+        bits = self._replay_bits()
+        path_fs = _dsp.dac_path_fullscale_v(dac_path)
+        if isinstance(source, Capture):
+            volts = source.volts
+            codes = _dsp.volts_to_codes(volts, mapping, path_fs, bits=bits)
+        elif are_codes:
+            codes = [int(x) for x in source]
+        else:
+            volts = [float(x) for x in source]
+            codes = _dsp.volts_to_codes(volts, mapping, path_fs, bits=bits)
+        f = normalize_fault(fault)
+        if f:
+            codes = _dsp.apply_fault(codes, f, bits=bits)
+        return self._arm_replay(_dsp.codes_to_bytes(codes, bits), bits=bits, dac_path=dac_path,
+                                sample_rate_mhz=sample_rate_mhz, deep=deep)
+
+    def replaying(self, source, **kwargs) -> ReplayHandle:
+        """Alias for :meth:`replay` that reads as a context manager: ``with bp.replaying(...):``."""
+        return self.replay(source, **kwargs)
+
+    def replay_waveform(self, waveform: "str | Any" = None, *, waveform_id: Optional[str] = None,
+                        dac_path: str = "5v", mapping: str = "faithful",
+                        sample_rate_mhz: Optional[float] = None,
+                        window_start: int = 0, window_len: int = 0, target_samples: int = 0,
+                        fault: "Fault | dict | None" = None, deep: Optional[bool] = None,
+                        server_side: Optional[bool] = None) -> ReplayHandle:
+        """Load a **cloud-stored** waveform from the library and replay it on the DAC.
+
+        ``waveform`` is a waveform id (str) or a :class:`~embeddedci.benchpod.waveforms.Waveform`.
+        By default this uses the server's replay DSP (``POST /dac/replay/start``) when the SDK has
+        server access and the device is cloud-connected; otherwise it fetches the recording blob
+        and replays it over the device tunnel with the SAME DSP applied client-side. Either way
+        the library needs an API key (a GitHub OIDC token cannot read it).
+        """
+        wid = waveform_id or (waveform.id if hasattr(waveform, "id") else waveform)
+        if not wid:
+            raise BenchPodError("replay_waveform needs a waveform id")
+        lib = self.waveforms
+        wf = lib.get(wid)
+
+        use_server = server_side
+        if use_server is None:
+            use_server = bool(self._device_name)  # server can only reach a cloud-registered device
+        if use_server:
+            api = self._require_server_api()
+            payload: dict = {"device_id": api.resolve_device_id(self._device_name),
+                             "waveform_id": wid, "dac_path": dac_path, "mapping": mapping}
+            if sample_rate_mhz is not None:
+                payload["sample_rate_mhz"] = sample_rate_mhz
+            if window_start:
+                payload["window_start"] = int(window_start)
+            if window_len:
+                payload["window_len"] = int(window_len)
+            if target_samples:
+                payload["target_samples"] = int(target_samples)
+            f = normalize_fault(fault)
+            if f:
+                payload["fault"] = f
+            data = api.replay_start(payload)
+            return ReplayHandle(stop=self.dac_stop, samples=int(data.get("samples", 0) or 0),
+                                dac_path=dac_path, deep=bool(self.capabilities.dac_deep_replay),
+                                data=data)
+
+        # Client-side: fetch + DSP + stream over the tunnel.
+        bits = self._replay_bits()
+        if wf.is_recording:
+            raw = lib.download_recording(wid)
+            rc = _dsp.recording_to_replay_codes(
+                raw, src_full_scale_v=wf.full_scale_v or _dsp.dac_path_fullscale_v(dac_path),
+                dac_path=dac_path, mapping=mapping, window_start=window_start,
+                window_len=window_len, target_samples=target_samples, bits=bits,
+                deep=bool(deep) if deep is not None else (wf.sample_count > 2048),
+                max_samples=self.capabilities.dac_replay_max_samples or _dsp.REPLAY_MAX_SAMPLES,
+                fault=normalize_fault(fault))
+            code_bytes = rc.to_bytes()
+        elif wf.segments:
+            volts = _dsp.segments_to_volts(wf.segments, wf.sample_rate_hz or 1.0)
+            codes = _dsp.volts_to_codes(volts, mapping, _dsp.dac_path_fullscale_v(wf.dac_path or dac_path), bits=bits)
+            f = normalize_fault(fault)
+            if f:
+                codes = _dsp.apply_fault(codes, f, bits=bits)
+            code_bytes = _dsp.codes_to_bytes(codes, bits)
+        else:  # dac_waveform: inline codes
+            import base64
+            raw = base64.b64decode(lib.samples_b64(wid))
+            code_bytes = raw  # already device-ready codes at the waveform's bit width
+        return self._arm_replay(code_bytes, bits=bits, dac_path=dac_path or wf.dac_path,
+                                sample_rate_mhz=sample_rate_mhz, deep=deep)
+
+    def save_capture_as_recording(self, capture: Capture, name: str, *,
+                                  full_scale_v: Optional[float] = None) -> Any:
+        """Save an ADC :class:`Capture` to the cloud library as a ``recording`` (raw 16-bit)."""
+        volts = capture.volts
+        fs = full_scale_v
+        if fs is None:
+            peak = max((abs(v) for v in volts), default=1.0)
+            fs = peak if peak > 0 else 1.0
+        blob = _dsp.encode_recording_volts(volts, fs)
+        rate = capture.sample_rate_hz or 0.0
+        return self.waveforms.save_recording(name, blob, sample_rate_hz=rate, full_scale_v=fs)
+
+    # -- cloud waveform library + server API --------------------------------
+
+    def _try_server_api(self):
+        """Build a :class:`ServerApi` if possible (API key or a cloud session token), else None."""
+        if self._server_api is not None:
+            return self._server_api
+        token_provider = getattr(self._transport, "_session_token", None)
+        if not self._api_key and token_provider is None:
+            return None
+        from .server_api import ServerApi
+
+        self._server_api = ServerApi(
+            api_base=self._api_base, api_key=self._api_key,
+            token_provider=token_provider if not self._api_key else None,
+            lease_id=getattr(self._transport, "lease_id", None),
+        )
+        return self._server_api
+
+    def _require_server_api(self):
+        api = self._try_server_api()
+        if api is None:
+            raise BenchPodError(
+                "this operation needs embeddedci server access: pass api_key='eci_…' (or set "
+                "BENCHPOD_API_KEY). The cloud waveform library / server replay cannot be reached "
+                "with a GitHub OIDC token alone."
+            )
+        return api
+
+    @property
+    def server_api(self):
+        """The :class:`~embeddedci.benchpod.server_api.ServerApi` (needs an API key/session)."""
+        return self._require_server_api()
+
+    @property
+    def waveforms(self):
+        """The cloud :class:`~embeddedci.benchpod.waveforms.WaveformLibrary` (needs an API key)."""
+        if self._waveforms is None:
+            from .waveforms import WaveformLibrary
+
+            self._waveforms = WaveformLibrary(self._require_server_api())
+        return self._waveforms
 
     # -- low-level pass-throughs (TCP transport only) -----------------------
 

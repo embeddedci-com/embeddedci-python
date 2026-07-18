@@ -36,6 +36,9 @@ cloud = ["websocket-client>=1.6"]
 # LAN auto-discovery (connection="discover" / --benchpod-discover): browse mDNS for pods.
 # Kept optional so headless CI (cloud/explicit path, multicast often blocked) stays lean.
 discovery = ["zeroconf>=0.131"]
+# Signal analysis helpers on capture results (Capture.fft / dominant_frequency). The core
+# reductions (mean/rms/peak-to-peak) are pure-Python and need no extra; only the FFT uses numpy.
+analysis = ["numpy>=1.21"]
 
 [project.entry-points.pytest11]
 benchpod = "embeddedci.benchpod.pytest_plugin"

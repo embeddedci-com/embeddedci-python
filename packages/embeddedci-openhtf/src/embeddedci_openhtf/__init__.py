@@ -24,8 +24,13 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .analog import (
     adc_capture_phase,
+    dac_replay_phase,
     loopback_measure_phase,
     measure,
+    replay,
+    replay_waveform,
+    scope_capture,
+    scope_capture_phase,
     signal_generate,
     signal_generate_phase,
     signal_stop,
@@ -55,11 +60,16 @@ __all__ = [
     "boot_banner_phase",
     "signal_generate_phase",
     "adc_capture_phase",
+    "scope_capture_phase",
     "loopback_measure_phase",
+    "dac_replay_phase",
     # analog low-level helpers
     "signal_generate",
     "signal_stop",
     "measure",
+    "scope_capture",
+    "replay",
+    "replay_waveform",
     # measurement helpers
     "flash_ok_measurement",
     "uart_matched_measurement",
