@@ -20,6 +20,7 @@ from typing import Any, List, Optional, Sequence, Union
 
 from . import can as _can
 from . import capture as _capture
+from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import flash as _flash
 from . import i2c as _i2c
@@ -69,9 +70,9 @@ class BenchPod:
         """
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
-        # Server-orchestration access (waveform library, server-side replay). The library
-        # endpoints need a user/API-key credential — a GitHub OIDC token cannot reach them — so
-        # keep the API key separate from the device transport's own auth.
+        # Server-orchestration access (waveform library, server-side replay). Over the cloud
+        # destination these reuse the transport's session token (including a GitHub OIDC token);
+        # on LAN/serial there is none, so an explicit API key reaches the shared library.
         self._api_base = api_base or os.environ.get("BENCHPOD_API_BASE")
         self._api_key = api_key or os.environ.get("BENCHPOD_API_KEY")
         self._caps: Optional[Capabilities] = None
@@ -638,21 +639,34 @@ class BenchPod:
                                       sample_rate_mhz=sample_rate_mhz, source=source)
 
     def capture_la(self, samples: int = 4096, *,
-                   sample_rate_mhz: Optional[float] = None) -> LaCapture:
-        """Capture raw 12-channel logic-analyzer words and return a :class:`LaCapture`."""
+                   sample_rate_mhz: Optional[float] = None,
+                   stop_dac_after_us: int = 0) -> LaCapture:
+        """Capture raw 12-channel logic-analyzer words and return a :class:`LaCapture`.
+
+        ``stop_dac_after_us`` (>0) cuts a concurrently-running DAC that many microseconds into the
+        capture, at a sample-precise offset from the capture's hardware t0 (no-op on gw < v21).
+        """
         return _capture.capture_la(self._transport, samples=samples,
-                                   sample_rate_mhz=sample_rate_mhz)
+                                   sample_rate_mhz=sample_rate_mhz,
+                                   stop_dac_after_us=stop_dac_after_us)
 
     def capture_analog(self, *, adc_samples: int = 256, adc_rate_mhz: Optional[float] = None,
-                       la_samples: int = 256, la_rate_mhz: Optional[float] = None) -> AnalogCapture:
+                       la_samples: int = 256, la_rate_mhz: Optional[float] = None,
+                       stop_dac_after_us: int = 0) -> AnalogCapture:
         """Correlated ADC + LA capture from a single hardware trigger (aligned timebases).
 
         Set either count to 0 for a single-stream capture. Returns an :class:`AnalogCapture`
         holding the calibrated ADC :class:`Capture` and the raw :class:`LaCapture`.
+
+        ``stop_dac_after_us`` (>0) cuts a concurrently-running DAC that many microseconds into the
+        capture (sample-precise from t0), so the window shows the target reacting to the output
+        switching off. Pair with ``replay(..., on_capture=True)`` for a phase-locked stimulus →
+        capture → deterministic cutoff run (no-op on gw < v21).
         """
         return _capture.capture_analog(
             self._transport, self.capabilities, adc_samples=adc_samples,
-            adc_rate_mhz=adc_rate_mhz, la_samples=la_samples, la_rate_mhz=la_rate_mhz)
+            adc_rate_mhz=adc_rate_mhz, la_samples=la_samples, la_rate_mhz=la_rate_mhz,
+            stop_dac_after_us=stop_dac_after_us)
 
     def decode(self, source: "LaCapture | Sequence[int]", protocol: str = "i2c", *,
                sample_rate_hz: Optional[float] = None, **channels):
@@ -675,10 +689,12 @@ class BenchPod:
 
     def generate(self, waveform: str = "sine", *, freq: float, amplitude: float,
                  offset: float = 0.0, duration_ms: Optional[int] = None,
-                 sample_rate_mhz: Optional[float] = None) -> Any:
+                 sample_rate_mhz: Optional[float] = None, on_capture: bool = False) -> Any:
         """Generate a parametric DAC waveform (``sine``/``square``/``sawtooth``/…).
 
         ``duration_ms=0`` (or omitted-and-looping firmware) plays until :meth:`dac_stop`.
+        ``on_capture=True`` defers the start to the next capture's hardware t0 (phase-locked
+        co-trigger, gateware >= v27); the reply's ``cotrig`` reports whether it armed.
         """
         req: dict = {"cmd": "generate", "waveform": waveform, "freq": freq,
                      "amplitude": amplitude, "offset": offset}
@@ -686,6 +702,8 @@ class BenchPod:
             req["duration_ms"] = int(duration_ms)
         if sample_rate_mhz is not None:
             req["sample_rate_mhz"] = sample_rate_mhz
+        if on_capture:
+            req["on_capture"] = True
         return self.command(req)
 
     def dac_set(self, value: int, *, channel: Optional[int] = None) -> Any:
@@ -696,8 +714,76 @@ class BenchPod:
         return self.command(req)
 
     def dac_stop(self) -> Any:
-        """Stop any running DAC output (generate or replay). Idempotent."""
+        """Stop any running DAC output (generate, replay, or control loop). Idempotent."""
         return self.command({"cmd": "dac_stop"})
+
+    # -- closed-loop DAC control (panel/MPPT emulator) ----------------------
+
+    def control_loop(self, *, curve: "Sequence[int] | str | None" = None,
+                     voc_code: Optional[int] = None, sharpness: float = 4.0,
+                     points: int = _control_loop.CURVE_POINTS,
+                     k: int = _control_loop.DEFAULT_K,
+                     vmin: int = _control_loop.DEFAULT_VMIN,
+                     vmax: int = _control_loop.DEFAULT_VMAX,
+                     tick_div: int = _control_loop.DEFAULT_TICK_DIV
+                     ) -> "_control_loop.ControlLoopHandle":
+        """Arm the in-fabric closed-loop DAC controller (panel/MPPT emulator).
+
+        Each tick the iCE40 reads the ADC, looks it up in the curve LUT (``V = curve[ADC]``),
+        damps toward that target (``k``, Q15) and clamps to ``[vmin, vmax]``, then drives the DAC.
+        Provide the curve one of three ways: raw ``curve`` codes (0..65535), a base64url ``curve``
+        string, or ``voc_code`` (+ ``sharpness``) to synthesise a solar-panel I-V curve. Omit all
+        three to run clamp-only. Needs the loop gateware image (:attr:`Capabilities.dac_control_loop`
+        — switch with :meth:`fpga_image`). Returns a :class:`ControlLoopHandle` (context manager;
+        :meth:`~ControlLoopHandle.probe` for the live operating point, ``stop`` on exit)::
+
+            with bp.control_loop(voc_code=52000, sharpness=6, vmax=52000) as loop:
+                pt = loop.probe()      # IVPoint(i=<ADC current>, v=<DAC voltage>)
+        """
+        curve_b64 = None
+        if isinstance(curve, str):
+            curve_b64 = curve
+        elif curve is not None:
+            curve_b64 = _control_loop.encode_curve_b64url(curve)
+        elif voc_code is not None:
+            curve_b64 = _control_loop.encode_curve_b64url(
+                _control_loop.build_panel_curve(voc_code, sharpness, points))
+
+        req: dict = {"cmd": "dac_control_loop", "k": int(k), "vmin": int(vmin),
+                     "vmax": int(vmax), "tick_div": int(tick_div)}
+        if curve_b64:
+            req["curve"] = curve_b64
+        data = self.command(req)
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("armed") is False:
+            raise BenchPodError(f"control loop did not arm: {data!r}")
+        return _control_loop.ControlLoopHandle(
+            probe=self.loop_probe, stop=self.dac_stop, data=data)
+
+    def loop_probe(self) -> "_control_loop.IVPoint":
+        """Poll the running control loop's live operating point (:class:`IVPoint`).
+
+        ``i`` is the latest ADC reading (the loop's input "current"), ``v`` the DAC code it drove
+        this tick (the "voltage") — both raw codes.
+        """
+        data = self.command({"cmd": "dac_loop_probe"})
+        d = data if isinstance(data, dict) else {}
+        return _control_loop.IVPoint(i=int(d.get("i", 0)), v=int(d.get("v", 0)))
+
+    # -- runtime gateware image swap ----------------------------------------
+
+    def fpga_image(self, image: int) -> dict:
+        """Swap the iCE40 to another gateware image stored in the config flash, with NO reflash.
+
+        ``image=0`` is the closed-loop demo image (advertises :attr:`Capabilities.dac_control_loop`,
+        ``features=1``); ``image=1`` is the deep-DAC-PSRAM-replay image. The FPGA reboots into it
+        (~10 ms). Returns ``{"image", "version", "features"}``. Invalidates the cached capabilities
+        so the next :attr:`capabilities` read reflects the new image.
+        """
+        data = self.command({"cmd": "fpga_image", "image": int(image)})
+        self._caps = None
+        return data if isinstance(data, dict) else {}
 
     # -- power / current monitoring -----------------------------------------
 
@@ -715,8 +801,14 @@ class BenchPod:
         return 16 if self.capabilities.adc_bits >= 16 else 8
 
     def _arm_replay(self, code_bytes: bytes, *, bits: int, dac_path: str,
-                    sample_rate_mhz: Optional[float], deep: Optional[bool]) -> ReplayHandle:
-        """Route the DAC path, upload the codes and arm a looping replay over the tunnel."""
+                    sample_rate_mhz: Optional[float], deep: Optional[bool],
+                    on_capture: bool = False) -> ReplayHandle:
+        """Route the DAC path, upload the codes and arm a looping replay over the tunnel.
+
+        ``on_capture`` defers the DAC start so it fires on the NEXT capture's hardware t0
+        (phase-locked co-trigger, gateware >= v27); the reply's ``cotrig`` reports whether the
+        device actually armed (it falls back to an immediate start when it can't co-trigger).
+        """
         fn = getattr(self._transport, "load_replay", None)
         if fn is None:
             raise BenchPodError("replay needs a streaming transport (TCP/serial or cloud tunnel)")
@@ -730,16 +822,20 @@ class BenchPod:
         replay_req: dict = {"cmd": "replay", "samples": n_samples}
         if sample_rate_mhz is not None:
             replay_req["sample_rate_mhz"] = sample_rate_mhz
+        if on_capture:
+            replay_req["on_capture"] = True
         data = fn(data=code_bytes, replay=replay_req, psram=deep)
         rate_hz = (sample_rate_mhz or 0.0) * 1e6
+        d = data if isinstance(data, dict) else {}
         return ReplayHandle(stop=self.dac_stop, samples=n_samples, sample_rate_hz=rate_hz,
-                            dac_path=dac_path, deep=deep, data=data if isinstance(data, dict) else {})
+                            dac_path=dac_path, deep=deep, data=d,
+                            cotrig=bool(d.get("cotrig", False)))
 
     def replay(self, source: "Capture | Sequence[float] | Sequence[int]", *,
                dac_path: str = "5v", mapping: str = "faithful",
                sample_rate_mhz: Optional[float] = None, deep: Optional[bool] = None,
                fault: "Fault | dict | None" = None,
-               are_codes: bool = False) -> ReplayHandle:
+               are_codes: bool = False, on_capture: bool = False) -> ReplayHandle:
         """Replay a waveform on the DAC, streaming it to the device over the transport.
 
         ``source`` is a captured :class:`Capture` (its volts are replayed), a sequence of volts
@@ -750,6 +846,13 @@ class BenchPod:
 
             with bp.replay(cap, dac_path="5v"):
                 la = bp.capture_la(8192, sample_rate_mhz=1)   # runs alongside the DAC
+
+        Pass ``on_capture=True`` to phase-lock the DAC to the NEXT capture: the replay is armed
+        (``handle.cotrig`` is True) and only starts driving on that capture's hardware t0
+        (gateware >= v27, :attr:`Capabilities.dac_cotrig`)::
+
+            with bp.replay(cap, on_capture=True):      # armed, not yet driving
+                a = bp.capture_analog(adc_samples=4096, adc_rate_mhz=0.4)   # fires the DAC at t0
         """
         bits = self._replay_bits()
         path_fs = _dsp.dac_path_fullscale_v(dac_path)
@@ -765,7 +868,7 @@ class BenchPod:
         if f:
             codes = _dsp.apply_fault(codes, f, bits=bits)
         return self._arm_replay(_dsp.codes_to_bytes(codes, bits), bits=bits, dac_path=dac_path,
-                                sample_rate_mhz=sample_rate_mhz, deep=deep)
+                                sample_rate_mhz=sample_rate_mhz, deep=deep, on_capture=on_capture)
 
     def replaying(self, source, **kwargs) -> ReplayHandle:
         """Alias for :meth:`replay` that reads as a context manager: ``with bp.replaying(...):``."""
@@ -776,14 +879,16 @@ class BenchPod:
                         sample_rate_mhz: Optional[float] = None,
                         window_start: int = 0, window_len: int = 0, target_samples: int = 0,
                         fault: "Fault | dict | None" = None, deep: Optional[bool] = None,
-                        server_side: Optional[bool] = None) -> ReplayHandle:
+                        server_side: Optional[bool] = None,
+                        on_capture: bool = False) -> ReplayHandle:
         """Load a **cloud-stored** waveform from the library and replay it on the DAC.
 
         ``waveform`` is a waveform id (str) or a :class:`~embeddedci.benchpod.waveforms.Waveform`.
         By default this uses the server's replay DSP (``POST /dac/replay/start``) when the SDK has
         server access and the device is cloud-connected; otherwise it fetches the recording blob
-        and replays it over the device tunnel with the SAME DSP applied client-side. Either way
-        the library needs an API key (a GitHub OIDC token cannot read it).
+        and replays it over the device tunnel with the SAME DSP applied client-side. Over the cloud
+        destination the library reuses the connection's session token (incl. GitHub OIDC); on
+        LAN/serial pass an ``api_key`` to reach it.
         """
         wid = waveform_id or (waveform.id if hasattr(waveform, "id") else waveform)
         if not wid:
@@ -806,13 +911,18 @@ class BenchPod:
                 payload["window_len"] = int(window_len)
             if target_samples:
                 payload["target_samples"] = int(target_samples)
+            if on_capture:
+                payload["on_capture"] = True
             f = normalize_fault(fault)
             if f:
                 payload["fault"] = f
             data = api.replay_start(payload)
+            # The server replay is async: the "armed"/"playing" outcome arrives as a later
+            # dac.event frame, not this immediate reply, so infer cotrig from the request +
+            # the device capability (the pod falls back to immediate start when it can't).
             return ReplayHandle(stop=self.dac_stop, samples=int(data.get("samples", 0) or 0),
                                 dac_path=dac_path, deep=bool(self.capabilities.dac_deep_replay),
-                                data=data)
+                                data=data, cotrig=bool(on_capture and self.capabilities.dac_cotrig))
 
         # Client-side: fetch + DSP + stream over the tunnel.
         bits = self._replay_bits()
@@ -838,7 +948,7 @@ class BenchPod:
             raw = base64.b64decode(lib.samples_b64(wid))
             code_bytes = raw  # already device-ready codes at the waveform's bit width
         return self._arm_replay(code_bytes, bits=bits, dac_path=dac_path or wf.dac_path,
-                                sample_rate_mhz=sample_rate_mhz, deep=deep)
+                                sample_rate_mhz=sample_rate_mhz, deep=deep, on_capture=on_capture)
 
     def save_capture_as_recording(self, capture: Capture, name: str, *,
                                   full_scale_v: Optional[float] = None) -> Any:

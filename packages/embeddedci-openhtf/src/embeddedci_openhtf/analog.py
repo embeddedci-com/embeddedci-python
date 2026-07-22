@@ -35,6 +35,9 @@ __all__ = [
     "measure",
     "analog_path",
     "dac_output",
+    "control_loop",
+    "fpga_image",
+    "control_loop_phase",
     "adc_read",
     "scope_capture",
     "replay",
@@ -137,6 +140,20 @@ def replay_waveform(bench: Any, waveform_id: str, **kwargs):
     return bench.replay_waveform(waveform_id, **kwargs)
 
 
+def control_loop(bench: Any, **kwargs):
+    """Arm the in-fabric closed-loop DAC controller (panel/MPPT emulator).
+
+    See :meth:`BenchPod.control_loop`. Returns a
+    :class:`~embeddedci.benchpod.control_loop.ControlLoopHandle` (poll ``.probe()``, ``.stop()``).
+    """
+    return bench.control_loop(**kwargs)
+
+
+def fpga_image(bench: Any, image: int):
+    """Swap the iCE40 gateware image at runtime (0 = closed-loop, 1 = deep-replay)."""
+    return bench.fpga_image(image)
+
+
 # -- phase factories ---------------------------------------------------------
 
 def _stat_measures(prefix: str, *, mean_range: _Range, pp_range: _Range,
@@ -174,6 +191,43 @@ def signal_generate_phase(plug: type, *, waveform: str, freq: float,
                          amplitude, offset)
 
     return _gen
+
+
+def control_loop_phase(plug: type, *, voc_code: Optional[int] = None,
+                       sharpness: float = 4.0, k: int = 8192, vmin: int = 0,
+                       vmax: int = 65535, tick_div: int = 64, probes: int = 8,
+                       v_range: _Range = None, i_range: _Range = None,
+                       name: str = "control_loop") -> object:
+    """A phase that arms the closed-loop DAC controller, lets it settle, and records its
+    operating point.
+
+    Arms an in-fabric panel/MPPT emulator (``voc_code`` + ``sharpness`` synthesise the curve),
+    polls it ``probes`` times and records the settled ``control_loop_v`` (DAC voltage code) and
+    ``control_loop_i`` (ADC current code); pass ``v_range`` / ``i_range`` as ``(low, high)`` to
+    turn them into pass/fail limits. Stops the loop before returning. Needs the loop gateware
+    image (:attr:`Capabilities.dac_control_loop`).
+    """
+    v_meas = htf.Measurement("control_loop_v")
+    i_meas = htf.Measurement("control_loop_i")
+    if v_range is not None:
+        v_meas = v_meas.in_range(v_range[0], v_range[1])
+    if i_range is not None:
+        i_meas = i_meas.in_range(i_range[0], i_range[1])
+
+    @htf.PhaseOptions(name=name)
+    @htf.plug(bench=plug)
+    @htf.measures(v_meas, i_meas)
+    def _loop(test, bench):
+        with bench.control_loop(voc_code=voc_code, sharpness=sharpness, k=k,
+                                vmin=vmin, vmax=vmax, tick_div=tick_div) as loop:
+            pt = loop.probe()
+            for _ in range(max(1, probes) - 1):
+                pt = loop.probe()
+            test.measurements.control_loop_v = pt.v
+            test.measurements.control_loop_i = pt.i
+            test.logger.info("control loop settled: i=%d (ADC) -> v=%d (DAC)", pt.i, pt.v)
+
+    return _loop
 
 
 def adc_capture_phase(plug: type, *, samples: int = 4096,

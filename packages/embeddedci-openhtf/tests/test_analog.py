@@ -13,7 +13,13 @@ from embeddedci_openhtf import (
     signal_generate,
     signal_generate_phase,
 )
-from embeddedci_openhtf.analog import adc_read_phase, dac_output_phase
+from embeddedci_openhtf.analog import (
+    adc_read_phase,
+    control_loop,
+    control_loop_phase,
+    dac_output_phase,
+    fpga_image,
+)
 from _fake import FakeTransport
 
 # default fake waveform: triangle 0..255 -> min 0, max 255, mean 128, pp 255
@@ -87,6 +93,30 @@ def test_signal_generate_helper_through_plug_proxy():
     signal_generate(plug, waveform="square", freq=5000, amplitude=64)
     assert tx.commands[-1]["cmd"] == "generate"
     assert tx.commands[-1]["waveform"] == "square"
+
+
+def test_control_loop_phase_arms_and_records_operating_point():
+    tx = FakeTransport()
+    bench = benchpod_plug(transport=tx)
+    rec = _run(control_loop_phase(bench, voc_code=52000, sharpness=6, vmax=52000,
+                                  v_range=(0, 52000)))
+    assert rec.outcome == tr.Outcome.PASS
+    arm = next(c for c in tx.commands if c.get("cmd") == "dac_control_loop")
+    assert arm["vmax"] == 52000 and "curve" in arm
+    assert {"cmd": "dac_stop"} in tx.commands  # loop stopped on context exit
+    p = _phase(rec, "control_loop")
+    assert p.measurements["control_loop_v"].measured_value.value == 51000
+    assert p.measurements["control_loop_i"].measured_value.value == 4096
+
+
+def test_control_loop_and_fpga_image_helpers_through_plug_proxy():
+    tx = FakeTransport()
+    plug = benchpod_plug(transport=tx)()
+    out = fpga_image(plug, 0)
+    assert out["features"] == 1 and tx.commands[-1] == {"cmd": "fpga_image", "image": 0}
+    loop = control_loop(plug, voc_code=1000)
+    assert loop.armed
+    assert tx.commands[-1]["cmd"] == "dac_control_loop"
 
 
 def test_dac_output_phase_routes_and_sets_volts():

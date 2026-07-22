@@ -57,11 +57,20 @@ def scope_capture(transport: Any, caps: Capabilities, *, samples: int = 256,
 
 
 def capture_la(transport: Any, *, samples: int = 4096,
-               sample_rate_mhz: Optional[float] = None) -> LaCapture:
-    """Capture ``samples`` raw 12-channel LA words and return a :class:`LaCapture`."""
+               sample_rate_mhz: Optional[float] = None,
+               stop_dac_after_us: int = 0) -> LaCapture:
+    """Capture ``samples`` raw 12-channel LA words and return a :class:`LaCapture`.
+
+    ``stop_dac_after_us`` (>0) auto-stops a concurrently-running DAC this many microseconds into
+    the capture — the iCE40 cuts the DAC at exactly that offset from the capture's hardware t0
+    (sample-precise), so the captured window shows the target reacting to the output dropping.
+    No-op on gateware < v21.
+    """
     req: dict = {"cmd": "la_capture", "samples": int(samples)}
     if sample_rate_mhz is not None:
         req["sample_rate_mhz"] = sample_rate_mhz
+    if stop_dac_after_us and stop_dac_after_us > 0:
+        req["stop_dac_after_us"] = int(stop_dac_after_us)
     words: List[int] = []
     rate_hz = 0.0
     for chunk in _stream_or_samples(transport, req):
@@ -97,13 +106,18 @@ def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
 
 def capture_analog(transport: Any, caps: Capabilities, *, adc_samples: int = 256,
                    adc_rate_mhz: Optional[float] = None, la_samples: int = 256,
-                   la_rate_mhz: Optional[float] = None) -> AnalogCapture:
+                   la_rate_mhz: Optional[float] = None,
+                   stop_dac_after_us: int = 0) -> AnalogCapture:
     """Correlated ADC + LA capture from one hardware trigger (aligned timebases).
 
     Uses the firmware ``capture_dual`` command: the ADC region streams as dense counts and the
     LA region as RLE transition frames, which are reassembled here (mirroring the server). Set
     either count to 0 for a single-stream capture. Requires a streaming transport (TCP/serial or
     the cloud tunnel).
+
+    ``stop_dac_after_us`` (>0) auto-stops a concurrently-running DAC this many microseconds into
+    the capture, cut by the iCE40 at exactly that offset from the capture's hardware t0 — so an
+    ADC/LA window can show the target reacting to the output switching off (no-op on gw < v21).
     """
     if adc_samples <= 0 and la_samples <= 0:
         raise BenchPodError("capture_analog needs adc_samples or la_samples > 0")
@@ -115,6 +129,8 @@ def capture_analog(transport: Any, caps: Capabilities, *, adc_samples: int = 256
         req["adc_rate_mhz"] = adc_rate_mhz
     if la_rate_mhz is not None:
         req["la_rate_mhz"] = la_rate_mhz
+    if stop_dac_after_us and stop_dac_after_us > 0:
+        req["stop_dac_after_us"] = int(stop_dac_after_us)
 
     adc_counts: List[int] = []
     la_edges: List[List[int]] = []

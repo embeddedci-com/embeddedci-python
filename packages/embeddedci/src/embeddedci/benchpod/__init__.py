@@ -18,6 +18,7 @@ the result, all from a test::
 from __future__ import annotations
 
 from . import can
+from . import control_loop
 from . import decode
 from . import dsp
 from . import i2c
@@ -25,6 +26,7 @@ from .can import CanBus, CanFrame
 from .capabilities import Capabilities
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
+from .control_loop import ControlLoopHandle, IVPoint, build_panel_curve, encode_curve_b64url
 from .decode import SpiFrame, UartFrame
 from .i2c import I2CByte, I2CMessage, I2CTransaction
 from .replay import Fault, ReplayHandle, Segment
@@ -99,6 +101,12 @@ __all__ = [
     "WaveformLibrary",
     "ServerApi",
     "ServerApiError",
+    # closed-loop DAC control (panel/MPPT emulator)
+    "control_loop",
+    "ControlLoopHandle",
+    "IVPoint",
+    "build_panel_curve",
+    "encode_curve_b64url",
     # connection
     "ConnSpec",
     "resolve_connection",

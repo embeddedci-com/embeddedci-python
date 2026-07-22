@@ -72,6 +72,7 @@ claude mcp add benchpod -- uvx embeddedci-mcp
 | Pull-ups | `enable_pullup`, `disable_pullup`, `pullup_status` |
 | Capture | `scope_capture` (calibrated volts), `capture_logic`, `capture_analog`, `logic_decode`, `capture_adc` |
 | DAC / replay | `signal_generate`, `dac_stop`, `list_waveforms`, `save_capture_as_recording`, `replay_waveform` |
+| Closed-loop / gateware | `control_loop`, `loop_probe`, `fpga_image` |
 | Info | `capabilities`, `power_status` |
 | Low-level | `command`, `la_step`, `measure` |
 

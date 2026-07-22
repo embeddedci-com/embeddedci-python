@@ -178,7 +178,10 @@ the **token request itself failed**.
 | Raw 12-ch LA capture (`capture_la`) | ✅ LAN + cloud tunnel |
 | Correlated ADC + LA capture (`capture_analog`) | ✅ one hardware trigger, aligned |
 | DAC generate / DC / replay (`generate`, `dac_set`, `replay`) | ✅ looping, concurrent-with-capture (gw v18) |
-| Cloud waveform library + replay (`bp.waveforms`, `replay_waveform`) | ✅ needs an API key (see below) |
+| Cloud waveform library + replay (`bp.waveforms`, `replay_waveform`) | ✅ cloud (OIDC) or an API key on LAN (see below) |
+| DAC↔capture co-trigger + auto-stop (`replay(..., on_capture=True)`, `capture_*(stop_dac_after_us=…)`) | ✅ phase-locked to capture t0 (gw v27 / v21) |
+| Closed-loop DAC control — panel/MPPT emulator (`control_loop`, `loop_probe`) | ✅ needs the loop gateware image (`fpga_image`) |
+| Runtime gateware image swap (`fpga_image`) | ✅ loop ↔ deep-replay, no reflash |
 | Signal helpers (`la_step`) | ✅ minimal, TCP transport only |
 
 ## Scope, logic analyzer, and DAC replay
@@ -213,6 +216,36 @@ with benchpod.BenchPod("embeddedci:my-bench") as bp:
 `bp.replay(...)` accepts a `Capture` (its volts are replayed), a list of volts, or raw DAC codes
 (`are_codes=True`); `mapping="faithful"` reproduces the voltage (clipping outside the path range),
 `"fit"` auto-scales. Inject a fault with `fault=benchpod.Fault("flatline", start=…, width=…)`.
+
+### DAC ↔ capture co-trigger and auto-stop
+
+For a *deterministic* stimulus→response run, phase-lock the DAC to the capture instead of racing
+them from the host. `on_capture=True` arms the DAC to fire on the next capture's hardware t0, and
+`stop_dac_after_us=` cuts it at a sample-precise offset from that same t0:
+
+```python
+    # armed, not yet driving — the following capture starts it at t0 and cuts it at 2 ms
+    with bp.replay(cap, dac_path="5v", on_capture=True) as r:
+        assert r.cotrig                                    # device armed the co-trigger (gw v27)
+        a = bp.capture_analog(adc_samples=4096, adc_rate_mhz=0.4,
+                              la_samples=0, stop_dac_after_us=2000)   # DAC fires at t0, off at 2 ms
+```
+
+### Closed-loop DAC control (solar-panel / MPPT emulator)
+
+On the **loop gateware image**, the iCE40 runs a control loop in fabric: each tick it reads the ADC
+(a load "current"), looks it up in a panel I-V curve, damps and clamps, then drives the DAC — no
+host in the loop. Switch to that image with `fpga_image(0)` (deep-replay is `fpga_image(1)`):
+
+```python
+    if not bp.capabilities.dac_control_loop:
+        bp.fpga_image(0)                                   # swap to the loop image (~10 ms, no reflash)
+
+    curve = benchpod.build_panel_curve(voc_code=52000, sharpness=6)   # a solar panel I-V table
+    with bp.control_loop(curve=curve, vmax=52000) as loop:            # or voc_code=… to synthesise
+        pt = loop.probe()                                  # IVPoint(i=<ADC current>, v=<DAC voltage>)
+        print(pt.i, pt.v)
+```
 
 ## Cloud waveform library (load + replay stored recordings)
 

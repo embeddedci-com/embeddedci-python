@@ -90,6 +90,13 @@ class FakeTransport(Transport):
         if cmd == "adc_read":
             src = req.get("source", "ext")
             return {"source": src, "mv": 12034 if src == "ext" else 2502, "count": 63049}
+        if cmd == "dac_control_loop":
+            return {"armed": True, "k": req.get("k"), "vmin": req.get("vmin"),
+                    "vmax": req.get("vmax"), "tick_div": req.get("tick_div"), "curve_pts": 256}
+        if cmd == "dac_loop_probe":
+            return {"i": 4096, "v": 51000}
+        if cmd == "fpga_image":
+            return {"image": req.get("image"), "version": 27, "features": 1}
         return None
 
     def samples(self, req: dict) -> List[int]:

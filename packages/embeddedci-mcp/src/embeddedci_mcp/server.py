@@ -523,14 +523,21 @@ def signal_generate(
     offset: float = 0.0,
     duration_ms: Optional[int] = None,
     sample_rate_mhz: Optional[float] = None,
+    on_capture: bool = False,
 ) -> Any:
-    """Generate a DAC waveform (sine/square/sawtooth/…) on the analog output."""
+    """Generate a DAC waveform (sine/square/sawtooth/…) on the analog output.
+
+    ``on_capture=True`` arms the DAC to start on the next capture's hardware t0 (phase-locked
+    co-trigger, gw >= v27); the reply's ``cotrig`` reports whether it armed.
+    """
     req: dict = {"cmd": "generate", "waveform": waveform,
                  "freq": freq, "amplitude": amplitude, "offset": offset}
     if duration_ms is not None:
         req["duration_ms"] = duration_ms
     if sample_rate_mhz is not None:
         req["sample_rate_mhz"] = sample_rate_mhz
+    if on_capture:
+        req["on_capture"] = True
     return SESSION.require().command(req)
 
 
@@ -586,20 +593,32 @@ def scope_capture(samples: int = 256, sample_rate_mhz: Optional[float] = None) -
 
 @mcp.tool()
 @_safe
-def capture_logic(samples: int = 4096, sample_rate_mhz: Optional[float] = None) -> dict:
-    """Capture raw 12-channel logic-analyzer words; returns count + the first 32 words."""
-    la = SESSION.require().capture_la(samples, sample_rate_mhz=sample_rate_mhz)
+def capture_logic(samples: int = 4096, sample_rate_mhz: Optional[float] = None,
+                  stop_dac_after_us: int = 0) -> dict:
+    """Capture raw 12-channel logic-analyzer words; returns count + the first 32 words.
+
+    ``stop_dac_after_us`` (>0) cuts a concurrently-running DAC that many microseconds into the
+    capture, at a sample-precise offset from the capture's hardware t0 (no-op on gw < v21).
+    """
+    la = SESSION.require().capture_la(samples, sample_rate_mhz=sample_rate_mhz,
+                                      stop_dac_after_us=stop_dac_after_us)
     return {"count": len(la), "sample_rate_hz": la.sample_rate_hz, "head": la.words[:32]}
 
 
 @mcp.tool()
 @_safe
 def capture_analog(adc_samples: int = 256, adc_rate_mhz: Optional[float] = None,
-                   la_samples: int = 256, la_rate_mhz: Optional[float] = None) -> dict:
-    """Correlated ADC + LA capture from ONE hardware trigger (aligned timebases)."""
+                   la_samples: int = 256, la_rate_mhz: Optional[float] = None,
+                   stop_dac_after_us: int = 0) -> dict:
+    """Correlated ADC + LA capture from ONE hardware trigger (aligned timebases).
+
+    ``stop_dac_after_us`` (>0) cuts a concurrently-running DAC that many microseconds into the
+    capture (sample-precise from t0), so the window shows the target react to the output dropping.
+    """
     ac = SESSION.require().capture_analog(
         adc_samples=adc_samples, adc_rate_mhz=adc_rate_mhz,
-        la_samples=la_samples, la_rate_mhz=la_rate_mhz)
+        la_samples=la_samples, la_rate_mhz=la_rate_mhz,
+        stop_dac_after_us=stop_dac_after_us)
     return {"adc": _summarize_capture(ac.adc),
             "la": {"count": len(ac.la), "sample_rate_hz": ac.la.sample_rate_hz,
                    "head": ac.la.words[:32]}}
@@ -659,6 +678,7 @@ def capabilities() -> dict:
         "adc_affine": c.adc_affine is not None,
         "dac_replay": c.dac_replay, "dac_deep_replay": c.dac_deep_replay,
         "dac_replay_bits": c.dac_replay_bits, "dac_replay_max_samples": c.dac_replay_max_samples,
+        "dac_control_loop": c.dac_control_loop, "dac_cotrig": c.dac_cotrig,
         "scope": c.scope, "analyzer": c.analyzer,
     }
 
@@ -686,15 +706,58 @@ def save_capture_as_recording(name: str, samples: int = 2048,
 @mcp.tool()
 @_safe
 def replay_waveform(waveform_id: str, dac_path: str = "5v", mapping: str = "faithful",
-                    target_samples: int = 4096) -> dict:
+                    target_samples: int = 4096, on_capture: bool = False) -> dict:
     """Load a cloud-stored waveform and replay it (looping) on the DAC (needs API key).
 
     Call ``dac_stop`` to stop it. ``mapping`` is ``faithful`` (reproduce volts, clip) or ``fit``
     (auto-scale). Deep recordings stream from PSRAM and can run alongside a capture (v18).
+    ``on_capture=True`` arms the DAC to fire on the next capture's hardware t0 (phase-locked
+    co-trigger, gw >= v27); the returned ``cotrig`` reports whether it armed.
     """
     handle = SESSION.require().replay_waveform(
-        waveform_id, dac_path=dac_path, mapping=mapping, target_samples=target_samples)
-    return {"ok": True, "samples": handle.samples, "dac_path": dac_path}
+        waveform_id, dac_path=dac_path, mapping=mapping, target_samples=target_samples,
+        on_capture=on_capture)
+    return {"ok": True, "samples": handle.samples, "dac_path": dac_path, "cotrig": handle.cotrig}
+
+
+# -- closed-loop DAC control (panel/MPPT emulator) --------------------------
+
+@mcp.tool()
+@_safe
+def control_loop(voc_code: Optional[int] = None, sharpness: float = 4.0,
+                 k: int = 8192, vmin: int = 0, vmax: int = 65535,
+                 tick_div: int = 64, points: int = 256) -> dict:
+    """Arm the in-fabric closed-loop DAC controller (solar-panel / MPPT emulator).
+
+    Each tick the iCE40 reads the ADC, looks it up in a panel I-V curve, damps (``k``, Q15) and
+    clamps to ``[vmin, vmax]``, then drives the DAC. Pass ``voc_code`` (+ ``sharpness``) to
+    synthesise the panel curve, or omit it to run clamp-only. Needs the loop gateware image
+    (``capabilities.dac_control_loop`` — switch with ``fpga_image(0)``). Poll with ``loop_probe``;
+    stop with ``dac_stop``.
+    """
+    loop = SESSION.require().control_loop(
+        voc_code=voc_code, sharpness=sharpness, k=k, vmin=vmin, vmax=vmax,
+        tick_div=tick_div, points=points)
+    return {"armed": loop.armed, "k": loop.k, "vmin": loop.vmin, "vmax": loop.vmax,
+            "tick_div": loop.tick_div, "curve_pts": loop.curve_pts}
+
+
+@mcp.tool()
+@_safe
+def loop_probe() -> dict:
+    """Poll the running control loop's live operating point: ``i`` = ADC (current), ``v`` = DAC."""
+    pt = SESSION.require().loop_probe()
+    return {"i": pt.i, "v": pt.v}
+
+
+@mcp.tool()
+@_safe
+def fpga_image(image: int) -> dict:
+    """Swap the iCE40 gateware image at runtime (no reflash). 0 = closed-loop demo, 1 = deep-replay.
+
+    Returns ``{image, version, features}`` (features=1 = closed-loop). Reboots the FPGA (~10 ms).
+    """
+    return SESSION.require().fpga_image(image)
 
 
 # -- resources (read-only context for the agent) ----------------------------

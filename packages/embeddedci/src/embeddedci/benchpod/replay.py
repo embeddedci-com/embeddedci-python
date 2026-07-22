@@ -64,13 +64,18 @@ class ReplayHandle:
     """A currently-armed (looping) DAC replay. Use as a context manager or call :meth:`stop`."""
 
     def __init__(self, *, stop: Callable[[], Any], samples: int = 0, sample_rate_hz: float = 0.0,
-                 dac_path: str = "", deep: bool = False, data: Optional[dict] = None) -> None:
+                 dac_path: str = "", deep: bool = False, data: Optional[dict] = None,
+                 cotrig: bool = False) -> None:
         self._stop = stop
         self.samples = samples
         self.sample_rate_hz = sample_rate_hz
         self.dac_path = dac_path
         self.deep = deep
         self.data = data or {}
+        #: True when the DAC was ARMED to co-trigger with the next capture (``on_capture``) rather
+        #: than started immediately — it begins driving on that capture's hardware t0. When False
+        #: the replay is already playing. Reflects the device/server ``cotrig`` reply.
+        self.cotrig = cotrig
         self._stopped = False
 
     def stop(self) -> Any:
@@ -88,7 +93,7 @@ class ReplayHandle:
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (f"ReplayHandle(samples={self.samples}, rate_hz={self.sample_rate_hz:.0f}, "
-                f"dac_path={self.dac_path!r}, deep={self.deep})")
+                f"dac_path={self.dac_path!r}, deep={self.deep}, cotrig={self.cotrig})")
 
 
 def normalize_fault(fault: "Fault | dict | None") -> Optional[Dict[str, Any]]:

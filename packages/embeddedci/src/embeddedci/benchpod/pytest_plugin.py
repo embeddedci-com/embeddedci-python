@@ -88,8 +88,9 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         default=None,
         dest="benchpod_api_key",
         help="embeddedci API key (eci_…) for the cloud waveform library + server-side DAC "
-        "replay. Required to load/save cloud-stored waveforms — a GitHub OIDC token cannot "
-        "reach those endpoints. Falls back to BENCHPOD_API_KEY.",
+        "replay on a LAN/serial connection. Not needed over the cloud destination "
+        "('embeddedci:<device>'), which reuses its session token (incl. GitHub OIDC). "
+        "Falls back to BENCHPOD_API_KEY.",
     )
     group.addoption(
         "--benchpod-firmware",

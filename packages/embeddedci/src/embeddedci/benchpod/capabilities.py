@@ -106,6 +106,12 @@ class Capabilities:
     dac_dc: bool = False
     dac_replay: bool = False
     dac_deep_replay: bool = False
+    #: in-fabric closed-loop DAC control (panel/MPPT emulator); only the loop gateware image
+    #: advertises it. See :meth:`~embeddedci.benchpod.client.BenchPod.control_loop`.
+    dac_control_loop: bool = False
+    #: DAC↔capture co-trigger: a replay can be armed to fire on the next capture's hardware t0
+    #: (phase-locked, gateware >= v27). See ``replay_waveform(on_capture=True)``.
+    dac_cotrig: bool = False
     dac_bits: int = 8
     dac_replay_bits: int = 8
     dac_replay_max_samples: int = 4096
@@ -187,7 +193,9 @@ class Capabilities:
             c.dac_channels = v
         for attr, key in (
             ("dac", "cap.dac"), ("dac_dc", "cap.dac_dc"), ("dac_replay", "cap.dac_replay"),
-            ("dac_deep_replay", "cap.dac_deep_replay"), ("scope", "cap.scope"),
+            ("dac_deep_replay", "cap.dac_deep_replay"),
+            ("dac_control_loop", "cap.dac_control_loop"), ("dac_cotrig", "cap.dac_cotrig"),
+            ("scope", "cap.scope"),
             ("analyzer", "cap.analyzer"), ("serial", "cap.serial"), ("tunnel", "cap.tunnel"),
             ("command", "cap.command"), ("ota", "cap.ota"),
         ):
