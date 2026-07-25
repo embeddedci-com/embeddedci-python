@@ -35,6 +35,33 @@ DEFAULT_VMIN = 0
 DEFAULT_VMAX = 0xFFFF
 DEFAULT_TICK_DIV = 64
 
+#: Bounds the gateware actually honours. The fabric multiplies with ``k[14:0]``, so a k above
+#: 32767 wraps to a *small* gain (a loop that crawls instead of racing) and k=0 freezes the output
+#: at ``vmin``; the pipelined tick needs at least 8 clk48 cycles to retire a pass.
+K_MIN, K_MAX = 1, 32767
+TICK_DIV_MIN = 8
+
+
+def normalise_loop_params(k: int, vmin: int, vmax: int, tick_div: int) -> tuple:
+    """Validate + normalise the loop's arm parameters, mirroring the firmware's own guard
+    (``bench-pod-firmware/stm32h563/src/dac_loop_params.c``).
+
+    ``k`` and ``tick_div`` are CLAMPED into the range the gateware honours. An inverted output
+    window (``vmin > vmax``) is REJECTED: the gateware clamps against ``vmin`` first, so it would
+    pin the DAC at ``vmin`` and silently ignore the ceiling you asked for — on an emulator, that
+    means driving a rail the DUT was supposed to be protected from. Returns the effective
+    ``(k, vmin, vmax, tick_div)``.
+    """
+    k, vmin, vmax, tick_div = int(k), int(vmin), int(vmax), int(tick_div)
+    if vmin > vmax:
+        raise ValueError(f"vmin ({vmin}) must be <= vmax ({vmax}): an inverted clamp would pin the DAC at vmin")
+    for name, val in (("vmin", vmin), ("vmax", vmax)):
+        if not 0 <= val <= 0xFFFF:
+            raise ValueError(f"{name} ({val}) must be a 16-bit DAC code (0..65535)")
+    k = max(K_MIN, min(K_MAX, k))
+    tick_div = max(TICK_DIV_MIN, min(0xFFFF, tick_div))
+    return k, vmin, vmax, tick_div
+
 
 def build_panel_curve(voc_code: int, sharpness: float = 4.0,
                       points: int = CURVE_POINTS) -> List[int]:

@@ -16,7 +16,7 @@ from embeddedci.benchpod import capture as cap_mod
 from embeddedci.benchpod import control_loop as cl
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import BenchPod
-from embeddedci.benchpod.control_loop import ControlLoopHandle, IVPoint
+from embeddedci.benchpod.control_loop import ControlLoopHandle, IVPoint, normalise_loop_params
 
 
 # -- curve builder / encoder (parity with controlLoopCurve.ts) ---------------
@@ -198,3 +198,39 @@ def test_capabilities_parse_new_flags():
     assert c.dac_control_loop is True and c.dac_cotrig is True
     c2 = Capabilities.from_parameters({})
     assert c2.dac_control_loop is False and c2.dac_cotrig is False
+
+
+def test_normalise_loop_params_rejects_inverted_clamp():
+    """vmin > vmax would pin the DAC at vmin in fabric (the gateware clamps against vmin first)
+    and silently discard the ceiling — refuse it before it reaches a live bench."""
+    with pytest.raises(ValueError, match="vmin"):
+        normalise_loop_params(k=8192, vmin=50000, vmax=10000, tick_div=64)
+    # vmin == vmax is legal: it is how a fixed output level is pinned.
+    assert normalise_loop_params(k=8192, vmin=2000, vmax=2000, tick_div=64) == (8192, 2000, 2000, 64)
+
+
+def test_normalise_loop_params_clamps_gain_and_tick():
+    # The fabric uses k[14:0]: >32767 would wrap to a tiny gain, and k=0 freezes the output.
+    assert normalise_loop_params(k=65535, vmin=0, vmax=65535, tick_div=64)[0] == 32767
+    assert normalise_loop_params(k=0, vmin=0, vmax=65535, tick_div=64)[0] == 1
+    # The pipelined tick needs >= 8 clk48 cycles.
+    assert normalise_loop_params(k=8192, vmin=0, vmax=65535, tick_div=0)[3] == 8
+
+
+def test_normalise_loop_params_rejects_out_of_range_codes():
+    with pytest.raises(ValueError, match="vmax"):
+        normalise_loop_params(k=8192, vmin=0, vmax=70000, tick_div=64)
+
+
+def test_control_loop_rejects_inverted_clamp_before_sending():
+    """The client must not even send an arm it knows the device will refuse."""
+    bp, t = _bp({"dac_control_loop": {"armed": True}})
+    with pytest.raises(ValueError):
+        bp.control_loop(voc_code=52000, vmin=50000, vmax=10000)
+    assert not any(c.get("cmd") == "dac_control_loop" for c in t.commands)
+
+
+def test_control_loop_sends_the_clamped_gain():
+    bp, t = _bp({"dac_control_loop": {"armed": True}})
+    bp.control_loop(voc_code=52000, vmax=52000, k=65535, tick_div=1)
+    assert t.commands[-1]["k"] == 32767 and t.commands[-1]["tick_div"] == 8

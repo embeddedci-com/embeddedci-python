@@ -749,6 +749,10 @@ class BenchPod:
             curve_b64 = _control_loop.encode_curve_b64url(
                 _control_loop.build_panel_curve(voc_code, sharpness, points))
 
+        # Same guard the firmware applies, applied before the round trip so a bad clamp is a
+        # ValueError here instead of a device error (or, on firmware older than the guard, a loop
+        # that arms "fine" and pins the DAC at vmin).
+        k, vmin, vmax, tick_div = _control_loop.normalise_loop_params(k, vmin, vmax, tick_div)
         req: dict = {"cmd": "dac_control_loop", "k": int(k), "vmin": int(vmin),
                      "vmax": int(vmax), "tick_div": int(tick_div)}
         if curve_b64:
