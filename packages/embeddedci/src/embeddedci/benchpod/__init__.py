@@ -26,7 +26,16 @@ from .can import CanBus, CanFrame
 from .capabilities import Capabilities
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
-from .control_loop import ControlLoopHandle, IVPoint, build_panel_curve, encode_curve_b64url
+from .control_loop import (
+    ControlLoopHandle,
+    IVPoint,
+    build_constant_curve,
+    build_linear_curve,
+    build_panel_curve,
+    curve_output_at,
+    encode_curve_b64url,
+    input_percent_to_code,
+)
 from .decode import SpiFrame, UartFrame
 from .i2c import I2CByte, I2CMessage, I2CTransaction
 from .replay import Fault, ReplayHandle, Segment
@@ -106,6 +115,10 @@ __all__ = [
     "ControlLoopHandle",
     "IVPoint",
     "build_panel_curve",
+    "build_constant_curve",
+    "build_linear_curve",
+    "curve_output_at",
+    "input_percent_to_code",
     "encode_curve_b64url",
     # connection
     "ConnSpec",

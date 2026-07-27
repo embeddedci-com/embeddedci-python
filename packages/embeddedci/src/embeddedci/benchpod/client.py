@@ -717,7 +717,7 @@ class BenchPod:
         """Stop any running DAC output (generate, replay, or control loop). Idempotent."""
         return self.command({"cmd": "dac_stop"})
 
-    # -- closed-loop DAC control (panel/MPPT emulator) ----------------------
+    # -- in-fabric DAC control loop -----------------------------------------
 
     def control_loop(self, *, curve: "Sequence[int] | str | None" = None,
                      voc_code: Optional[int] = None, sharpness: float = 4.0,
@@ -725,20 +725,37 @@ class BenchPod:
                      k: int = _control_loop.DEFAULT_K,
                      vmin: int = _control_loop.DEFAULT_VMIN,
                      vmax: int = _control_loop.DEFAULT_VMAX,
-                     tick_div: int = _control_loop.DEFAULT_TICK_DIV
+                     tick_div: int = _control_loop.DEFAULT_TICK_DIV,
+                     source: Optional[str] = None,
+                     input_code: int = 0,
+                     step: int = 0
                      ) -> "_control_loop.ControlLoopHandle":
-        """Arm the in-fabric closed-loop DAC controller (panel/MPPT emulator).
+        """Arm the in-fabric DAC control loop.
 
-        Each tick the iCE40 reads the ADC, looks it up in the curve LUT (``V = curve[ADC]``),
+        Each tick the iCE40 takes an input, looks it up in the curve LUT (``out = curve[in]``),
         damps toward that target (``k``, Q15) and clamps to ``[vmin, vmax]``, then drives the DAC.
         Provide the curve one of three ways: raw ``curve`` codes (0..65535), a base64url ``curve``
-        string, or ``voc_code`` (+ ``sharpness``) to synthesise a solar-panel I-V curve. Omit all
-        three to run clamp-only. Needs the loop gateware image (:attr:`Capabilities.dac_control_loop`
-        — switch with :meth:`fpga_image`). Returns a :class:`ControlLoopHandle` (context manager;
+        string, or ``voc_code`` (+ ``sharpness``) to synthesise the solar-panel I-V preset. Omit
+        all three to run clamp-only. Needs the loop gateware image
+        (:attr:`Capabilities.dac_control_loop` — switch with :meth:`fpga_image`).
+
+        ``source`` picks where the INPUT comes from (needs
+        :attr:`Capabilities.dac_loop_sources`; leave it ``None`` for the device default, the
+        live ADC): ``"adc"`` closes the loop around the DUT, ``"fixed"`` holds ``input_code``
+        with the ADC out of the path, ``"sweep"`` advances the input by ``step`` every tick.
+
+        Returns a :class:`ControlLoopHandle` (context manager;
         :meth:`~ControlLoopHandle.probe` for the live operating point, ``stop`` on exit)::
 
             with bp.control_loop(voc_code=52000, sharpness=6, vmax=52000) as loop:
-                pt = loop.probe()      # IVPoint(i=<ADC current>, v=<DAC voltage>)
+                pt = loop.probe()      # IVPoint(i=<ADC>, v=<DAC>)
+
+            # Open loop: hold one curve point and meter the output — no ADC involved.
+            curve = benchpod.build_panel_curve(52000, 6)
+            with bp.control_loop(curve=curve, vmax=65535, source="fixed", input_code=0) as loop:
+                assert loop.probe().v == pytest.approx(
+                    benchpod.curve_output_at(curve, 0), abs=200)
+                loop.set_input(benchpod.input_percent_to_code(50))
         """
         curve_b64 = None
         if isinstance(curve, str):
@@ -749,31 +766,66 @@ class BenchPod:
             curve_b64 = _control_loop.encode_curve_b64url(
                 _control_loop.build_panel_curve(voc_code, sharpness, points))
 
-        # Same guard the firmware applies, applied before the round trip so a bad clamp is a
-        # ValueError here instead of a device error (or, on firmware older than the guard, a loop
-        # that arms "fine" and pins the DAC at vmin).
+        # Same guards the firmware applies, applied before the round trip so a bad clamp or a
+        # frozen "sweep" is a ValueError here instead of a device error (or, on firmware older
+        # than the guard, a loop that arms "fine" and pins the DAC at vmin).
         k, vmin, vmax, tick_div = _control_loop.normalise_loop_params(k, vmin, vmax, tick_div)
+        source = _control_loop.normalise_loop_source(source, step)
         req: dict = {"cmd": "dac_control_loop", "k": int(k), "vmin": int(vmin),
                      "vmax": int(vmax), "tick_div": int(tick_div)}
         if curve_b64:
             req["curve"] = curve_b64
+        if source is not None:
+            # Only sent when asked for, so a pod without selectable sources still arms as the
+            # ADC-driven closed loop instead of being refused.
+            req["source"] = source
+            req["input"] = int(input_code)
+            req["step"] = int(step)
         data = self.command(req)
         if not isinstance(data, dict):
             data = {}
         if data.get("armed") is False:
             raise BenchPodError(f"control loop did not arm: {data!r}")
         return _control_loop.ControlLoopHandle(
-            probe=self.loop_probe, stop=self.dac_stop, data=data)
+            probe=self.loop_probe, stop=self.dac_stop, data=data,
+            set_input=self.loop_input)
+
+    def loop_input(self, input_code: Optional[int] = None, *,
+                   source: Optional[str] = None, step: Optional[int] = None) -> dict:
+        """Re-target a RUNNING loop's input without re-arming or re-uploading the curve.
+
+        The open-loop stepping flow — hold a curve point, meter the output, move to the next —
+        where keeping the curve untouched is what makes consecutive readings comparable. Omitted
+        fields keep their current device-side value. Needs
+        :attr:`Capabilities.dac_loop_sources`. Returns the device's
+        ``{"source", "input", "step", "v"}``; ``v`` is the output at the instant of the write, so
+        poll :meth:`loop_probe` for the settled value.
+        """
+        source = _control_loop.normalise_loop_source(source, step if step is not None else 1)
+        req: dict = {"cmd": "dac_loop_input"}
+        if input_code is not None:
+            req["input"] = int(input_code)
+        if source is not None:
+            req["source"] = source
+        if step is not None:
+            req["step"] = int(step)
+        data = self.command(req)
+        return data if isinstance(data, dict) else {}
 
     def loop_probe(self) -> "_control_loop.IVPoint":
         """Poll the running control loop's live operating point (:class:`IVPoint`).
 
-        ``i`` is the latest ADC reading (the loop's input "current"), ``v`` the DAC code it drove
-        this tick (the "voltage") — both raw codes.
+        ``i`` is the latest ADC reading and ``v`` the DAC code the loop drove this tick.
+        :attr:`~IVPoint.loop_input` is the value the loop ACTUALLY indexed the curve with — the
+        one to assert against, since in a fixed/sweep run the ADC is not in the path at all.
         """
         data = self.command({"cmd": "dac_loop_probe"})
         d = data if isinstance(data, dict) else {}
-        return _control_loop.IVPoint(i=int(d.get("i", 0)), v=int(d.get("v", 0)))
+        raw_in = d.get("in")
+        return _control_loop.IVPoint(
+            i=int(d.get("i", 0)), v=int(d.get("v", 0)),
+            input_code=None if raw_in is None else int(raw_in),
+            source=d.get("source"))
 
     # -- runtime gateware image swap ----------------------------------------
 

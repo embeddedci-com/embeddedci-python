@@ -234,3 +234,111 @@ def test_control_loop_sends_the_clamped_gain():
     bp, t = _bp({"dac_control_loop": {"armed": True}})
     bp.control_loop(voc_code=52000, vmax=52000, k=65535, tick_div=1)
     assert t.commands[-1]["k"] == 32767 and t.commands[-1]["tick_div"] == 8
+
+
+# -- selectable loop INPUT source (gateware >= v29) ---------------------------
+# The open-loop sources are how the DAC/output stage is validated with the ADC out of the
+# picture, so what matters here is that a request for one is either honoured exactly or
+# refused — never quietly turned into the ADC-driven closed loop.
+
+def test_normalise_loop_source_rejects_unknown_and_frozen_sweep():
+    assert cl.normalise_loop_source(None, 0) is None      # unspecified -> device default
+    assert cl.normalise_loop_source("fixed", 0) == "fixed"  # a held point needs no step
+    assert cl.normalise_loop_source("sweep", 4) == "sweep"
+    with pytest.raises(ValueError, match="unknown loop input source"):
+        cl.normalise_loop_source("open", 1)
+    with pytest.raises(ValueError, match="never advances"):
+        cl.normalise_loop_source("sweep", 0)
+
+
+def test_control_loop_sends_source_only_when_asked():
+    bp, t = _bp({"dac_control_loop": {"armed": True, "source": "fixed", "input": 32768}})
+    loop = bp.control_loop(curve=[1, 2, 3], source="fixed", input_code=32768)
+    cmd = t.commands[-1]
+    assert cmd["source"] == "fixed" and cmd["input"] == 32768 and cmd["step"] == 0
+    assert loop.source == "fixed" and loop.input_code == 32768
+    # Left out -> the fields are ABSENT, so a pod without selectable sources still arms as the
+    # ADC-driven closed loop instead of being refused for an unknown field.
+    bp.control_loop(curve=[1, 2, 3])
+    assert "source" not in t.commands[-1] and "input" not in t.commands[-1]
+
+
+def test_control_loop_rejects_a_bad_source_before_sending():
+    bp, t = _bp({"dac_control_loop": {"armed": True}})
+    before = len(t.commands)
+    with pytest.raises(ValueError):
+        bp.control_loop(curve=[1, 2], source="sweep", step=0)
+    assert len(t.commands) == before   # nothing reached the device
+
+
+def test_loop_input_steps_a_running_loop():
+    bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "v": 123}})
+    out = bp.loop_input(65535, source="fixed")
+    assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 65535, "source": "fixed"}
+    assert out["input"] == 65535
+    # An input-only step keeps every other field at its device-side value.
+    bp.loop_input(0)
+    assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 0}
+
+
+def test_handle_set_input_updates_its_view():
+    bp, t = _bp({"dac_control_loop": {"armed": True, "source": "fixed", "input": 0},
+                 "dac_loop_input": {"source": "fixed", "input": 32768, "step": 0, "v": 9}})
+    loop = bp.control_loop(curve=[1, 2], source="fixed", input_code=0)
+    loop.set_input(32768)
+    assert loop.input_code == 32768 and loop.source == "fixed"
+    assert t.commands[-1]["cmd"] == "dac_loop_input"
+
+
+def test_loop_probe_reports_the_loops_own_input():
+    # In a fixed/sweep run `i` is an ADC reading nothing is using; `in` is what the loop indexed
+    # the curve with. loop_input must prefer it — that is the value a test asserts against.
+    bp, _ = _bp({"dac_loop_probe": {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}})
+    pt = bp.loop_probe()
+    assert pt.loop_input == 32768 and pt.source == "fixed" and pt.i == 64000
+    # Older firmware omits both: there the ADC IS the input by construction.
+    bp2, _ = _bp({"dac_loop_probe": {"i": 4321, "v": 51000}})
+    pt2 = bp2.loop_probe()
+    assert pt2.input_code is None and pt2.loop_input == 4321
+
+
+def test_curve_output_at_matches_the_firmware_and_gateware_index():
+    # The number the operator meters against: firmware upsample (LUT entry j <- point
+    # j*N//2048) then gateware LUT[input >> 5]. A curve of all-distinct points makes a wrong
+    # index visible.
+    curve = [1000 + i * 29 for i in range(cl.CURVE_POINTS)]
+    for code in (0, 1, 31, 32, 1000, 30000, 32768, 65535):
+        want = curve[min(len(curve) - 1, ((code >> 5) * len(curve)) // cl.CURVE_LUT_ENTRIES)]
+        assert cl.curve_output_at(curve, code) == want
+    assert cl.curve_output_at(curve, -5) == curve[0]
+    assert cl.curve_output_at(curve, 10**9) == curve[-1]
+    assert cl.curve_output_at([], 5) == 0
+    # The panel preset's metered endpoints: 0% input -> Voc, 100% -> 0.
+    panel = cl.build_panel_curve(52428, 6)
+    assert cl.curve_output_at(panel, cl.input_percent_to_code(0)) == 52428
+    assert cl.curve_output_at(panel, cl.input_percent_to_code(100)) == 0
+
+
+def test_input_percent_to_code_clamps():
+    assert cl.input_percent_to_code(0) == 0
+    assert cl.input_percent_to_code(100) == cl.CODE_MAX
+    assert cl.input_percent_to_code(50) == round(0.5 * cl.CODE_MAX)
+    assert cl.input_percent_to_code(-1) == 0 and cl.input_percent_to_code(1000) == cl.CODE_MAX
+
+
+def test_constant_and_linear_curves():
+    flat = cl.build_constant_curve(30000, points=4)
+    assert flat == [30000] * 4
+    up = cl.build_linear_curve(40000, rising=True, points=5)
+    assert up[0] == 0 and up[-1] == 40000 and up == sorted(up)
+    down = cl.build_linear_curve(40000, rising=False, points=5)
+    assert down[0] == 40000 and down[-1] == 0
+    assert cl.build_constant_curve(99999, points=2) == [cl.CODE_MAX] * 2
+
+
+def test_capabilities_parse_loop_sources():
+    c = Capabilities.from_parameters({"cap.dac_control_loop": "true",
+                                      "cap.dac_loop_sources": "true"})
+    assert c.dac_loop_sources is True
+    # Absent on a pre-v29 pod -> False, so a caller offers/uses the ADC source only.
+    assert Capabilities.from_parameters({"cap.dac_control_loop": "true"}).dac_loop_sources is False

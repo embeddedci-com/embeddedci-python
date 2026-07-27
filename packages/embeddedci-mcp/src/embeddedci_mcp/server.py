@@ -678,7 +678,8 @@ def capabilities() -> dict:
         "adc_affine": c.adc_affine is not None,
         "dac_replay": c.dac_replay, "dac_deep_replay": c.dac_deep_replay,
         "dac_replay_bits": c.dac_replay_bits, "dac_replay_max_samples": c.dac_replay_max_samples,
-        "dac_control_loop": c.dac_control_loop, "dac_cotrig": c.dac_cotrig,
+        "dac_control_loop": c.dac_control_loop, "dac_loop_sources": c.dac_loop_sources,
+        "dac_cotrig": c.dac_cotrig,
         "scope": c.scope, "analyzer": c.analyzer,
     }
 
@@ -720,34 +721,60 @@ def replay_waveform(waveform_id: str, dac_path: str = "5v", mapping: str = "fait
     return {"ok": True, "samples": handle.samples, "dac_path": dac_path, "cotrig": handle.cotrig}
 
 
-# -- closed-loop DAC control (panel/MPPT emulator) --------------------------
+# -- in-fabric DAC control loop ---------------------------------------------
 
 @mcp.tool()
 @_safe
 def control_loop(voc_code: Optional[int] = None, sharpness: float = 4.0,
                  k: int = 8192, vmin: int = 0, vmax: int = 65535,
-                 tick_div: int = 64, points: int = 256) -> dict:
-    """Arm the in-fabric closed-loop DAC controller (solar-panel / MPPT emulator).
+                 tick_div: int = 64, points: int = 256,
+                 source: Optional[str] = None, input_code: int = 0, step: int = 0) -> dict:
+    """Arm the in-fabric DAC control loop (a tabulated transfer function).
 
-    Each tick the iCE40 reads the ADC, looks it up in a panel I-V curve, damps (``k``, Q15) and
-    clamps to ``[vmin, vmax]``, then drives the DAC. Pass ``voc_code`` (+ ``sharpness``) to
-    synthesise the panel curve, or omit it to run clamp-only. Needs the loop gateware image
-    (``capabilities.dac_control_loop`` — switch with ``fpga_image(0)``). Poll with ``loop_probe``;
-    stop with ``dac_stop``.
+    Each tick the iCE40 takes an input, looks it up in the curve, damps (``k``, Q15) and clamps
+    to ``[vmin, vmax]``, then drives the DAC. Pass ``voc_code`` (+ ``sharpness``) to synthesise
+    the solar-panel I-V preset, or omit it to run clamp-only. Needs the loop gateware image
+    (``capabilities.dac_control_loop`` — switch with ``fpga_image(0)``).
+
+    ``source`` picks where the INPUT comes from (needs ``capabilities.dac_loop_sources``; omit
+    for the device default, the live ADC): ``"adc"`` = closed loop, the output reacts to the
+    DUT; ``"fixed"`` = hold ``input_code``, an OPEN loop with the ADC out of the path (meter the
+    output and compare against the curve — the way to check the DAC/output stage on its own);
+    ``"sweep"`` = advance the input by ``step`` every tick, an open-loop function of time.
+    Step the input with ``loop_input``, poll with ``loop_probe``, stop with ``dac_stop``.
     """
     loop = SESSION.require().control_loop(
         voc_code=voc_code, sharpness=sharpness, k=k, vmin=vmin, vmax=vmax,
-        tick_div=tick_div, points=points)
+        tick_div=tick_div, points=points, source=source, input_code=input_code, step=step)
     return {"armed": loop.armed, "k": loop.k, "vmin": loop.vmin, "vmax": loop.vmax,
-            "tick_div": loop.tick_div, "curve_pts": loop.curve_pts}
+            "tick_div": loop.tick_div, "curve_pts": loop.curve_pts,
+            "source": loop.source, "input": loop.input_code, "step": loop.step}
+
+
+@mcp.tool()
+@_safe
+def loop_input(input_code: Optional[int] = None, source: Optional[str] = None,
+               step: Optional[int] = None) -> dict:
+    """Re-target a RUNNING control loop's input — no re-arm, no curve re-upload.
+
+    The open-loop stepping flow: hold a curve point, meter the output, move to the next; the
+    curve stays untouched so consecutive readings are comparable. Omitted fields keep their
+    current value. Needs ``capabilities.dac_loop_sources``. The returned ``v`` is the output at
+    the instant of the write — poll ``loop_probe`` for the settled value.
+    """
+    return SESSION.require().loop_input(input_code, source=source, step=step)
 
 
 @mcp.tool()
 @_safe
 def loop_probe() -> dict:
-    """Poll the running control loop's live operating point: ``i`` = ADC (current), ``v`` = DAC."""
+    """Poll the running control loop's live operating point.
+
+    ``in`` is the input its last tick actually indexed the curve with (assert against THAT: in a
+    fixed/sweep run the ADC is not in the path), ``i`` the raw ADC count, ``v`` the DAC output.
+    """
     pt = SESSION.require().loop_probe()
-    return {"i": pt.i, "v": pt.v}
+    return {"i": pt.i, "in": pt.loop_input, "source": pt.source, "v": pt.v}
 
 
 @mcp.tool()

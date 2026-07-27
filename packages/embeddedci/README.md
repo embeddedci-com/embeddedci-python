@@ -231,20 +231,38 @@ them from the host. `on_capture=True` arms the DAC to fire on the next capture's
                               la_samples=0, stop_dac_after_us=2000)   # DAC fires at t0, off at 2 ms
 ```
 
-### Closed-loop DAC control (solar-panel / MPPT emulator)
+### In-fabric DAC control loop (any tabulated transfer function)
 
-On the **loop gateware image**, the iCE40 runs a control loop in fabric: each tick it reads the ADC
-(a load "current"), looks it up in a panel I-V curve, damps and clamps, then drives the DAC — no
-host in the loop. Switch to that image with `fpga_image(0)` (deep-replay is `fpga_image(1)`):
+On the **loop gateware image**, the iCE40 runs a control loop in fabric: each tick it takes an
+input, looks it up in a reloadable curve, damps and clamps, then drives the DAC — no host in the
+loop. Any transfer function you can tabulate works; a solar-panel I-V table is one preset. Switch
+to that image with `fpga_image(0)` (deep-replay is `fpga_image(1)`).
+
+**Start open-loop, with the ADC out of the path.** With `source="fixed"` the loop holds one point
+of the curve, so the DAC and output stage can be metered on their own before any of the loop
+behaviour is trusted — if 0% doesn't read what the curve says, no amount of loop debugging was
+going to help. Needs `capabilities.dac_loop_sources` (gateware v29+):
 
 ```python
     if not bp.capabilities.dac_control_loop:
         bp.fpga_image(0)                                   # swap to the loop image (~10 ms, no reflash)
 
-    curve = benchpod.build_panel_curve(voc_code=52000, sharpness=6)   # a solar panel I-V table
-    with bp.control_loop(curve=curve, vmax=52000) as loop:            # or voc_code=… to synthesise
-        pt = loop.probe()                                  # IVPoint(i=<ADC current>, v=<DAC voltage>)
-        print(pt.i, pt.v)
+    curve = benchpod.build_panel_curve(voc_code=52000, sharpness=6)   # or build_constant_curve(...)
+    with bp.control_loop(curve=curve, vmax=65535, source="fixed", input_code=0) as loop:
+        for pct in (0, 50, 100):                           # walk a few points of the curve
+            loop.set_input(benchpod.input_percent_to_code(pct))   # no re-arm, no curve re-upload
+            time.sleep(0.2)
+            want = benchpod.curve_output_at(curve, benchpod.input_percent_to_code(pct))
+            print(pct, loop.probe().v, "expected", want)   # ... and read the SMA with a meter
+```
+
+`source="sweep"` (with `step=`) walks the whole curve as a function of time, still with no ADC.
+Then close the loop — the input becomes the live ADC and the output reacts to the DUT:
+
+```python
+    with bp.control_loop(curve=curve, vmax=52000) as loop:   # source defaults to the ADC
+        pt = loop.probe()                                    # IVPoint(i=<ADC>, v=<DAC>)
+        print(pt.loop_input, pt.v)                           # loop_input == what indexed the curve
 ```
 
 ## Cloud waveform library (load + replay stored recordings)

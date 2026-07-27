@@ -109,6 +109,11 @@ class Capabilities:
     #: in-fabric closed-loop DAC control (panel/MPPT emulator); only the loop gateware image
     #: advertises it. See :meth:`~embeddedci.benchpod.client.BenchPod.control_loop`.
     dac_control_loop: bool = False
+    #: Selectable loop INPUT source (gateware >= v29): besides the live ADC (closed loop) the
+    #: loop can run OPEN-loop from a held value or an internal time sweep, with the ADC out of
+    #: the path. False on older gateware — only ``source="adc"`` works there. See
+    #: :meth:`~embeddedci.benchpod.client.BenchPod.control_loop`.
+    dac_loop_sources: bool = False
     #: DAC↔capture co-trigger: a replay can be armed to fire on the next capture's hardware t0
     #: (phase-locked, gateware >= v27). See ``replay_waveform(on_capture=True)``.
     dac_cotrig: bool = False
@@ -194,7 +199,8 @@ class Capabilities:
         for attr, key in (
             ("dac", "cap.dac"), ("dac_dc", "cap.dac_dc"), ("dac_replay", "cap.dac_replay"),
             ("dac_deep_replay", "cap.dac_deep_replay"),
-            ("dac_control_loop", "cap.dac_control_loop"), ("dac_cotrig", "cap.dac_cotrig"),
+            ("dac_control_loop", "cap.dac_control_loop"),
+            ("dac_loop_sources", "cap.dac_loop_sources"), ("dac_cotrig", "cap.dac_cotrig"),
             ("scope", "cap.scope"),
             ("analyzer", "cap.analyzer"), ("serial", "cap.serial"), ("tunnel", "cap.tunnel"),
             ("command", "cap.command"), ("ota", "cap.ota"),

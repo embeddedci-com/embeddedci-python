@@ -1,16 +1,34 @@
-"""Closed-loop DAC control — panel / MPPT emulator (in-fabric).
+"""In-fabric DAC control loop — a deterministic, tabulated transfer function.
 
-The iCE40 runs a control loop entirely in fabric: each tick it reads the ADC (a load
-"current"), looks that value up in a reloadable 2048-entry curve LUT (``V = curve[ADC >> 5]``),
-damps toward that target and clamps to ``[vmin, vmax]``, then drives the DAC. Loaded with a
-solar-panel I-V table it emulates a panel: as the load current rises from open-circuit toward
-short-circuit, the panel voltage falls from ``Voc`` toward 0 with a knee near the max-power
-point. Only the **loop gateware image** provides it (:attr:`Capabilities.dac_control_loop`); use
+The iCE40 runs the loop entirely in fabric: each tick it takes an INPUT, looks that value up in
+a reloadable 2048-entry curve LUT (``out = curve[in >> 5]``), damps toward that target and clamps
+to ``[vmin, vmax]``, then drives the DAC. Any transfer function you can tabulate works; a
+solar-panel I-V table is one preset (:func:`build_panel_curve`), not what the feature is.
+
+Where the input comes from is selectable (gateware >= v29,
+:attr:`Capabilities.dac_loop_sources`):
+
+``"adc"``
+    The live ADC — a real CLOSED loop whose output reacts to the DUT. The default, and the only
+    source on older gateware.
+``"fixed"``
+    A host-held constant — OPEN loop, one point of the curve at a time, with the ADC and the
+    whole analog input path out of the picture. This is how the DAC and output stage are
+    validated on their own: hold a point, meter the output, compare it with
+    :func:`curve_output_at`. Step to the next point with
+    :meth:`~embeddedci.benchpod.client.BenchPod.loop_input` — no re-arm, no curve re-upload, so
+    consecutive readings are comparable.
+``"sweep"``
+    The input advances by ``step`` every tick — OPEN loop, a function of TIME that walks the
+    whole curve at a deterministic rate, again with no ADC involved.
+
+Only the **loop gateware image** provides the loop at all
+(:attr:`Capabilities.dac_control_loop`); use
 :meth:`~embeddedci.benchpod.client.BenchPod.fpga_image` to switch a device onto it.
 
-This module holds the transport-independent pieces — the curve builder/encoder (a faithful port
-of the web UI's ``controlLoopCurve.ts``) and the :class:`ControlLoopHandle`. The arming
-(``dac_control_loop`` / ``dac_loop_probe`` / ``dac_stop`` commands) lives on
+This module holds the transport-independent pieces — the curve builders/encoder (a faithful port
+of the web UI's ``controlLoopCurve.ts``) and the :class:`ControlLoopHandle`. The commands
+(``dac_control_loop`` / ``dac_loop_input`` / ``dac_loop_probe`` / ``dac_stop``) live on
 :class:`~embeddedci.benchpod.client.BenchPod`.
 """
 
@@ -40,6 +58,75 @@ DEFAULT_TICK_DIV = 64
 #: at ``vmin``; the pipelined tick needs at least 8 clk48 cycles to retire a pass.
 K_MIN, K_MAX = 1, 32767
 TICK_DIV_MIN = 8
+
+#: Entries in the gateware curve LUT (``dac_loop.v``: the 16-bit input >> 5).
+CURVE_LUT_ENTRIES = 2048
+
+#: Largest 16-bit code — full scale on both the input and the output axis.
+CODE_MAX = 65535
+
+#: The loop input sources the firmware accepts for the ``source`` field.
+LOOP_SOURCES = ("adc", "fixed", "sweep")
+
+
+def normalise_loop_source(source: Optional[str], step: int) -> Optional[str]:
+    """Validate a loop input ``source`` against the firmware's own guard.
+
+    An unknown name is REJECTED rather than falling back to the ADC: a caller that asked for an
+    open-loop run and silently got a closed one would be metering a value the loop never
+    produced. A ``"sweep"`` with ``step`` 0 is rejected for the same reason — the input would
+    never advance, so it is a fixed point wearing a moving name
+    (``bench-pod-firmware/stm32h563/src/dac_loop_params.c``). Returns the source unchanged
+    (``None`` stays ``None`` = leave it to the device default, the ADC).
+    """
+    if source is None:
+        return None
+    if source not in LOOP_SOURCES:
+        raise ValueError(f"unknown loop input source {source!r}: use one of {LOOP_SOURCES}")
+    if source == "sweep" and int(step) < 1:
+        raise ValueError("a sweep source needs a step of at least 1 — a step of 0 never advances")
+    return source
+
+
+def curve_output_at(curve: Sequence[int], input_code: int) -> int:
+    """The output the hardware will drive for ``input_code`` — the number to compare a meter
+    reading against in the open-loop (fixed-input) test.
+
+    Walks the exact two steps the hardware does, so it cannot drift from it: the firmware
+    nearest-neighbour upsamples the uploaded ``len(curve)`` points into the 2048-entry LUT (entry
+    j takes source point ``j*N//2048``) and the gateware then reads ``LUT[input >> 5]``. Ignores
+    damping and the clamp — this is the curve TARGET, which is where the loop settles.
+    """
+    if not curve:
+        return 0
+    code = max(0, min(CODE_MAX, int(input_code)))
+    src = ((code >> 5) * len(curve)) // CURVE_LUT_ENTRIES
+    return int(curve[min(src, len(curve) - 1)])
+
+
+def input_percent_to_code(percent: float) -> int:
+    """A percentage of the input range (0..100) as the 16-bit input code the loop takes."""
+    c = int(round((float(percent) / 100.0) * CODE_MAX))
+    return 0 if c < 0 else CODE_MAX if c > CODE_MAX else c
+
+
+def build_constant_curve(value_code: int, points: int = CURVE_POINTS) -> List[int]:
+    """A FLAT curve: the same output for every input. The simplest check that the output stage
+    is right — pair it with ``source="fixed"`` and a multimeter."""
+    v = max(0, min(CODE_MAX, int(round(value_code))))
+    return [v] * max(1, int(points))
+
+
+def build_linear_curve(max_code: int, rising: bool = True, points: int = CURVE_POINTS) -> List[int]:
+    """A straight line across the input range: 0 -> ``max_code`` (``rising``) or the reverse."""
+    n = max(1, int(points))
+    top = max(0, min(CODE_MAX, int(round(max_code))))
+    out: List[int] = []
+    for i in range(n):
+        x = i / (n - 1) if n > 1 else 0.0
+        v = int(round(top * (x if rising else 1.0 - x)))
+        out.append(0 if v < 0 else CODE_MAX if v > CODE_MAX else v)
+    return out
 
 
 def normalise_loop_params(k: int, vmin: int, vmax: int, tick_div: int) -> tuple:
@@ -101,11 +188,19 @@ def encode_curve_b64url(codes: Sequence[int]) -> str:
 
 @dataclass(frozen=True)
 class IVPoint:
-    """One live operating point of the running loop: ``i`` = latest ADC reading (the loop's input
-    "current"), ``v`` = the DAC code it drove this tick (the "voltage"). Both are raw codes."""
+    """One live operating point of the running loop, in raw codes.
+
+    ``i`` is the latest ADC reading and ``v`` the DAC code the loop drove this tick.
+    ``input_code`` is what the loop's last tick ACTUALLY indexed the curve with — equal to ``i``
+    in a closed-loop run, but in a fixed/sweep run the ADC is not in the path at all and ``i`` is
+    a reading of something nothing is using, so plot and assert against ``input_code``.
+    ``source`` names the input source the device reports (``None`` on firmware without it).
+    """
 
     i: int
     v: int
+    input_code: Optional[int] = None
+    source: Optional[str] = None
 
     @property
     def current_code(self) -> int:
@@ -114,6 +209,12 @@ class IVPoint:
     @property
     def voltage_code(self) -> int:
         return self.v
+
+    @property
+    def loop_input(self) -> int:
+        """The loop's own input — ``input_code`` when the device reports it, else the ADC (which
+        IS the input on firmware predating the selectable source)."""
+        return self.i if self.input_code is None else self.input_code
 
 
 class ControlLoopHandle:
@@ -127,9 +228,11 @@ class ControlLoopHandle:
     """
 
     def __init__(self, *, probe: Callable[[], IVPoint], stop: Callable[[], Any],
-                 data: Optional[Dict[str, Any]] = None) -> None:
+                 data: Optional[Dict[str, Any]] = None,
+                 set_input: Optional[Callable[..., Any]] = None) -> None:
         self._probe = probe
         self._stop = stop
+        self._set_input = set_input
         self._stopped = False
         d = data or {}
         self.armed = bool(d.get("armed", True))
@@ -138,11 +241,32 @@ class ControlLoopHandle:
         self.vmax = int(d.get("vmax", DEFAULT_VMAX))
         self.tick_div = int(d.get("tick_div", DEFAULT_TICK_DIV))
         self.curve_pts = int(d.get("curve_pts", 0))
+        #: Input source the device armed with (``None`` on firmware without selectable sources).
+        self.source = d.get("source")
+        self.input_code = int(d.get("input", 0))
+        self.step = int(d.get("step", 0))
         self.data = d
 
     def probe(self) -> IVPoint:
         """Poll the loop once, returning its live :class:`IVPoint`."""
         return self._probe()
+
+    def set_input(self, input_code: Optional[int] = None, *,
+                  source: Optional[str] = None, step: Optional[int] = None) -> dict:
+        """Re-target the RUNNING loop's input without re-arming or re-uploading the curve.
+
+        The open-loop stepping flow: hold a point, meter the output, move to the next. Omitted
+        fields keep their current value. Needs :attr:`Capabilities.dac_loop_sources`.
+        """
+        if self._set_input is None:
+            raise RuntimeError("this handle has no input setter")
+        data = self._set_input(input_code=input_code, source=source, step=step)
+        if isinstance(data, dict):
+            if data.get("source") is not None:
+                self.source = data["source"]
+            self.input_code = int(data.get("input", self.input_code))
+            self.step = int(data.get("step", self.step))
+        return data if isinstance(data, dict) else {}
 
     def stop(self) -> Any:
         """Stop the loop (and the DAC drive). Idempotent."""
@@ -160,4 +284,4 @@ class ControlLoopHandle:
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (f"ControlLoopHandle(armed={self.armed}, k={self.k}, "
                 f"vmin={self.vmin}, vmax={self.vmax}, tick_div={self.tick_div}, "
-                f"curve_pts={self.curve_pts})")
+                f"curve_pts={self.curve_pts}, source={self.source!r})")
