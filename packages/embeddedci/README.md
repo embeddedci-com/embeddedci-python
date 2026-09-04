@@ -4,13 +4,13 @@ A pytest-friendly Python client for an [EmbeddedCI](https://embeddedci.com)
 **BenchPod** — the same device operations you do today with `benchpod-cli`,
 available straight from your tests:
 
-* connect to a BenchPod over **wifi/network, serial, or the cloud** (`embeddedci.com`)
+* connect to a BenchPod over **network, USB, or the cloud** (`embeddedci.com`)
 * power the target on/off
 * **flash** firmware to the target and **assert ok / not ok**
 * emulate an I2C sensor (BMP280) and decode the bus traffic
 
 The same test runs against a pod on your desk *or* a remote pod in CI: point
-`--benchpod-connection` at an IP, a serial port, or `embeddedci:<device-name>` to
+`--benchpod-connection` at an IP, a USB port, or `embeddedci:<device-name>` to
 drive a named device through embeddedci.com from a GitHub Action (no secrets — it
 authenticates with the workflow's GitHub OIDC token). See
 [Running in GitHub Actions](#running-in-github-actions-cloud).
@@ -18,7 +18,7 @@ authenticates with the workflow's GitHub OIDC token). See
 ```python
 from embeddedci import benchpod
 
-with benchpod.BenchPod("192.168.1.213") as bp:   # or "/dev/ttyACM0", or "serial"
+with benchpod.BenchPod("192.168.1.213") as bp:   # or "/dev/ttyACM0", or "usb"
     bp.ping()
     bp.power_on(benchpod.INTERNAL)
     result = bp.flash(
@@ -41,7 +41,7 @@ pip install "embeddedci[analysis]"
 ```
 
 The `[cloud]` extra pulls in a WebSocket client used only by the `embeddedci:` destination;
-local wifi/serial use needs nothing extra. The `[analysis]` extra adds numpy for the FFT helpers
+local network/USB use needs nothing extra. The `[analysis]` extra adds numpy for the FFT helpers
 — the mean/rms/peak-to-peak reductions are pure-Python and always available.
 
 ### OpenOCD (required for flashing)
@@ -84,7 +84,7 @@ fixtures:
 
 ```bash
 pytest --benchpod-connection=192.168.1.213
-# or: export BENCHPOD_CONNECTION=serial
+# or: export BENCHPOD_CONNECTION=usb
 ```
 
 ```python
@@ -108,8 +108,8 @@ suite stays green in CI runners without hardware.
 | Form | Transport |
 |---|---|
 | `192.168.1.213` or `host:8080` | wifi/network (JSON over TCP, port 8080 default) |
-| `/dev/ttyACM0`, `COM3` | serial (USB CDC-ACM console) |
-| `serial` / `usb` | serial, auto-detected by USB VID `0x2E8A` |
+| `/dev/ttyACM0`, `COM3` | USB console (CDC-ACM), explicit device path |
+| `usb` | USB console, auto-detected by probing the ports for a pod |
 | `embeddedci:<device-name>` | cloud — drive a named device through embeddedci.com (CI only; see below) |
 
 Resolution order: explicit argument / `--benchpod-connection` →
@@ -166,14 +166,14 @@ the **token request itself failed**.
 
 | Feature | State |
 |---|---|
-| Connect (wifi + serial) | ✅ |
+| Connect (network + USB) | ✅ |
 | Connect (cloud via GitHub OIDC) | ✅ server + SDK; device firmware tunnel pending on-hardware bring-up |
 | Power on/off (+ scheduled delay) | ✅ |
 | Flash + assert ok/not ok | ✅ (pure-Python OpenOCD `cmsis-dap` TCP bridge) |
-| Emulated I2C sensor (BMP280) | ✅ wifi + serial (serial via `json` console mode) |
+| Emulated I2C sensor (BMP280) | ✅ network + USB (USB via `json` console mode) |
 | I2C bus decode (`benchpod.i2c`) | ✅ START/STOP, R/W, ACK, register reads |
 | Protocol decode I2C / UART / SPI (`bp.decode`) | ✅ off-device, parity-checked vs the server |
-| UART capture (`capture_uart`) | ✅ wifi + serial |
+| UART capture (`capture_uart`) | ✅ network + USB |
 | ADC scope capture → calibrated volts (`scope_capture`) | ✅ LAN + cloud tunnel |
 | Raw 12-ch LA capture (`capture_la`) | ✅ LAN + cloud tunnel |
 | Correlated ADC + LA capture (`capture_analog`) | ✅ one hardware trigger, aligned |

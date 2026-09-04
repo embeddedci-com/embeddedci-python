@@ -1,8 +1,8 @@
 """USB serial-console transport.
 
 Mirrors the Go ``serialconsole``: the firmware exposes a line-oriented text
-console over USB CDC-ACM (VID 0x2E8A). Commands are echoed and each reply ends
-with a ``"> "`` prompt. ``dap-start`` switches the port to a raw length-framed
+console over USB CDC-ACM. Commands are echoed and each reply ends with a
+``"> "`` prompt. ``dap-start`` switches the port to a raw length-framed
 CMSIS-DAP stream until the quit byte is sent.
 
 ``pyserial`` is imported lazily so the TCP-only path has no hard dependency on
@@ -18,7 +18,24 @@ from ..errors import TransportError
 from ..protocol import encode_request, parse_reply, raise_for_status
 from .base import RawLink, Transport
 
-RP_VID = 0x2E8A  # Raspberry Pi (RP2350) USB vendor id
+# USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
+# the RP2350 pod) and 0x0483 (STMicroelectronics, the STM32H563 pod, which uses
+# ST's stock CDC VID/PID 0483:5740 so the host binds its in-box driver).
+#
+# Neither id is exclusive to a bench pod — 0x2E8A is shared with the CMSIS-DAP
+# probe's CDC and 0483:5740 with every ST Virtual COM Port on the bench — so
+# these only ORDER the ports to probe. Identification is by probing for
+# BENCHPOD_MARKER, never by vendor id alone.
+POD_VIDS = (0x2E8A, 0x0483)
+RP_VID = 0x2E8A  # deprecated alias, kept for callers that imported it
+
+# The substring the firmware's ``status`` prints to identify itself
+# ("device : benchpod").
+BENCHPOD_MARKER = "benchpod"
+
+# Per-port probe budget. A real pod answers ``status`` in well under a second;
+# only ports that are not pods run this out.
+PROBE_TIMEOUT = 2.0
 BAUD = 115200
 PROMPT = "> "
 DAP_READY = "dap ready"          # console prints "dap ready" then carries framed CMSIS-DAP
@@ -41,16 +58,88 @@ def _import_serial():
     return serial, list_ports
 
 
-def autodetect_port() -> str:
-    """Return the device path of the first RP2350 CDC-ACM port, else raise."""
+def _candidate_ports() -> List[str]:
+    """USB serial ports to probe, most likely to be a pod first.
+
+    Ordering, not filtering: a pod is identified by probing (see
+    :func:`_is_benchpod`), so an adapter this ranking puts last is still tried.
+    Ranking by vendor id alone is not enough — both pod vendor ids are shared
+    with other hardware — so a product/manufacturer string that names the pod
+    outranks a bare vendor-id match.
+    """
     _, list_ports = _import_serial()
-    matches = [p.device for p in list_ports.comports() if p.vid == RP_VID]
-    if not matches:
+
+    def rank(p: Any) -> int:
+        text = " ".join(str(getattr(p, attr, "") or "") for attr in ("product", "manufacturer", "description"))
+        if "bench-pod" in text.lower() or "benchpod" in text.lower() or "embeddedci" in text.lower():
+            return 0
+        if p.vid in POD_VIDS:
+            return 1
+        return 2
+
+    ports = [p for p in list_ports.comports() if getattr(p, "device", None)]
+    ports.sort(key=lambda p: (rank(p), p.device))
+    return [p.device for p in ports]
+
+
+def _is_benchpod(device: str, timeout: float = PROBE_TIMEOUT) -> bool:
+    """Open ``device``, run ``status``, and report whether a pod answered.
+
+    Anything that goes wrong — the port is held by another process, it is not a
+    console, it never prints a prompt — means "not a pod here", so every failure
+    is swallowed and the caller moves on to the next candidate.
+    """
+    serial_mod, _ = _import_serial()
+    port = None
+    try:
+        port = serial_mod.Serial(device, BAUD, timeout=0.25)
+        port.write(b"\r")
+        time.sleep(0.03)
+        port.reset_input_buffer()
+        port.write(b"status\n")
+        deadline = time.monotonic() + timeout
+        buf = bytearray()
+        while time.monotonic() < deadline:
+            chunk = port.read(256)
+            if chunk:
+                buf.extend(chunk)
+                if BENCHPOD_MARKER in buf.decode("utf-8", errors="replace").lower():
+                    return True
+        return False
+    except Exception:
+        return False
+    finally:
+        if port is not None:
+            try:
+                port.close()
+            except Exception:
+                pass
+
+
+def autodetect_port() -> str:
+    """Return the device path of the first port that answers as a BenchPod.
+
+    Every USB serial port is probed (best candidates first) rather than trusting
+    a vendor-id match, because the pod's vendor ids are shared with other
+    hardware and differ between pod generations — an STM32 pod enumerates under
+    ST's generic CDC id, so a vendor-id filter would miss it entirely.
+    """
+    candidates = _candidate_ports()
+    if not candidates:
         raise TransportError(
-            f"no BenchPod serial device found (looked for USB VID "
-            f"0x{RP_VID:04x}); pass an explicit device path instead"
+            "no USB serial ports found — is the BenchPod plugged in, and does the "
+            "cable carry data (many USB cables are charge-only)? "
+            "Pass an explicit device path to override."
         )
-    return matches[0]
+    for device in candidates:
+        if _is_benchpod(device):
+            return device
+    raise TransportError(
+        "no BenchPod found among the USB serial ports probed ("
+        + ", ".join(candidates)
+        + "). Is the pod powered? A pod with no firmware never opens a console — "
+        "flash it with `benchpod flash-self`. Pass an explicit device path to override."
+    )
 
 
 class _SerialRawLink:

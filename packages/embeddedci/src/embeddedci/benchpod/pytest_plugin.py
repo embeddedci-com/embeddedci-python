@@ -18,12 +18,15 @@ import pytest
 from .client import BenchPod
 from .connection import ENV_VAR
 
-# Pull-up resistors exist only on LA1-8, with a value fixed per channel (the pod
-# has none on LA9-12). Source of truth: bench-pod-firmware/docs/API.md (`pullup`).
-_PULLUP_OHMS: Dict[int, str] = {
+# Fixed bias network per LA channel, one for each of the pod's CTRL1..CTRL8
+# lines. LA1-LA6 pull UP to +3V3; LA7/LA8 pull DOWN. LA9-LA12 have no network at
+# all. Source of truth: benchpod-firmware i2c_bus.c (`pca9555_set_la_pullup`).
+_PULL_OHMS: Dict[int, str] = {
     1: "4.7k", 2: "4.7k", 3: "2.2k", 4: "2.2k",
     5: "10k", 6: "10k", 7: "10k", 8: "10k",
 }
+#: The channels whose network pulls DOWN rather than up.
+_PULLDOWN_CHANNELS = frozenset({7, 8})
 
 
 class BenchPodPins:
@@ -37,13 +40,32 @@ class BenchPodPins:
     file, e.g. ``swclk = pins.pin_11`` — that mapping is bench-specific and lives
     with the test, not here.
 
-    Pull-ups are available on **LA1-8 only** (LA1/2=4.7k, LA3/4=2.2k, LA5-8=10k);
-    LA9-12 have none. Use :meth:`has_pullup` / :data:`pullup_ohms` to check before
-    relying on one (e.g. for an open-drain I2C bus).
+    Eight of the twelve channels carry a fixed bias network, and the direction is
+    NOT the same for all of them:
+
+    ===========  =========  =====================================
+    Channels     Network    Value
+    ===========  =========  =====================================
+    LA1, LA2     pull-up    4.7k
+    LA3, LA4     pull-up    2.2k
+    LA5, LA6     pull-up    10k
+    LA7, LA8     pull-down  10k
+    LA9 - LA12   none       --
+    ===========  =========  =====================================
+
+    Use :meth:`has_pullup` before relying on one for an open-drain bus (I2C):
+    LA7/LA8 would pull the bus the wrong way. The networks are referenced to
+    +3V3, so the pod only engages them while the LA bank is at 3.3 V.
     """
 
-    #: channel -> fixed pull-up resistance, for channels that have one.
-    PULLUP_OHMS: ClassVar[Dict[int, str]] = dict(_PULLUP_OHMS)
+    #: channel -> resistance, for the channels that pull UP.
+    PULLUP_OHMS: ClassVar[Dict[int, str]] = {
+        ch: ohms for ch, ohms in _PULL_OHMS.items() if ch not in _PULLDOWN_CHANNELS
+    }
+    #: channel -> resistance, for the channels that pull DOWN.
+    PULLDOWN_OHMS: ClassVar[Dict[int, str]] = {
+        ch: ohms for ch, ohms in _PULL_OHMS.items() if ch in _PULLDOWN_CHANNELS
+    }
 
     def __init__(self, efuse: int = 1) -> None:
         # LA1..LA12 are identity-numbered: pin_<n> is simply channel <n>.
@@ -54,13 +76,40 @@ class BenchPodPins:
 
     @staticmethod
     def has_pullup(channel: int) -> bool:
-        """True if LA ``channel`` has a (fixed) pull-up resistor (LA1-8 only)."""
-        return channel in _PULLUP_OHMS
+        """True if LA ``channel``'s fixed resistor pulls UP (LA1-LA6 only).
+
+        False for LA7/LA8, whose resistors pull DOWN — asking for a pull-up
+        there and getting one would silently drive an open-drain bus low.
+        """
+        return channel in _PULL_OHMS and channel not in _PULLDOWN_CHANNELS
+
+    @staticmethod
+    def has_pulldown(channel: int) -> bool:
+        """True if LA ``channel``'s fixed resistor pulls DOWN (LA7/LA8 only)."""
+        return channel in _PULLDOWN_CHANNELS
 
     @staticmethod
     def pullup_ohms(channel: int) -> Optional[str]:
-        """The pull-up value on LA ``channel`` (e.g. ``"4.7k"``), or None."""
-        return _PULLUP_OHMS.get(channel)
+        """The pull-UP value on LA ``channel`` (e.g. ``"4.7k"``), or None.
+
+        None for LA7/LA8 even though they carry a resistor: it pulls down.
+        Use :meth:`pull_ohms` for the value regardless of direction.
+        """
+        if channel in _PULLDOWN_CHANNELS:
+            return None
+        return _PULL_OHMS.get(channel)
+
+    @staticmethod
+    def pull_ohms(channel: int) -> Optional[str]:
+        """The fixed resistance on LA ``channel``, whichever way it pulls."""
+        return _PULL_OHMS.get(channel)
+
+    @staticmethod
+    def pull_direction(channel: int) -> Optional[str]:
+        """``"up"``, ``"down"``, or None when the channel has no resistor."""
+        if channel not in _PULL_OHMS:
+            return None
+        return "down" if channel in _PULLDOWN_CHANNELS else "up"
 
 
 def pytest_addoption(parser: "pytest.Parser") -> None:

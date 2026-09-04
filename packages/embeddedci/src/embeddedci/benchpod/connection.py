@@ -4,7 +4,8 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 
 * ``host`` or ``host:port``        -> TCP/wifi (default port 8080)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
-* ``serial`` / ``usb``             -> serial, auto-detect by USB VID 0x2E8A
+* ``usb``                          -> USB console, auto-detected by probing the ports
+                                      (``serial`` is accepted as a legacy spelling)
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (CI only)
 
@@ -80,7 +81,9 @@ def parse_connection(raw: str) -> ConnSpec:
                 "embeddedci destination requires a device name, e.g. 'embeddedci:my-bench'"
             )
         return ConnSpec(kind="embeddedci", device_name=name)
-    if s.lower() in ("serial", "usb"):
+    # "usb" is the documented spelling; "serial" is the older one, still accepted
+    # so connection strings written before the rename keep working.
+    if s.lower() in ("usb", "serial"):
         return ConnSpec(kind="serial", device="")
     if s.lower() in DISCOVER_KEYWORDS:
         return _discover_one()
