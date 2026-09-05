@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "embeddedci>=0.1",
-    "mcp[cli]>=1.9",
+    "mcp[cli]>=1.9,<2",
 ]
 
 [project.optional-dependencies]
