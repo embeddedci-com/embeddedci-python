@@ -103,6 +103,7 @@ class CloudTransport(TcpTransport):
         token: "str | None" = None,
         audience: str = DEFAULT_AUDIENCE,
         timeout: float = 30.0,
+        api_key: "str | None" = None,
     ) -> None:
         if not device_name:
             raise TransportError("the embeddedci destination requires a device name")
@@ -115,13 +116,16 @@ class CloudTransport(TcpTransport):
         self.addr = ""  # unused; the inherited _split_addr is never called
         self.dial_timeout = DEFAULT_DIAL_TIMEOUT
         self._token = token
+        # Credential for minting a session token outside GitHub Actions. Without it the cloud
+        # destination can only authenticate via Actions OIDC, i.e. only inside CI.
+        self.api_key = api_key
         # Set by BenchPod once it holds a device lease; sent on tunnel/command requests so the server
         # confirms this client is the lease holder (and lets concurrent runs serialize). None = none.
         self.lease_id: "str | None" = None
 
     def _session_token(self) -> str:
         if not self._token:
-            self._token = get_session_token(self.api_base, self.audience)
+            self._token = get_session_token(self.api_base, self.audience, self.api_key)
         return self._token
 
     def _ws_url(self) -> str:

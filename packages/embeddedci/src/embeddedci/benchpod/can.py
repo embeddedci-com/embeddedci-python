@@ -241,6 +241,15 @@ class CanBus:
     def close(self) -> None:
         if not self._closed:
             self._closed = True
+            # Clear the responder table FIRST: autonomous-responder rules are firmware state that
+            # SURVIVES can_disable, so a bus that installed rules (simulate_ecu / add_responder)
+            # leaks them onto the pod for whatever runs next. That is not theoretical — the ECU
+            # demo's 0x7DF -> 0x7E8 rule outlived its test and made a later hwe2e
+            # TestHW_CAN_Responder read the stale reply payload instead of its own.
+            try:
+                self.clear_responders()
+            except Exception:
+                pass
             try:
                 self._bp.can_disable()
             except Exception:

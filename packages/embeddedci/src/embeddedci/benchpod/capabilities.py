@@ -168,6 +168,25 @@ class Capabilities:
             c.scope = c.scope or ("signal" in names or "scope" in names)
             c.analyzer = c.analyzer or ("la" in names or "analyzer" in names)
             c.serial = c.serial or ("uart" in names or "serial" in names)
+            # The DAC/gateware features. Firmware advertises these in status.caps[] built from
+            # signal_engine_caps() — the same source as the cloud `capabilities` announce — so a
+            # DIRECT (LAN/serial) client now sees the same feature set a cloud client does.
+            # Older firmware simply omits them and every flag stays False, as before.
+            for name, attr in (
+                ("dac", "dac"),
+                ("dac_dc", "dac_dc"),
+                ("dac_replay", "dac_replay"),
+                ("dac_deep_replay", "dac_deep_replay"),
+                ("dac_control_loop", "dac_control_loop"),
+                ("dac_cotrig", "dac_cotrig"),
+                ("dac_loop_sources", "dac_loop_sources"),
+                ("dac_loop_input_map", "dac_loop_input_map"),
+                ("ota", "ota"),
+                ("tunnel", "tunnel"),
+                ("command", "command"),
+            ):
+                if name in names and hasattr(c, attr):
+                    setattr(c, attr, True)
         c._apply_affine(status)
         return c
 

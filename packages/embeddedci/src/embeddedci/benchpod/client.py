@@ -88,6 +88,9 @@ class BenchPod:
                 api_base=api_base,
                 token=cloud_token,
                 audience=cloud_audience,
+                # Lets the cloud destination authenticate with a user API key instead of GitHub
+                # Actions OIDC, so the same suite runs at a bench or on any runner, not just in CI.
+                api_key=self._api_key,
             )
         if lease and isinstance(self._transport, CloudTransport):
             self._lease = DeviceLease(

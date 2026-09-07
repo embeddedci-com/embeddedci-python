@@ -71,14 +71,28 @@ def capture_la(transport: Any, *, samples: int = 4096,
         req["sample_rate_mhz"] = sample_rate_mhz
     if stop_dac_after_us and stop_dac_after_us > 0:
         req["stop_dac_after_us"] = int(stop_dac_after_us)
-    words: List[int] = []
+    dense: List[int] = []
+    edges: List[List[int]] = []
+    upto = 0
     rate_hz = 0.0
     for chunk in _stream_or_samples(transport, req):
         if chunk.get("la_rate_hz"):
             rate_hz = float(chunk["la_rate_hz"])
+        # The firmware answers la_capture RUN-LENGTH ENCODED — {"la":true,"la_edges":[[i,word],…],
+        # "la_upto":N} — exactly as it does for capture_dual, and sends no "data" array at all. Only
+        # reading "data" here silently produced an EMPTY capture against real hardware (the Go
+        # hwe2e client, which decodes the same reply, returned 256 words for the identical
+        # request). Handle both forms: RLE wins when present, dense "data" remains the fallback
+        # for the server-relayed / older-firmware shape.
+        if chunk.get("la"):
+            edges.extend([int(e[0]), int(e[1])] for e in (chunk.get("la_edges") or []))
+            if int(chunk.get("la_upto", 0)) > upto:
+                upto = int(chunk["la_upto"])
+            continue
         data = chunk.get("data")
         if isinstance(data, list):
-            words.extend(int(x) for x in data)
+            dense.extend(int(x) for x in data)
+    words = _expand_la_edges(edges, upto or samples) if (edges or upto) else dense
     return LaCapture(words=words, sample_rate_hz=_rate_hz(rate_hz, sample_rate_mhz))
 
 

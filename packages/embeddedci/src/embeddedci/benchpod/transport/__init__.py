@@ -28,10 +28,12 @@ def open_transport(
     api_base: "str | None" = None,
     token: "str | None" = None,
     audience: "str | None" = None,
+    api_key: "str | None" = None,
 ) -> Transport:
     """Construct a transport for ``spec``. Imports backends lazily.
 
-    ``api_base``/``token``/``audience`` apply only to the cloud (``embeddedci``) destination.
+    ``api_base``/``token``/``audience``/``api_key`` apply only to the cloud (``embeddedci``)
+    destination.
     """
     if spec.is_wifi():
         from .tcp import TcpTransport
@@ -51,6 +53,7 @@ def open_transport(
             token=token,
             audience=audience or DEFAULT_AUDIENCE,
             timeout=timeout,
+            api_key=api_key,
         )
     raise ConnectionConfigError(f"unknown connection kind {spec.kind!r}")
 

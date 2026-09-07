@@ -1,12 +1,18 @@
-"""GitHub Actions OIDC → embeddedci session-token exchange for the cloud destination.
+"""Session-token minting for the cloud destination — from an API key, or GitHub Actions OIDC.
 
 A workflow running ``pytest`` with an ``embeddedci:<device>`` connection cannot ship a
 long-lived secret, so it mints a short-lived GitHub Actions OIDC token (proving *which repo* is
 running) and exchanges it with the embeddedci server for a session token scoped to the org and the
 devices that repo is allowed to drive.
 
-Minting only works inside GitHub Actions with ``permissions: id-token: write``; outside that the
-errors below explain exactly why it could not be done.
+OIDC minting only works inside GitHub Actions with ``permissions: id-token: write``. That made the
+cloud destination unusable ANYWHERE else — a developer at a bench, or any non-GitHub runner, could
+not run the pytest suite over the cloud at all, so the cloud transport went effectively untested
+outside CI while the identical tests ran fine over a direct LAN connection. A **user API key**
+(``BENCHPOD_API_KEY``/``api_key=``) is therefore accepted as an alternative credential and
+exchanged via ``POST /api/auth/token`` — the same endpoint and the same ``ApiKey`` scheme the Go
+hwe2e cloud suite authenticates with. The API key is preferred when present; OIDC remains the
+zero-secret path for GitHub Actions.
 """
 
 from __future__ import annotations
@@ -112,8 +118,54 @@ def exchange_token(api_base: str, oidc_token: str) -> dict:
         raise CloudAuthError(f"embeddedci token exchange failed: {exc}") from exc
 
 
-def get_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE) -> str:
-    """Mint a GitHub OIDC token and exchange it for an embeddedci session token."""
+def exchange_api_key(api_base: str, api_key: str, ttl_seconds: int = 3600) -> dict:
+    """Exchange a user API key for a short-lived ``cloud_session`` token via POST /api/auth/token.
+
+    Mirrors the Go hwe2e cloud suite's ``/auth/token`` call: the key authenticates the request
+    (``Authorization: ApiKey eci_…``) and the reply carries a bearer token scoped to the devices
+    that key may drive.
+    """
+    url = api_base.rstrip("/") + "/api/auth/token"
+    data = json.dumps({"ttl_seconds": int(ttl_seconds)}).encode("utf-8")
+    request = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={
+            "Authorization": f"ApiKey {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        msg = exc.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(msg).get("error", msg)
+        except Exception:
+            pass
+        raise CloudAuthError(f"embeddedci API-key token exchange failed (HTTP {exc.code}): {msg}") from exc
+    except Exception as exc:
+        raise CloudAuthError(f"embeddedci API-key token exchange failed: {exc}") from exc
+
+
+def get_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE,
+                      api_key: "str | None" = None) -> str:
+    """Mint an embeddedci session token for the cloud destination.
+
+    Prefers an explicit ``api_key`` (or ``BENCHPOD_API_KEY``), which works anywhere; falls back to
+    GitHub Actions OIDC, which works only inside a workflow with ``id-token: write``.
+    """
+    key = api_key or os.environ.get("BENCHPOD_API_KEY")
+    if key:
+        resp = exchange_api_key(api_base, key.strip())
+        # /auth/token replies {"token": …}; accept access_token too so either shape works.
+        token = resp.get("token") or resp.get("access_token")
+        if not token:
+            raise CloudAuthError("embeddedci API-key token exchange returned no token")
+        return token
+
     oidc = mint_oidc_token(audience)
     resp = exchange_token(api_base, oidc)
     token = resp.get("access_token")
