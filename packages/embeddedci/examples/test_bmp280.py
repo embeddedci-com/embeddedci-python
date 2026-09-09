@@ -20,7 +20,7 @@
 #   ------------------------------  --------------   --------------
 #   SWCLK                           LA11             wiring.swclk
 #   SWDIO                           LA12             wiring.swdio
-#   NRST                            LA3              wiring.nreset
+#   NRST                            J1 pin 22        wiring.nreset (True)
 #   UART TX  (DUT -> pod samples)   LA5              wiring.uart_rx
 #   UART RX  (pod -> DUT drives)    LA4              wiring.uart_tx
 #   I2C SDA  (needs a pull-up)      LA2 (4.7k)       wiring.i2c_sda
@@ -46,7 +46,7 @@ def wiring(pins):
     """This bench's wiring: DUT signal → BenchPod LA channel. Bench-specific —
     any signal can be on any LA channel, except I2C SDA/SCL need a pull-up (LA1-8)."""
     return SimpleNamespace(
-        swclk=pins.pin_11, swdio=pins.pin_12, nreset=pins.pin_3,
+        swclk=pins.pin_11, swdio=pins.pin_12, nreset=True,
         uart_rx=pins.pin_5, uart_tx=pins.pin_4,
         i2c_sda=pins.pin_2, i2c_scl=pins.pin_1,  # LA1/2 — 4.7k pull-ups
         efuse=pins.efuse,

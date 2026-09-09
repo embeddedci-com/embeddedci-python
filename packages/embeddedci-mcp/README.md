@@ -87,7 +87,7 @@ rather than raising, so the agent can reason about them.
 ## Example agent flow
 
 1. `connect("192.168.1.213")`
-2. `flash(swclk=11, swdio=12, nreset=3, target="target/stm32f4x.cfg", file="app.elf", target_power=1)`
+2. `flash(swclk=11, swdio=12, nreset=True, target="target/stm32f4x.cfg", file="app.elf", target_power=1)`
 3. `enable_pullup([1, 2])` then `enable_i2c_sensor(sda=2, scl=1, temperature_c=22.5, pressure_pa=101000)`
 4. `power_cycle_and_capture(rx=5, tx=4, delay=1.5, duration=6.0, until_regex="APP_OK")`
 5. `i2c_sensor_status()` / `i2c_read_register(address=0x76, register=0xD0)` to confirm the DUT probed the sensor.

@@ -107,7 +107,7 @@ def test_dap_start_ack_does_not_swallow_dap_bytes():
     pod = FakePod(handler)
     try:
         t = TcpTransport(pod.addr, timeout=2)
-        link = t.dap_start(1, 2, None)
+        link = t.dap_start(1, 2)
         try:
             assert link.read(7) == b"RAWDAP0"
         finally:

@@ -143,7 +143,7 @@ def flash(
     *,
     swclk: int,
     swdio: int,
-    nreset: Optional[int] = None,
+    nreset: bool = False,
     target: str = "",
     file: str = "",
     load_address: str = "",
@@ -160,9 +160,16 @@ def flash(
 ) -> FlashResult:
     """Arm the CMSIS-DAP probe and run OpenOCD. Returns a :class:`FlashResult`.
 
-    Pins are LA channels 1-12 (already coerced by the caller). ``target_power``
-    of 1/2 enables that eFuse first; ``None`` leaves power untouched.
-    ``connect_under_reset`` defaults to True when ``nreset`` is wired.
+    ``swclk``/``swdio`` are LA channels 1-12 (already coerced by the caller).
+    ``target_power`` of 1/2 enables that eFuse first; ``None`` leaves power
+    untouched.
+
+    ``nreset`` says whether the target's reset line is wired to the pod's reset
+    pin (DUT header J1 pin 22). It is a flag, not a channel: pods have driven
+    NRST from that dedicated pin since rev3, so nothing has to be routed to an LA
+    channel any more. ``connect_under_reset`` defaults to True when ``nreset`` is
+    set, and is forced off when it is not — holding a reset the pod cannot drive
+    would only stall the connect.
 
     The SWD link can intermittently fail the initial debug-port read (``cannot
     read IDR``); a connect failure fails fast, so ``connect_attempts`` retries the
@@ -173,9 +180,10 @@ def flash(
     """
     if file and not target:
         raise FlashError("file= requires target=")
+    nreset = bool(nreset)
     if connect_under_reset is None:
-        connect_under_reset = nreset is not None
-    connect_under_reset = bool(connect_under_reset) and nreset is not None
+        connect_under_reset = nreset
+    connect_under_reset = bool(connect_under_reset) and nreset
 
     bin_path = find_openocd(openocd_bin)
     if not supports_cmsis_dap_tcp(bin_path):
@@ -199,7 +207,7 @@ def flash(
     attempts = max(1, connect_attempts)
     result: Optional[FlashResult] = None
     for attempt in range(attempts):
-        pod_link = transport.dap_start(swclk, swdio, nreset)
+        pod_link = transport.dap_start(swclk, swdio)
         try:
             result = _run_bridge(bin_path, args, pod_link, timeout=timeout)
         finally:
@@ -441,7 +449,8 @@ def raise_for_result(result: FlashResult, *, hint: str = "") -> None:
         raise TargetUnreachableError(
             "SWD target did not respond (could not read the debug port IDCODE). "
             "Check power, wiring (SWCLK/SWDIO not swapped, common ground), and "
-            "whether the running firmware disables SWD (wire NRST + pass nreset)."
+            "whether the running firmware disables SWD (wire the target's NRST to "
+            "the pod's reset pin, DUT header J1 pin 22, and pass nreset=True)."
             + suffix + ("\n" + detail if detail else "")
         )
     raise FlashError(

@@ -45,11 +45,15 @@ class Transport(ABC):
         connection can move on to e.g. UART capture meanwhile.
         """
 
-    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+    def dap_start(self, swclk: int, swdio: int) -> RawLink:
         """Arm the SWD engine and return a raw link carrying length-framed
         CMSIS-DAP packets — the batched flash path that OpenOCD's cmsis-dap TCP
         backend drives (see :mod:`embeddedci.benchpod.flash`). This is the only
-        SWD flash path; not every backend implements it."""
+        SWD flash path; not every backend implements it.
+
+        Target reset is not a parameter: since pod rev3 the pod drives NRST from
+        its own pin (DUT header J1 pin 22) whenever CMSIS-DAP asks, so there is
+        no LA channel to hand over."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support CMSIS-DAP (dap_start)"
         )

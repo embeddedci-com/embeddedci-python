@@ -69,7 +69,7 @@ class FakeTransport(Transport):
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         self.power_calls.append({"efuse": efuse, "on": on, "delay_ms": delay_ms})
 
-    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+    def dap_start(self, swclk: int, swdio: int) -> RawLink:
         raise NotImplementedError("fake transport does not flash")
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:

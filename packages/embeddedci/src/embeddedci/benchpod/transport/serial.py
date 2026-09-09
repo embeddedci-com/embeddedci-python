@@ -418,10 +418,8 @@ class SerialTransport(Transport):
             f"{verb}: pod never reported {ready!r}; pod output:\n{acc.decode('utf-8', 'replace').strip()}"
         )
 
-    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]) -> RawLink:
+    def dap_start(self, swclk: int, swdio: int) -> RawLink:
         cmd = f"dap-start {swclk} {swdio}"
-        if nreset is not None:
-            cmd += f" {nreset}"
         return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:

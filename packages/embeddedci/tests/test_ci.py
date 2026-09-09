@@ -56,7 +56,7 @@ def test_reporter_lazy_create_and_finalize(tmp_path):
     # Uploading an artifact creates the build lazily, then uploads.
     fw = tmp_path / "fw.elf"
     fw.write_bytes(b"\x7fELF")
-    r.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=3, efuse=1)
+    r.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=True, efuse=1)
     r.upload_artifacts([str(fw)])
     assert r.build_id == "build-123"
     # set_result + finalize posts status exactly once.

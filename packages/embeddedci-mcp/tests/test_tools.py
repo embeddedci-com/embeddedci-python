@@ -89,7 +89,7 @@ def test_flash_serializes_result(connected, monkeypatch):
         lambda **kw: FlashResult(ok=True, returncode=0,
                                  stdout="Programming Finished", stderr=""),
     )
-    result = server.flash(swclk=11, swdio=12, nreset=3,
+    result = server.flash(swclk=11, swdio=12, nreset=True,
                           target="target/stm32f4x.cfg", file="fw.elf")
     assert result["ok"] is True
     assert result["returncode"] == 0

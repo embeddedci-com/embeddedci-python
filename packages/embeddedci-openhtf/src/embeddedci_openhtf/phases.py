@@ -10,7 +10,7 @@ test is just a list of them::
 
     test = htf.Test(
         flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",
-                    swclk=11, swdio=12, nreset=3),
+                    swclk=11, swdio=12, nreset=True),
         boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK"),
     )
     test.execute(test_start=lambda: "SN-0001")
@@ -55,13 +55,15 @@ def power_phase(plug: type, *, efuse: Union[Efuse, int] = Efuse.INTERNAL,
 
 
 def flash_phase(plug: type, *, file: str, target: str,
-                swclk: _PinT, swdio: _PinT, nreset: Optional[_PinT] = None,
+                swclk: _PinT, swdio: _PinT, nreset: bool = False,
                 target_power: Optional[Union[Efuse, int]] = Efuse.INTERNAL,
                 name: str = "flash", stop_on_fail: bool = True,
                 **flash_kwargs) -> object:
     """A phase that flashes the DUT over SWD and records the result.
 
-    ``swclk``/``swdio``/``nreset`` are LA channels (1-12). Records a ``flash_ok``
+    ``swclk``/``swdio`` are LA channels (1-12); ``nreset`` is a flag saying the
+    target's reset is wired to the pod's reset pin (DUT header J1 pin 22).
+    Records a ``flash_ok``
     measurement and attaches the OpenOCD log. By default a failed flash stops the
     test (``stop_on_fail``) so later phases don't run against an unprogrammed DUT.
     Extra keyword args pass through to ``BenchPod.flash`` (``verify``,

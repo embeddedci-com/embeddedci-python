@@ -10,7 +10,7 @@ hand-roll the boilerplate:
     @htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
     def flash(test, bench):
         result = bench.flash(file="fw.elf", target="target/stm32f4x.cfg",
-                             swclk=11, swdio=12, nreset=3, check=False)
+                             swclk=11, swdio=12, nreset=True, check=False)
         record_flash(test, result)            # sets flash_ok + attaches the log
 
 The recorders never raise on a bad result — they record the failing value so the

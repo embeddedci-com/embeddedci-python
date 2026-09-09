@@ -35,7 +35,7 @@ def test_flash_known_good(benchpod, request):
         target="target/stm32f1x.cfg",
         swclk=bp.PIN1,
         swdio=bp.PIN2,
-        nreset=bp.PIN3,
+        nreset=True,
         target_power=bp.INTERNAL,
     )
     assert result.ok

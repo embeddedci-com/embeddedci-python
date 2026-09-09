@@ -72,7 +72,7 @@ class FakeTransport(Transport):
     def get_la_voltage(self) -> Any:
         return {"mv": getattr(self, "_la_mv", 0), "st": 1}
 
-    def dap_start(self, swclk: int, swdio: int, nreset: Optional[int]):
+    def dap_start(self, swclk: int, swdio: int):
         return FakeRawLink()
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int):

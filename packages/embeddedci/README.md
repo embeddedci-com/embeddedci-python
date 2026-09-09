@@ -23,7 +23,7 @@ with benchpod.BenchPod("192.168.1.213") as bp:   # or "/dev/ttyACM0", or "usb"
     bp.power_on(benchpod.INTERNAL)
     result = bp.flash(
         file="firmware.elf", target="target/stm32f1x.cfg",
-        swclk=benchpod.PIN1, swdio=benchpod.PIN2, nreset=benchpod.PIN3,
+        swclk=benchpod.PIN1, swdio=benchpod.PIN2, nreset=True,
         target_power=benchpod.INTERNAL,
     )
     assert result.ok

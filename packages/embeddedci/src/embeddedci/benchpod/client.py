@@ -195,7 +195,7 @@ class BenchPod:
         *,
         swclk: Union[Pin, int],
         swdio: Union[Pin, int],
-        nreset: Optional[Union[Pin, int]] = None,
+        nreset: bool = False,
         target: str = "",
         file: str = "",
         load_address: str = "",
@@ -213,9 +213,12 @@ class BenchPod:
     ) -> FlashResult:
         """Flash an SWD target and report the result.
 
-        ``swclk``/``swdio``/``nreset`` are LA pins (``benchpod.PIN1``..``PIN12``
-        or 1-12). ``target_power`` of ``benchpod.INTERNAL``/``EXTERNAL`` powers
-        the target first. By default (``check=True``) a failed flash raises
+        ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN12`` or 1-12).
+        ``nreset`` is a flag, not a pin: pass ``True`` when the target's reset
+        line is wired to the pod's own reset pin (DUT header J1 pin 22), which is
+        where every pod since rev3 drives NRST. ``target_power`` of
+        ``benchpod.INTERNAL``/``EXTERNAL`` powers the target first. By default
+        (``check=True``) a failed flash raises
         :class:`FlashError`/:class:`TargetUnreachableError`; pass ``check=False``
         to get the :class:`FlashResult` and ``assert result.ok`` yourself.
         """
@@ -223,12 +226,11 @@ class BenchPod:
         swdio_i = coerce_pin(swdio, "swdio")
         if swclk_i == swdio_i:
             raise BenchPodError("swclk and swdio must be different LA pins")
-        nreset_i = coerce_pin(nreset, "nreset") if nreset is not None else None
         power = coerce_efuse(target_power) if target_power is not None else None
 
         result = _flash.flash(
             self._transport,
-            swclk=swclk_i, swdio=swdio_i, nreset=nreset_i,
+            swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset),
             target=target, file=file, load_address=load_address,
             target_power=power, verify=verify, reset=reset,
             connect_under_reset=connect_under_reset,

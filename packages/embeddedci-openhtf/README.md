@@ -55,7 +55,7 @@ bench = benchpod_plug("192.168.1.50:8080")
 
 test = htf.Test(
     flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",
-                swclk=11, swdio=12, nreset=3),      # records flash_ok, attaches openocd.log
+                swclk=11, swdio=12, nreset=True),   # records flash_ok, attaches openocd.log
     boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK"),   # records boot_ok, attaches uart.txt
 )
 test.execute(test_start=lambda: "SN-0001")

@@ -168,7 +168,7 @@ def test_cloud_transport_dap_handshake_returns_raw_link(monkeypatch):
     fake = _FakeSock(b'{"status":"ok"}\nRAWBYTES')
     monkeypatch.setattr(t, "_dial", lambda: fake)
 
-    link = t.dap_start(swclk=11, swdio=12, nreset=3)
+    link = t.dap_start(swclk=11, swdio=12)
     # Bytes after the ack newline are the raw CMSIS-DAP stream and must survive.
     assert link.read(8) == b"RAWBYTES"
     link.write(b"ping")

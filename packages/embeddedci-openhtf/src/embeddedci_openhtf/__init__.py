@@ -12,7 +12,7 @@ no EmbeddedCI cloud account or web UI required.
 
     test = htf.Test(
         flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",
-                    swclk=11, swdio=12, nreset=3),
+                    swclk=11, swdio=12, nreset=True),
         boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK"),
     )
     test.execute(test_start=lambda: "SN-0001")

@@ -268,7 +268,7 @@ def target_status() -> Any:
 def flash(
     swclk: int,
     swdio: int,
-    nreset: Optional[int] = None,
+    nreset: bool = False,
     target: str = "",
     file: str = "",
     load_address: str = "",
@@ -285,8 +285,12 @@ def flash(
     """Flash an SWD target via the pod's on-pod CMSIS-DAP probe (``dap_start``).
 
     OpenOCD's ``cmsis-dap`` TCP backend drives the batched DAP transfers; the pod
-    executes each transfer on the SWD wire. ``swclk``/``swdio``/``nreset`` are LA
-    channels (1-12). ``target`` is an OpenOCD target cfg (e.g.
+    executes each transfer on the SWD wire. ``swclk``/``swdio`` are LA channels
+    (1-12). ``nreset`` is a flag, not a channel: set it when the target's reset
+    line is wired to the pod's own reset pin (DUT header J1 pin 22), which is
+    where every pod since rev3 drives NRST — it turns on connect-under-reset, so
+    a target whose firmware disables SWD after boot can still be flashed.
+    ``target`` is an OpenOCD target cfg (e.g.
     ``target/stm32f4x.cfg``); ``file`` is the firmware image. ``target_power``
     (1/2) powers the target before flashing. Returns a structured result with
     ``ok`` plus ``stdout_tail``/``stderr_tail`` — inspect
@@ -816,7 +820,7 @@ can power, flash, and probe a real target board.
 
 Typical workflow:
   1. connect(connection)            — open the pod (host[:port], /dev/tty*, or 'serial')
-  2. flash(swclk, swdio, nreset,    — program the DUT over SWD
+  2. flash(swclk, swdio, nreset,    — program the DUT over SWD (nreset: bool)
            target, file, ...)         (over serial bit-bang use verify=false)
   3. enable_pullup([sda, scl])      — for I2C work, idle the bus high
      enable_i2c_sensor(sda, scl)    — have the pod emulate a sensor

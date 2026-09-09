@@ -61,7 +61,7 @@ def main() -> int:
     with benchpod.BenchPod(args.port) as bp:
         r = bp.flash(
             file=args.elf, target=args.target,
-            swclk=11, swdio=12, nreset=3,
+            swclk=11, swdio=12, nreset=True,
             target_power=benchpod.INTERNAL,   # DUT runs off the internal 5V eFuse
             verify=False, connect_attempts=1,
             timeout=300.0,

@@ -346,7 +346,7 @@ def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config"
     Use it to upload the firmware that was tested and record the wiring, e.g.::
 
         def test_boots(dut, wiring, firmware, build_report):
-            build_report.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=3)
+            build_report.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=True)
             build_report.upload_artifacts([firmware])
             ...  # the pytest pass/fail is captured automatically
 

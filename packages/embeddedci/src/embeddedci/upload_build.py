@@ -47,6 +47,27 @@ def firmware_artifacts(firmware: str) -> List[str]:
     return paths
 
 
+def _optional_flag(value: Optional[str]) -> Optional[bool]:
+    """Parse a yes/no input. Empty means "not specified" (leave the field out),
+    which is different from an explicit false.
+
+    Pods drive NRST from a dedicated pin now, so this is a flag — but the GitHub
+    action passes whatever the workflow put in the input, and old workflows put
+    an LA channel number there. A bare number still parses: any channel meant
+    "reset is wired"."""
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if not value:
+        return None
+    if value in ("true", "1", "yes", "y", "on"):
+        return True
+    if value in ("false", "0", "no", "n", "off"):
+        return False
+    # Legacy: an LA channel number.
+    return int(value) > 0
+
+
 def _optional_pin(value: Optional[str]) -> Optional[int]:
     """Parse a pin input. Empty string means "not wired" — an action input that was
     simply left unset — and must not become 0, which is a different thing."""
@@ -77,7 +98,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--openocd-target", default="", help="OpenOCD target config, e.g. target/stm32f4x.cfg")
     p.add_argument("--swclk", default="", help="LA channel wired to SWCLK")
     p.add_argument("--swdio", default="", help="LA channel wired to SWDIO")
-    p.add_argument("--nreset", default="", help="LA channel wired to NRST (omit if not wired)")
+    p.add_argument("--nreset", default="",
+                   help="true/false: is the target's NRST wired to the pod's reset pin "
+                        "(DUT header J1 pin 22)? Omit when it is not wired.")
     p.add_argument("--efuse", default="", help="target-power eFuse rail: 1 internal, 2 external")
     p.add_argument("--name", default="", help="build name shown in the UI")
     p.add_argument("--api-base", default="", help="embeddedci base URL (default: the public server)")
@@ -127,7 +150,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         target=args.openocd_target or None,
         swclk=_optional_pin(args.swclk),
         swdio=_optional_pin(args.swdio),
-        nreset=_optional_pin(args.nreset),
+        nreset=_optional_flag(args.nreset),
         efuse=_optional_pin(args.efuse),
     )
     reporter.upload_artifacts(artifacts)

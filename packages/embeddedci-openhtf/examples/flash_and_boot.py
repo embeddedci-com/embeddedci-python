@@ -24,7 +24,8 @@ from openhtf.output.callbacks import console_summary, json_factory
 from embeddedci_openhtf import benchpod_plug, boot_banner_phase, flash_phase
 
 # --- bench wiring (edit for your setup): LA channels 1-12 -------------------
-SWCLK, SWDIO, NRESET = 11, 12, 3      # SWD probe -> DUT
+SWCLK, SWDIO = 11, 12                 # SWD probe -> DUT (LA channels)
+NRESET = True                         # DUT reset wired to the pod's pin, J1 pin 22
 UART_RX, UART_TX = 1, 2               # RX = LA channel sampling the DUT's TX
 OPENOCD_TARGET = "target/stm32f4x.cfg"
 BOOT_BANNER = "APP_OK"               # substring the firmware prints when healthy

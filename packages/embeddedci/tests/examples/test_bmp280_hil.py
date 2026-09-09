@@ -22,7 +22,7 @@ The ``wiring`` fixture below is THIS bench's map; edit it for your board.
   ------------------------------------------   ------------------------------
   SWCLK  (SWD clock)                           LA11   (wiring.swclk)
   SWDIO  (SWD data)                            LA12   (wiring.swdio)
-  NRST   (optional reset)                      LA3    (wiring.nreset)
+  NRST   (optional reset)                      J1 pin 22 (wiring.nreset = True)
   USART1 TX = PA9   -> pod samples             LA5    (wiring.uart_rx)
   USART1 RX = PA10  <- pod drives              LA4    (wiring.uart_tx)
   I2C1 SDA  = PB9   <-> LA2 (4.7k pull-up)     LA2    (wiring.i2c_sda)
@@ -60,7 +60,7 @@ def wiring(pins):
     return SimpleNamespace(
         swclk=pins.pin_11,
         swdio=pins.pin_12,
-        nreset=pins.pin_3,
+        nreset=True,   # wired to the pod's reset pin, J1 pin 22
         uart_rx=pins.pin_5,    # pod samples the DUT's TX
         uart_tx=pins.pin_4,    # pod drives the DUT's RX
         i2c_sda=pins.pin_2,    # LA2 — 4.7k pull-up

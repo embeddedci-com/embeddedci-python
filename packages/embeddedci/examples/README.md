@@ -36,7 +36,7 @@ below is what that fixture uses — edit it to match your board.
 |---|---|---|
 | SWCLK | LA11 | `wiring.swclk` |
 | SWDIO | LA12 | `wiring.swdio` |
-| NRST | LA3 | `wiring.nreset` |
+| NRST | J1 pin 22 (the pod's reset pin) | `wiring.nreset` (True) |
 | UART TX (DUT→pod samples) | LA5 | `wiring.uart_rx` |
 | UART RX (pod→DUT drives) | LA4 | `wiring.uart_tx` |
 | I2C SDA (needs a pull-up) | LA2 | `wiring.i2c_sda` |

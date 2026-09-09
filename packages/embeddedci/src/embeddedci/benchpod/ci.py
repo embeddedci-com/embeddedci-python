@@ -101,10 +101,15 @@ class BuildReporter:
         target: Optional[str] = None,
         swclk: Optional[int] = None,
         swdio: Optional[int] = None,
-        nreset: Optional[int] = None,
+        nreset: Optional[bool] = None,
         efuse: Optional[int] = None,
     ) -> None:
-        """Record the flash wiring used, so the web UI flash modal can pre-fill these defaults."""
+        """Record the flash wiring used, so the web UI flash modal can pre-fill these defaults.
+
+        ``nreset`` is a flag: whether the target's reset line is wired to the
+        pod's reset pin (DUT header J1 pin 22). It used to be the LA channel the
+        reset was borrowed from, before pods had a pin of their own.
+        """
         wiring: Dict[str, Any] = {}
         if target is not None:
             wiring["target"] = target
@@ -113,7 +118,7 @@ class BuildReporter:
         if swdio is not None:
             wiring["swdio"] = int(swdio)
         if nreset is not None:
-            wiring["nreset"] = int(nreset)
+            wiring["nreset"] = bool(nreset)
         if efuse is not None:
             wiring["efuse"] = int(efuse)
         if wiring:
