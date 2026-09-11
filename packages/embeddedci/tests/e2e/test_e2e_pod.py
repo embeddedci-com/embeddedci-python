@@ -213,6 +213,26 @@ def test_stop_dac_after_cuts_the_output_mid_capture(pod):
     assert max(late) - min(late) < 300, "the DAC was still toggling after stop_dac_after"
 
 
+def test_a_restarted_dac_plays_the_new_waveform_from_its_first_sample(pod):
+    # Gateware <= v32 ran the first pass of a DAC start at the PREVIOUS waveform's length, so a
+    # 5 kHz square (181 samples) after a 200 Hz one (2034) played ~2 ms of stale 200 Hz levels.
+    # The co-trigger puts DAC sample 0 on the capture's t0, so that first pass is in the window.
+    np = pytest.importorskip("numpy")
+    if not pod.capabilities.dac_cotrig:
+        pytest.skip("the running gateware has no DAC co-trigger")
+    pod.analog_path("cal1")
+    with pod.generate("square", freq_hz=200, amplitude=0.8, offset=1.5, route=False):
+        time.sleep(0.05)
+    with pod.generate("square", freq_hz=5000, amplitude=0.8, offset=1.5, route=False,
+                      on_capture=True) as h:
+        assert h.cotrig
+        cap = pod.capture_adc(4000, sample_rate_hz=400_000)
+    blocks = np.asarray(cap.counts, dtype=np.int64)[:4000].reshape(-1, 100)   # 0.25 ms each
+    spread = blocks.max(axis=1) - blocks.min(axis=1)
+    flat = np.flatnonzero(spread[1:] <= 800) + 1
+    assert flat.size == 0, f"the square stalled in blocks {flat.tolist()} (spreads {spread.tolist()})"
+
+
 # -- captures ----------------------------------------------------------------------------
 
 def test_capture_adc_shallow_and_deep(pod):
