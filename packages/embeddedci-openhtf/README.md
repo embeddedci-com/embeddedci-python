@@ -37,7 +37,8 @@ supply it through OpenHTF config / environment variables.
 import openhtf as htf
 from embeddedci_openhtf import benchpod_plug
 
-# TCP — or benchpod_plug("/dev/ttyACM0"); la_voltage is the DUT's I/O voltage in volts
+# TCP — or benchpod_plug("/dev/ttyACM0"). Bind it once per station; la_voltage is the DUT's
+# I/O voltage — change it to 1.8 for a 1V8 board.
 bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)
 
 @htf.plug(bench=bench)
@@ -181,8 +182,9 @@ Notes:
   `loopback_measure_phase` does this for you.
 - A waveform started without `duration` keeps running after its phase; stop it with
   `signal_stop(bench)` (e.g. in a teardown phase).
-- Replaying waveforms (`replay`, `replay_waveform`, `dac_replay_phase`) needs a TCP or
-  cloud connection; everything else works over serial too.
+- Use a TCP connection. The STM32 pod's USB serial console is a text shell without a JSON
+  mode, so over serial only `power_phase`, status and the LA voltage work; flashing, UART,
+  analog and replay phases need TCP (or the cloud).
 
 The low-level helpers take a connected `BenchPod` or the injected plug:
 `signal_generate`, `signal_stop`, `analog_path`, `dac_output`, `adc_read`,
@@ -229,8 +231,8 @@ finally:
 
 * [`examples/flash_and_boot.py`](examples/flash_and_boot.py) — flash over SWD then
   assert the boot banner, over a direct TCP connection.
-* [`examples/serial_smoke.py`](examples/serial_smoke.py) — a no-flash power + UART
-  smoke test with parsed and measured values in volts, over a direct serial connection.
+* [`examples/serial_smoke.py`](examples/serial_smoke.py) — a no-flash power + DUT-UART
+  smoke test with parsed and measured values in volts, over a direct TCP connection.
 * [`examples/analog_loopback.py`](examples/analog_loopback.py) — DAC→ADC loopback
   signal-path self-test in volts, over a direct TCP connection.
 * [`examples/station.py`](examples/station.py) — a station loop testing many DUTs

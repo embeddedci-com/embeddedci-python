@@ -37,7 +37,7 @@ class LaVoltage:
     #: Selected bank voltage in volts (1.8 or 3.3), or ``None`` when none has been chosen yet —
     #: the pod refuses every LA-bank operation until one is.
     voltage: Optional[float]
-    #: The measured bank voltage in volts, when the pod reports it.
+    #: The measured bank voltage in volts, or ``None`` when the board cannot measure it.
     readback: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
@@ -50,8 +50,10 @@ class LaVoltage:
         d = _d(reply)
         mv = _opt_int(d, "mv") or 0
         rb = _opt_int(d, "readback_mv")
+        # Boards without a readback divider report 0 (or a negative sentinel): that is "unknown",
+        # not a bank sitting at 0 V.
         return cls(voltage=mv / 1000.0 if mv else None,
-                   readback=None if rb is None else rb / 1000.0, raw=d)
+                   readback=rb / 1000.0 if rb is not None and rb > 0 else None, raw=d)
 
 
 @dataclass(frozen=True)
@@ -230,7 +232,11 @@ class DacOutput:
         d = _d(reply)
         code = _opt_int(d, "code")
         routed_only = code is None or code < 0
-        return cls(path=str(d.get("path", "")),
+        # The firmware answers with the analog-path name (dac_5v); report the output-path name the
+        # caller used (5v) so the result speaks the same vocabulary as dac_output's argument.
+        path = str(d.get("path", ""))
+        path = path[len("dac_"):] if path.startswith("dac_") else path
+        return cls(path=path,
                    voltage=None if routed_only else (_opt_int(d, "mv") or 0) / 1000.0,
                    code=None if routed_only else code, raw=d)
 

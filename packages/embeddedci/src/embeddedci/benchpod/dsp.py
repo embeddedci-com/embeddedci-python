@@ -26,13 +26,22 @@ FIT = "fit"
 # benchpodReplayMaxSamples).
 REPLAY_MAX_SAMPLES = 4096
 
-#: Named DAC output paths → full-scale volts (server benchpodDacPathFullScaleV).
+#: Named DAC output paths → their positive full-scale volts (server benchpodDacPathFullScaleV).
 DAC_PATH_FULLSCALE_V = {"3v3": 3.3, "5v": 5.0, "12v": 12.0}
+
+#: Named DAC output paths → (min, max) output volts, as the firmware calibration defines them
+#: (``cal_data.h`` ``DAC_CAL``). ``12v`` is bipolar: −12..+12 V with 0 V at mid-scale.
+DAC_PATH_RANGE_V = {"3v3": (0.0, 3.3), "5v": (0.0, 5.0), "12v": (-12.0, 12.0)}
 
 
 def dac_path_fullscale_v(dac_path: str, fallback: float = 5.0) -> float:
-    """Full-scale volts for a named DAC output path (``3v3``/``5v``/``12v``)."""
+    """Positive full-scale volts for a named DAC output path (``3v3``/``5v``/``12v``)."""
     return DAC_PATH_FULLSCALE_V.get((dac_path or "").lower().replace(".", ""), fallback)
+
+
+def dac_path_range_v(dac_path: str, fallback: tuple = (0.0, 5.0)) -> tuple:
+    """``(min_volts, max_volts)`` a named DAC output path spans — ``(-12.0, 12.0)`` for ``12v``."""
+    return DAC_PATH_RANGE_V.get((dac_path or "").lower().replace(".", ""), fallback)
 
 
 # -- decode ------------------------------------------------------------------
@@ -108,13 +117,14 @@ def _clamp(x: float, hi: int) -> int:
 
 
 def volts_to_codes(v: Sequence[float], mapping: str, path_full_scale_v: float,
-                   bits: int = 8) -> List[int]:
+                   bits: int = 8, path_min_v: float = 0.0) -> List[int]:
     """Map volts to DAC codes for ``bits`` resolution (8 or 16).
 
-    ``faithful``: ``code = clamp(round(v/path_full_scale_v * max))`` — reproduce the recorded
-    voltage on the DAC (clips outside the output range). ``fit``: auto-scale the recording's own
-    ``[min,max]`` across the full code range (shape preserved, absolute amplitude not). Mirrors
-    the server's ``voltsToCodes`` / ``voltsToCodes16``.
+    ``faithful``: ``code = clamp(round((v - path_min_v) / (path_full_scale_v - path_min_v) * max))``
+    — reproduce the voltage on a path spanning ``[path_min_v, path_full_scale_v]`` (clips outside
+    it; pass ``path_min_v=-12`` for the bipolar ``12v`` path, see :func:`dac_path_range_v`).
+    ``fit``: auto-scale the recording's own ``[min,max]`` across the full code range (shape
+    preserved, absolute amplitude not). Mirrors the server's ``voltsToCodes`` / ``voltsToCodes16``.
     """
     hi = (1 << bits) - 1
     mid = 1 << (bits - 1)
@@ -128,8 +138,10 @@ def volts_to_codes(v: Sequence[float], mapping: str, path_full_scale_v: float,
         if span <= 0:
             return [mid] * n
         return [_clamp((x - vmin) / span * hi, hi) for x in v]
-    fs = path_full_scale_v if path_full_scale_v > 0 else 1.0
-    return [_clamp(x / fs * hi, hi) for x in v]
+    span = path_full_scale_v - path_min_v
+    if span <= 0:
+        span = 1.0
+    return [_clamp((x - path_min_v) / span * hi, hi) for x in v]
 
 
 def codes_to_bytes(codes: Sequence[int], bits: int) -> bytes:
@@ -235,7 +247,7 @@ def recording_to_replay_codes(
     the device PSRAM depth), matching the server's ``applyRecordingForReplayDeep``; otherwise it
     downsamples to ``min(target_samples, REPLAY_MAX_SAMPLES)`` like ``applyRecordingForReplay``.
     """
-    path_fs = dac_path_fullscale_v(dac_path)
+    path_min, path_max = dac_path_range_v(dac_path)
     volts = decode_recording_volts(raw, src_full_scale_v)
     win = window_volts(volts, window_start, window_len)
     if deep:
@@ -243,7 +255,7 @@ def recording_to_replay_codes(
     else:
         tgt = target_samples if 0 < target_samples <= REPLAY_MAX_SAMPLES else REPLAY_MAX_SAMPLES
         out = block_average_downsample(win, tgt)
-    codes = volts_to_codes(out, mapping, path_fs, bits=bits)
+    codes = volts_to_codes(out, mapping, path_max, bits=bits, path_min_v=path_min)
     if fault:
         codes = apply_fault(codes, fault, bits=bits)
     return ReplayCodes(codes=codes, bits=bits, source_samples=len(win))

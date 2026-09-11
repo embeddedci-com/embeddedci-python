@@ -13,7 +13,8 @@ maps to SDK calls, so anything an agent discovers interactively can become a pyt
 ## Requirements
 
 - Python 3.10+ and [uv](https://docs.astral.sh/uv/) (for `uvx`), or `pip`.
-- A BenchPod reachable over the network, USB, or the embeddedci.com cloud.
+- A BenchPod reachable over the network or the embeddedci.com cloud. (A USB connection works for
+  status, LA voltage and power only: the STM32 pod's USB console has no JSON mode.)
 - For `flash`: OpenOCD with the `cmsis_dap_tcp` backend (newer than 0.12.0 — e.g.
   `brew install --HEAD open-ocd`, or the xPack build) on the machine running the server. The
   firmware `file` is read from that machine too.
@@ -27,6 +28,9 @@ claude mcp add benchpod \
   -e BENCHPOD_CONNECTION=192.168.1.213 -e BENCHPOD_LA_VOLTAGE=3.3 \
   -- uvx embeddedci-mcp
 ```
+
+`BENCHPOD_LA_VOLTAGE` is the board's I/O voltage, configured once here — use `1.8` for a 1V8
+board. Without it the agent is told to call `set_la_voltage` before touching the LA bank.
 
 ### Claude Desktop / Cursor
 
@@ -88,7 +92,7 @@ Run the server on the machine next to the pod, and point clients at it:
 
 ```bash
 export EMBEDDEDCI_MCP_TOKEN=$(openssl rand -hex 32)
-embeddedci-mcp --transport http --host 0.0.0.0 --connection usb --la-voltage 3.3
+embeddedci-mcp --transport http --host 0.0.0.0 --connection 192.168.1.213 --la-voltage 3.3
 ```
 
 ```bash

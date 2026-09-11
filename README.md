@@ -64,14 +64,17 @@ pytest packages/embeddedci packages/embeddedci-mcp packages/embeddedci-openhtf
 Hardware tests skip without a pod. To run them against one:
 
 ```bash
-pytest packages/embeddedci --benchpod-connection 192.168.1.213 --benchpod-la-voltage 3.3
+pytest packages/embeddedci --benchpod-connection 192.168.1.213
 ```
+
+The board's I/O voltage (3.3 V) is set once in `packages/embeddedci/tests/conftest.py`; change it
+there for a 1V8 board.
 
 ## Running the MCP server
 
 ```bash
 # launched by an MCP client (Claude Code / Claude Desktop / Cursor) over stdio:
-embeddedci-mcp --connection 192.168.1.213 --la-voltage 3.3
+embeddedci-mcp --connection 192.168.1.213
 
 # or served over HTTP for a remote bench (a token is required off loopback):
 embeddedci-mcp --transport http --host 0.0.0.0 --auth-token "$TOKEN" --connection usb

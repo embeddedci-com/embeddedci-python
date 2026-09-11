@@ -111,16 +111,18 @@ and `transport` (inject a custom backend).
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key anywhere, or GitHub Actions OIDC) |
 
-The serial console is normally text-only; the SDK switches it into the firmware's JSON mode
-automatically, so the same API works over USB as over the network.
+**Use the network (or the cloud) for testing.** The STM32 pod's USB console is a text shell for
+setup and diagnostics with no JSON mode, so over USB the SDK can only read `status()`, `ping()`,
+select the LA voltage and switch target power (without `delay`). Everything else — flashing, UART,
+analog, captures, I2C-sensor emulation, CAN — raises a `TransportError` right away that points at
+the network connection. (On firmware whose console does have a JSON mode, the SDK uses it
+automatically.)
 
-Some features depend on the transport:
-
-| | TCP | USB | Cloud |
+| | TCP | USB (STM32 pod) | Cloud |
 |---|---|---|---|
-| Commands, power, flashing, UART, I2C sensor, all captures | yes | yes | yes |
+| `status`, `ping`, LA voltage, target power on/off | yes | yes | yes |
+| Scheduled power changes (`delay=`), flashing, UART, analog, captures, I2C sensor, CAN, control loop | yes | no | yes |
 | `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | no | yes |
-| Commands while an `open_uart()` session is open | yes | no | yes |
 | Device lease | — | — | yes |
 
 ### Environment variables
@@ -169,12 +171,25 @@ has a complete old → new table.
 
 ## pytest plugin
 
-Installing the package registers a pytest plugin (options, fixtures and markers). Point it at a
-pod and use the fixtures:
+Installing the package registers a pytest plugin (options, fixtures and markers). Set the board's
+I/O voltage **once** for the whole suite in `conftest.py` — the pod refuses flashing, UART, LA
+capture, pull resistors and I2C-sensor emulation until an LA bank voltage is selected:
+
+```python
+# conftest.py
+import pytest
+
+
+@pytest.fixture(scope="session")
+def benchpod_la_voltage():
+    return 3.3  # the board's I/O voltage — change to 1.8 for a 1V8 board
+```
+
+Then point pytest at a pod and use the fixtures:
 
 ```bash
-pytest --benchpod-connection=192.168.1.213 --benchpod-la-voltage 3.3
-# or: export BENCHPOD_CONNECTION=usb BENCHPOD_LA_VOLTAGE=3.3
+pytest --benchpod-connection=192.168.1.213
+# or: export BENCHPOD_CONNECTION=usb
 ```
 
 ```python
@@ -204,7 +219,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | Option | Env fallback | Default | Purpose |
 |---|---|---|---|
 | `--benchpod-connection` | `BENCHPOD_CONNECTION` | — | connection string (also the `benchpod_connection` ini option) |
-| `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA bank voltage (1.8 or 3.3) selected when the session connects |
+| `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | override the `benchpod_la_voltage` fixture for one run (1.8 or 3.3); the flag wins over the fixture, the env var only applies when neither is set |
 | `--benchpod-efuse` | — | `1` | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external) |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
@@ -227,6 +242,7 @@ benchpod_connection = 192.168.1.213
 
 | Fixture | Scope | Provides |
 |---|---|---|
+| `benchpod_la_voltage` | session | the board's I/O voltage selected on connect — **override it in `conftest.py`** (default `None` → `BENCHPOD_LA_VOLTAGE`) |
 | `benchpod` | session | a connected `BenchPod` with the options above applied; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
 | `benchpod_target` | function | `benchpod` with the `--benchpod-efuse` rail powered on for the test, off at teardown |
@@ -677,7 +693,7 @@ with BenchPod("embeddedci:my-bench-01", la_voltage=3.3, api_key="eci_…") as bp
 ```
 
 ```bash
-BENCHPOD_API_KEY=eci_… pytest --benchpod-connection=embeddedci:my-bench-01 --benchpod-la-voltage 3.3
+BENCHPOD_API_KEY=eci_… pytest --benchpod-connection=embeddedci:my-bench-01
 ```
 
 One-time setup (in the EmbeddedCI web app):
@@ -705,7 +721,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install "embeddedci[cloud]"
       # plus an OpenOCD with the cmsis_dap_tcp backend if the tests flash (see Install)
-      - run: pytest --benchpod-connection=embeddedci:my-bench-01 --benchpod-la-voltage 3.3
+      - run: pytest --benchpod-connection=embeddedci:my-bench-01   # LA voltage comes from conftest.py
 ```
 
 If the OIDC token can't be minted, the error says exactly why — one of: **not running inside a

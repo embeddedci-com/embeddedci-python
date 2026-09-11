@@ -26,6 +26,7 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
 | --- | --- |
 | **Connection** | |
 | `bp = BenchPod(conn); bp.set_la_voltage(3.3)` | `BenchPod(conn, la_voltage=3.3)` (or `BENCHPOD_LA_VOLTAGE=3.3`) |
+| pytest: `--benchpod-la-voltage 3.3` on every run | override the `benchpod_la_voltage` fixture once in `conftest.py` (the flag remains a per-run override) |
 | `status()` returned text over serial | `status()` is a dict on every transport |
 | `transport.set_la_voltage(mv)` / `get_la_voltage()` | removed — use `BenchPod.set_la_voltage` / `get_la_voltage` |
 | **LA voltage** | |
@@ -88,15 +89,19 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
 
 ### Added
 
-- `BenchPod(la_voltage=...)` / `BENCHPOD_LA_VOLTAGE` select the LA bank voltage on connect.
+- `BenchPod(la_voltage=...)` / `BENCHPOD_LA_VOLTAGE` select the LA bank voltage on connect; the
+  `benchpod_la_voltage` pytest fixture sets it once for a test suite from `conftest.py`.
 - `target_status()`, `reset_target()`, `set_reset()`, `reset_state()`, `usb_cc()`.
 - `enable_pulldown()`, `disable_pulldown()`, `set_pull()`, `pull_state()`, `enabled_pulls()`.
 - `LoopInputMap` (`control_loop(input_map=...)`) and `Capabilities.dac_loop_input_map` for
   gateware v30's engineering-units loop input.
 - `LaCapture.edges(la)`, `FpgaImage`, `DacHandle`, `CanReadResult`, `CloudAuthError` export,
   the `Literal` option types, and the `embeddedci[pytest]` extra.
-- The serial transport streams chunked replies, so `capture_la` and `capture_correlated` work
-  over USB.
+- The serial transport probes whether the pod's USB console has a JSON mode. The STM32 pod's does
+  not (it is a text shell), so over USB `status()` (parsed from the text report), `ping()`, the LA
+  voltage and target power on/off run as text commands, and every other operation raises a
+  `TransportError` at once that points at the network/cloud connection (instead of timing out).
+  On firmware with a JSON mode, chunked replies now stream too.
 - `generate(..., route=False)` / `replay(..., route=False)` keep the current analog switching, so a
   DAC→ADC loopback set up with `analog_path("cal1")` survives starting the output.
 - `BenchPod.leased`: whether this client holds a cloud device lease.
@@ -110,7 +115,19 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
 - `BENCHPOD_API_BASE` was ignored by the cloud transport when `BenchPod` was constructed directly.
 - `scope_capture(source=...)` only labelled the result; `capture_adc(source=...)` routes it.
 - The `benchpod_target` fixture ignored `--benchpod-efuse`.
+- Over USB, `target_power` sent a `target-power` verb the STM32 console doesn't have (it is
+  `power`); a delayed change over USB now raises instead of being silently ignored.
+- `LaVoltage.readback` is `None` (not 0.0 V) on boards that cannot measure the bank.
 - `fpga_image` was documented as a ~10 ms warm boot; it reprograms the FPGA (~2-3 s).
+- The `12v` DAC path was mapped as 0..12 V; it is bipolar −12..+12 V (0 V at mid-scale), so
+  `generate` and `replay` volts on it were wrong — confirmed against the firmware calibration and on
+  a pod. `generate`'s default offset on `12v` is now 0 V. (`dsp.volts_to_codes` gained
+  `path_min_v`; `dsp.dac_path_range_v` gives each path's range.)
+- A replay deeper than 2048 samples on the control-loop gateware image was accepted and then
+  produced no output (measured on a pod); it now raises a `BenchPodError` naming
+  `fpga_image(FpgaImage.DEEP_REPLAY)`.
+- `DacOutput.path` reports the output path you asked for (`5v`), not the firmware's analog-path
+  name (`dac_5v`).
 - `replay_waveform` scaled a segments waveform for its stored path but routed the `5v` default.
 - `capture_adc(source=...)` now waits for the relays to settle before capturing.
 - Error messages no longer claim the cloud destination is CI-only or suggest OpenOCD builds that

@@ -23,7 +23,6 @@ pip install "embeddedci[pytest]"   # flashing also needs an OpenOCD with the cms
 
 pytest examples/test_bmp280.py \
     --benchpod-connection=192.168.1.213 \
-    --benchpod-la-voltage 3.3 \
     --benchpod-firmware=path/to/your_app.elf
 ```
 
@@ -31,10 +30,11 @@ pytest examples/test_bmp280.py \
 path such as `/dev/ttyACM0`, `discover` (mDNS), or `embeddedci:<device-name>` for a pod
 reached through embeddedci.com (see the package README for cloud authentication).
 
-`--benchpod-la-voltage` selects the LA I/O-bank voltage (1.8 or 3.3 V). The pod refuses
-flashing, UART, LA capture, pull resistors and I2C-sensor emulation until one is chosen,
-and the pull-up resistors only work at 3.3 V. You can set `BENCHPOD_LA_VOLTAGE=3.3`
-instead.
+The board's I/O voltage is set once, by the `benchpod_la_voltage` fixture at the top of
+`test_bmp280.py` (3.3 V). The pod refuses flashing, UART, LA capture, pull resistors and
+I2C-sensor emulation until an LA bank voltage is chosen. **Change it to 1.8 for a 1V8
+board** — note the pull-up resistors only work at 3.3 V. In your own project put that fixture
+in `conftest.py` so every test file shares it.
 
 Without a connection or a firmware image the test **skips** (so it's safe in CI). The
 `benchpod_sensor`, `pins` and `firmware` fixtures are provided by the installed plugin.

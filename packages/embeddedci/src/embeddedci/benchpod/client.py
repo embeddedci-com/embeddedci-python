@@ -767,7 +767,8 @@ class BenchPod:
         """Generate a parametric waveform (``sine``/``square``/``sawtooth``) on a DAC output path.
 
         ``amplitude`` is the peak in volts and ``offset`` the centre in volts (default: the middle
-        of ``dac_path``'s range). The firmware builds the waveform from 8-bit levels, so volts are
+        of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). The firmware builds the
+        waveform from 8-bit levels, so volts are
         quantised to ``full_scale / 255`` using the same volts→code mapping as :meth:`replay`.
         ``duration`` (seconds) stops it by itself; omitted, it runs until :meth:`dac_stop` or the
         returned handle's ``stop()``. ``on_capture=True`` defers the start to the next capture's
@@ -782,18 +783,20 @@ class BenchPod:
         check_choice(dac_path, DAC_PATHS, "dac_path")
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
-        fs = _dsp.dac_path_fullscale_v(dac_path)
-        step = fs / _GENERATOR_MAX_CODE
+        vmin, vmax = _dsp.dac_path_range_v(dac_path)
+        span = vmax - vmin
+        step = span / _GENERATOR_MAX_CODE
         amp_code = int(round(float(amplitude) / step))
         if amplitude <= 0 or amp_code < 1:
             raise ValueError(f"amplitude must be at least {step:.4f} V on the {dac_path} path, "
                              f"got {amplitude!r}")
         if amp_code > _GENERATOR_MAX_CODE:
-            raise ValueError(f"amplitude must be at most {fs:g} V on the {dac_path} path, got {amplitude!r}")
-        off_v = fs / 2.0 if offset is None else float(offset)
-        off_code = int(round(off_v / step))
+            raise ValueError(f"amplitude must be at most {span:g} V on the {dac_path} path, got {amplitude!r}")
+        off_v = (vmin + vmax) / 2.0 if offset is None else float(offset)
+        off_code = int(round((off_v - vmin) / step))
         if not 0 <= off_code <= _GENERATOR_MAX_CODE:
-            raise ValueError(f"offset must be within 0..{fs:g} V on the {dac_path} path, got {offset!r}")
+            raise ValueError(f"offset must be within {vmin:g}..{vmax:g} V on the {dac_path} path, "
+                             f"got {offset!r}")
         req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq": float(freq_hz),
                                "amplitude": amp_code, "offset": off_code}
         if duration is not None:
@@ -955,6 +958,15 @@ class BenchPod:
             raise ValueError("replay has no samples")
         if deep is None:
             deep = n_samples > 2048  # exceeds the shallow DAC BRAM depth -> stream from PSRAM
+        caps = self.capabilities
+        if deep and caps.dac_replay and not caps.dac_deep_replay:
+            # The loop image accepts a PSRAM replay and then outputs nothing (measured on a pod), so
+            # refuse it here rather than arm a silent DAC.
+            raise BenchPodError(
+                f"a {n_samples}-sample replay streams from PSRAM, which the running gateware image "
+                "cannot play (capabilities.dac_deep_replay is False): switch images with "
+                "fpga_image(FpgaImage.DEEP_REPLAY), or replay at most 2048 samples"
+            )
         if dac_path and route:
             self.command({"cmd": "dac_out", "path": dac_path})
         replay_req: Dict[str, Any] = {"cmd": "replay", "samples": n_samples}
@@ -993,15 +1005,16 @@ class BenchPod:
         check_choice(dac_path, DAC_PATHS, "dac_path")
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         bits = self._replay_bits()
-        path_fs = _dsp.dac_path_fullscale_v(dac_path)
+        vmin, vmax = _dsp.dac_path_range_v(dac_path)
         if isinstance(source, Capture):
-            codes = _dsp.volts_to_codes(source.volts, mapping, path_fs, bits=bits)
+            codes = _dsp.volts_to_codes(source.volts, mapping, vmax, bits=bits, path_min_v=vmin)
             if sample_rate_hz is None and source.sample_rate_hz > 0:
                 sample_rate_hz = source.sample_rate_hz
         elif are_codes:
             codes = [int(x) for x in source]
         else:
-            codes = _dsp.volts_to_codes([float(x) for x in source], mapping, path_fs, bits=bits)
+            codes = _dsp.volts_to_codes([float(x) for x in source], mapping, vmax, bits=bits,
+                                        path_min_v=vmin)
         f = normalize_fault(fault)
         if f:
             codes = _dsp.apply_fault(codes, f, bits=bits)
@@ -1079,7 +1092,8 @@ class BenchPod:
             code_bytes = rc.to_bytes()
         elif wf.segments:
             volts = _dsp.segments_to_volts(wf.segments, wf.sample_rate_hz or 1.0)
-            codes = _dsp.volts_to_codes(volts, mapping, _dsp.dac_path_fullscale_v(dac_path), bits=bits)
+            seg_min, seg_max = _dsp.dac_path_range_v(dac_path)  # type: ignore[arg-type]
+            codes = _dsp.volts_to_codes(volts, mapping, seg_max, bits=bits, path_min_v=seg_min)
             f = normalize_fault(fault)
             if f:
                 codes = _dsp.apply_fault(codes, f, bits=bits)

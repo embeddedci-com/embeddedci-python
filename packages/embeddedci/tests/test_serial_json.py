@@ -63,8 +63,8 @@ class FakeConsolePort:
                 self._emit('{"status":"ok","data":"json mode"}\n')
             elif s == "status":
                 self._emit("firmware : 0.2.0\r\n> ")
-            elif s.startswith("target-power"):
-                self._emit("eFuse1 ON\r\n> ")
+            elif s.startswith("power "):
+                self._emit("  eFuse1 ON\r\n> ")
             else:
                 self._emit("> ")
             return

@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""OpenHTF test: a no-flash power + UART smoke test over a **direct serial**
-connection to the BenchPod (no EmbeddedCI cloud, no OpenOCD).
+"""OpenHTF test: a no-flash power + UART smoke test of the DUT's serial console,
+over a **direct** connection to the BenchPod (no EmbeddedCI cloud, no OpenOCD).
 
 Useful as a first bring-up: power the target, watch its boot output, assert a
 banner, read back a value the firmware prints, and check the target rail with the
-pod's power monitor. Run it with the pod on a USB-serial port::
+pod's power monitor. Run it against the pod's network address::
 
     pip install embeddedci-openhtf
-    python serial_smoke.py --pod /dev/ttyACM0          # or COM5 on Windows
+    python serial_smoke.py --pod 192.168.1.50
+
+(The STM32 pod's own USB console can't proxy the DUT's UART, so use the network
+connection — the USB port is for power, status and the LA voltage only.)
 
 The custom phase shows the general pattern: declare measurements with
 ``@htf.measures``, grab the pod with ``@htf.plug``, and call the SDK directly.
@@ -24,7 +27,7 @@ from openhtf.output.callbacks import console_summary
 from embeddedci import benchpod
 from embeddedci_openhtf import benchpod_plug, record_uart
 
-LA_VOLTAGE = 3.3                 # DUT I/O voltage in volts (1.8 or 3.3)
+LA_VOLTAGE = 3.3                 # DUT I/O voltage — change to 1.8 for a 1V8 board
 UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-12)
 BOOT_BANNER = "APP_OK"
 
@@ -62,7 +65,7 @@ def make_smoke_phase(bench: type):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pod", default=os.environ.get("BENCHPOD_CONNECTION"),
-                    help="serial path (e.g. /dev/ttyACM0 or COM5), or host:port; "
+                    help="the pod's network address (host[:port]); "
                          "default: $BENCHPOD_CONNECTION")
     ap.add_argument("--sn", default="SN-0001")
     args = ap.parse_args()

@@ -102,6 +102,11 @@ def test_get_la_voltage_reports_unset():
     assert state.voltage is None and not state.is_set
 
 
+def test_la_voltage_readback_zero_means_unknown():
+    # A v2 board has no readback divider and reports readback_mv 0 while the bank is at 3.3 V.
+    assert LaVoltage.from_reply({"mv": 3300, "st": 1, "readback_mv": 0}).readback is None
+
+
 def test_api_base_environment_reaches_the_transport(monkeypatch):
     seen: Dict[str, Any] = {}
 
@@ -212,6 +217,9 @@ def test_dac_output_reports_achieved_volts():
     assert t.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
     routed = bp.dac_output("12v")
     assert routed.voltage is None and routed.code is None
+    # The firmware names the analog path (dac_5v); the result uses dac_output's own vocabulary.
+    assert DacOutput.from_reply({"path": "dac_5v", "mv": 2502, "code": 128}).path == "5v"
+    assert DacOutput.from_reply({"path": "off", "mv": 0, "code": -1}).path == "off"
     with pytest.raises(ValueError):
         bp.dac_output("off", volts=1.0)
 
@@ -278,6 +286,32 @@ def test_lowlevel_controls():
         bp.lowlevel.cal_switch(cal1=True, cal2=True)
     with pytest.raises(ValueError):
         bp.lowlevel.dac_set(256)
+
+
+def test_deep_replay_refused_on_an_image_without_it():
+    class ImageFake(FakeTransport):
+        def __init__(self, caps):
+            super().__init__()
+            self.caps = caps
+            self.uploads = []
+
+        def status(self):
+            return {"board": "stm32h563", "adc_bits": 16, "caps": self.caps}
+
+        def load_replay(self, *, data, replay, psram=False):
+            self.uploads.append(psram)
+            return {"samples": replay["samples"]}
+
+    loop = ImageFake(["dac", "dac_replay", "dac_control_loop"])
+    bp = BenchPod(transport=loop, lease=False)
+    bp.replay([1.0] * 2048, dac_path="5v")          # shallow: fine on the loop image
+    with pytest.raises(benchpod.BenchPodError, match="DEEP_REPLAY"):
+        bp.replay([1.0] * 4096, dac_path="5v")
+    assert loop.uploads == [False]                   # nothing uploaded for the refused replay
+
+    deep = ImageFake(["dac", "dac_replay", "dac_deep_replay"])
+    BenchPod(transport=deep, lease=False).replay([1.0] * 4096, dac_path="5v")
+    assert deep.uploads == [True]
 
 
 def test_command_needs_a_cmd():

@@ -12,8 +12,11 @@
 #   pip install "embeddedci[pytest]"   # + an OpenOCD with the cmsis_dap_tcp backend
 #   pytest examples/test_bmp280.py \
 #       --benchpod-connection=192.168.1.213 \
-#       --benchpod-la-voltage 3.3 \
 #       --benchpod-firmware=path/to/your_app.elf
+#
+# The board's I/O voltage is set once, in the `benchpod_la_voltage` fixture below
+# (3.3 V here). Change it to 1.8 for a 1V8 board — in a real project that fixture
+# lives in conftest.py so every test file shares it.
 #
 # (--benchpod-connection also takes "usb", a serial device path, "discover", or
 # "embeddedci:<device-name>" for a pod reached through embeddedci.com.)
@@ -55,6 +58,12 @@ BMP280_CHIP_ID_REG = 0xD0
 BMP280_CHIP_ID = 0x58
 
 
+@pytest.fixture(scope="session")
+def benchpod_la_voltage():
+    """The DUT's I/O voltage, selected on the pod when the session connects."""
+    return 3.3  # change to 1.8 for a 1V8 board (the pull-ups then can't be used)
+
+
 @pytest.fixture
 def wiring(pins):
     """This bench's wiring: DUT signal → BenchPod LA channel. Bench-specific —
@@ -71,9 +80,6 @@ def wiring(pins):
 def test_bmp280_sensor_present(benchpod_sensor, wiring, firmware):
     """Flash the DUT, emulate a BMP280 on I2C, power-cycle, assert on UART and the I2C bus."""
     bp = benchpod_sensor  # the plain `benchpod` device; also disarms the sensor at teardown
-
-    if not bp.get_la_voltage().is_set:
-        pytest.fail("select the DUT's I/O voltage first: pass --benchpod-la-voltage 3.3")
 
     try:
         # 1. Flash the firmware onto the DUT over SWD. Raises FlashError (with

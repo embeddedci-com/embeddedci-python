@@ -12,6 +12,7 @@ it at import time.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -45,6 +46,44 @@ UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to e
 CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
 _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
+JSON_PROBE_TIMEOUT = 3.0  # how long to wait for the console to answer the `json` mode switch
+UNKNOWN_COMMAND = "unknown command"
+
+#: JSON commands the text console can answer itself when the firmware has no JSON mode on USB
+#: (the STM32 pod's console is a text shell: status, ping, la-voltage, power, diagnostics).
+TEXT_CONSOLE_COMMANDS = ("status", "ping", "la_voltage")
+
+
+def parse_text_status(raw: str) -> Dict[str, Any]:
+    """Turn the console's ``status`` report (``  key : value`` lines) into a dict.
+
+    Every line lands under its own key; the fields the rest of the SDK reads from a JSON status
+    (``board``, ``version``, ``board_rev``, ``adc_bits``, ``adc_fullscale_mv``) are derived too.
+    """
+    out: Dict[str, Any] = {"console": "text"}
+    for line in raw.replace("\r", "\n").split("\n"):
+        key, sep, value = line.partition(":")
+        key = key.strip()
+        if not sep or not key or " " in key or key.startswith("["):
+            continue
+        out[key] = value.strip()
+    board = str(out.get("board", ""))
+    if board:
+        out["board"] = board.split()[0]
+        if m := re.search(r"\bfw v(\S+)", board):
+            out["version"] = m.group(1)
+        if m := re.search(r"\brev (\S+)", board):
+            out["board_rev"] = m.group(1)
+        if m := re.search(r"\bnrst_pin=(\w+)", board):
+            out["nrst_pin"] = m.group(1) == "yes"
+    adc = str(out.get("adc", ""))
+    if m := re.search(r"(\d+)-bit", adc):
+        out["adc_bits"] = int(m.group(1))
+    if m := re.search(r"(\d+) mV", adc):
+        out["adc_fullscale_mv"] = int(m.group(1))
+    if m := re.search(r"gateware v(\d+)", str(out.get("fpga", ""))):
+        out["gateware"] = int(m.group(1))
+    return out
 
 
 def _import_serial():
@@ -206,6 +245,9 @@ class SerialTransport(Transport):
         # real device (and pyserial autodetect).
         self.timeout = timeout
         self._json_mode = False  # console "json" mode active?
+        #: Whether the firmware's console has a JSON mode at all (None = not probed yet). The
+        #: STM32 pod's USB console does not: only the text commands work over USB there.
+        self.json_supported: Optional[bool] = None
         if port is not None:
             self.device = device
             self._port = port
@@ -274,7 +316,48 @@ class SerialTransport(Transport):
                 yield parse_reply(s.encode("utf-8"))
         raise TransportError("timed out waiting for a JSON reply over serial")
 
-    def _enter_json(self) -> None:
+    def _probe_json(self) -> bool:
+        """Ask the console to switch to JSON mode once and remember whether it can.
+
+        A console without the mode answers ``unknown command 'json'`` straight away, so the probe
+        costs a round trip, not a timeout.
+        """
+        if self.json_supported is not None:
+            return self.json_supported
+        self._write_line("json")
+        deadline = time.monotonic() + min(self.timeout, JSON_PROBE_TIMEOUT)
+        buf = bytearray()
+        supported = False
+        while time.monotonic() < deadline:
+            chunk = self._port.read(256)
+            if chunk:
+                buf.extend(chunk)
+            if UNKNOWN_COMMAND in buf.decode("utf-8", errors="replace"):
+                break
+            lines = buf.split(b"\n")[:-1]  # complete lines only
+            replies = [ln.strip() for ln in lines if ln.strip().startswith(b"{")]
+            if replies:
+                raise_for_status(parse_reply(replies[0]), cmd="json")
+                supported = True
+                self._json_mode = True
+                break
+        if not supported:
+            try:
+                self._port.reset_input_buffer()
+            except Exception:
+                pass
+        self.json_supported = supported
+        return supported
+
+    @staticmethod
+    def _unsupported(what: str) -> str:
+        return (f"{what!r} is not available over this pod's USB console, which only answers "
+                "text commands (status, ping, LA voltage, target power); connect over the network "
+                "(host[:port]) or the cloud (embeddedci:<device>) for it")
+
+    def _enter_json(self, cmd: Any = "json") -> None:
+        if not self._probe_json():
+            raise TransportError(self._unsupported(cmd))
         if self._json_mode:
             return
         deadline = time.monotonic() + self.timeout
@@ -306,8 +389,18 @@ class SerialTransport(Transport):
         self._exit_json()
 
     def command(self, req: dict) -> Any:
-        """Send one JSON command over the console json mode; return its data."""
-        self._enter_json()
+        """Send one JSON command over the console's JSON mode and return its data.
+
+        When the firmware has no JSON mode on USB, the commands in :data:`TEXT_CONSOLE_COMMANDS`
+        are answered through their text-console equivalents; any other command raises a
+        :class:`TransportError` naming the network/cloud alternative.
+        """
+        cmd = req.get("cmd")
+        if not self._probe_json():
+            if cmd not in TEXT_CONSOLE_COMMANDS:
+                raise TransportError(self._unsupported(cmd))
+            return getattr(self, f"_text_{cmd}")(req)
+        self._enter_json(cmd)
         deadline = time.monotonic() + self.timeout
         self._port.write(encode_request(req))
         self._port.flush()
@@ -318,7 +411,7 @@ class SerialTransport(Transport):
 
     def samples(self, req: dict) -> List[int]:
         """Send a command whose reply is a chunked sample array (json mode)."""
-        self._enter_json()
+        self._enter_json(req.get("cmd"))
         deadline = time.monotonic() + self.timeout
         self._port.write(encode_request(req))
         self._port.flush()
@@ -361,7 +454,7 @@ class SerialTransport(Transport):
         The serial counterpart of :meth:`TcpTransport.stream_chunks`: callers see every chunk's
         extra fields (achieved rates, the RLE LA frames), which :meth:`samples` flattens away.
         """
-        self._enter_json()
+        self._enter_json(req.get("cmd"))
         self._port.write(encode_request(req))
         self._port.flush()
         cmd = req.get("cmd")
@@ -389,15 +482,36 @@ class SerialTransport(Transport):
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
 
+    # -- text-console equivalents (firmware without a JSON mode on USB) ------
+
+    def _text_status(self, req: dict) -> Dict[str, Any]:
+        return parse_text_status(self._send_command("status"))
+
+    def _text_ping(self, req: dict) -> str:
+        out = self._send_command("ping")
+        if "PING ok" not in out:
+            raise TransportError(f"the pod did not answer ping: {out.strip()!r}")
+        return "pong"
+
+    def _text_la_voltage(self, req: dict) -> Dict[str, Any]:
+        line = "la-voltage" + (f" {int(req['mv'])}" if req.get("mv") is not None else "")
+        out = self._send_command(line)
+        if "needs a v3 pod" in out or "usage:" in out:
+            msg = next((ln.strip() for ln in out.replace("\r", "\n").split("\n")
+                        if "needs a v3 pod" in ln or "usage:" in ln), out.strip())
+            raise FirmwareError(msg, cmd="la_voltage")
+        m = re.search(r"LA VCCIO = (?:(\d+) mV|UNSET) \(st=(-?\d+)\)", out)
+        if not m:
+            raise TransportError(f"unexpected la-voltage reply: {out.strip()!r}")
+        return {"mv": int(m.group(1) or 0), "st": int(m.group(2))}
+
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
-        state = "on" if on else "off"
-        cmd = f"target-power {efuse} {state}"
         if delay_ms:
-            cmd += f" {int(delay_ms)}"
-        out = self._send_command(cmd)
-        for line in out.replace("\r", "\n").split("\n"):
-            if line.strip().startswith("ERROR:"):
-                raise TransportError(f"firmware rejected target-power: {line.strip()}")
+            raise TransportError("the pod's USB console cannot schedule a delayed power change; "
+                                 "use delay=None, or a network/cloud connection")
+        out = self._send_command(f"power {int(efuse)} {'on' if on else 'off'}")
+        if UNKNOWN_COMMAND in out or "bad eFuse" in out or "ERROR:" in out:
+            raise TransportError(f"firmware rejected power {efuse}: {out.strip()!r}")
 
     def _console_raw_handshake(
         self, cmd: str, ready: str, quit_byte: bytes
@@ -449,6 +563,11 @@ class SerialTransport(Transport):
             text = acc.decode("utf-8", errors="replace")
             if ready in text:
                 return _SerialRawLink(self._port, quit_byte=quit_byte)
+            if UNKNOWN_COMMAND in text:
+                _recover_and_raise(
+                    f"this pod's USB console has no '{verb}' command — flashing and the UART "
+                    "proxy need a network (host[:port]) or cloud (embeddedci:<device>) connection"
+                )
             if "ERROR:" in text or "usage:" in text:
                 _recover_and_raise(
                     f"{verb} rejected by firmware; pod output:\n{text.strip()}"

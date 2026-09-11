@@ -8,7 +8,7 @@ INSTRUCTIONS = """\
 Drive an EmbeddedCI BenchPod: a hardware-in-the-loop tester wired to a real target board (the DUT).
 
 Start every session with:
-1. connect — a host[:port], a serial device path, 'usb', or 'embeddedci:<device>' (omit to use the server default).
+1. connect — a host[:port] or 'embeddedci:<device>' (omit to use the server default). A USB connection ('usb' or a serial device path) only supports status, LA voltage and power on an STM32 pod; everything else needs the network or cloud.
 2. set_la_voltage (1.8 or 3.3, the DUT's I/O voltage) unless status already reports one. The pod refuses flash, UART, LA capture, pull resistors and I2C-sensor emulation until it is set.
 3. status shows firmware, capabilities, the LA voltage and open sessions.
 

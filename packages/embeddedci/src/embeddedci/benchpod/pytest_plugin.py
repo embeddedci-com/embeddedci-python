@@ -150,10 +150,9 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
     group.addoption(
         "--benchpod-la-voltage", action="store", type=float, default=None,
         dest="benchpod_la_voltage",
-        help="LA I/O-bank voltage for the DUT: 1.8 or 3.3 (volts). Set on the pod when "
-        "the session connects, before any LA op (flash/SWD, UART, LA capture, pull "
-        "resistors, I2C-sensor) — the pod refuses LA ops until a voltage is chosen. "
-        "Falls back to BENCHPOD_LA_VOLTAGE.",
+        help="Override the LA I/O-bank voltage (1.8 or 3.3 volts) for this run. Normally set "
+        "once in conftest.py by overriding the benchpod_la_voltage fixture; this flag wins "
+        "over it (e.g. a CI job for a 1V8 board variant).",
     )
     group.addoption(
         "--benchpod-discover",
@@ -258,8 +257,28 @@ def benchpod_connection(pytestconfig: "pytest.Config") -> str:
 
 
 @pytest.fixture(scope="session")
-def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
-    """A connected :class:`BenchPod` for the test session.
+def benchpod_la_voltage() -> Optional[float]:
+    """The I/O voltage of the board under test, selected on the pod when the session connects.
+
+    The pod refuses flashing, UART, LA capture, pull resistors and I2C-sensor emulation until an
+    LA bank voltage is chosen, so set it ONCE for your test suite by overriding this fixture in
+    ``conftest.py`` — nothing has to be repeated on the command line::
+
+        @pytest.fixture(scope="session")
+        def benchpod_la_voltage():
+            return 3.3  # the DUT's I/O voltage — change to 1.8 for a 1V8 board
+
+    The default returns ``None``, which falls back to ``BENCHPOD_LA_VOLTAGE`` (and otherwise
+    leaves the pod's current setting alone). ``--benchpod-la-voltage`` overrides it for one run.
+    """
+    return None
+
+
+@pytest.fixture(scope="session")
+def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
+             pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
+    """A connected :class:`BenchPod` for the test session, with the LA voltage selected
+    (see :func:`benchpod_la_voltage`).
 
     For the cloud (``embeddedci:``) destination this takes an exclusive lease on the shared device,
     waiting up to ``--benchpod-lease-wait`` seconds if another run is using it (so concurrent CI
@@ -267,10 +286,12 @@ def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterato
     """
     api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
     api_key = pytestconfig.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY")
-    # la_voltage=None lets BenchPod fall back to BENCHPOD_LA_VOLTAGE itself.
+    la_voltage = pytestconfig.getoption("benchpod_la_voltage")
+    if la_voltage is None:
+        la_voltage = benchpod_la_voltage  # None still lets BenchPod read BENCHPOD_LA_VOLTAGE
     device = BenchPod(
         benchpod_connection,
-        la_voltage=pytestconfig.getoption("benchpod_la_voltage"),
+        la_voltage=la_voltage,
         api_base=api_base,
         api_key=api_key,
         lease=not pytestconfig.getoption("benchpod_no_lease"),

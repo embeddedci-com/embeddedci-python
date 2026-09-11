@@ -3,10 +3,10 @@
 Mirrors the Go ``hwe2e`` cloud suite (TestCloud_SaveRecordingAndReplay, TestCloud_UnifiedCapture,
 concurrent replay+capture) from the Python side. Every test skips cleanly without a configured
 device (``--benchpod-connection`` / ``BENCHPOD_CONNECTION``); the library tests additionally need
-an API key (``--benchpod-api-key`` / ``BENCHPOD_API_KEY``).
+an API key (``--benchpod-api-key`` / ``BENCHPOD_API_KEY``). The board's LA voltage comes from
+``tests/conftest.py``.
 
-    BENCHPOD_CONNECTION=embeddedci:benchpod-v2.0.0 \
-    BENCHPOD_API_KEY=eci_… BENCHPOD_LA_VOLTAGE=3.3 \
+    BENCHPOD_CONNECTION=embeddedci:benchpod-v2.0.0 BENCHPOD_API_KEY=eci_… \
     pytest packages/embeddedci/tests/test_capture_replay_hw.py -v
 """
 
