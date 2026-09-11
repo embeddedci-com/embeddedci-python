@@ -107,7 +107,12 @@ class ServerApi:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
             try:
-                detail = json.loads(detail).get("error", detail)
+                body = json.loads(detail)
+                detail = body.get("error", detail)
+                fields = body.get("fields")
+                if isinstance(fields, list) and fields:
+                    detail = f"{detail}: " + "; ".join(
+                        f"{f.get('field')}: {f.get('message')}" for f in fields if isinstance(f, dict))
             except Exception:
                 pass
             hint = ""
@@ -140,6 +145,18 @@ class ServerApi:
             if d.get("name") == name_or_id or d.get("id") == name_or_id:
                 return dict(d.get("parameters") or {})
         return {}
+
+    # -- wiring profile -----------------------------------------------------
+
+    def wiring_profile(self, device_id: str) -> Dict[str, Any]:
+        """``GET /benchpod/devices/{id}/wiring/profile``: ``{"profile", "stored", "defaults", "warnings"}``."""
+        _, data = self.request("GET", f"/benchpod/devices/{device_id}/wiring/profile")
+        return data or {}
+
+    def put_wiring(self, device_id: str, wiring: Dict[str, Any]) -> Dict[str, Any]:
+        """Store a device's wiring profile (the server validates it; errors name the fields)."""
+        _, data = self.request("PUT", f"/benchpod/devices/{device_id}/wiring", json_body=wiring)
+        return data or {}
 
     # -- server-orchestrated capture (fallback path) ------------------------
 

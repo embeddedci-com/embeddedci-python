@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 
@@ -76,3 +77,59 @@ class CanTimeout(BenchPodError):
     def __init__(self, message: str, *, frames=None) -> None:
         self.frames = list(frames or [])
         super().__init__(message)
+
+
+class PinConflictError(FirmwareError):
+    """The pod refused because an LA channel is already used by another function.
+
+    ``la`` is the channel and ``function`` its owner (``gpio``, ``uart_tx``, ``i2c_sda``, ``swd_clk``,
+    ``step``, …). The message says how to free it — e.g. release a GPIO pin with
+    :meth:`BenchPod.release_gpio` before starting a UART session on it.
+    """
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0,
+                 function: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.la = la
+        self.function = function
+
+
+class PullConflictError(FirmwareError):
+    """A bias resistor and a channel's function can't be combined — e.g. LA7's pull-down under a UART
+    line or an open-drain output. ``la`` is the channel; the message says what to disable."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0) -> None:
+        super().__init__(message, cmd=cmd)
+        self.la = la
+
+
+class TriggerTimeout(FirmwareError):
+    """A triggered capture's condition (``edge`` on LA ``la``) never happened within its timeout."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0,
+                 edge: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.la = la
+        self.edge = edge
+
+
+_PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by (\w+)")
+_PULL_CONFLICT = re.compile(r"pull conflict: LA(\d+)")
+_TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
+
+
+def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
+    """The specific :class:`FirmwareError` subclass for a pod refusal, or ``exc`` itself."""
+    if type(exc) is not FirmwareError:
+        return exc
+    msg = exc.firmware_message
+    m = _PIN_CONFLICT.search(msg)
+    if m:
+        return PinConflictError(msg, cmd=exc.cmd, la=int(m.group(1)), function=m.group(2))
+    m = _PULL_CONFLICT.search(msg)
+    if m:
+        return PullConflictError(msg, cmd=exc.cmd, la=int(m.group(1)))
+    m = _TRIGGER_TIMEOUT.search(msg)
+    if m:
+        return TriggerTimeout(msg, cmd=exc.cmd, la=int(m.group(2)), edge=m.group(1))
+    return exc

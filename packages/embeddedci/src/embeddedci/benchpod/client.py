@@ -29,7 +29,8 @@ import base64
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 from . import can as _can
 from . import capture as _capture
@@ -48,6 +49,7 @@ from .constants import (
     DAC_OUTPUT_PATHS,
     DAC_PATHS,
     DECODE_PROTOCOLS,
+    GPIO_MODES,
     LA_VOLTAGES,
     PULLDOWN_CHANNELS,
     PULLUP_CHANNELS,
@@ -61,6 +63,7 @@ from .constants import (
     DecodeProtocol,
     Efuse,
     FpgaImage,
+    GpioMode,
     LoopSource,
     Pin,
     ReplayMapping,
@@ -71,12 +74,15 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import BenchPodError
+from .errors import BenchPodError, FirmwareError, classify_firmware_error
 from .flash import FlashResult
+from .gpio import GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
+from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, normalize_fault
-from .results import Capture, CorrelatedCapture, LaCapture
+from .results import Capture, CorrelatedCapture, LaCapture, Trigger
+from .wiring import Signal, Wiring
 from .state import (
     AdcReading,
     AnalogPathState,
@@ -101,6 +107,7 @@ if TYPE_CHECKING:  # pragma: no cover
 LA_VOLTAGE_ENV = "BENCHPOD_LA_VOLTAGE"
 API_BASE_ENV = "BENCHPOD_API_BASE"
 API_KEY_ENV = "BENCHPOD_API_KEY"
+WIRING_ENV = "BENCHPOD_WIRING"
 
 #: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
 _GENERATOR_MAX_CODE = 255
@@ -133,6 +140,28 @@ def _seconds_to_ms(value: Optional[float], name: str) -> int:
     return int(round(value * 1000))
 
 
+def _check_level(level: Any) -> int:
+    if level not in (0, 1):
+        raise ValueError(f"level must be 0 or 1, got {level!r}")
+    return int(level)
+
+
+def _one_or_many(las: List[int]) -> Any:
+    return las[0] if len(las) == 1 else las
+
+
+@contextmanager
+def _classified_errors() -> Iterator[None]:
+    """Re-raise a pod refusal as its specific error (PinConflictError, PullConflictError, TriggerTimeout)."""
+    try:
+        yield
+    except FirmwareError as exc:
+        specific = classify_firmware_error(exc)
+        if specific is exc:
+            raise
+        raise specific from None
+
+
 class BenchPod:
     """A connected BenchPod device."""
 
@@ -150,6 +179,7 @@ class BenchPod:
         lease: bool = True,
         lease_wait: float = DEFAULT_LEASE_WAIT,
         lease_ttl: int = DEFAULT_LEASE_TTL,
+        wiring: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]", None] = None,
     ) -> None:
         """Open a BenchPod.
 
@@ -171,7 +201,11 @@ class BenchPod:
         of this object; a run that finds it busy waits up to ``lease_wait`` seconds and then raises
         :class:`~embeddedci.benchpod.errors.DeviceBusyError`. ``lease=False`` skips locking. Local
         TCP/serial connections never lease.
+
+        ``wiring`` is the bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile (a ``Wiring``, a
+        dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`.
         """
+        self._wiring: Optional[Wiring] = Wiring.coerce(wiring) if wiring is not None else None
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
         self._api_base = api_base or os.environ.get(API_BASE_ENV)
@@ -290,6 +324,88 @@ class BenchPod:
         self._caps = None
         return self.capabilities
 
+    def _require_capability(self, flag: str, what: str) -> None:
+        if not getattr(self.capabilities, flag, False):
+            fw = self.capabilities.firmware_version or "unknown"
+            raise BenchPodError(f"{what} need newer pod firmware (the {flag!r} capability is missing; "
+                                f"this pod runs firmware {fw})")
+
+    # -- wiring profile -------------------------------------------------------
+
+    @property
+    def wiring(self) -> Wiring:
+        """The bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile: which DUT signal is on
+        which LA channel, the target-power rail and the LA I/O voltage.
+
+        Resolved once: the ``wiring`` argument; else the ``BENCHPOD_WIRING`` file; else, for a cloud
+        device, the profile stored on embeddedci.com (edited in the web UI); else the defaults.
+        Channel arguments fall back to it — ``open_uart()``, ``capture_uart()``, ``flash()``,
+        ``enable_i2c_sensor()``, the power rail — and :meth:`signal` / GPIO names come from it.
+        Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`).
+        """
+        if self._wiring is None:
+            self._wiring = self._resolve_wiring()
+        return self._wiring
+
+    @wiring.setter
+    def wiring(self, value: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]"]) -> None:
+        self._wiring = Wiring.coerce(value)
+
+    def _resolve_wiring(self) -> Wiring:
+        env = os.environ.get(WIRING_ENV, "").strip()
+        if env:
+            return Wiring.load(env)
+        if self._device_name:
+            api = self._try_server_api()
+            if api is not None:
+                try:
+                    data = api.wiring_profile(api.resolve_device_id(self._device_name))
+                    return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
+                except (BenchPodError, ValueError) as exc:
+                    _log.warning("could not load the wiring profile of %s from embeddedci.com (%s); "
+                                 "using the defaults", self._device_name, exc)
+        return Wiring.defaults()
+
+    def save_wiring(self, wiring: Union[Wiring, Mapping[str, Any], str, None] = None) -> Wiring:
+        """Store a wiring profile for this cloud device on embeddedci.com (default: :attr:`wiring`)
+        and use it. The server validates it too; a LAN pod keeps its profile in a file instead."""
+        profile = self.wiring if wiring is None else Wiring.coerce(wiring)
+        if not self._device_name:
+            raise BenchPodError("saving a wiring profile needs a cloud device ('embeddedci:<device>'); "
+                                "for a LAN pod keep the profile in a file and pass wiring=")
+        api = self._require_server_api()
+        api.put_wiring(api.resolve_device_id(self._device_name), profile.to_dict())
+        self._wiring = profile.with_changes(source="server")
+        return self._wiring
+
+    def signal(self, name: str) -> GpioPin:
+        """A :class:`~embeddedci.benchpod.gpio.GpioPin` for a named signal (or a role such as
+        ``"uart_tx"``) of the wiring profile. Nothing is sent to the pod until you use it."""
+        la, signal = self._resolve_la(name, "signal")
+        return GpioPin(self, la, signal=signal)
+
+    def _resolve_la(self, value: Any, name: str = "la") -> Tuple[int, Optional[Signal]]:
+        """An LA channel from 1-12 / a ``Pin`` / a wiring-profile name (role or signal)."""
+        if isinstance(value, str):
+            profile = self.wiring
+            la = profile.la(value)
+            key = value.strip().lower()
+            return la, next((s for s in profile.signals if s.name.lower() == key), None)
+        return coerce_pin(value, name), None
+
+    def _wired(self, value: Any, key: str) -> int:
+        """``value`` as an LA channel, or the wiring profile's ``key`` when ``value`` is None."""
+        if value is not None:
+            return self._resolve_la(value, key)[0]
+        la = getattr(self.wiring, key)
+        if la is None:
+            raise ValueError(f"{key} was not given and the wiring profile has no {key}; pass it or set "
+                             "it in the profile")
+        return la
+
+    def _efuse(self, efuse: Optional[Union[Efuse, int]]) -> int:
+        return coerce_efuse(self.wiring.efuse if efuse is None else efuse)
+
     # -- LA I/O-bank voltage ------------------------------------------------
 
     def set_la_voltage(self, voltage: float) -> LaVoltage:
@@ -312,21 +428,22 @@ class BenchPod:
 
     # -- power --------------------------------------------------------------
 
-    def target_power(self, efuse: Union[Efuse, int] = Efuse.INTERNAL, *,
+    def target_power(self, efuse: Optional[Union[Efuse, int]] = None, *,
                      on: bool, delay: Optional[float] = None) -> None:
-        """Enable or disable a target-power eFuse.
+        """Enable or disable a target-power eFuse (omitted: the wiring profile's rail, INTERNAL by
+        default).
 
         ``delay`` (seconds) schedules the change pod-side and returns immediately — handy to
         power on *during* a UART capture.
         """
-        self._transport.target_power(coerce_efuse(efuse), bool(on), _seconds_to_ms(delay, "delay"))
+        self._transport.target_power(self._efuse(efuse), bool(on), _seconds_to_ms(delay, "delay"))
 
-    def power_on(self, efuse: Union[Efuse, int] = Efuse.INTERNAL,
+    def power_on(self, efuse: Optional[Union[Efuse, int]] = None,
                  *, delay: Optional[float] = None) -> None:
-        """Power the target on via the given eFuse (default INTERNAL 5V)."""
+        """Power the target on (omitted ``efuse``: the wiring profile's rail, INTERNAL 5 V by default)."""
         self.target_power(efuse, on=True, delay=delay)
 
-    def power_off(self, efuse: Union[Efuse, int] = Efuse.INTERNAL,
+    def power_off(self, efuse: Optional[Union[Efuse, int]] = None,
                   *, delay: Optional[float] = None) -> None:
         """Power the target off."""
         self.target_power(efuse, on=False, delay=delay)
@@ -367,9 +484,9 @@ class BenchPod:
     def flash(
         self,
         *,
-        swclk: Union[Pin, int],
-        swdio: Union[Pin, int],
-        nreset: bool = False,
+        swclk: Union[Pin, int, str, None] = None,
+        swdio: Union[Pin, int, str, None] = None,
+        nreset: Optional[bool] = None,
         target: str = "",
         file: str = "",
         load_address: str = "",
@@ -391,30 +508,35 @@ class BenchPod:
         flag, not a pin: pass ``True`` when the target's reset line is wired to the pod's reset
         pin (DUT header J1 pin 22). ``target`` is an OpenOCD target config
         (``target/stm32f4x.cfg``) and ``file`` the image. ``target_power`` of
-        ``benchpod.INTERNAL``/``EXTERNAL`` powers the target first.
+        ``benchpod.INTERNAL``/``EXTERNAL`` powers the target first. Omitted ``swclk``, ``swdio``,
+        ``nreset`` and ``target`` come from the wiring profile (:attr:`wiring`).
 
         OpenOCD runs on THIS machine and needs the ``cmsis_dap_tcp`` backend (newer than 0.12.0).
         By default (``check=True``) a failed flash raises :class:`FlashError` /
         :class:`TargetUnreachableError`; pass ``check=False`` to get the :class:`FlashResult` and
         ``assert result.ok`` yourself.
         """
-        swclk_i = coerce_pin(swclk, "swclk")
-        swdio_i = coerce_pin(swdio, "swdio")
+        swclk_i = self._wired(swclk, "swd_swclk")
+        swdio_i = self._wired(swdio, "swd_swdio")
         if swclk_i == swdio_i:
             raise ValueError("swclk and swdio must be different LA pins")
+        if nreset is None:
+            nreset = self.wiring.swd_nreset
+        target = target or self.wiring.swd_target
         power = coerce_efuse(target_power) if target_power is not None else None
 
-        result = _flash.flash(
-            self._transport,
-            swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset),
-            target=target, file=file, load_address=load_address,
-            target_power=power, verify=verify, reset=reset,
-            connect_under_reset=connect_under_reset,
-            clear_reset_events=clear_reset_events,
-            openocd_bin=openocd_bin,
-            extra_configs=extra_configs, extra_args=extra_args,
-            timeout=timeout, connect_attempts=connect_attempts,
-        )
+        with _classified_errors():
+            result = _flash.flash(
+                self._transport,
+                swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset),
+                target=target, file=file, load_address=load_address,
+                target_power=power, verify=verify, reset=reset,
+                connect_under_reset=connect_under_reset,
+                clear_reset_events=clear_reset_events,
+                openocd_bin=openocd_bin,
+                extra_configs=extra_configs, extra_args=extra_args,
+                timeout=timeout, connect_attempts=connect_attempts,
+            )
         if check:
             _flash.raise_for_result(result)
         return result
@@ -476,9 +598,9 @@ class BenchPod:
         self,
         sensor: Union[Sensor, str] = Sensor.BMP280,
         *,
-        sda: Union[Pin, int],
-        scl: Union[Pin, int],
-        address: int = 0x76,
+        sda: Union[Pin, int, str, None] = None,
+        scl: Union[Pin, int, str, None] = None,
+        address: Optional[int] = None,
         temperature_c: Optional[float] = None,
         pressure_pa: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -486,14 +608,19 @@ class BenchPod:
 
         The pod becomes an I2C target the DUT's controller can read. Engage the pull-ups on SDA/SCL
         first (:meth:`enable_pullup`) so the open-drain bus idles high. Optionally seed
-        ``temperature_c``/``pressure_pa``. Returns the pod's start reply.
+        ``temperature_c``/``pressure_pa``. Omitted ``sda``, ``scl`` and ``address`` come from the
+        wiring profile. Returns the pod's start reply.
         """
-        result = _sensor.sensor_start(
-            self._transport, sensor, sda=sda, scl=scl, address=address
-        )
-        if temperature_c is not None or pressure_pa is not None:
-            _sensor.sensor_set(self._transport, temperature_c=temperature_c,
-                               pressure_pa=pressure_pa)
+        sda_i = self._wired(sda, "i2c_sda")
+        scl_i = self._wired(scl, "i2c_scl")
+        addr = self.wiring.i2c_address if address is None else address
+        with _classified_errors():
+            result = _sensor.sensor_start(
+                self._transport, sensor, sda=sda_i, scl=scl_i, address=addr
+            )
+            if temperature_c is not None or pressure_pa is not None:
+                _sensor.sensor_set(self._transport, temperature_c=temperature_c,
+                                   pressure_pa=pressure_pa)
         return result
 
     def set_i2c_sensor(self, *, temperature_c: Optional[float] = None,
@@ -638,9 +765,9 @@ class BenchPod:
     def capture_uart(
         self,
         *,
-        rx: Union[Pin, int],
-        tx: Union[Pin, int],
-        baud: int = 115200,
+        rx: Union[Pin, int, str, None] = None,
+        tx: Union[Pin, int, str, None] = None,
+        baud: Optional[int] = None,
         duration: float,
         until: Optional[_uart.Until] = None,
     ) -> _uart.UartCapture:
@@ -648,23 +775,29 @@ class BenchPod:
 
         ``rx`` is the LA channel the pod samples (wire the DUT's TX here); ``tx`` is driven (the
         DUT's RX). ``until`` (substring / compiled regex / predicate) stops early on a match.
+        Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile.
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
-        link = self._transport.uart_proxy_start(
-            coerce_pin(rx, "rx"), coerce_pin(tx, "tx"), int(baud)
-        )
+        link = self._uart_link(rx, tx, baud)
         return _uart.capture(link, duration=duration, until=until)
+
+    def _uart_link(self, rx: Any, tx: Any, baud: Optional[int]) -> Any:
+        rx_i = self._wired(rx, "uart_rx")
+        tx_i = self._wired(tx, "uart_tx")
+        with _classified_errors():
+            return self._transport.uart_proxy_start(
+                rx_i, tx_i, int(self.wiring.uart_baud if baud is None else baud))
 
     def power_cycle_and_capture(
         self,
         *,
-        rx: Union[Pin, int],
-        tx: Union[Pin, int],
-        efuse: Union[Efuse, int] = Efuse.INTERNAL,
+        rx: Union[Pin, int, str, None] = None,
+        tx: Union[Pin, int, str, None] = None,
+        efuse: Optional[Union[Efuse, int]] = None,
         delay: float = 1.0,
         duration: float = 4.0,
-        baud: int = 115200,
+        baud: Optional[int] = None,
         until: Optional[_uart.Until] = None,
         off_settle: float = 0.3,
     ) -> _uart.UartCapture:
@@ -686,9 +819,9 @@ class BenchPod:
     def open_uart(
         self,
         *,
-        rx: Union[Pin, int],
-        tx: Union[Pin, int],
-        baud: int = 115200,
+        rx: Union[Pin, int, str, None] = None,
+        tx: Union[Pin, int, str, None] = None,
+        baud: Optional[int] = None,
         max_buffer: int = 1 << 20,
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
@@ -703,16 +836,17 @@ class BenchPod:
                 uart.write("help\\n")
 
         Over the cloud, other commands run on the cloud command channel while a session is open.
+        Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile. A channel in GPIO mode (or
+        used by anything else) is refused with :class:`~embeddedci.benchpod.errors.PinConflictError`.
         """
-        link = self._transport.uart_proxy_start(
-            coerce_pin(rx, "rx"), coerce_pin(tx, "tx"), int(baud)
-        )
+        link = self._uart_link(rx, tx, baud)
         return _uart.UartSession(link, max_buffer=max_buffer)
 
     # -- ADC / logic-analyzer capture -----------------------------------------
 
     def capture_adc(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
-                    source: Optional[AdcSource] = None) -> Capture:
+                    source: Optional[AdcSource] = None, trigger: Optional[Trigger] = None,
+                    trigger_timeout: float = 10.0) -> Capture:
         """Capture ADC samples and return a :class:`Capture` with CALIBRATED volts.
 
         Works over any transport. ``sample_rate_hz`` omitted = the device's maximum rate; the
@@ -720,6 +854,10 @@ class BenchPod:
         multi-second captures work. ``source`` first routes that ADC source (``ext``/``cal1``/
         ``cal2``/``amp``) — omitted, the current routing is left alone. ``volts`` use the front-SMA
         calibration; for the other sources compare ``counts`` or use :meth:`adc_read`.
+
+        ``trigger`` (a :class:`Trigger`, gateware >= v35) waits for an edge or level on an LA channel
+        before sampling, so t = 0 is that moment; a :class:`~embeddedci.benchpod.errors.TriggerTimeout`
+        is raised after ``trigger_timeout`` seconds without it.
         """
         label = ""
         if source is not None:
@@ -727,34 +865,60 @@ class BenchPod:
             self.analog_path(ADC_SOURCE_PATHS[source])  # type: ignore[arg-type]
             time.sleep(0.02)  # relays (~4 ms) + front-end RC settle, as the firmware's adc_read does
             label = source
-        return _capture.capture_adc(self._transport, self.capabilities, samples=samples,
-                                    sample_rate_hz=sample_rate_hz, source=label)
+        trig = self._resolve_trigger(trigger)
+        with _classified_errors():
+            return _capture.capture_adc(self._transport, self.capabilities, samples=samples,
+                                        sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
+                                        trigger_timeout=trigger_timeout)
 
     def capture_la(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
-                   stop_dac_after: Optional[float] = None) -> LaCapture:
+                   stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
+                   trigger_timeout: float = 10.0) -> LaCapture:
         """Capture raw 12-channel logic-analyzer words and return a :class:`LaCapture`.
 
         ``stop_dac_after`` (seconds) cuts a concurrently-running DAC that far into the capture,
-        sample-precise from the capture's hardware t0 (gateware >= v21).
+        sample-precise from the capture's hardware t0 (gateware >= v21). ``trigger`` (a
+        :class:`Trigger`, gateware >= v35) makes t0 an edge or level on an LA channel —
+        ``capture_la(..., trigger=Trigger("READY", "rising"))`` — and raises
+        :class:`~embeddedci.benchpod.errors.TriggerTimeout` after ``trigger_timeout`` seconds without it.
         """
-        return _capture.capture_la(self._transport, samples=samples,
-                                   sample_rate_hz=sample_rate_hz, stop_dac_after=stop_dac_after)
+        trig = self._resolve_trigger(trigger)
+        with _classified_errors():
+            return _capture.capture_la(self._transport, samples=samples,
+                                       sample_rate_hz=sample_rate_hz, stop_dac_after=stop_dac_after,
+                                       trigger=trig, trigger_timeout=trigger_timeout)
 
     def capture_correlated(self, *, adc_samples: int = 4096,
                            adc_sample_rate_hz: Optional[float] = None,
                            la_samples: int = 4096, la_sample_rate_hz: Optional[float] = None,
-                           stop_dac_after: Optional[float] = None) -> CorrelatedCapture:
+                           stop_dac_after: Optional[float] = None,
+                           trigger: Optional[Trigger] = None,
+                           trigger_timeout: float = 10.0) -> CorrelatedCapture:
         """ADC + LA captured from ONE hardware trigger, so the two timebases align.
 
         Set either count to 0 for a single stream. ``stop_dac_after`` (seconds) cuts a running DAC
         that far into the capture (gateware >= v21). Pair with ``replay(..., on_capture=True)`` or
         ``generate(..., on_capture=True)`` for a phase-locked stimulus → capture → cutoff run.
+        ``trigger`` starts both streams on an LA edge or level (see :meth:`capture_la`).
         Needs a streaming transport (TCP, serial or cloud).
         """
-        return _capture.capture_correlated(
-            self._transport, self.capabilities, adc_samples=adc_samples,
-            adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
-            la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after)
+        trig = self._resolve_trigger(trigger)
+        with _classified_errors():
+            return _capture.capture_correlated(
+                self._transport, self.capabilities, adc_samples=adc_samples,
+                adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
+                la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after,
+                trigger=trig, trigger_timeout=trigger_timeout)
+
+    def _resolve_trigger(self, trigger: Optional[Trigger]) -> Optional[Trigger]:
+        if trigger is None:
+            return None
+        if not isinstance(trigger, Trigger):
+            raise ValueError(f"trigger must be a Trigger, e.g. Trigger(9, 'rising'), got {trigger!r}")
+        self._require_capability("capture_trigger", "capture triggers")
+        if isinstance(trigger.la, str):
+            return Trigger(self._resolve_la(trigger.la, "trigger")[0], trigger.edge)
+        return trigger
 
     def decode(self, source: Union[LaCapture, Sequence[int]], protocol: DecodeProtocol = "i2c", *,
                sample_rate_hz: Optional[float] = None, **channels: Any) -> list:
@@ -1264,6 +1428,154 @@ class BenchPod:
             self._waveforms = WaveformLibrary(self._require_server_api())
         return self._waveforms
 
+    # -- LA pin modes + GPIO --------------------------------------------------
+    # The LA pins on the iCE40 (not STM32 GPIOs). Each has one function at a time; see gpio.py.
+
+    def la_pins(self) -> List[LaPinState]:
+        """Every LA channel's function (``none``, ``gpio``, ``uart_rx``, …), GPIO mode and level, and
+        bias resistor. A channel that is in use refuses other functions."""
+        self._require_capability("la_pins", "LA pin modes and GPIO")
+        with _classified_errors():
+            data = _dict(self.command({"cmd": "la_pins"}))
+        return [LaPinState.from_reply(e) for e in data.get("pins") or []]
+
+    def gpio(self, la: Union[Pin, int, str], mode: GpioMode = "output", *,
+             level: Optional[int] = None) -> GpioPin:
+        """Use an LA channel as GPIO and return its :class:`~embeddedci.benchpod.gpio.GpioPin`.
+
+        ``la`` is 1-12, a ``Pin`` or a wiring-profile name. ``mode``: ``output`` (push-pull, starts at
+        ``level``, default 0), ``open_drain`` (0 pulls low, 1 releases; starts released) or ``input``.
+        Raises :class:`~embeddedci.benchpod.errors.PinConflictError` when another function owns the
+        channel, and :class:`~embeddedci.benchpod.errors.PullConflictError` when its engaged bias
+        resistor can't work with ``mode`` (an open-drain output over LA7/LA8's pull-down). The channel
+        stays GPIO — across disconnects — until :meth:`release_gpio`.
+        """
+        la_i, signal = self._resolve_la(la)
+        pin = GpioPin(self, la_i, signal=signal)
+        pin.configure(mode, level=level)
+        return pin
+
+    def set_gpio(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]]], level: int) -> None:
+        """Set the level of a GPIO output or open-drain channel — or of several (a list) at once."""
+        las = self._resolve_las(la)
+        _check_level(level)
+        self._require_capability("la_pins", "GPIO")
+        with _classified_errors():
+            self.command({"cmd": "gpio", "la": _one_or_many(las), "level": int(level)})
+
+    def read_gpio(self, la: Union[Pin, int, str]) -> int:
+        """The live level (0/1) of an LA channel, whatever its function."""
+        return self.pin_levels()[self._resolve_la(la)[0]]
+
+    def pin_levels(self) -> Dict[int, int]:
+        """The live level of every LA channel: ``{1: 0, 2: 1, …, 12: 0}``.
+
+        Read straight from the pins (gateware >= v35); older gateware answers with the last sample of
+        a short logic capture instead.
+        """
+        if self.capabilities.gpio_read:
+            with _classified_errors():
+                mask = int(_dict(self.command({"cmd": "gpio"})).get("levels") or 0)
+        else:
+            cap = self.capture_la(64, sample_rate_hz=1_000_000)
+            mask = cap.words[-1] if cap.words else 0
+        return {ch: (mask >> (ch - 1)) & 1 for ch in range(1, 13)}
+
+    def wait_for_level(self, la: Union[Pin, int, str], level: int, *, timeout: float,
+                       poll: float = 0.005) -> bool:
+        """Wait until an LA channel reads ``level``; ``False`` if ``timeout`` seconds pass first.
+
+        Polled from the host, so it resolves a few milliseconds plus the round trip — for precise
+        timing capture with a :class:`Trigger` and use the capture's timing helpers.
+        """
+        _check_level(level)
+        if timeout < 0 or poll <= 0:
+            raise ValueError("timeout must be >= 0 and poll > 0 seconds")
+        la_i = self._resolve_la(la)[0]
+        deadline = time.monotonic() + timeout
+        while True:
+            if self.pin_levels()[la_i] == level:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll)
+
+    def release_gpio(self, *las: Union[Pin, int, str]) -> None:
+        """Stop using channels as GPIO — they go back to high-Z ("LA mode"). Without arguments every
+        GPIO channel is released; channels owned by other functions are left alone."""
+        self._require_capability("la_pins", "GPIO")
+        target: Any = "all" if not las else _one_or_many(self._resolve_las(list(las)))
+        with _classified_errors():
+            self.command({"cmd": "gpio", "la": target, "mode": "off"})
+
+    def _gpio_configure(self, las: List[int], mode: str, level: Optional[int]) -> List[LaPinState]:
+        check_choice(mode, GPIO_MODES, "mode")
+        req: Dict[str, Any] = {"cmd": "gpio", "la": _one_or_many(las), "mode": mode}
+        if level is not None:
+            if mode == "input":
+                raise ValueError("level only applies to an output or open_drain pin")
+            req["level"] = _check_level(level)
+        self._require_capability("la_pins", "GPIO")
+        with _classified_errors():
+            data = _dict(self.command(req))
+        pins = [LaPinState.from_reply(e) for e in data.get("pins") or []]
+        return pins or [LaPinState(la=la, function="gpio", gpio=mode, level=level) for la in las]
+
+    def _resolve_las(self, la: Any) -> List[int]:
+        items = list(la) if isinstance(la, (list, tuple)) else [la]
+        if not items:
+            raise ValueError("give at least one LA channel")
+        return [self._resolve_la(x)[0] for x in items]
+
+    # -- power profiles -------------------------------------------------------
+
+    def measure_power(self, duration: float, *, efuse: Optional[Union[Efuse, int]] = None,
+                      rate_hz: float = 1000.0, keep_samples: int = 0) -> PowerProfile:
+        """Profile a target-power rail for ``duration`` seconds (blocking) and return the
+        :class:`~embeddedci.benchpod.power.PowerProfile`: average, minimum and peak current, voltage,
+        energy and charge. ``efuse`` defaults to the wiring profile's rail; ``keep_samples`` (up to
+        4096) also returns a bin-averaged trace."""
+        if not 0 < duration <= 600:
+            raise ValueError(f"duration must be > 0 and <= 600 seconds, got {duration!r}")
+        req = self._power_request(efuse, rate_hz, keep_samples)
+        req["duration_ms"] = max(1, int(round(duration * 1000)))
+        return PowerProfile.from_chunks(self._power_profile_chunks(req))
+
+    def power_profile(self, *, efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 1000.0,
+                      keep_samples: int = 4096, max_duration: float = 60.0) -> PowerProfileSession:
+        """A power profile around a block of code::
+
+            with bp.power_profile() as prof:
+                run_inference()
+            assert prof.result.peak_current < 0.5
+
+        Sampling stops by itself after ``max_duration`` seconds (``result.truncated``).
+        """
+        if not 0 < max_duration <= 600:
+            raise ValueError(f"max_duration must be > 0 and <= 600 seconds, got {max_duration!r}")
+        req = self._power_request(efuse, rate_hz, keep_samples)
+        req["max_duration_ms"] = int(round(max_duration * 1000))
+        return PowerProfileSession(self, req)
+
+    def _power_request(self, efuse: Optional[Union[Efuse, int]], rate_hz: float,
+                       keep_samples: int) -> Dict[str, Any]:
+        if not 100 <= rate_hz <= 2000:
+            raise ValueError(f"rate_hz must be 100..2000, got {rate_hz!r}")
+        if not 0 <= int(keep_samples) <= 4096:
+            raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
+        rail = self._efuse(efuse)
+        self._require_capability("power_profile", "power profiles")
+        return {"cmd": "power_profile", "efuse": rail, "rate_hz": float(rate_hz),
+                "keep_samples": int(keep_samples)}
+
+    def _power_profile_chunks(self, req: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
+        stream = getattr(self._transport, "stream_chunks", None)
+        with _classified_errors():
+            if stream is not None:
+                yield from stream(req)
+            else:
+                yield {"data": _dict(self.command(req))}
+
     # -- LA step pulse train --------------------------------------------------
 
     def la_step(self, la: Union[Pin, int], *, steps: int, delay: float,
@@ -1280,10 +1592,10 @@ class BenchPod:
             raise ValueError(f"delay must be at least 1 µs, got {delay!r}")
         if direction not in (0, 1):
             raise ValueError(f"direction must be 0 or 1, got {direction!r}")
-        req: Dict[str, Any] = {"cmd": "la", "la": coerce_pin(la, "la"), "steps": int(steps),
+        req: Dict[str, Any] = {"cmd": "la", "la": self._resolve_la(la)[0], "steps": int(steps),
                                "delay_us": delay_us}
         if dir_la is not None:
-            req["dir_la"] = coerce_pin(dir_la, "dir_la")
+            req["dir_la"] = self._resolve_la(dir_la, "dir_la")[0]
             req["direction"] = int(direction)
         return _dict(self.command(req))
 
@@ -1301,4 +1613,5 @@ class BenchPod:
             raise BenchPodError(f"{type(self._transport).__name__} does not support JSON commands")
         if not isinstance(req, dict) or not req.get("cmd"):
             raise ValueError("a raw command needs a 'cmd' field, e.g. {'cmd': 'status'}")
-        return cmd(req)
+        with _classified_errors():
+            return cmd(req)

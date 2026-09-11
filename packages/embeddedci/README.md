@@ -185,6 +185,21 @@ def benchpod_la_voltage():
     return 3.3  # the board's I/O voltage — change to 1.8 for a 1V8 board
 ```
 
+Write the bench's wiring down once too, so tests use names instead of channel numbers (see
+[Wiring profile](#wiring-profile)). A cloud device already has one — edited in the web UI — and
+`benchpod.wiring` loads it; for a LAN pod override the fixture (or pass `--benchpod-wiring=wiring.json`):
+
+```python
+# conftest.py
+from embeddedci.benchpod import Signal, Wiring
+
+
+@pytest.fixture(scope="session")
+def benchpod_wiring():
+    return Wiring(uart_rx=3, uart_tx=4, swd_target="target/stm32f4x.cfg",
+                  signals=[Signal("TRIGGER", 9, "output"), Signal("READY", 10)])
+```
+
 Then point pytest at a pod and use the fixtures:
 
 ```bash
@@ -194,16 +209,22 @@ pytest --benchpod-connection=192.168.1.213
 
 ```python
 import pytest
-from embeddedci.benchpod import INTERNAL, PIN4, PIN5, PIN11, PIN12
+from embeddedci.benchpod import INTERNAL
 
 
 @pytest.mark.hardware
 def test_firmware_boots(benchpod, firmware):
-    benchpod.flash(file=firmware, target="target/stm32f4x.cfg",
-                   swclk=PIN11, swdio=PIN12, nreset=True, target_power=INTERNAL)
-    boot = benchpod.power_cycle_and_capture(rx=PIN5, tx=PIN4, efuse=INTERNAL,
-                                            delay=1.0, duration=5.0, until="APP_OK")
+    benchpod.flash(file=firmware, target_power=INTERNAL)     # SWD pins + target from the wiring profile
+    boot = benchpod.power_cycle_and_capture(delay=1.0, duration=5.0, until="APP_OK")  # UART from it too
     assert boot.matched, boot.text
+
+
+@pytest.mark.hardware
+def test_result_pin_follows_the_trigger(benchpod):
+    trigger, ready = benchpod.signal("TRIGGER"), benchpod.signal("READY")
+    trigger.configure()                                      # a GPIO output, starting inactive
+    trigger.pulse(0.005)
+    assert ready.wait_for(1, timeout=2.0)
 
 
 def test_rail_is_healthy(benchpod_target, pins):   # target powered for this test only
@@ -220,6 +241,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 |---|---|---|---|
 | `--benchpod-connection` | `BENCHPOD_CONNECTION` | — | connection string (also the `benchpod_connection` ini option) |
 | `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | override the `benchpod_la_voltage` fixture for one run (1.8 or 3.3); the flag wins over the fixture, the env var only applies when neither is set |
+| `--benchpod-wiring` | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`); the flag wins over the `benchpod_wiring` fixture, the env var only applies when neither is set |
 | `--benchpod-efuse` | — | `1` | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external) |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
@@ -243,7 +265,8 @@ benchpod_connection = 192.168.1.213
 | Fixture | Scope | Provides |
 |---|---|---|
 | `benchpod_la_voltage` | session | the board's I/O voltage selected on connect — **override it in `conftest.py`** (default `None` → `BENCHPOD_LA_VOLTAGE`) |
-| `benchpod` | session | a connected `BenchPod` with the options above applied; closed at session end |
+| `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, a cloud device's stored profile, the defaults). An explicit profile also supplies the LA voltage when nothing else sets one |
+| `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
 | `benchpod_target` | function | `benchpod` with the `--benchpod-efuse` rail powered on for the test, off at teardown |
 | `benchpod_sensor` | function | `benchpod`; disarms the emulated I2C sensor at teardown |
@@ -266,6 +289,56 @@ pull-ups, an armed sensor) carries into the next one — use the teardown fixtur
   `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources`, `dac_cotrig`, …). For the
   image-bound `dac_control_loop` and `dac_deep_replay` it switches the pod's gateware image instead
   of skipping, when the pod carries both images (see [Gateware images](#gateware-images)).
+
+## Wiring profile
+
+The pod has no role-named pins, so the bench's wiring — which DUT signal is on which LA channel —
+is written down once in a `Wiring` profile. Methods that take a channel fall back to it, and named
+signals replace channel numbers:
+
+```python
+from embeddedci.benchpod import BenchPod, Signal, Trigger, Wiring
+
+wiring = Wiring(uart_rx=3, uart_tx=4, swd_target="target/stm32f4x.cfg",
+                signals=[Signal("TRIGGER", 9, "output"), Signal("READY", 10)])
+bp = BenchPod("192.168.1.50", la_voltage=wiring.la_voltage, wiring=wiring)
+
+with bp.open_uart() as uart:                   # rx=3, tx=4, 115200 baud from the profile
+    bp.power_on()                              # the profile's eFuse
+    uart.expect("APP_OK", timeout=6)
+bp.flash(file="app.elf")                        # swclk/swdio/nreset/target from the profile
+bp.enable_i2c_sensor()                          # sda/scl/address from the profile
+la = bp.capture_la(100_000, trigger=Trigger("READY"))
+print(wiring.describe())                        # a pin table with each channel's bias resistor
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `la_mv` | `3300` | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
+| `efuse` | `1` | target-power rail: 1 internal 5 V, 2 external |
+| `uart_rx`, `uart_tx`, `uart_baud` | `5`, `4`, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
+| `i2c_sda`, `i2c_scl`, `i2c_addr` | `1`, `2`, `"0x76"` | emulated sensor bus (put I2C on LA1-LA6, which have pull-ups) |
+| `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | `11`, `12`, `False`, `""` | flashing |
+| `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
+| `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
+
+A role set to `None` is not wired. Construction validates the whole profile and raises `ValueError`
+listing every problem — including two roles or signals on one LA channel; `wiring.warnings()` lists
+wiring that works but is risky, such as an I2C bus on a channel without a pull-up.
+
+**Where the profile comes from** (`bp.wiring`, resolved once): the `wiring=` argument (a `Wiring`, a
+dict, or a `.json`/`.toml` file) → the `BENCHPOD_WIRING` file → for a cloud device
+(`embeddedci:<device>`), the profile stored on embeddedci.com, which the web UI edits → the defaults.
+`bp.wiring = ...` swaps it for this connection; `bp.save_wiring(profile)` stores it for a cloud device.
+A file holds the same JSON object the server stores:
+
+```json
+{"uart_rx": 3, "uart_tx": 4, "swd_target": "target/stm32f4x.cfg",
+ "signals": [{"name": "TRIGGER", "la": 9, "direction": "output"}, {"name": "READY", "la": 10}]}
+```
+
+`bp.signal(name)` returns a GPIO handle for a signal (see [GPIO on the LA pins](#gpio-on-the-la-pins));
+channel arguments accept a role or signal name too (`bp.open_uart(rx="uart_rx", tx=4)`).
 
 ## Power, reset and power monitoring
 
@@ -292,7 +365,38 @@ print(bp.usb_cc().advertised)                 # USB-C orientation + advertised c
 `delay` lets a power change land *during* something else (see `power_cycle_and_capture`). The reset
 controls drive the pod's dedicated reset pin (DUT header J1 pin 22); they and `usb_cc()` need a rev3
 pod (`ResetState.supported`). `TargetStatus.supported` is false on boards that cannot read the eFuse
-state back.
+state back. An omitted `efuse` is the wiring profile's rail (internal by default).
+
+### Power profiles
+
+`power_status()` is one snapshot. A power profile samples the rail's monitor about a thousand times a
+second **without gaps** — each sample averages its whole period — so energy and charge are integrated,
+and short bursts (an inference, a radio transmit) show up:
+
+```python
+prof = bp.measure_power(2.0, keep_samples=1000)          # blocks for 2 s
+print(prof.avg_current, prof.peak_current, prof.avg_voltage, prof.energy, prof.charge)
+
+with bp.power_profile(efuse=INTERNAL) as session:        # around a block of code
+    bp.power_on(delay=0.2)                               # inrush lands inside the profile
+    time.sleep(3)
+boot = session.result
+assert boot.peak_current < 0.5 and not boot.fault
+t, amps, volts = boot.samples[0]                         # bin-averaged trace (keep_samples, ≤ 4096)
+```
+
+`PowerProfile`: `efuse`, `rate_hz`, `n`, `duration` (s), `avg_current`, `min_current`, `peak_current` (A),
+`avg_voltage`, `min_voltage`, `max_voltage` (V), `energy` (J), `charge` (C), `avg_power` (W), `fault`
+(the eFuse tripped), `truncated` (stopped at `max_duration`), `samples`. `rate_hz` is 100-2000.
+
+| Rail | Supply | Current limit | Cut-off | Monitor resolution |
+|---|---|---|---|---|
+| eFuse 1 (internal) | 5 V from the pod's USB-C | ≈ 2.0 A | 5.7 V | 100 µA |
+| eFuse 2 (external) | 5-20 V on the external terminal | ≈ 3.0 A | ≈ 21.8 V | 167 µA |
+
+An overload is held at the limit for about 2.8 ms, then the eFuse trips (`TargetStatus` `fault`) and
+retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `amp`
+input is a 4-20 mA loop terminal (249 Ω), not a way to measure the target's supply.
 
 ## Flashing
 
@@ -400,6 +504,64 @@ bp.disable_pullup(PIN1, PIN2)
 
 An open-drain bus such as I2C must sit on LA1–LA6.
 
+## GPIO on the LA pins
+
+Any LA channel can be a GPIO: an input, a push-pull output or an open-drain output, driven at the LA
+I/O voltage through the pod's 330 Ω series resistor. These are the pod's LA pins, not microcontroller
+GPIOs.
+
+```python
+from embeddedci.benchpod import PinConflictError
+
+start = bp.gpio(9, "output")                  # push-pull, starts low
+start.pulse(0.002, count=3)                   # FPGA-timed pulses; returns at once
+irq = bp.gpio(10, "input")
+assert irq.wait_for(1, timeout=1.0)           # polled from the host (ms resolution)
+bus = bp.gpio(6, "open_drain")                # 0 pulls low, 1 releases (LA6's pull-up holds it high)
+print(bp.pin_levels())                        # {1: 0, 2: 1, …} — live levels of every channel
+
+reset = bp.signal("RESET_N")                  # a wiring-profile signal, honouring active_low
+reset.configure()
+reset.activate()
+
+bp.release_gpio(9, 10)                        # back to high-Z; no arguments releases every GPIO pin
+```
+
+**One function per channel.** Each channel has exactly one owner at a time: `none` (the default — high-Z
+and watched by captures), `gpio`, or a peripheral that claimed it — `uart_rx`/`uart_tx` (a UART session),
+`swd_clk`/`swd_dio` (flashing), `i2c_sda`/`i2c_scl` (sensor emulation), `step`/`step_dir` (a pulse train).
+The pod refuses a second function with `PinConflictError` (`.la`, `.function`) instead of letting one
+silently override the other, and the message says how to free the channel:
+
+```python
+bp.gpio(4)
+try:
+    bp.open_uart(rx=3, tx=4)
+except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release it with ...
+    bp.release_gpio(exc.la)
+```
+
+`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`).
+Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
+disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),
+and the LA voltage can't change while any channel is in use.
+
+**Bias resistors must suit the function** — the pod refuses the combination with `PullConflictError`,
+whichever you set first:
+
+| Function | Pull-up (LA1-LA6) | Pull-down (LA7, LA8) |
+|---|---|---|
+| none, gpio input, gpio output, swd_clk, step | ok | ok |
+| gpio open_drain | ok (it needs one, or an external pull-up) | refused — a released line would read low |
+| uart_rx, uart_tx | ok | refused — the line idles high |
+| i2c_sda, i2c_scl | ok (needed) | refused — the bus needs pull-ups |
+| swd_dio | ok | refused |
+
+A `pulse()` or `la_step()` on a GPIO output keeps the channel GPIO (its level returns afterwards); on a
+free channel the train owns it only while it runs. `pin_levels()` reads the pins directly on gateware
+v35+ and falls back to a short capture on older gateware. GPIO needs pod firmware that advertises
+`Capabilities.la_pins`.
+
 ## Emulated I2C sensor
 
 The pod can **be an I2C sensor** (a BMP280) on two LA channels, so firmware that probes a sensor can
@@ -500,6 +662,54 @@ print(both.adc.duration, both.la.duration)              # one hardware trigger: 
 | `counts`, `volts`, `sample_rate_hz`, `source`, `duration`, `times()` | `words`, `sample_rate_hz`, `channels`, `duration` |
 | `mean()`, `min()`, `max()`, `peak_to_peak()`, `rms()`, `rms_ac()` | `channel(la)` → 0/1 list, `edges(la)` → transition count |
 | `fft()` → `(freqs_hz, magnitude)`, `dominant_frequency()` — need `[analysis]` | `decode(protocol, **channels)` |
+| `crossing_times(threshold, edge, hysteresis=)`, `first_crossing(...)` | `edge_times(la, edge)`, `first_edge(la, edge, after=)`, `level_at(la, t)`, `pulse_widths(la, level)`, `frequency(la)`, `duty_cycle(la)`, `delay(from_la, to_la, ...)` |
+
+### Timing
+
+Timestamps are seconds from the capture's first sample, with one-sample resolution
+(`1 / sample_rate_hz`). `edge` is `"rising"`, `"falling"` or `"both"`.
+
+```python
+la = bp.capture_la(1_000_000, sample_rate_hz=1_000_000)          # 1 s at 1 µs resolution
+
+latency = la.delay(9, 10)                  # trigger pin (LA9) rising → "result ready" (LA10) rising
+assert latency is not None and latency < 0.050
+
+print(la.edge_times(10, "rising")[:5])     # each result's timestamp
+print(la.pulse_widths(10, level=1))        # complete high pulses only
+print(la.frequency(11), la.duty_cycle(11)) # a PWM or frame-sync line
+
+both = bp.capture_correlated(adc_samples=100_000, adc_sample_rate_hz=100_000,
+                             la_samples=1_000_000, la_sample_rate_hz=1_000_000)
+rail_up = both.adc.first_crossing(3.0, "rising", hysteresis=0.1)   # one trigger: same timebase
+reset_released = both.la.first_edge(3, "rising")
+```
+
+`delay` returns `None` when either edge is missing; `first_edge` and `first_crossing` take `after=` to
+skip earlier activity. `crossing_times` counts a crossing only once the signal clears
+`threshold ± hysteresis / 2`, so noise on a slow edge counts once.
+
+### Triggered captures
+
+A `Trigger` makes the capture start at an event instead of when the command arrives: `rising` or
+`falling` on an LA channel, or while it is `high`/`low`. t = 0 is then the trigger moment (and a DAC
+co-trigger or `stop_dac_after` counts from it), so a delay measured from the trigger needs no
+alignment:
+
+```python
+from embeddedci.benchpod import Trigger, TriggerTimeout
+
+la = bp.capture_la(500_000, sample_rate_hz=1_000_000,
+                   trigger=Trigger("TRIGGER", "rising"), trigger_timeout=5.0)
+latency = la.first_edge(bp.wiring.la("READY"), "rising")        # seconds after the trigger
+
+adc = bp.capture_adc(100_000, sample_rate_hz=100_000, trigger=Trigger(10, "falling"))
+```
+
+`capture_adc`, `capture_la` and `capture_correlated` take `trigger` and `trigger_timeout` (seconds, up
+to 600). When the condition never happens the pod aborts the capture and raises `TriggerTimeout`
+(`.la`, `.edge`). The trigger channel can have any function — triggers observe. Triggers need gateware
+v35+ (`Capabilities.capture_trigger`).
 
 ## DAC: generator, replay and faults
 
@@ -850,6 +1060,9 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
+| `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |
+| `PullConflictError` | an engaged bias resistor can't work with the channel's function (a `FirmwareError`) | `la` |
+| `TriggerTimeout` | a triggered capture's condition never happened (a `FirmwareError`) | `la`, `edge` |
 | `CanTimeout` | `CanBus.expect` timed out | `frames` |
 
 ## Escape hatches

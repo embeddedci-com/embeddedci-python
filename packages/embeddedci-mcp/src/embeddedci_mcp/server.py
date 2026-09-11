@@ -31,6 +31,7 @@ from embeddedci.benchpod import (
     DacOutputPath,
     DacPath,
     DecodeProtocol,
+    Edge,
     Fault,
     FpgaImage,
     LoopInputMap,
@@ -686,6 +687,44 @@ async def decode_la(
                               truncated=len(items) > max_items, text=text)
 
     return await _call(op)
+
+
+def _pulse_stats(widths: List[float]) -> m.PulseStats:
+    if not widths:
+        return m.PulseStats(count=0)
+    return m.PulseStats(count=len(widths), min=min(widths), max=max(widths),
+                        mean=sum(widths) / len(widths))
+
+
+@mcp.tool(annotations=_ann("Measure timing on a logic capture", read_only=True))
+async def la_timing(
+    la: LaPin,
+    edge: Annotated[Edge, Field(description="Which transitions to list and to time the delay from.")] = "rising",
+    to_la: Annotated[Optional[LaPin], Field(description="Also measure the delay to the next to_edge on this channel.")] = None,
+    to_edge: Edge = "rising",
+    after: Annotated[float, Field(ge=0, description="Ignore edges earlier than this many seconds into the capture.")] = 0.0,
+    max_edges: Annotated[int, Field(ge=1, le=5000)] = 100,
+) -> m.LaTimingResult:
+    """Timing of one channel of the last capture_la / capture_correlated: edge timestamps, pulse widths,
+    frequency and duty cycle; with to_la, the delay from its first edge to the next edge on to_la
+    (e.g. a trigger pin to a "result ready" pin). Resolution is one sample; no new capture is taken.
+    """
+    def op() -> m.LaTimingResult:
+        cap = SESSION.last_la
+        if cap is None:
+            raise SessionStateError("no LA capture yet — run capture_la first")
+        times = [t for t in cap.edge_times(la, edge) if t >= after]
+        return m.LaTimingResult(
+            la=la, edge=edge, edge_times=times[:max_edges], truncated=len(times) > max_edges,
+            frequency_hz=cap.frequency(la), duty_cycle=round(cap.duty_cycle(la), 4),
+            high_pulses=_pulse_stats(cap.pulse_widths(la, 1)),
+            low_pulses=_pulse_stats(cap.pulse_widths(la, 0)),
+            to_la=to_la,
+            delay=None if to_la is None else cap.delay(la, to_la, from_edge=edge, to_edge=to_edge,
+                                                     after=after),
+            resolution=1.0 / cap.sample_rate_hz if cap.sample_rate_hz > 0 else 0.0)
+
+    return await _call(op, lock=False)
 
 
 # -- DAC ------------------------------------------------------------------------------

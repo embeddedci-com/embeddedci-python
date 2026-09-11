@@ -46,6 +46,10 @@ class CapabilitiesInfo(BaseModel):
     dac_control_loop: bool = False
     dac_loop_sources: bool = False
     dac_loop_input_map: bool = False
+    la_pins: bool = Field(False, description="LA pin ownership and GPIO (la_pins, gpio_* tools).")
+    gpio_read: bool = Field(False, description="Live pin levels read directly (else via a short capture).")
+    capture_trigger: bool = Field(False, description="Triggered captures (trigger_la on the capture tools).")
+    power_profile: bool = Field(False, description="Power profiles (measure_power, power_profile_start).")
 
     @classmethod
     def from_caps(cls, caps: Any) -> "CapabilitiesInfo":
@@ -55,6 +59,7 @@ class CapabilitiesInfo(BaseModel):
 class SessionInfo(BaseModel):
     uart_open: bool = False
     can_open: bool = False
+    power_profile_running: bool = Field(False, description="power_profile_start ran without power_profile_stop.")
     last_adc_capture_samples: Optional[int] = None
     last_la_capture_samples: Optional[int] = None
     idle_disconnect_after: Optional[float] = Field(
@@ -221,6 +226,29 @@ class LaCaptureResult(BaseModel):
     sample_rate_hz: float
     duration: float
     channels: List[LaChannelSummary]
+
+
+class PulseStats(BaseModel):
+    count: int
+    min: Optional[float] = Field(None, description="Seconds.")
+    max: Optional[float] = Field(None, description="Seconds.")
+    mean: Optional[float] = Field(None, description="Seconds.")
+
+
+class LaTimingResult(BaseModel):
+    la: int
+    edge: str
+    edge_times: List[float] = Field(description="Edge timestamps in seconds from the capture start.")
+    truncated: bool = Field(description="More edges exist than edge_times lists.")
+    frequency_hz: Optional[float] = Field(None, description="From the rising edges; null with fewer than two.")
+    duty_cycle: float
+    high_pulses: PulseStats
+    low_pulses: PulseStats
+    to_la: Optional[int] = None
+    delay: Optional[float] = Field(None, description=(
+        "Seconds from the first `edge` on la (at or after `after`) to the next `to_edge` on to_la; "
+        "null when to_la is not given or either edge is missing."))
+    resolution: float = Field(description="Timestamp resolution in seconds (one sample).")
 
 
 class CorrelatedCaptureResult(BaseModel):

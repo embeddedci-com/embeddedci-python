@@ -16,11 +16,26 @@ from typing import Any, List, Optional
 
 from .capabilities import Capabilities
 from .errors import BenchPodError
-from .results import Capture, CorrelatedCapture, LaCapture
+from .results import Capture, CorrelatedCapture, LaCapture, Trigger
 
 #: The firmware's single-shot ``capture`` reads into a fixed buffer of this many samples; a larger
 #: ADC capture streams from PSRAM through ``capture_dual`` instead.
 ADC_SHALLOW_MAX_SAMPLES = 32768
+
+#: Longest a triggered capture waits for its condition (the firmware's cap), seconds.
+MAX_TRIGGER_TIMEOUT = 600.0
+
+
+def _apply_trigger(req: dict, trigger: Optional[Trigger], timeout: float) -> None:
+    """Add a resolved :class:`Trigger` (integer channel) and its timeout to a capture request."""
+    if trigger is None:
+        return
+    if not isinstance(trigger, Trigger) or not isinstance(trigger.la, int):
+        raise ValueError("trigger must be a Trigger with an LA channel number (names are resolved by BenchPod)")
+    if not 0 < timeout <= MAX_TRIGGER_TIMEOUT:
+        raise ValueError(f"trigger_timeout must be > 0 and <= {MAX_TRIGGER_TIMEOUT:g} seconds, got {timeout!r}")
+    req["trigger"] = {"la": trigger.la, "edge": trigger.edge}
+    req["trigger_timeout_ms"] = max(1, int(round(timeout * 1000)))
 
 
 def rate_mhz(rate_hz: Optional[float]) -> Optional[float]:
@@ -69,22 +84,24 @@ def _check_samples(samples: int, name: str = "samples") -> int:
 
 
 def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
-                sample_rate_hz: Optional[float] = None, source: str = "") -> Capture:
+                sample_rate_hz: Optional[float] = None, source: str = "",
+                trigger: Optional[Trigger] = None, trigger_timeout: float = 10.0) -> Capture:
     """Capture ``samples`` ADC samples and return a :class:`Capture` with calibrated volts.
 
     Up to :data:`ADC_SHALLOW_MAX_SAMPLES` this is the firmware's single-shot ``capture``; above it
-    the capture streams from PSRAM via ``capture_dual`` (ADC only), which needs a streaming
-    transport. ``source`` only labels the result — routing is the caller's job.
+    — and whenever a ``trigger`` is given — the capture streams from PSRAM via ``capture_dual``
+    (ADC only), which needs a streaming transport. ``source`` only labels the result — routing is
+    the caller's job.
     """
     n = _check_samples(samples)
-    if n > ADC_SHALLOW_MAX_SAMPLES:
+    if n > ADC_SHALLOW_MAX_SAMPLES or trigger is not None:
         if getattr(transport, "stream_chunks", None) is None:
             raise BenchPodError(
-                f"an ADC capture above {ADC_SHALLOW_MAX_SAMPLES} samples streams from PSRAM and "
-                "needs a TCP, serial or cloud connection with chunked streaming"
+                "a deep or triggered ADC capture streams from PSRAM and needs a TCP, serial or cloud "
+                "connection with chunked streaming"
             )
         adc = capture_correlated(transport, caps, adc_samples=n, adc_sample_rate_hz=sample_rate_hz,
-                                 la_samples=0).adc
+                                 la_samples=0, trigger=trigger, trigger_timeout=trigger_timeout).adc
         adc.source = source
         return adc
     req: dict = {"cmd": "capture", "samples": n}
@@ -105,7 +122,8 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
 
 
 def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,
-               stop_dac_after: Optional[float] = None) -> LaCapture:
+               stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
+               trigger_timeout: float = 10.0) -> LaCapture:
     """Capture ``samples`` raw 12-channel LA words and return a :class:`LaCapture`.
 
     ``stop_dac_after`` (seconds) auto-stops a concurrently-running DAC that far into the capture —
@@ -120,6 +138,7 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     stop_us = _us(stop_dac_after, "stop_dac_after")
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
+    _apply_trigger(req, trigger, trigger_timeout)
     dense: List[int] = []
     edges: List[List[int]] = []
     upto = 0
@@ -139,7 +158,7 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
         if isinstance(data, list):
             dense.extend(int(x) for x in data)
     words = _expand_la_edges(edges, upto or int(samples)) if (edges or upto) else dense
-    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz))
+    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz), trigger=trigger)
 
 
 def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
@@ -167,7 +186,8 @@ def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
 def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int = 4096,
                        adc_sample_rate_hz: Optional[float] = None, la_samples: int = 4096,
                        la_sample_rate_hz: Optional[float] = None,
-                       stop_dac_after: Optional[float] = None) -> CorrelatedCapture:
+                       stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
+                       trigger_timeout: float = 10.0) -> CorrelatedCapture:
     """Correlated ADC + LA capture from one hardware trigger (aligned timebases).
 
     Uses the firmware ``capture_dual`` command: the ADC region streams as dense counts and the
@@ -195,6 +215,7 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
     stop_us = _us(stop_dac_after, "stop_dac_after")
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
+    _apply_trigger(req, trigger, trigger_timeout)
 
     adc_counts: List[int] = []
     la_edges: List[List[int]] = []
@@ -228,6 +249,7 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
         la_words = la_dense[:la_samples] if la_samples else la_dense
 
     adc = Capture(counts=adc_counts, volts=[caps.counts_to_volts(c) for c in adc_counts],
-                  sample_rate_hz=_rate_hz(adc_rate, adc_sample_rate_hz))
-    la = LaCapture(words=la_words, sample_rate_hz=_rate_hz(la_rate, la_sample_rate_hz))
+                  sample_rate_hz=_rate_hz(adc_rate, adc_sample_rate_hz), trigger=trigger)
+    la = LaCapture(words=la_words, sample_rate_hz=_rate_hz(la_rate, la_sample_rate_hz),
+                   trigger=trigger)
     return CorrelatedCapture(adc=adc, la=la)

@@ -20,7 +20,7 @@ Typical flows:
 - Emulate an I2C sensor: set_pull([sda, scl], true) on LA1-LA6 (LA7/LA8 pull DOWN), enable_i2c_sensor, power_cycle_and_capture, i2c_sensor_capture(address, register).
 - Analog: dac_output (DC), generate (sine/square/sawtooth) and replay drive the DAC and route its path; adc_read gives one calibrated value, capture_adc a waveform summary; dac_stop ends any DAC output.
 - Gateware images: the FPGA runs either the 'loop' image (control_loop) or the 'deep_replay' image (replays longer than 2048 samples). control_loop, replay and replay_waveform switch automatically (~3 s; switched_image in the result says so). A switch resets the FPGA and stops any DAC output, UART session or I2C sensor emulation, so start those after it. fpga_image switches explicitly.
-- Logic: capture_la, then decode_la (i2c/uart/spi) re-decodes that capture without re-capturing.
+- Logic: capture_la, then decode_la (i2c/uart/spi) re-decodes that capture without re-capturing, and la_timing measures edge times, pulse widths, frequency and the delay between two channels (e.g. trigger pin to result pin).
 - CAN: can_open (mode 'internal' self-tests a lone pod), can_write, can_read, can_respond, can_close.
 
 Units are volts, seconds and hertz. A tool that cannot do what was asked fails with an error that names the cause (for example "FirmwareError: la voltage not set" or "NotConnectedError: ..."). A completed operation with a negative outcome is a normal result: flash returns ok=false with its logs, a UART capture returns matched=false.

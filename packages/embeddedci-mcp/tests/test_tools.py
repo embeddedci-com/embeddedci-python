@@ -22,7 +22,7 @@ EXPECTED_TOOLS = {
     "i2c_sensor_regs", "i2c_sensor_capture",
     "set_pull", "pull_status",
     "analog_path", "dac_output", "adc_read",
-    "capture_adc", "capture_la", "capture_correlated", "decode_la",
+    "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
     "save_capture_as_recording",
     "control_loop", "loop_input", "loop_probe", "fpga_image",

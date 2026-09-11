@@ -11,12 +11,13 @@ without hardware.
 from __future__ import annotations
 
 import os
-from typing import ClassVar, Dict, Iterator, Optional
+from typing import Any, ClassVar, Dict, Iterator, Optional, Union
 
 import pytest
 
 from .client import BenchPod
 from .connection import ENV_VAR
+from .wiring import Wiring
 from .constants import PULL_OHMS as _PULL_OHMS
 from .constants import PULLDOWN_CHANNELS
 
@@ -155,6 +156,12 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         "over it (e.g. a CI job for a 1V8 board variant).",
     )
     group.addoption(
+        "--benchpod-wiring", action="store", default=None, dest="benchpod_wiring",
+        help="Wiring profile file (.json or .toml): which DUT signal is on which LA channel. Normally "
+        "set once by overriding the benchpod_wiring fixture in conftest.py; this flag wins over it. "
+        "Without either: BENCHPOD_WIRING, then a cloud device's stored profile, then the defaults.",
+    )
+    group.addoption(
         "--benchpod-discover",
         action="store_true",
         default=False,
@@ -291,10 +298,36 @@ def benchpod_la_voltage() -> Optional[float]:
 
 
 @pytest.fixture(scope="session")
+def benchpod_wiring() -> Optional[Union[Wiring, Dict[str, Any], str]]:
+    """The bench's wiring profile: which DUT signal is on which LA channel.
+
+    Set it ONCE for a test suite by overriding this fixture in ``conftest.py`` — a
+    :class:`~embeddedci.benchpod.wiring.Wiring`, a dict, or a path to a ``.json``/``.toml`` file::
+
+        from embeddedci.benchpod import Signal, Wiring
+
+        @pytest.fixture(scope="session")
+        def benchpod_wiring():
+            return Wiring(uart_rx=3, uart_tx=4, signals=[Signal("TRIGGER", 9, "output")])
+
+    Tests then use names and defaults: ``benchpod.open_uart()``, ``benchpod.signal("TRIGGER")``.
+    The default returns ``None``: ``BENCHPOD_WIRING``, then a cloud device's profile stored on
+    embeddedci.com (edited in the web UI), then the defaults. ``--benchpod-wiring`` overrides it.
+    """
+    return None
+
+
+@pytest.fixture(scope="session")
 def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
+             benchpod_wiring: Optional[Union[Wiring, Dict[str, Any], str]],
              pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
     """A connected :class:`BenchPod` for the test session, with the LA voltage selected
-    (see :func:`benchpod_la_voltage`).
+    (see :func:`benchpod_la_voltage`) and the wiring profile loaded (see :func:`benchpod_wiring`).
+
+    An explicit wiring profile also supplies the LA voltage when neither ``--benchpod-la-voltage``,
+    the ``benchpod_la_voltage`` fixture nor ``BENCHPOD_LA_VOLTAGE`` sets one. Every LA channel left
+    in GPIO mode is released when the session starts and ends, so a crashed run never leaves a DUT
+    pin driven.
 
     For the cloud (``embeddedci:``) destination this takes an exclusive lease on the shared device,
     waiting up to ``--benchpod-lease-wait`` seconds if another run is using it (so concurrent CI
@@ -302,9 +335,13 @@ def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
     """
     api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
     api_key = pytestconfig.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY")
+    wiring_arg = pytestconfig.getoption("benchpod_wiring") or benchpod_wiring
+    wiring = Wiring.coerce(wiring_arg) if wiring_arg is not None else None
     la_voltage = pytestconfig.getoption("benchpod_la_voltage")
     if la_voltage is None:
         la_voltage = benchpod_la_voltage  # None still lets BenchPod read BENCHPOD_LA_VOLTAGE
+    if la_voltage is None and wiring is not None and not os.environ.get("BENCHPOD_LA_VOLTAGE"):
+        la_voltage = wiring.la_voltage
     device = BenchPod(
         benchpod_connection,
         la_voltage=la_voltage,
@@ -312,11 +349,24 @@ def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
         api_key=api_key,
         lease=not pytestconfig.getoption("benchpod_no_lease"),
         lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
+        wiring=wiring,
     )
+    _release_gpio(device)
     try:
         yield device
     finally:
-        device.close()
+        try:
+            _release_gpio(device)
+        finally:
+            device.close()
+
+
+def _release_gpio(device: BenchPod) -> None:
+    try:
+        if device.capabilities.la_pins:
+            device.release_gpio()
+    except Exception:
+        pass
 
 
 @pytest.fixture

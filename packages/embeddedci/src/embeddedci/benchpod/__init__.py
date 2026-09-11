@@ -52,13 +52,16 @@ from .constants import (
     DacOutputPath,
     DacPath,
     DecodeProtocol,
+    Edge,
     Efuse,
     FaultType,
     FpgaImage,
+    GpioMode,
     LoopSource,
     Pin,
     ReplayMapping,
     Sensor,
+    TriggerEdge,
     Waveshape,
 )
 from .control_loop import (
@@ -81,16 +84,21 @@ from .errors import (
     DeviceBusyError,
     FirmwareError,
     FlashError,
+    PinConflictError,
+    PullConflictError,
     TargetUnreachableError,
     TransportError,
+    TriggerTimeout,
     UartTimeout,
 )
 from .flash import FlashResult
+from .gpio import GpioPin, LaPinState
 from .i2c import I2CByte, I2CMessage, I2CTransaction
 from .lease import DeviceLease
 from .lowlevel import LowLevel
+from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, Segment
-from .results import Capture, CorrelatedCapture, LaCapture
+from .results import Capture, CorrelatedCapture, LaCapture, Trigger
 from .server_api import ServerApi, ServerApiError
 from .state import (
     AdcReading,
@@ -109,9 +117,19 @@ from .state import (
 )
 from .uart import UartCapture, UartSession
 from .waveforms import Waveform, WaveformLibrary
+from .wiring import Signal, Wiring
 
 __all__ = [
     "BenchPod",
+    # wiring profile
+    "Wiring",
+    "Signal",
+    # LA pin modes + GPIO
+    "GpioPin",
+    "LaPinState",
+    # power profiles
+    "PowerProfile",
+    "PowerProfileSession",
     # device state
     "LaVoltage",
     "EfuseState",
@@ -147,6 +165,7 @@ __all__ = [
     "Capture",
     "LaCapture",
     "CorrelatedCapture",
+    "Trigger",
     "UartFrame",
     "SpiFrame",
     # DAC output, replay + waveform library
@@ -203,6 +222,9 @@ __all__ = [
     "ReplayMapping",
     "LoopSource",
     "DecodeProtocol",
+    "Edge",
+    "GpioMode",
+    "TriggerEdge",
     "CanMode",
     "FaultType",
     # errors
@@ -217,6 +239,9 @@ __all__ = [
     "ServerApiError",
     "UartTimeout",
     "CanTimeout",
+    "PinConflictError",
+    "PullConflictError",
+    "TriggerTimeout",
     # device lease
     "DeviceLease",
     # CI build reporting

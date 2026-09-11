@@ -108,6 +108,12 @@ DecodeProtocol = Literal["i2c", "uart", "spi"]
 CanMode = Literal["normal", "internal", "external", "listen"]
 #: A fault spliced into a replayed waveform.
 FaultType = Literal["flatline", "spike", "stuck"]
+#: Which transitions a timing helper looks at (:meth:`LaCapture.edge_times`, :meth:`Capture.crossing_times`).
+Edge = Literal["rising", "falling", "both"]
+#: GPIO mode of an LA channel (:meth:`BenchPod.gpio`): push-pull ``output``, ``open_drain`` or ``input``.
+GpioMode = Literal["input", "output", "open_drain"]
+#: What starts a triggered capture: an edge, or a level, on one LA channel.
+TriggerEdge = Literal["rising", "falling", "high", "low"]
 
 DAC_PATHS: Tuple[str, ...] = get_args(DacPath)
 DAC_OUTPUT_PATHS: Tuple[str, ...] = get_args(DacOutputPath)
@@ -119,6 +125,8 @@ LOOP_SOURCES: Tuple[str, ...] = get_args(LoopSource)
 DECODE_PROTOCOLS: Tuple[str, ...] = get_args(DecodeProtocol)
 CAN_MODES: Tuple[str, ...] = get_args(CanMode)
 FAULT_TYPES: Tuple[str, ...] = get_args(FaultType)
+GPIO_MODES: Tuple[str, ...] = get_args(GpioMode)
+TRIGGER_EDGES: Tuple[str, ...] = get_args(TriggerEdge)
 
 #: The analog path each ADC source routes (``capture_adc(source=...)``).
 ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "cal2", "amp": "amp"}

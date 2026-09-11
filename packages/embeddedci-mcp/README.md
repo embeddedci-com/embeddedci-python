@@ -114,7 +114,7 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 | Emulated I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture` |
 | Pull resistors | `set_pull`, `pull_status` |
 | Analog | `analog_path`, `dac_output`, `adc_read` |
-| Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la` |
+| Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la`, `la_timing` |
 | DAC | `generate`, `dac_stop`, `replay`, `list_waveforms`, `replay_waveform`, `save_capture_as_recording` |
 | Control loop | `control_loop`, `loop_input`, `loop_probe`, `fpga_image` |
 | CAN | `can_open`, `can_write`, `can_read`, `can_respond`, `can_status`, `can_close` |

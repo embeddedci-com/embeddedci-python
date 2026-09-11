@@ -72,7 +72,8 @@ def bench() -> Bench:
 def quiesce(pod: BenchPod) -> None:
     """Stop every output a test may have left running (never raises)."""
     for step in (pod.dac_stop, lambda: pod.analog_path("off"), pod.disable_i2c_sensor,
-                 pod.can_respond_clear, pod.can_disable):
+                 pod.can_respond_clear, pod.can_disable,
+                 lambda: pod.release_gpio() if pod.capabilities.la_pins else None):
         try:
             step()
         except Exception:

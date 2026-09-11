@@ -114,6 +114,25 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
   the firmware and fail there). The `benchpod_capability` marker switches the image for
   `dac_control_loop` / `dac_deep_replay` instead of skipping. The README has a new
   "Gateware images" section.
+- **Wiring profiles.** `Wiring` / `Signal` describe which DUT signal is on which LA channel (UART, I2C,
+  SWD, SPI roles, the target-power rail, the LA voltage and named signals) with the same schema the
+  embeddedci.com server and web UI store. `BenchPod(wiring=...)`, `bp.wiring` (argument → `BENCHPOD_WIRING`
+  file → a cloud device's stored profile → defaults), `bp.save_wiring()`, `bp.signal(name)`, the pytest
+  `benchpod_wiring` fixture and `--benchpod-wiring`. Channel arguments of `open_uart`, `capture_uart`,
+  `power_cycle_and_capture`, `flash`, `enable_i2c_sensor` and the power methods are now optional and
+  fall back to the profile; LA arguments accept role/signal names.
+- **GPIO on the LA pins and pin ownership.** `bp.gpio()` → `GpioPin` (`configure`, `set`, `high`/`low`,
+  `activate`, `read`, `wait_for`, `pulse`, `release`), `set_gpio`, `read_gpio`, `pin_levels`,
+  `wait_for_level`, `release_gpio`, `la_pins()` → `LaPinState`. Each channel has one function at a time:
+  a second one fails with `PinConflictError`, an incompatible bias resistor with `PullConflictError`.
+- **Triggered captures.** `Trigger(la, edge)` on `capture_adc`/`capture_la`/`capture_correlated`
+  (`trigger_timeout`, `TriggerTimeout`); results carry `.trigger`.
+- **Timing helpers.** `LaCapture.edge_times`, `first_edge`, `level_at`, `pulse_widths`, `frequency`,
+  `duty_cycle`, `delay`; `Capture.crossing_times`, `first_crossing`; the `Edge` option type.
+- **Power profiles.** `bp.measure_power()` and `bp.power_profile()` → `PowerProfile` (average/min/peak
+  current, voltage, energy, charge, trace) from gap-free sampling of the rail monitor; the README
+  documents the rails' current limits.
+- `Capabilities.la_pins`, `gpio_read`, `capture_trigger`, `power_profile`.
 - The `hardware` marker now skips a test when no connection is configured, even if the test
   requests no device fixture.
 

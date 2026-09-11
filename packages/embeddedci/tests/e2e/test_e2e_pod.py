@@ -233,6 +233,28 @@ def test_a_restarted_dac_plays_the_new_waveform_from_its_first_sample(pod):
     assert flat.size == 0, f"the square stalled in blocks {flat.tolist()} (spreads {spread.tolist()})"
 
 
+def test_generated_frequency_matches_the_adc_clock(pod):
+    # The firmware picks the DAC divider and period from its model of what one DAC sample costs
+    # in the gateware (max(divider, 3) + 51 clk48).  If the gateware's frame sequencing drifts
+    # from that model, every generated frequency is off by ~2% per clock of difference.  The ADC
+    # shares the FPGA clock and its own rate is held to the host clock below, so it is the ruler.
+    np = pytest.importorskip("numpy")
+    pod.analog_path("cal1")
+    freq = 1000.0
+    with pod.generate("square", freq_hz=freq, amplitude=0.8, offset=1.5, route=False):
+        time.sleep(SETTLE)
+        cap = pod.capture_adc(400_000, sample_rate_hz=400_000)
+    counts = np.asarray(cap.counts, dtype=np.int64)
+    high = counts > (counts.max() + counts.min()) // 2
+    rises = np.flatnonzero(~high[:-1] & high[1:]) + 1
+    rises = rises[np.insert(np.diff(rises) > 100, 0, True)]      # one per 400-sample period
+    assert len(rises) > 900, f"only {len(rises)} rising edges in 1 s of a {freq:.0f} Hz square"
+    measured = (len(rises) - 1) * cap.sample_rate_hz / (rises[-1] - rises[0])
+    assert measured == pytest.approx(freq, rel=0.002), (
+        f"generate({freq:.0f} Hz) plays {measured:.2f} Hz — the firmware's DAC rate model and the "
+        f"gateware disagree")
+
+
 # -- captures ----------------------------------------------------------------------------
 
 def test_capture_adc_shallow_and_deep(pod):

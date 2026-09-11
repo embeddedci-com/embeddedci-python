@@ -133,6 +133,14 @@ class Capabilities:
     tunnel: bool = False
     command: bool = False
     ota: bool = False
+    #: LA pin modes: each channel has one owner, and GPIO on the LA pins (:meth:`BenchPod.gpio`).
+    la_pins: bool = False
+    #: Direct read of the live LA pin levels (gateware >= v35); without it pin reads use a capture.
+    gpio_read: bool = False
+    #: Triggered captures (:class:`~embeddedci.benchpod.results.Trigger`, gateware >= v35).
+    capture_trigger: bool = False
+    #: Gap-free power profiles of a target rail (:meth:`BenchPod.measure_power`).
+    power_profile: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -187,6 +195,10 @@ class Capabilities:
                 ("ota", "ota"),
                 ("tunnel", "tunnel"),
                 ("command", "command"),
+                ("la_pins", "la_pins"),
+                ("gpio_read", "gpio_read"),
+                ("capture_trigger", "capture_trigger"),
+                ("power_profile", "power_profile"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -227,6 +239,8 @@ class Capabilities:
             ("scope", "cap.scope"),
             ("analyzer", "cap.analyzer"), ("serial", "cap.serial"), ("tunnel", "cap.tunnel"),
             ("command", "cap.command"), ("ota", "cap.ota"),
+            ("la_pins", "cap.la_pins"), ("gpio_read", "cap.gpio_read"),
+            ("capture_trigger", "cap.capture_trigger"), ("power_profile", "cap.power_profile"),
         ):
             b = _as_bool(params, key)
             if b is not None:

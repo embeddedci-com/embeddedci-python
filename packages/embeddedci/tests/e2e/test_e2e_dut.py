@@ -195,3 +195,40 @@ def test_logic_capture_decodes_the_boot_uart(boot_capture, pod, bench):
     la, _ = boot_capture
     text = decode.uart_text(pod.decode(la, "uart", rx=bench.uart_rx, baud=115200))
     assert "I2C1 init OK" in text and "APP_OK" in text, text[:500]
+
+
+# -- power profiles -------------------------------------------------------------------------
+
+@pytest.fixture
+def power_pod(dut):
+    if not dut.capabilities.power_profile:
+        pytest.skip("the pod firmware has no power profiles (capability power_profile)")
+    return dut
+
+
+def test_power_profile_of_a_boot(power_pod, bench):
+    with power_pod.power_profile(efuse=bench.efuse, keep_samples=1000, max_duration=10.0) as session:
+        power_pod.power_on(bench.efuse)
+        time.sleep(3.0)
+    prof = session.result
+    assert 4.5 < prof.avg_voltage < 5.5 and 0.01 < prof.avg_current < 1.0, prof
+    assert prof.min_current <= prof.avg_current <= prof.peak_current
+    assert prof.energy == pytest.approx(prof.avg_power * prof.duration, rel=1e-6)
+    assert prof.charge == pytest.approx(prof.avg_current * prof.duration, rel=0.05)
+    assert prof.n == pytest.approx(prof.rate_hz * prof.duration, rel=0.2)
+    assert 0 < len(prof.samples) <= 1000 and not prof.fault and not prof.truncated
+
+
+def test_power_profile_sees_the_delayed_power_on(power_pod, bench):
+    power_pod.power_on(bench.efuse, delay=0.5)            # pod-side timer: lands inside the profile
+    prof = power_pod.measure_power(2.0, efuse=bench.efuse, keep_samples=2000)
+    first_on = next((t for t, amps, _ in prof.samples if amps > 0.005), None)
+    assert first_on is not None and 0.3 < first_on < 0.9, first_on
+    assert prof.peak_current > prof.min_current + 0.005
+
+
+def test_power_profile_of_an_unpowered_rail(power_pod, bench):
+    power_pod.power_off(bench.efuse)
+    time.sleep(0.5)
+    prof = power_pod.measure_power(0.5, efuse=bench.efuse)
+    assert prof.avg_current < 0.005 and prof.energy < 0.01
