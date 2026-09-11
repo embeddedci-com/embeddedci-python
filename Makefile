@@ -1,0 +1,37 @@
+# Developer shortcuts. Unit tests need no hardware; the e2e targets drive a real BenchPod.
+#
+#   make test
+#   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…]
+#   BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
+#
+# The board's LA voltage is set once in packages/embeddedci/tests/conftest.py; the bench wiring in
+# packages/embeddedci/tests/e2e/conftest.py (override with BENCHPOD_E2E_* variables).
+
+PYTHON ?= python
+POD ?=
+FIRMWARE ?=
+USB ?=
+CLOUD_DEVICE ?=
+
+FIRMWARE_OPT = $(if $(FIRMWARE),--benchpod-firmware=$(abspath $(FIRMWARE)),)
+
+.PHONY: test e2e e2e-cloud
+
+test:  # one run per package, like CI (their tests/conftest.py modules share a name)
+	$(PYTHON) -m pytest -q packages/embeddedci
+	$(PYTHON) -m pytest -q packages/embeddedci-mcp
+	$(PYTHON) -m pytest -q packages/embeddedci-openhtf
+
+e2e:
+	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…]"; exit 2; }
+	BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs packages/embeddedci/tests/e2e \
+		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
+	$(PYTHON) -m pytest -v -rs packages/embeddedci-mcp/tests/test_e2e_mcp.py \
+		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
+	$(PYTHON) -m pytest -v -rs packages/embeddedci-openhtf/tests/test_e2e_openhtf.py \
+		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
+
+e2e-cloud:
+	@test -n "$(CLOUD_DEVICE)" || { echo "usage: BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=<name>"; exit 2; }
+	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" $(PYTHON) -m pytest -v -rs \
+		packages/embeddedci/tests/e2e/test_e2e_cloud.py
