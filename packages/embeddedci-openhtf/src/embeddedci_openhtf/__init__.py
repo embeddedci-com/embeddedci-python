@@ -1,14 +1,14 @@
 """embeddedci-openhtf — drive an EmbeddedCI BenchPod from OpenHTF.
 
-An `OpenHTF <https://www.openhtf.com/>`_ plug (and a few phase helpers) that wrap
-the :mod:`embeddedci` BenchPod SDK, for teams that want OpenHTF's test-sequencing
+An `OpenHTF <https://www.openhtf.com/>`_ plug (and phase helpers) that wrap the
+:mod:`embeddedci` BenchPod SDK, for teams that want OpenHTF's test-sequencing
 and record/GUI stack while connecting **directly** to a pod over TCP or serial —
 no EmbeddedCI cloud account or web UI required.
 
     import openhtf as htf
     from embeddedci_openhtf import benchpod_plug, flash_phase, boot_banner_phase
 
-    bench = benchpod_plug("192.168.1.50:8080")   # or "/dev/ttyACM0"
+    bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)   # or "/dev/ttyACM0"
 
     test = htf.Test(
         flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",
@@ -16,6 +16,8 @@ no EmbeddedCI cloud account or web UI required.
         boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK"),
     )
     test.execute(test_start=lambda: "SN-0001")
+
+Units follow the SDK: volts, seconds and hertz.
 """
 
 from __future__ import annotations
@@ -23,14 +25,20 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from .analog import (
+    adc_capture,
     adc_capture_phase,
+    adc_read,
+    adc_read_phase,
+    analog_path,
+    control_loop,
+    control_loop_phase,
+    dac_output,
+    dac_output_phase,
     dac_replay_phase,
+    fpga_image,
     loopback_measure_phase,
-    measure,
     replay,
     replay_waveform,
-    scope_capture,
-    scope_capture_phase,
     signal_generate,
     signal_generate_phase,
     signal_stop,
@@ -59,17 +67,23 @@ __all__ = [
     "flash_phase",
     "boot_banner_phase",
     "signal_generate_phase",
+    "dac_output_phase",
+    "adc_read_phase",
     "adc_capture_phase",
-    "scope_capture_phase",
     "loopback_measure_phase",
+    "control_loop_phase",
     "dac_replay_phase",
     # analog low-level helpers
     "signal_generate",
     "signal_stop",
-    "measure",
-    "scope_capture",
+    "analog_path",
+    "dac_output",
+    "adc_read",
+    "adc_capture",
     "replay",
     "replay_waveform",
+    "control_loop",
+    "fpga_image",
     # measurement helpers
     "flash_ok_measurement",
     "uart_matched_measurement",

@@ -80,6 +80,8 @@ class FakeConsolePort:
             self._emit('{"status":"ok","data":"json mode exited"}\n> ')
         elif cmd == "ping":
             self._emit('{"status":"ok","data":"pong"}\n')
+        elif cmd == "status":
+            self._emit('{"status":"ok","data":{"version":"2.0.0","board":"stm32h563"}}\n')
         elif cmd == "la":
             la = req["la"]
             on = 1 if req.get("pullup", "on") in ("on", 1, "1") else 0
@@ -131,11 +133,15 @@ def test_error_reply_raises():
 
 def test_pullup_via_client_over_serial():
     from embeddedci.benchpod.client import BenchPod
-    from embeddedci.benchpod.errors import BenchPodError
 
-    bp = BenchPod(transport=_transport())
-    d = bp.pullup(1, on=True)
-    assert d == {"la": 1, "pullup": 1, "ohms": "4.7k"}
+    bp = BenchPod(transport=_transport(), la_voltage=None)
+    state = bp.set_pull(1, True)
+    assert state.la == 1 and state.enabled and state.ohms == "4.7k" and state.direction == "up"
     bp.enable_pullup(1, 2)        # no error
-    with pytest.raises(BenchPodError):
-        bp.pullup(9)             # LA9 has no pull-up
+    with pytest.raises(ValueError):
+        bp.pull_state(9)          # LA9 has no bias resistor
+
+
+def test_status_is_a_dict_over_serial():
+    t = _transport()
+    assert isinstance(t.status(), dict)

@@ -1,11 +1,16 @@
-"""embeddedci-mcp — an MCP server exposing the EmbeddedCI BenchPod SDK as tools."""
+"""embeddedci-mcp — an MCP server that lets AI agents drive an EmbeddedCI BenchPod."""
+
+from importlib.metadata import PackageNotFoundError, version
 
 from .server import mcp
 from .session import SESSION, Session
 
-__all__ = ["mcp", "SESSION", "Session", "main"]
+try:
+    __version__ = version("embeddedci-mcp")
+except PackageNotFoundError:  # running from a source tree without install
+    __version__ = "0.0.0+unknown"
 
-__version__ = "0.1.0"
+__all__ = ["mcp", "SESSION", "Session", "main", "__version__"]
 
 
 def main(argv=None) -> None:

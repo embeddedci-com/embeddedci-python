@@ -1,8 +1,10 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.embeddedci-com/embeddedci-mcp",
-  "description": "Drive an EmbeddedCI BenchPod hardware-in-the-loop tester: power, flash over SWD, capture UART, and emulate/decode an I2C sensor on a real target board.",
-  "version": "0.1.0",
+  "title": "EmbeddedCI BenchPod",
+  "description": "Drive a BenchPod hardware-in-the-loop bench: power, flash, UART, I2C, CAN, analog and logic.",
+  "version": "2.0.0",
+  "websiteUrl": "https://www.embeddedci.com/docs/benchpod-mcp",
   "repository": {
     "url": "https://github.com/embeddedci-com/embeddedci-python",
     "source": "github",
@@ -10,27 +12,47 @@
   },
   "packages": [
     {
-      "registry_type": "pypi",
-      "registry_base_url": "https://pypi.org",
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
       "identifier": "embeddedci-mcp",
-      "version": "0.1.0",
+      "version": "2.0.0",
+      "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
       },
-      "runtime_arguments": [
+      "packageArguments": [
         {
           "type": "named",
           "name": "--connection",
-          "description": "Default BenchPod connection: host[:port], a serial device path, or 'serial'.",
-          "is_required": false,
+          "description": "Default BenchPod connection: host[:port], a serial device path, 'usb', or 'embeddedci:<device>'.",
+          "isRequired": false,
           "format": "string"
+        },
+        {
+          "type": "named",
+          "name": "--la-voltage",
+          "description": "LA I/O voltage (1.8 or 3.3) applied when connecting.",
+          "isRequired": false,
+          "format": "string",
+          "choices": ["1.8", "3.3"]
         }
       ],
-      "environment_variables": [
+      "environmentVariables": [
         {
           "name": "BENCHPOD_CONNECTION",
-          "description": "Fallback BenchPod connection when --connection / the connect tool is not given one.",
-          "is_required": false
+          "description": "Default BenchPod connection when neither --connection nor the connect tool gives one.",
+          "isRequired": false
+        },
+        {
+          "name": "BENCHPOD_LA_VOLTAGE",
+          "description": "LA I/O voltage (1.8 or 3.3) applied when connecting.",
+          "isRequired": false
+        },
+        {
+          "name": "BENCHPOD_API_KEY",
+          "description": "embeddedci API key: reach cloud pods (embeddedci:<device>) and the waveform library.",
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     }

@@ -6,7 +6,8 @@ test is just a list of them::
     import openhtf as htf
     from embeddedci_openhtf import benchpod_plug, flash_phase, boot_banner_phase
 
-    bench = benchpod_plug("192.168.1.50:8080")   # direct TCP, no cloud
+    # direct TCP, no cloud; the LA bank voltage must be set before flashing / UART
+    bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)
 
     test = htf.Test(
         flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",

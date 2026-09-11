@@ -1,13 +1,28 @@
 """Plug-level tests: construction from an injected transport, attribute proxying,
-teardown, and the missing-connection error. No hardware, no OpenHTF executor."""
+teardown, config/env resolution and the missing-connection error. No hardware, no
+OpenHTF executor."""
 
+from types import MappingProxyType
+
+import openhtf as htf
 import pytest
 
 from embeddedci.benchpod import BenchPod
 from embeddedci.benchpod.errors import ConnectionConfigError
 
+import embeddedci_openhtf.plug as plug_mod
 from embeddedci_openhtf import BenchPodPlug, benchpod_plug
 from _fake import FakeTransport
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch):
+    monkeypatch.delenv("BENCHPOD_CONNECTION", raising=False)
+    monkeypatch.delenv("BENCHPOD_LA_VOLTAGE", raising=False)
+
+
+def _la_cmds(tx):
+    return [c for c in tx.commands if c.get("cmd") == "la_voltage"]
 
 
 def test_plug_builds_pod_and_proxies():
@@ -35,7 +50,72 @@ def test_internal_attrs_do_not_proxy():
         _ = plug._nope
 
 
-def test_missing_connection_raises(monkeypatch):
-    monkeypatch.delenv("BENCHPOD_CONNECTION", raising=False)
+def test_missing_connection_raises():
     with pytest.raises(ConnectionConfigError):
         BenchPodPlug()  # no bound connection, no config, no env, no transport
+
+
+def test_no_la_voltage_by_default():
+    tx = FakeTransport()
+    benchpod_plug(transport=tx)()
+    assert _la_cmds(tx) == []
+
+
+def test_conf_la_voltage_is_passed_to_benchpod():
+    tx = FakeTransport()
+
+    @htf.conf.save_and_restore(benchpod_la_voltage=3.3)
+    def build():
+        return benchpod_plug(transport=tx)()
+
+    build()
+    assert _la_cmds(tx) == [{"cmd": "la_voltage", "mv": 3300}]
+
+
+def test_bound_la_voltage_wins_over_conf():
+    tx = FakeTransport()
+
+    @htf.conf.save_and_restore(benchpod_la_voltage=3.3)
+    def build():
+        return benchpod_plug(transport=tx, la_voltage=1.8)()
+
+    build()
+    assert _la_cmds(tx) == [{"cmd": "la_voltage", "mv": 1800}]
+
+
+def test_la_voltage_env_fallback(monkeypatch):
+    monkeypatch.setenv("BENCHPOD_LA_VOLTAGE", "1.8")
+    tx = FakeTransport()
+    benchpod_plug(transport=tx)()
+    assert _la_cmds(tx) == [{"cmd": "la_voltage", "mv": 1800}]
+
+
+def test_conf_connection_timeout_and_la_voltage_reach_benchpod(monkeypatch):
+    seen = {}
+
+    class SpyBenchPod:
+        def __init__(self, connection=None, **kwargs):
+            seen.update(connection=connection, **kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(plug_mod, "BenchPod", SpyBenchPod)
+
+    @htf.conf.save_and_restore(benchpod_connection="10.0.0.9:8080", benchpod_timeout=7.5,
+                               benchpod_la_voltage="3.3")
+    def build():
+        return BenchPodPlug()
+
+    build()
+    assert seen == {"connection": "10.0.0.9:8080", "timeout": 7.5, "la_voltage": 3.3}
+
+
+def test_pod_kwargs_are_immutable_and_not_shared():
+    assert isinstance(BenchPodPlug.pod_kwargs, MappingProxyType)
+    bound = benchpod_plug(transport=FakeTransport(), timeout=5.0)
+    with pytest.raises(TypeError):
+        bound.pod_kwargs["timeout"] = 1.0
+    assert dict(BenchPodPlug.pod_kwargs) == {}
+    other = benchpod_plug(transport=FakeTransport())
+    assert "timeout" not in other.pod_kwargs

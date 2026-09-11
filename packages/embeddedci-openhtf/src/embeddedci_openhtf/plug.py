@@ -13,21 +13,27 @@ Two ways to point it at a pod:
       import openhtf as htf
       from embeddedci_openhtf import benchpod_plug
 
-      @htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
+      @htf.plug(bench=benchpod_plug("192.168.1.50:8080", la_voltage=3.3))
       def power_up(test, bench):
           bench.power_on()                  # methods proxy to the BenchPod SDK
-          bench.pod.flash(...)              # or reach the full client via .pod
+          status = bench.pod.target_status()  # or reach the full client via .pod
 
 * **Via OpenHTF config.** Use :class:`BenchPodPlug` unbound and supply the
   connection through OpenHTF's ``conf`` (a YAML file, ``--config-value``, or
-  :func:`openhtf.conf.load`), falling back to the ``BENCHPOD_CONNECTION`` env
-  var::
+  :func:`openhtf.conf.load`), falling back to the ``BENCHPOD_CONNECTION`` /
+  ``BENCHPOD_LA_VOLTAGE`` env vars::
 
-      htf.conf.load(benchpod_connection="/dev/ttyACM0")
+      htf.conf.load(benchpod_connection="/dev/ttyACM0", benchpod_la_voltage=3.3)
 
       @htf.plug(bench=BenchPodPlug)
       def power_up(test, bench):
           bench.power_on()
+
+**LA voltage.** The pod refuses every LA-bank operation — flashing, the UART
+proxy, LA capture, pull resistors, I2C-sensor emulation — until the LA I/O-bank
+voltage (1.8 or 3.3 V) is selected. Pass ``la_voltage=`` to :func:`benchpod_plug`,
+set the ``benchpod_la_voltage`` conf key, or export ``BENCHPOD_LA_VOLTAGE``; it is
+applied right after connecting.
 
 **Connection lifecycle.** By default a fresh connection is opened on each test
 execution and closed in :meth:`tearDown`, so OpenHTF owns the lifecycle. On a
@@ -47,7 +53,8 @@ from __future__ import annotations
 import atexit
 import os
 import threading
-from typing import Any, Dict, Optional
+from types import MappingProxyType
+from typing import Any, Dict, Mapping, Optional
 
 import openhtf as htf
 from openhtf.plugs import BasePlug
@@ -55,6 +62,10 @@ from openhtf.plugs import BasePlug
 from embeddedci.benchpod import BenchPod
 from embeddedci.benchpod.connection import ENV_VAR
 from embeddedci.benchpod.errors import ConnectionConfigError
+
+#: Env var the SDK reads for the LA I/O-bank voltage when none is passed.
+LA_VOLTAGE_ENV_VAR = "BENCHPOD_LA_VOLTAGE"
+_DEFAULT_TIMEOUT = 30.0
 
 # Mirror the SDK's connection sources as OpenHTF config keys, so a station can be
 # configured from a YAML file / --config-value instead of code.
@@ -69,13 +80,30 @@ htf.conf.declare(
 htf.conf.declare(
     "benchpod_timeout",
     description="BenchPod transport timeout in seconds (default 30).",
-    default_value=30.0,
+    default_value=_DEFAULT_TIMEOUT,
+)
+htf.conf.declare(
+    "benchpod_la_voltage",
+    description=(
+        "LA I/O-bank voltage in volts (1.8 or 3.3), selected right after connecting. The pod "
+        "refuses flashing, UART, LA capture, pull resistors and I2C-sensor emulation until one "
+        f"is set. Falls back to the {LA_VOLTAGE_ENV_VAR} env var."
+    ),
+    default_value=None,
 )
 
 # Process-wide pool of persistent connections, keyed by the bound plug class (one
 # per benchpod_plug(persistent=True) call). Survives across test executions.
 _PERSISTENT_POOL: Dict[type, BenchPod] = {}
 _PERSISTENT_LOCK = threading.Lock()
+
+
+def _conf_value(name: str) -> Any:
+    """The OpenHTF conf value for ``name``, or ``None`` when it has none."""
+    try:
+        return htf.conf[name] if name in htf.conf else None
+    except Exception:  # pragma: no cover - conf lookups should not fail a plug
+        return None
 
 
 def close_persistent_benchpods() -> None:
@@ -98,7 +126,7 @@ atexit.register(close_persistent_benchpods)
 
 
 def _acquire_persistent(cls: type, conn: Optional[str],
-                        pod_kwargs: Dict[str, Any], health_check: bool) -> BenchPod:
+                        pod_kwargs: Mapping[str, Any], health_check: bool) -> BenchPod:
     """Return the pooled connection for ``cls``, opening (or reopening, if a
     health-check ping fails) it as needed."""
     with _PERSISTENT_LOCK:
@@ -122,38 +150,55 @@ def _acquire_persistent(cls: type, conn: Optional[str],
 class BenchPodPlug(BasePlug):
     """OpenHTF plug wrapping a directly-connected :class:`BenchPod`.
 
-    Use unbound with OpenHTF config / ``BENCHPOD_CONNECTION``, or bind a
-    connection with :func:`benchpod_plug`. Subclasses may override the class
-    attributes below (that is what :func:`benchpod_plug` produces); leave
-    :data:`connection` / :data:`pod_kwargs` at their defaults to resolve from
-    config then env.
+    Use unbound with OpenHTF config / env vars, or bind a connection with
+    :func:`benchpod_plug`. Subclasses may override the class attributes below
+    (that is what :func:`benchpod_plug` produces); leave :data:`connection` /
+    :data:`pod_kwargs` at their defaults to resolve from config then env.
+
+    Resolution order for each setting: the bound ``benchpod_plug(...)`` value,
+    then the OpenHTF conf key (``benchpod_connection`` / ``benchpod_timeout`` /
+    ``benchpod_la_voltage``), then the env var (``BENCHPOD_CONNECTION`` /
+    ``BENCHPOD_LA_VOLTAGE``, read by the SDK).
     """
 
     #: Connection override set by :func:`benchpod_plug`. ``None`` => use config/env.
     connection: Optional[str] = None
-    #: Extra keyword args forwarded to ``BenchPod(...)`` (e.g. ``transport=`` for
-    #: tests). Set by :func:`benchpod_plug`.
-    pod_kwargs: Dict[str, Any] = {}
+    #: Extra keyword args forwarded to ``BenchPod(...)`` (``la_voltage=``, ``timeout=``, or
+    #: ``transport=`` for tests). Set by :func:`benchpod_plug`; read-only.
+    pod_kwargs: Mapping[str, Any] = MappingProxyType({})
     #: Keep one connection open across test executions (station mode).
     persistent: bool = False
     #: In persistent mode, ping a pooled connection before reuse and reconnect
     #: if it has dropped.
     health_check: bool = True
 
-    @htf.conf.inject_positional_args
     def __init__(self, benchpod_connection: Optional[str] = None,
-                 benchpod_timeout: float = 30.0) -> None:
+                 benchpod_timeout: Optional[float] = None,
+                 benchpod_la_voltage: Optional[float] = None) -> None:
         super().__init__()
         cls = type(self)
-        pod_kwargs = dict(cls.pod_kwargs)
-        conn = self.connection or benchpod_connection or os.environ.get(ENV_VAR)
+        # Explicit arguments win; otherwise read the OpenHTF conf. (OpenHTF instantiates plugs
+        # with no arguments, so this is where the conf keys take effect.)
+        if benchpod_connection is None:
+            benchpod_connection = _conf_value("benchpod_connection")
+        if benchpod_timeout is None:
+            benchpod_timeout = _conf_value("benchpod_timeout")
+        if benchpod_la_voltage is None:
+            benchpod_la_voltage = _conf_value("benchpod_la_voltage")
+
+        pod_kwargs: Dict[str, Any] = dict(cls.pod_kwargs or {})
+        conn = cls.connection or benchpod_connection or os.environ.get(ENV_VAR)
         if not conn and "transport" not in pod_kwargs:
             raise ConnectionConfigError(
                 "no BenchPod connection: bind one with benchpod_plug('host:port'), "
                 "set the OpenHTF 'benchpod_connection' config, or export "
                 f"{ENV_VAR}=<host:port|/dev/tty...>"
             )
-        pod_kwargs.setdefault("timeout", benchpod_timeout)
+        pod_kwargs.setdefault(
+            "timeout", float(benchpod_timeout) if benchpod_timeout is not None else _DEFAULT_TIMEOUT)
+        if benchpod_la_voltage is not None:
+            # None falls through to the SDK, which reads BENCHPOD_LA_VOLTAGE.
+            pod_kwargs.setdefault("la_voltage", float(benchpod_la_voltage))
         if cls.persistent:
             #: The connected SDK client (shared, kept open across executions).
             self.pod: BenchPod = _acquire_persistent(
@@ -194,7 +239,7 @@ def benchpod_plug(connection: Optional[str] = None, *, persistent: bool = False,
 
     Ergonomic for direct bench use — put the pod's address right in the test::
 
-        @htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
+        @htf.plug(bench=benchpod_plug("192.168.1.50:8080", la_voltage=3.3))
         def phase(test, bench): ...
 
         @htf.plug(bench=benchpod_plug("/dev/ttyACM0"))
@@ -203,15 +248,15 @@ def benchpod_plug(connection: Optional[str] = None, *, persistent: bool = False,
     Set ``persistent=True`` to keep one connection open across test executions
     (reuse the *same* returned class for every ``Test.execute()`` so they share
     it); see :func:`close_persistent_benchpods`. Extra keyword args are forwarded
-    to ``BenchPod(...)`` (``timeout=``, or ``transport=`` to inject a fake
-    backend in tests).
+    to ``BenchPod(...)``: ``la_voltage=`` (volts), ``timeout=`` (seconds), or
+    ``transport=`` to inject a fake backend in tests.
     """
     return type(
         "BoundBenchPodPlug",
         (BenchPodPlug,),
         {
             "connection": connection,
-            "pod_kwargs": pod_kwargs,
+            "pod_kwargs": MappingProxyType(dict(pod_kwargs)),
             "persistent": persistent,
             "health_check": health_check,
         },

@@ -81,10 +81,12 @@ def record_uart(test: htf.TestApi, capture: UartCapture, *,
 
 def record_samples(test: htf.TestApi, samples: List[int], *,
                    prefix: str = "adc", attachment: str = "adc.json") -> dict:
-    """Attach raw ADC/LA ``samples`` (from ``bench.capture(...)`` / ``measure``)
+    """Attach a list of raw integer ``samples`` — e.g. ADC counts
+    (``bench.capture_adc(...).counts``) or LA words (``bench.capture_la(...).words``) —
     as JSON and set ``<prefix>_min`` / ``_max`` / ``_mean`` / ``_pp``
-    (peak-to-peak) measurements.
+    (peak-to-peak) measurements, in the samples' own (unscaled) units.
 
+    For calibrated volts use :func:`embeddedci_openhtf.adc_capture_phase`.
     Declare the matching measurements on the phase (e.g.
     ``htf.Measurement('adc_pp').in_range(...)``) to turn them into limits; only
     declared ones are set. Returns the computed stats dict.

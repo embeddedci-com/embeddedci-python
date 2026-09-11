@@ -60,12 +60,12 @@ def test_control_loop_settles_on_panel_curve(benchpod):
 @pytest.mark.benchpod_capability("dac_cotrig")
 def test_replay_co_triggers_with_capture(benchpod):
     """Arm a replay to fire on the next capture's t0 (phase-locked), then run the capture."""
-    cap = benchpod.scope_capture(64, sample_rate_mhz=0.4)
+    cap = benchpod.capture_adc(64, sample_rate_hz=400_000)
     try:
         handle = benchpod.replay(cap, dac_path="5v", on_capture=True)
         assert handle.cotrig  # device armed the DAC instead of starting it immediately
         # the following capture fires the DAC at t0
-        ac = benchpod.capture_analog(adc_samples=512, adc_rate_mhz=0.4, la_samples=0)
+        ac = benchpod.capture_correlated(adc_samples=512, adc_sample_rate_hz=400_000, la_samples=0)
         assert len(ac.adc) > 0
     finally:
         benchpod.dac_stop()
@@ -73,10 +73,10 @@ def test_replay_co_triggers_with_capture(benchpod):
 
 def test_dac_auto_stop_during_capture(benchpod):
     """A DAC output cut mid-capture: the captured window brackets the cutoff (no crash / clean run)."""
-    benchpod.generate("square", freq=2000, amplitude=1.0)
+    benchpod.generate("square", freq_hz=2000, amplitude=1.0)
     try:
-        ac = benchpod.capture_analog(adc_samples=2048, adc_rate_mhz=0.4, la_samples=0,
-                                     stop_dac_after_us=2000)
+        ac = benchpod.capture_correlated(adc_samples=2048, adc_sample_rate_hz=400_000, la_samples=0,
+                                         stop_dac_after=0.002)
         assert len(ac.adc) > 0
     finally:
         benchpod.dac_stop()

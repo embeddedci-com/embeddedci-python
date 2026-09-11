@@ -1,44 +1,36 @@
 # embeddedci-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that exposes the
-[`embeddedci`](https://github.com/embeddedci-com/embeddedci-python/tree/main/packages/embeddedci)
-BenchPod SDK as tools, so an AI agent can drive a real hardware-in-the-loop bench:
-power a target board, flash it over SWD, capture its UART, and emulate/decode an
-I2C sensor.
+<!-- mcp-name: io.github.embeddedci-com/embeddedci-mcp -->
 
-It's a thin consumer of the SDK — every tool maps directly to a
-`embeddedci.benchpod.BenchPod` method.
+An [MCP](https://modelcontextprotocol.io) server that lets an AI agent drive an
+**EmbeddedCI BenchPod** — a hardware-in-the-loop tester wired to a real board. Ask Claude (or any
+MCP client) to flash a build, power-cycle the target, watch its UART, pretend to be the sensor it
+expects, probe its I2C/CAN traffic or drive and measure analog signals, and the pod does it.
 
-## Install
+It is a thin layer over the [`embeddedci`](https://pypi.org/project/embeddedci/) SDK: every tool
+maps to SDK calls, so anything an agent discovers interactively can become a pytest test.
+
+## Requirements
+
+- Python 3.10+ and [uv](https://docs.astral.sh/uv/) (for `uvx`), or `pip`.
+- A BenchPod reachable over the network, USB, or the embeddedci.com cloud.
+- For `flash`: OpenOCD with the `cmsis_dap_tcp` backend (newer than 0.12.0 — e.g.
+  `brew install --HEAD open-ocd`, or the xPack build) on the machine running the server. The
+  firmware `file` is read from that machine too.
+
+## Set up your client
+
+### Claude Code
 
 ```bash
-pip install embeddedci-mcp        # pulls embeddedci from PyPI
-# or run without installing:
-uvx embeddedci-mcp --help
+claude mcp add benchpod \
+  -e BENCHPOD_CONNECTION=192.168.1.213 -e BENCHPOD_LA_VOLTAGE=3.3 \
+  -- uvx embeddedci-mcp
 ```
 
-For local development from this repo, see the
-[workspace README](https://github.com/embeddedci-com/embeddedci-python#development).
+### Claude Desktop / Cursor
 
-## Run
-
-```bash
-# stdio (launched by an MCP client as a subprocess — the usual case):
-embeddedci-mcp --transport stdio
-
-# streamable HTTP (for a remote bench):
-embeddedci-mcp --transport http --host 0.0.0.0 --port 8000
-
-# preset a default connection so the `connect` tool needs no argument:
-embeddedci-mcp --connection /dev/tty.usbserial-0001
-embeddedci-mcp --connection 192.168.1.213        # wifi/TCP, default port 8080
-```
-
-The connection can also come from the `BENCHPOD_CONNECTION` environment variable.
-
-## Client configuration
-
-### Claude Desktop / Cursor (`mcp.json` / `claude_desktop_config.json`)
+`claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor):
 
 ```json
 {
@@ -46,59 +38,143 @@ The connection can also come from the `BENCHPOD_CONNECTION` environment variable
     "benchpod": {
       "command": "uvx",
       "args": ["embeddedci-mcp"],
-      "env": { "BENCHPOD_CONNECTION": "192.168.1.213" }
+      "env": {
+        "BENCHPOD_CONNECTION": "192.168.1.213",
+        "BENCHPOD_LA_VOLTAGE": "3.3"
+      }
     }
   }
 }
 ```
 
-Use `"command": "embeddedci-mcp"` instead if it's installed on `PATH`.
+### A pod in the cloud
 
-### Claude Code
+Use the device name and an [API key](https://www.embeddedci.com/docs/benchpod-mcp) — the cloud
+transport is included:
+
+```json
+"env": {
+  "BENCHPOD_CONNECTION": "embeddedci:my-bench",
+  "BENCHPOD_API_KEY": "eci_…",
+  "BENCHPOD_LA_VOLTAGE": "3.3"
+}
+```
+
+A cloud pod is shared, so `connect` takes an exclusive lease (waiting up to `--lease-wait`
+seconds if another run holds it). The lease is released by `disconnect`, or after
+`--idle-timeout` seconds without a tool call — the next call reconnects transparently, so an idle
+chat never blocks CI on that pod.
+
+## Options
+
+| Flag | Environment | Default | |
+| --- | --- | --- | --- |
+| `--connection` | `BENCHPOD_CONNECTION` | — | host[:port], serial device, `usb`, `discover`, or `embeddedci:<device>` |
+| `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
+| — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library |
+| — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
+| `--lease-wait` | — | `30` | cloud: seconds to wait for a busy pod |
+| `--idle-timeout` | — | `600` | cloud: release the lease after this many idle seconds (0 = never) |
+| `--timeout` | — | `30` | per-command device timeout |
+| `--transport` | — | `stdio` | `stdio` or `http` |
+| `--host` / `--port` | — | `127.0.0.1` / `8000` | HTTP bind address |
+| `--auth-token` | `EMBEDDEDCI_MCP_TOKEN` | — | require `Authorization: Bearer <token>` (mandatory off loopback) |
+| `--allowed-host` | — | — | Host header(s) to accept on a network bind (DNS-rebinding protection) |
+| `--allow-unauthenticated` | — | off | serve a network address without a token (isolated networks only) |
+
+### Serving a bench over HTTP
+
+Run the server on the machine next to the pod, and point clients at it:
 
 ```bash
-claude mcp add benchpod -- uvx embeddedci-mcp
+export EMBEDDEDCI_MCP_TOKEN=$(openssl rand -hex 32)
+embeddedci-mcp --transport http --host 0.0.0.0 --connection usb --la-voltage 3.3
 ```
+
+```bash
+claude mcp add --transport http benchpod http://bench-host:8000/mcp \
+  --header "Authorization: Bearer $EMBEDDEDCI_MCP_TOKEN"
+```
+
+The server drives real hardware, so it refuses a non-loopback bind without a token. It holds one
+pod connection shared by all HTTP clients, and serialises their tool calls.
 
 ## Tools
 
 | Group | Tools |
 | --- | --- |
-| Lifecycle / status | `connect`, `disconnect`, `ping`, `status` |
-| Power | `power_on`, `power_off`, `target_power`, `target_status` |
+| Connection | `connect`, `disconnect`, `status`, `set_la_voltage` |
+| Power | `power_on`, `power_off`, `power_status`, `reset_target` |
 | Flash | `flash` |
-| UART | `capture_uart`, `power_cycle_and_capture` |
-| I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_la_decoded`, `i2c_read_register` |
-| Pull-ups | `enable_pullup`, `disable_pullup`, `pullup_status` |
-| Capture | `scope_capture` (calibrated volts), `capture_logic`, `capture_analog`, `logic_decode`, `capture_adc` |
-| DAC / replay | `signal_generate`, `dac_stop`, `list_waveforms`, `save_capture_as_recording`, `replay_waveform` |
-| Control loop / gateware | `control_loop`, `loop_input`, `loop_probe`, `fpga_image` |
-| Info | `capabilities`, `power_status` |
-| Low-level | `command`, `la_step`, `measure` |
+| UART | `capture_uart`, `power_cycle_and_capture`, `uart_open`, `uart_write`, `uart_read`, `uart_close` |
+| Emulated I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture` |
+| Pull resistors | `set_pull`, `pull_status` |
+| Analog | `analog_path`, `dac_output`, `adc_read` |
+| Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la` |
+| DAC | `generate`, `dac_stop`, `replay`, `list_waveforms`, `replay_waveform`, `save_capture_as_recording` |
+| Control loop | `control_loop`, `loop_input`, `loop_probe`, `fpga_image` |
+| CAN | `can_open`, `can_write`, `can_read`, `can_respond`, `can_status`, `can_close` |
+| Other | `la_step`, `command` (raw firmware escape hatch) |
 
-Device/firmware failures come back as `{"ok": false, "error": ..., "error_type": ...}`
-rather than raising, so the agent can reason about them.
+Resources: `benchpod://wiring` (LA channels, bias resistors, analog paths, an example bench) and
+`benchpod://help` (the server instructions).
 
-### Resources
+## How it behaves
 
-- `benchpod://wiring` — the default LA channel → DUT signal pin map and eFuse table.
-- `benchpod://help` — the canonical HIL workflow order.
+- **Instructions.** The server sends usage instructions at initialisation — session start, typical
+  flows, units, error contract — so the agent knows to `connect` and `set_la_voltage` before
+  anything else.
+- **Typed, structured results.** Every tool has an input schema with enums and ranges (paths,
+  sources, LA channels 1-12, eFuse 1/2, …) and an output schema; results come back as structured
+  content. Units are volts, seconds and hertz.
+- **Errors.** A tool that cannot do what was asked fails with an MCP tool error whose message names
+  the cause, e.g. `FirmwareError: la voltage not set` or `NotConnectedError: …`. A completed
+  operation with a negative outcome is a normal result: `flash` returns `ok: false` with its logs,
+  a UART capture `matched: false`.
+- **Agent-sized captures.** `capture_adc` returns calibrated statistics, the dominant frequency and a
+  min/max envelope; `capture_la` returns per-channel levels, edges and frequencies. The last captures
+  stay in the session, so `decode_la`, `replay(from_last_capture=true)` and
+  `save_capture_as_recording` don't capture again.
+- **Sessions.** `uart_open` buffers the DUT's console in the background (open it before
+  `power_on`, then `uart_read` / `uart_write`); `can_open` keeps a CAN bus open across calls.
+- **Non-blocking.** Tools run on worker threads under one device lock: a 5-minute flash doesn't
+  freeze the server, sends progress notifications, and concurrent calls can't interleave commands.
+- **Annotations.** Read-only tools (`status`, `power_status`, `adc_read`, …) are marked so clients
+  can auto-approve them; tools that power, flash or drive voltages are marked destructive.
 
-## Example agent flow
+## Example
 
-1. `connect("192.168.1.213")`
-2. `flash(swclk=11, swdio=12, nreset=True, target="target/stm32f4x.cfg", file="app.elf", target_power=1)`
-3. `enable_pullup([1, 2])` then `enable_i2c_sensor(sda=2, scl=1, temperature_c=22.5, pressure_pa=101000)`
-4. `power_cycle_and_capture(rx=5, tx=4, delay=1.5, duration=6.0, until_regex="APP_OK")`
-5. `i2c_sensor_status()` / `i2c_read_register(address=0x76, register=0xD0)` to confirm the DUT probed the sensor.
+> Connect to the bench, flash `build/app.elf` to the STM32F4 (SWCLK on LA11, SWDIO on LA12,
+> reset wired), then power-cycle it and tell me whether it reaches `APP_OK` on the UART (DUT TX on
+> LA5, RX on LA4).
+
+```
+connect()                                   # BENCHPOD_CONNECTION + BENCHPOD_LA_VOLTAGE
+flash(swclk=11, swdio=12, nreset=true, target="target/stm32f4x.cfg", file="build/app.elf", target_power=1)
+power_cycle_and_capture(rx=5, tx=4, delay=1.0, duration=5.0, until_regex="APP_OK")
+```
+
+## Stability
+
+2.x freezes the tool names, input schemas and annotations (`tests/tools_surface.json`; CI fails on
+any unreviewed change): tools and optional parameters may be added, nothing is renamed or removed
+within a major version. See [CHANGELOG.md](CHANGELOG.md) for migrating from 0.1.
 
 ## Publishing to the MCP Registry
 
-`server.json` is starter metadata for the
-[Official MCP Registry](https://registry.modelcontextprotocol.io) (currently in
-preview). Ship the package to PyPI first (that's what makes `uvx embeddedci-mcp`
-work), then publish the registry entry once the name is stable:
+`server.json` describes this package for the [MCP Registry](https://registry.modelcontextprotocol.io).
+After the PyPI release (which is what makes `uvx embeddedci-mcp` work):
 
 ```bash
-mcp-publisher publish      # GitHub-authenticated; reads server.json
+mcp-publisher login github
+mcp-publisher publish
+```
+
+The registry verifies PyPI ownership through the `mcp-name` comment at the top of this README.
+
+## Development
+
+```bash
+pip install -e "../embeddedci[dev]" -e ".[dev]"
+pytest
 ```

@@ -106,19 +106,23 @@ class UartSession:
     def _text_locked(self) -> str:
         return self._buf.decode("utf-8", errors="replace")
 
+    def _pending_locked(self) -> str:
+        return self._buf[self._consumed:].decode("utf-8", errors="replace")
+
     # -- reading ------------------------------------------------------------
     def read_until(self, pattern: Until, *, timeout: float):
         """Block until ``pattern`` (substring / compiled regex / ``text->bool``
-        predicate) appears in the accumulated text, or ``timeout`` elapses.
+        predicate) appears in the text received since the last :meth:`drain`,
+        or ``timeout`` elapses.
 
         Returns the match (the substring, the :class:`re.Match`, or True) — a
-        truthy value — or ``None`` on timeout. Does not consume: :attr:`text`
-        keeps growing.
+        truthy value — or ``None`` on timeout. Does not consume: call
+        :meth:`drain` to move past what was matched.
         """
         deadline = time.monotonic() + timeout
         with self._cond:
             while True:
-                m = _search(self._text_locked(), pattern)
+                m = _search(self._pending_locked(), pattern)
                 if m is not None:
                     return m
                 if self._closed:
@@ -155,7 +159,7 @@ class UartSession:
 
     def drain(self) -> str:
         """Return everything received since the last ``drain`` and advance the
-        cursor, so a subsequent ``read_until`` only sees new data."""
+        cursor, so a subsequent :meth:`read_until` / :meth:`expect` only sees new data."""
         with self._cond:
             out = self._buf[self._consumed:].decode("utf-8", errors="replace")
             self._consumed = len(self._buf)

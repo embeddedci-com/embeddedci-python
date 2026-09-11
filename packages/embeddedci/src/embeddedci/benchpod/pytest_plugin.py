@@ -17,16 +17,11 @@ import pytest
 
 from .client import BenchPod
 from .connection import ENV_VAR
+from .constants import PULL_OHMS as _PULL_OHMS
+from .constants import PULLDOWN_CHANNELS
 
-# Fixed bias network per LA channel, one for each of the pod's CTRL1..CTRL8
-# lines. LA1-LA6 pull UP to +3V3; LA7/LA8 pull DOWN. LA9-LA12 have no network at
-# all. Source of truth: benchpod-firmware i2c_bus.c (`pca9555_set_la_pullup`).
-_PULL_OHMS: Dict[int, str] = {
-    1: "4.7k", 2: "4.7k", 3: "2.2k", 4: "2.2k",
-    5: "10k", 6: "10k", 7: "10k", 8: "10k",
-}
 #: The channels whose network pulls DOWN rather than up.
-_PULLDOWN_CHANNELS = frozenset({7, 8})
+_PULLDOWN_CHANNELS = frozenset(PULLDOWN_CHANNELS)
 
 
 class BenchPodPins:
@@ -119,9 +114,9 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         action="store",
         default=None,
         dest="benchpod_connection",
-        help="BenchPod connection: host[:port], a serial device path, 'serial', or "
-        "'embeddedci:<device-name>' to drive a named device through embeddedci.com. "
-        f"Falls back to the {ENV_VAR} env var.",
+        help="BenchPod connection: host[:port], a serial device path, 'usb' (auto-detect), "
+        "'discover' (mDNS), or 'embeddedci:<device-name>' to drive a named device through "
+        f"embeddedci.com. Falls back to the {ENV_VAR} env var.",
     )
     group.addoption(
         "--benchpod-api-base",
@@ -129,17 +124,16 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         default=None,
         dest="benchpod_api_base",
         help="embeddedci API base URL for the 'embeddedci:' destination "
-        "(default https://embeddedci.com; falls back to BENCHPOD_API_BASE).",
+        "(default https://www.embeddedci.com; falls back to BENCHPOD_API_BASE).",
     )
     group.addoption(
         "--benchpod-api-key",
         action="store",
         default=None,
         dest="benchpod_api_key",
-        help="embeddedci API key (eci_…) for the cloud waveform library + server-side DAC "
-        "replay on a LAN/serial connection. Not needed over the cloud destination "
-        "('embeddedci:<device>'), which reuses its session token (incl. GitHub OIDC). "
-        "Falls back to BENCHPOD_API_KEY.",
+        help="embeddedci API key (eci_…). Authenticates the cloud destination "
+        "('embeddedci:<device>') outside GitHub Actions, and unlocks the cloud waveform "
+        "library on a LAN/serial connection. Falls back to BENCHPOD_API_KEY.",
     )
     group.addoption(
         "--benchpod-firmware",
@@ -156,10 +150,10 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
     group.addoption(
         "--benchpod-la-voltage", action="store", type=float, default=None,
         dest="benchpod_la_voltage",
-        help="LA I/O-bank voltage for the DUT: 1.8 or 3.3 (volts; 1800/3300 mV also "
-        "accepted). Set on the pod once per session before any LA op (flash/SWD, "
-        "UART, LA capture, pull-ups, I2C-sensor). Required — the pod refuses LA ops "
-        "until a voltage is chosen. Falls back to BENCHPOD_LA_VOLTAGE.",
+        help="LA I/O-bank voltage for the DUT: 1.8 or 3.3 (volts). Set on the pod when "
+        "the session connects, before any LA op (flash/SWD, UART, LA capture, pull "
+        "resistors, I2C-sensor) — the pod refuses LA ops until a voltage is chosen. "
+        "Falls back to BENCHPOD_LA_VOLTAGE.",
     )
     group.addoption(
         "--benchpod-discover",
@@ -167,7 +161,8 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         default=False,
         dest="benchpod_discover",
         help="When no connection is configured, find a BenchPod on the LAN via "
-        "mDNS (needs the 'zeroconf' extra). Errors if zero or several are found.",
+        "mDNS (needs the 'discovery' extra: pip install 'embeddedci[discovery]'). Errors if "
+        "zero or several are found.",
     )
     group.addoption(
         "--benchpod-build-target",
@@ -196,7 +191,8 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
     )
     parser.addini(
         "benchpod_connection",
-        help="Default BenchPod connection (host[:port], device path, or 'serial').",
+        help="Default BenchPod connection (host[:port], device path, 'usb', or "
+        "'embeddedci:<device-name>').",
         default=None,
     )
 
@@ -216,11 +212,14 @@ def pytest_configure(config: "pytest.Config") -> None:
 
 @pytest.fixture(autouse=True)
 def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
-    """Honor ``@pytest.mark.benchpod_capability(...)`` — skip when the device lacks it.
+    """Honor ``@pytest.mark.hardware`` and ``@pytest.mark.benchpod_capability(...)``.
 
-    Autouse so it runs during setup (when fixtures resolve): a no-op unless the test carries the
-    marker, in which case it resolves the ``benchpod`` device and skips on any missing capability.
+    Autouse so it runs during setup: a ``hardware`` test skips when no connection is configured
+    (even if it never requests a device fixture), and a ``benchpod_capability`` test resolves the
+    ``benchpod`` device and skips on any capability it lacks.
     """
+    if request.node.get_closest_marker("hardware") and not _resolve_connection(request.config):
+        pytest.skip(f"hardware test: no BenchPod connection configured (--benchpod-connection / {ENV_VAR})")
     marks = list(request.node.iter_markers(name="benchpod_capability"))
     if not marks:
         return
@@ -268,36 +267,30 @@ def benchpod(benchpod_connection: str, pytestconfig: "pytest.Config") -> Iterato
     """
     api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
     api_key = pytestconfig.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY")
+    # la_voltage=None lets BenchPod fall back to BENCHPOD_LA_VOLTAGE itself.
     device = BenchPod(
         benchpod_connection,
+        la_voltage=pytestconfig.getoption("benchpod_la_voltage"),
         api_base=api_base,
         api_key=api_key,
         lease=not pytestconfig.getoption("benchpod_no_lease"),
         lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
     )
     try:
-        la_voltage = pytestconfig.getoption("benchpod_la_voltage")
-        if la_voltage is None:
-            env_v = os.environ.get("BENCHPOD_LA_VOLTAGE")
-            la_voltage = float(env_v) if env_v else None
-        if la_voltage is not None:
-            # Select the LA I/O-bank voltage once, before any LA-bank op runs.
-            device.set_la_voltage(la_voltage)
         yield device
     finally:
         device.close()
 
 
 @pytest.fixture
-def benchpod_target(benchpod: BenchPod) -> Iterator[BenchPod]:
-    """A BenchPod whose target is powered on for the test, off at teardown."""
-    from .constants import Efuse
-
-    benchpod.power_on(Efuse.INTERNAL)
+def benchpod_target(benchpod: BenchPod, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
+    """A BenchPod whose target is powered on (``--benchpod-efuse``) for the test, off at teardown."""
+    efuse = pytestconfig.getoption("benchpod_efuse")
+    benchpod.power_on(efuse)
     try:
         yield benchpod
     finally:
-        benchpod.power_off(Efuse.INTERNAL)
+        benchpod.power_off(efuse)
 
 
 @pytest.fixture(scope="session")
@@ -345,7 +338,7 @@ def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config"
 
     Use it to upload the firmware that was tested and record the wiring, e.g.::
 
-        def test_boots(dut, wiring, firmware, build_report):
+        def test_boots(benchpod, firmware, build_report):
             build_report.record_wiring(target="target/stm32f4x.cfg", swclk=11, swdio=12, nreset=True)
             build_report.upload_artifacts([firmware])
             ...  # the pytest pass/fail is captured automatically
@@ -430,8 +423,8 @@ def benchpod_waveforms(benchpod: BenchPod):
 
     Yields the :class:`~embeddedci.benchpod.waveforms.WaveformLibrary`; any waveform saved through
     it (``save_recording`` / ``save_waveform`` / ``save_segments``) is tracked and deleted at
-    teardown so a test never leaves library litter behind. Needs an API key
-    (``--benchpod-api-key`` / ``BENCHPOD_API_KEY``); skips otherwise.
+    teardown so a test never leaves library litter behind. Needs server access — a cloud
+    connection, or an API key (``--benchpod-api-key`` / ``BENCHPOD_API_KEY``); skips otherwise.
     """
     try:
         lib = benchpod.waveforms

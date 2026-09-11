@@ -38,6 +38,9 @@ import base64
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from .constants import LOOP_SOURCES
+from .state import LoopState
+
 #: Points UPLOADED in a curve command. The gateware LUT is 2048 entries (``ADC >> 5``), but one
 #: command is transport-capped (~1.2 KB), so the SDK sends a compact curve and the firmware
 #: upsamples it (nearest-neighbour) to fill all 2048 entries. 256 pts × 2 B = 512 → ~684 base64
@@ -65,8 +68,39 @@ CURVE_LUT_ENTRIES = 2048
 #: Largest 16-bit code — full scale on both the input and the output axis.
 CODE_MAX = 65535
 
-#: The loop input sources the firmware accepts for the ``source`` field.
-LOOP_SOURCES = ("adc", "fixed", "sweep")
+
+@dataclass(frozen=True)
+class LoopInputMap:
+    """An engineering-units input map for the control loop (gateware >= v30).
+
+    Without it the curve is indexed by the raw ADC count — and this board's front end is
+    inverting, offset and wrapping, so a real measurement window sits backwards inside a few
+    percent of the curve. With a map, describe the sense chain and author the curve over
+    ``[range_min, range_max]`` of that unit instead; the firmware derives the index map from its
+    own ADC calibration (:attr:`Capabilities.dac_loop_input_map`).
+
+    The sense chain is ``mV = mv_at_zero + value * mv_per_unit`` at the front SMA — e.g. a 0.04 Ω
+    shunt into a 50 V/V INA282 is ``mv_at_zero=0, mv_per_unit=2.0`` in mA. Inputs outside the
+    range saturate to the curve's ends. ``trip`` (same unit) is an optional trip level.
+    """
+
+    mv_per_unit: float
+    range_min: float
+    range_max: float
+    mv_at_zero: float = 0.0
+    trip: Optional[float] = None
+
+    def to_request(self) -> Dict[str, Any]:
+        if self.mv_per_unit <= 0:
+            raise ValueError(f"mv_per_unit must be > 0, got {self.mv_per_unit!r}")
+        if self.range_max <= self.range_min:
+            raise ValueError(f"range_max ({self.range_max!r}) must exceed range_min ({self.range_min!r})")
+        req: Dict[str, Any] = {"in_mv_per_unit": float(self.mv_per_unit),
+                               "in_mv_at_zero": float(self.mv_at_zero),
+                               "in_min": float(self.range_min), "in_max": float(self.range_max)}
+        if self.trip is not None:
+            req["in_trip"] = float(self.trip)
+        return req
 
 
 def normalise_loop_source(source: Optional[str], step: int) -> Optional[str]:
@@ -203,14 +237,6 @@ class IVPoint:
     source: Optional[str] = None
 
     @property
-    def current_code(self) -> int:
-        return self.i
-
-    @property
-    def voltage_code(self) -> int:
-        return self.v
-
-    @property
     def loop_input(self) -> int:
         """The loop's own input — ``input_code`` when the device reports it, else the ADC (which
         IS the input on firmware predating the selectable source)."""
@@ -252,7 +278,7 @@ class ControlLoopHandle:
         return self._probe()
 
     def set_input(self, input_code: Optional[int] = None, *,
-                  source: Optional[str] = None, step: Optional[int] = None) -> dict:
+                  source: Optional[str] = None, step: Optional[int] = None) -> LoopState:
         """Re-target the RUNNING loop's input without re-arming or re-uploading the curve.
 
         The open-loop stepping flow: hold a point, meter the output, move to the next. Omitted
@@ -260,20 +286,19 @@ class ControlLoopHandle:
         """
         if self._set_input is None:
             raise RuntimeError("this handle has no input setter")
-        data = self._set_input(input_code=input_code, source=source, step=step)
-        if isinstance(data, dict):
-            if data.get("source") is not None:
-                self.source = data["source"]
-            self.input_code = int(data.get("input", self.input_code))
-            self.step = int(data.get("step", self.step))
-        return data if isinstance(data, dict) else {}
+        state: LoopState = self._set_input(input_code, source=source, step=step)
+        if state.source is not None:
+            self.source = state.source
+        self.input_code = state.input_code
+        self.step = state.step
+        return state
 
-    def stop(self) -> Any:
+    def stop(self) -> None:
         """Stop the loop (and the DAC drive). Idempotent."""
         if self._stopped:
-            return None
+            return
         self._stopped = True
-        return self._stop()
+        self._stop()
 
     def __enter__(self) -> "ControlLoopHandle":
         return self

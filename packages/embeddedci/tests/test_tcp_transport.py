@@ -116,61 +116,24 @@ def test_dap_start_ack_does_not_swallow_dap_bytes():
         pod.close()
 
 
-def test_set_la_voltage_sends_mv_and_returns_state():
-    seen = {}
+def test_client_la_voltage_round_trips_over_tcp():
+    seen = []
 
     def handler(conn, line):
-        seen["line"] = line
-        conn.sendall(b'{"status":"ok","data":{"mv":3300,"st":1}}\n')
+        seen.append(line)
+        if b'"mv"' in line:
+            conn.sendall(b'{"status":"ok","data":{"mv":3300,"st":1,"readback_mv":3298}}\n')
+        else:
+            conn.sendall(b'{"status":"ok","data":{"mv":0,"st":1}}\n')
 
-    pod = FakePod(handler)
-    try:
-        t = TcpTransport(pod.addr, timeout=2)
-        data = t.set_la_voltage(3300)
-        assert b'"cmd":"la_voltage"' in seen["line"]
-        assert b'"mv":3300' in seen["line"]
-        assert data == {"mv": 3300, "st": 1}
-    finally:
-        pod.close()
-
-
-def test_get_la_voltage_queries_without_mv():
-    seen = {}
-
-    def handler(conn, line):
-        seen["line"] = line
-        conn.sendall(b'{"status":"ok","data":{"mv":0,"st":1}}\n')
-
-    pod = FakePod(handler)
-    try:
-        t = TcpTransport(pod.addr, timeout=2)
-        data = t.get_la_voltage()
-        assert b'"cmd":"la_voltage"' in seen["line"]
-        assert b'"mv"' not in seen["line"]  # query form omits mv
-        assert data == {"mv": 0, "st": 1}
-    finally:
-        pod.close()
-
-
-def test_client_set_la_voltage_normalizes_volts_and_mv():
-    """BenchPod.set_la_voltage accepts volts or mV and rejects other levels."""
     from embeddedci.benchpod.client import BenchPod
 
-    class _Xport:
-        def __init__(self):
-            self.mv = None
-
-        def set_la_voltage(self, mv):
-            self.mv = mv
-            return {"mv": mv, "st": 1}
-
-    bp = BenchPod.__new__(BenchPod)   # bypass __init__/connect
-    bp._transport = _Xport()
-
-    assert bp.set_la_voltage(3.3)["mv"] == 3300 and bp._transport.mv == 3300
-    assert bp.set_la_voltage(1.8)["mv"] == 1800 and bp._transport.mv == 1800
-    assert bp.set_la_voltage(3300)["mv"] == 3300
-    assert bp.set_la_voltage(1800)["mv"] == 1800
-    for bad in (5.0, 1200, 0, 2.5):
-        with pytest.raises(ValueError):
-            bp.set_la_voltage(bad)
+    pod = FakePod(handler)
+    try:
+        bp = BenchPod(transport=TcpTransport(pod.addr, timeout=2), la_voltage=3.3)
+        assert b'"cmd":"la_voltage"' in seen[0] and b'"mv":3300' in seen[0]
+        state = bp.get_la_voltage()
+        assert b'"mv"' not in seen[-1]  # query form omits mv
+        assert state.voltage is None
+    finally:
+        pod.close()

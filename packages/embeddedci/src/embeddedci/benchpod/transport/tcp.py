@@ -232,12 +232,6 @@ class TcpTransport(Transport):
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
 
-    def set_la_voltage(self, mv: int) -> Any:
-        return self.command({"cmd": "la_voltage", "mv": mv})
-
-    def get_la_voltage(self) -> Any:
-        return self.command({"cmd": "la_voltage"})
-
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         req: dict = {"cmd": "target_power", "efuse": efuse, "state": 1 if on else 0}
         if delay_ms:

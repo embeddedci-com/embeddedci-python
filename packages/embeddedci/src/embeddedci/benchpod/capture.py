@@ -1,10 +1,13 @@
-"""Capture orchestration — ADC scope, raw logic-analyzer, and correlated ADC+LA.
+"""Capture orchestration — ADC, raw logic-analyzer, and correlated ADC+LA.
 
 Built on the transport's chunked-stream primitives so the SAME code path serves a LAN/serial
 pod and a cloud device over the byte tunnel (which GitHub-OIDC auth can reach). Raw ADC counts
 are scaled to volts here using the device :class:`~embeddedci.benchpod.capabilities.Capabilities`
 — mirroring the server's ADC affine model — so a test gets calibrated volts regardless of
 transport, without needing the server's orchestration endpoints.
+
+The public API speaks hertz and seconds; the firmware's ``*_rate_mhz`` / ``*_us`` wire fields are
+produced only here.
 """
 
 from __future__ import annotations
@@ -13,15 +16,36 @@ from typing import Any, List, Optional
 
 from .capabilities import Capabilities
 from .errors import BenchPodError
-from .results import AnalogCapture, Capture, LaCapture
+from .results import Capture, CorrelatedCapture, LaCapture
+
+#: The firmware's single-shot ``capture`` reads into a fixed buffer of this many samples; a larger
+#: ADC capture streams from PSRAM through ``capture_dual`` instead.
+ADC_SHALLOW_MAX_SAMPLES = 32768
 
 
-def _rate_hz(chunk_rate: float, requested_mhz: Optional[float]) -> float:
+def rate_mhz(rate_hz: Optional[float]) -> Optional[float]:
+    """Hertz → the firmware's ``sample_rate_mhz`` (``None`` stays ``None`` = device default)."""
+    if rate_hz is None:
+        return None
+    if rate_hz <= 0:
+        raise ValueError(f"sample rate must be > 0 Hz, got {rate_hz!r}")
+    return float(rate_hz) / 1e6
+
+
+def _us(seconds: Optional[float], name: str) -> int:
+    if seconds is None:
+        return 0
+    if seconds < 0:
+        raise ValueError(f"{name} must be >= 0 seconds, got {seconds!r}")
+    return int(round(seconds * 1e6))
+
+
+def _rate_hz(chunk_rate: float, requested_hz: Optional[float]) -> float:
     """Prefer the firmware's achieved rate; fall back to the requested rate."""
     if chunk_rate and chunk_rate > 0:
         return float(chunk_rate)
-    if requested_mhz and requested_mhz > 0:
-        return float(requested_mhz) * 1e6
+    if requested_hz and requested_hz > 0:
+        return float(requested_hz)
     return 0.0
 
 
@@ -37,53 +61,75 @@ def _stream_or_samples(transport: Any, req: dict):
     yield {"status": "ok", "data": fn(req), "more": False}
 
 
-def scope_capture(transport: Any, caps: Capabilities, *, samples: int = 256,
-                  sample_rate_mhz: Optional[float] = None, source: str = "") -> Capture:
-    """Capture ``samples`` ADC samples and return a :class:`Capture` with calibrated volts."""
-    req: dict = {"cmd": "capture", "samples": int(samples)}
-    if sample_rate_mhz is not None:
-        req["sample_rate_mhz"] = sample_rate_mhz
+def _check_samples(samples: int, name: str = "samples") -> int:
+    n = int(samples)
+    if n <= 0:
+        raise ValueError(f"{name} must be > 0, got {samples!r}")
+    return n
+
+
+def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
+                sample_rate_hz: Optional[float] = None, source: str = "") -> Capture:
+    """Capture ``samples`` ADC samples and return a :class:`Capture` with calibrated volts.
+
+    Up to :data:`ADC_SHALLOW_MAX_SAMPLES` this is the firmware's single-shot ``capture``; above it
+    the capture streams from PSRAM via ``capture_dual`` (ADC only), which needs a streaming
+    transport. ``source`` only labels the result — routing is the caller's job.
+    """
+    n = _check_samples(samples)
+    if n > ADC_SHALLOW_MAX_SAMPLES:
+        if getattr(transport, "stream_chunks", None) is None:
+            raise BenchPodError(
+                f"an ADC capture above {ADC_SHALLOW_MAX_SAMPLES} samples streams from PSRAM and "
+                "needs a TCP, serial or cloud connection with chunked streaming"
+            )
+        adc = capture_correlated(transport, caps, adc_samples=n, adc_sample_rate_hz=sample_rate_hz,
+                                 la_samples=0).adc
+        adc.source = source
+        return adc
+    req: dict = {"cmd": "capture", "samples": n}
+    mhz = rate_mhz(sample_rate_hz)
+    if mhz is not None:
+        req["sample_rate_mhz"] = mhz
     counts: List[int] = []
-    rate_hz = 0.0
+    rate = 0.0
     for chunk in _stream_or_samples(transport, req):
         if chunk.get("adc_rate_hz"):
-            rate_hz = float(chunk["adc_rate_hz"])
+            rate = float(chunk["adc_rate_hz"])
         data = chunk.get("data")
         if isinstance(data, list):
             counts.extend(int(x) for x in data)
     volts = [caps.counts_to_volts(c) for c in counts]
-    return Capture(counts=counts, volts=volts,
-                   sample_rate_hz=_rate_hz(rate_hz, sample_rate_mhz), source=source or "ext")
+    return Capture(counts=counts, volts=volts, sample_rate_hz=_rate_hz(rate, sample_rate_hz),
+                   source=source)
 
 
-def capture_la(transport: Any, *, samples: int = 4096,
-               sample_rate_mhz: Optional[float] = None,
-               stop_dac_after_us: int = 0) -> LaCapture:
+def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,
+               stop_dac_after: Optional[float] = None) -> LaCapture:
     """Capture ``samples`` raw 12-channel LA words and return a :class:`LaCapture`.
 
-    ``stop_dac_after_us`` (>0) auto-stops a concurrently-running DAC this many microseconds into
-    the capture — the iCE40 cuts the DAC at exactly that offset from the capture's hardware t0
-    (sample-precise), so the captured window shows the target reacting to the output dropping.
-    No-op on gateware < v21.
+    ``stop_dac_after`` (seconds) auto-stops a concurrently-running DAC that far into the capture —
+    the iCE40 cuts the DAC at exactly that offset from the capture's hardware t0 (sample-precise),
+    so the captured window shows the target reacting to the output dropping. No-op on
+    gateware < v21.
     """
-    req: dict = {"cmd": "la_capture", "samples": int(samples)}
-    if sample_rate_mhz is not None:
-        req["sample_rate_mhz"] = sample_rate_mhz
-    if stop_dac_after_us and stop_dac_after_us > 0:
-        req["stop_dac_after_us"] = int(stop_dac_after_us)
+    req: dict = {"cmd": "la_capture", "samples": _check_samples(samples)}
+    mhz = rate_mhz(sample_rate_hz)
+    if mhz is not None:
+        req["sample_rate_mhz"] = mhz
+    stop_us = _us(stop_dac_after, "stop_dac_after")
+    if stop_us > 0:
+        req["stop_dac_after_us"] = stop_us
     dense: List[int] = []
     edges: List[List[int]] = []
     upto = 0
-    rate_hz = 0.0
+    rate = 0.0
     for chunk in _stream_or_samples(transport, req):
         if chunk.get("la_rate_hz"):
-            rate_hz = float(chunk["la_rate_hz"])
+            rate = float(chunk["la_rate_hz"])
         # The firmware answers la_capture RUN-LENGTH ENCODED — {"la":true,"la_edges":[[i,word],…],
-        # "la_upto":N} — exactly as it does for capture_dual, and sends no "data" array at all. Only
-        # reading "data" here silently produced an EMPTY capture against real hardware (the Go
-        # hwe2e client, which decodes the same reply, returned 256 words for the identical
-        # request). Handle both forms: RLE wins when present, dense "data" remains the fallback
-        # for the server-relayed / older-firmware shape.
+        # "la_upto":N} — exactly as it does for capture_dual, and sends no "data" array at all. RLE
+        # wins when present; dense "data" remains the fallback for the server-relayed shape.
         if chunk.get("la"):
             edges.extend([int(e[0]), int(e[1])] for e in (chunk.get("la_edges") or []))
             if int(chunk.get("la_upto", 0)) > upto:
@@ -92,8 +138,8 @@ def capture_la(transport: Any, *, samples: int = 4096,
         data = chunk.get("data")
         if isinstance(data, list):
             dense.extend(int(x) for x in data)
-    words = _expand_la_edges(edges, upto or samples) if (edges or upto) else dense
-    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate_hz, sample_rate_mhz))
+    words = _expand_la_edges(edges, upto or int(samples)) if (edges or upto) else dense
+    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz))
 
 
 def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
@@ -118,44 +164,48 @@ def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
     return out
 
 
-def capture_analog(transport: Any, caps: Capabilities, *, adc_samples: int = 256,
-                   adc_rate_mhz: Optional[float] = None, la_samples: int = 256,
-                   la_rate_mhz: Optional[float] = None,
-                   stop_dac_after_us: int = 0) -> AnalogCapture:
+def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int = 4096,
+                       adc_sample_rate_hz: Optional[float] = None, la_samples: int = 4096,
+                       la_sample_rate_hz: Optional[float] = None,
+                       stop_dac_after: Optional[float] = None) -> CorrelatedCapture:
     """Correlated ADC + LA capture from one hardware trigger (aligned timebases).
 
     Uses the firmware ``capture_dual`` command: the ADC region streams as dense counts and the
     LA region as RLE transition frames, which are reassembled here (mirroring the server). Set
-    either count to 0 for a single-stream capture. Requires a streaming transport (TCP/serial or
-    the cloud tunnel).
+    either count to 0 for a single-stream capture — ``la_samples=0`` is also how a deep,
+    multi-second ADC capture is taken. Requires a streaming transport.
 
-    ``stop_dac_after_us`` (>0) auto-stops a concurrently-running DAC this many microseconds into
-    the capture, cut by the iCE40 at exactly that offset from the capture's hardware t0 — so an
-    ADC/LA window can show the target reacting to the output switching off (no-op on gw < v21).
+    ``stop_dac_after`` (seconds) auto-stops a concurrently-running DAC that far into the capture,
+    cut by the iCE40 at exactly that offset from the capture's hardware t0 (no-op on gw < v21).
     """
-    if adc_samples <= 0 and la_samples <= 0:
-        raise BenchPodError("capture_analog needs adc_samples or la_samples > 0")
+    adc_samples, la_samples = int(adc_samples), int(la_samples)
+    if adc_samples < 0 or la_samples < 0:
+        raise ValueError("adc_samples and la_samples must be >= 0")
+    if adc_samples == 0 and la_samples == 0:
+        raise ValueError("capture_correlated needs adc_samples or la_samples > 0")
     if getattr(transport, "stream_chunks", None) is None:
-        raise BenchPodError("capture_analog needs a streaming transport (TCP/serial or cloud)")
-    req: dict = {"cmd": "capture_dual", "adc_samples": int(adc_samples),
-                 "la_samples": int(la_samples)}
-    if adc_rate_mhz is not None:
-        req["adc_rate_mhz"] = adc_rate_mhz
-    if la_rate_mhz is not None:
-        req["la_rate_mhz"] = la_rate_mhz
-    if stop_dac_after_us and stop_dac_after_us > 0:
-        req["stop_dac_after_us"] = int(stop_dac_after_us)
+        raise BenchPodError("capture_correlated needs a streaming transport (TCP, serial or cloud)")
+    req: dict = {"cmd": "capture_dual", "adc_samples": adc_samples, "la_samples": la_samples}
+    adc_mhz = rate_mhz(adc_sample_rate_hz)
+    la_mhz = rate_mhz(la_sample_rate_hz)
+    if adc_mhz is not None:
+        req["adc_rate_mhz"] = adc_mhz
+    if la_mhz is not None:
+        req["la_rate_mhz"] = la_mhz
+    stop_us = _us(stop_dac_after, "stop_dac_after")
+    if stop_us > 0:
+        req["stop_dac_after_us"] = stop_us
 
     adc_counts: List[int] = []
     la_edges: List[List[int]] = []
     la_upto = 0
     la_dense: List[int] = []
-    adc_rate_hz = la_rate_hz = 0.0
+    adc_rate = la_rate = 0.0
     for chunk in transport.stream_chunks(req):
         if chunk.get("adc_rate_hz"):
-            adc_rate_hz = float(chunk["adc_rate_hz"])
+            adc_rate = float(chunk["adc_rate_hz"])
         if chunk.get("la_rate_hz"):
-            la_rate_hz = float(chunk["la_rate_hz"])
+            la_rate = float(chunk["la_rate_hz"])
         if chunk.get("la"):
             edges = chunk.get("la_edges") or []
             la_edges.extend([int(e[0]), int(e[1])] for e in edges)
@@ -178,6 +228,6 @@ def capture_analog(transport: Any, caps: Capabilities, *, adc_samples: int = 256
         la_words = la_dense[:la_samples] if la_samples else la_dense
 
     adc = Capture(counts=adc_counts, volts=[caps.counts_to_volts(c) for c in adc_counts],
-                  sample_rate_hz=_rate_hz(adc_rate_hz, adc_rate_mhz), source="ext")
-    la = LaCapture(words=la_words, sample_rate_hz=_rate_hz(la_rate_hz, la_rate_mhz))
-    return AnalogCapture(adc=adc, la=la)
+                  sample_rate_hz=_rate_hz(adc_rate, adc_sample_rate_hz))
+    la = LaCapture(words=la_words, sample_rate_hz=_rate_hz(la_rate, la_sample_rate_hz))
+    return CorrelatedCapture(adc=adc, la=la)

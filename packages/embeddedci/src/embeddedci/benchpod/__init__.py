@@ -1,18 +1,20 @@
-"""BenchPod — a pytest-friendly client for an EmbeddedCI BenchPod device.
+"""BenchPod — the SDK and pytest plugin for an EmbeddedCI BenchPod device.
 
-Connect over wifi/network or serial, power the target, flash firmware and assert
-the result, all from a test::
+Connect over the network, USB or the cloud, power the target, flash firmware and assert on
+what it does, all from a test::
 
     from embeddedci import benchpod
 
-    def test_boots(benchpod_device):  # the `benchpod` fixture is also available
-        benchpod_device.power_on(benchpod.INTERNAL)
-        result = benchpod_device.flash(
-            file="firmware.elf", target="target/stm32f1x.cfg",
-            swclk=benchpod.PIN1, swdio=benchpod.PIN2, nreset=True,
-            target_power=benchpod.INTERNAL,
+    def test_boots(benchpod_target, firmware):   # fixtures from the pytest plugin
+        result = benchpod_target.flash(
+            file=firmware, target="target/stm32f4x.cfg",
+            swclk=benchpod.PIN11, swdio=benchpod.PIN12, nreset=True, check=False,
         )
         assert result.ok
+
+Everything listed in ``__all__`` is the stable public API (semantic versioning applies);
+:meth:`BenchPod.command`, :attr:`BenchPod.transport` and :attr:`BenchPod.lowlevel` are escape
+hatches outside it. Units are volts, seconds and hertz throughout.
 """
 
 from __future__ import annotations
@@ -22,26 +24,11 @@ from . import control_loop
 from . import decode
 from . import dsp
 from . import i2c
-from .can import CanBus, CanFrame
+from .can import CanBus, CanFrame, CanReadResult
 from .capabilities import Capabilities
+from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
 from .client import BenchPod
 from .connection import ConnSpec, parse_connection, resolve_connection
-from .control_loop import (
-    ControlLoopHandle,
-    IVPoint,
-    build_constant_curve,
-    build_linear_curve,
-    build_panel_curve,
-    curve_output_at,
-    encode_curve_b64url,
-    input_percent_to_code,
-)
-from .decode import SpiFrame, UartFrame
-from .i2c import I2CByte, I2CMessage, I2CTransaction
-from .replay import Fault, ReplayHandle, Segment
-from .results import AnalogCapture, Capture, LaCapture
-from .server_api import ServerApi, ServerApiError
-from .waveforms import Waveform, WaveformLibrary
 from .constants import (
     BMP280_ADDR_PRIMARY,
     BMP280_ADDR_SECONDARY,
@@ -59,13 +46,37 @@ from .constants import (
     PIN10,
     PIN11,
     PIN12,
+    AdcSource,
+    AnalogPath,
+    CanMode,
+    DacOutputPath,
+    DacPath,
+    DecodeProtocol,
     Efuse,
+    FaultType,
+    FpgaImage,
+    LoopSource,
     Pin,
+    ReplayMapping,
     Sensor,
+    Waveshape,
 )
+from .control_loop import (
+    ControlLoopHandle,
+    IVPoint,
+    LoopInputMap,
+    build_constant_curve,
+    build_linear_curve,
+    build_panel_curve,
+    curve_output_at,
+    encode_curve_b64url,
+    input_percent_to_code,
+)
+from .decode import SpiFrame, UartFrame
 from .errors import (
     BenchPodError,
     CanTimeout,
+    CloudAuthError,
     ConnectionConfigError,
     DeviceBusyError,
     FirmwareError,
@@ -74,21 +85,57 @@ from .errors import (
     TransportError,
     UartTimeout,
 )
-from .lease import DeviceLease
-from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
 from .flash import FlashResult
+from .i2c import I2CByte, I2CMessage, I2CTransaction
+from .lease import DeviceLease
+from .lowlevel import LowLevel
+from .replay import DacHandle, Fault, ReplayHandle, Segment
+from .results import Capture, CorrelatedCapture, LaCapture
+from .server_api import ServerApi, ServerApiError
+from .state import (
+    AdcReading,
+    AnalogPathState,
+    DacOutput,
+    EfuseState,
+    FpgaImageInfo,
+    LaVoltage,
+    LoopState,
+    PowerStatus,
+    PullState,
+    RailPower,
+    ResetState,
+    TargetStatus,
+    UsbCcStatus,
+)
 from .uart import UartCapture, UartSession
+from .waveforms import Waveform, WaveformLibrary
 
 __all__ = [
     "BenchPod",
+    # device state
+    "LaVoltage",
+    "EfuseState",
+    "TargetStatus",
+    "RailPower",
+    "PowerStatus",
+    "ResetState",
+    "UsbCcStatus",
+    "PullState",
+    "AnalogPathState",
+    "DacOutput",
+    "AdcReading",
+    "FpgaImageInfo",
+    "LoopState",
+    # flash + UART
     "FlashResult",
     "UartCapture",
     "UartSession",
-    "UartTimeout",
+    # CAN
     "can",
     "CanBus",
     "CanFrame",
-    "CanTimeout",
+    "CanReadResult",
+    # I2C
     "i2c",
     "I2CByte",
     "I2CMessage",
@@ -99,35 +146,39 @@ __all__ = [
     "Capabilities",
     "Capture",
     "LaCapture",
-    "AnalogCapture",
+    "CorrelatedCapture",
     "UartFrame",
     "SpiFrame",
-    # DAC replay + waveform library
+    # DAC output, replay + waveform library
+    "DacHandle",
+    "ReplayHandle",
     "Fault",
     "Segment",
-    "ReplayHandle",
     "Waveform",
     "WaveformLibrary",
     "ServerApi",
-    "ServerApiError",
-    # closed-loop DAC control (panel/MPPT emulator)
+    # in-fabric DAC control loop
     "control_loop",
     "ControlLoopHandle",
     "IVPoint",
+    "LoopInputMap",
     "build_panel_curve",
     "build_constant_curve",
     "build_linear_curve",
     "curve_output_at",
     "input_percent_to_code",
     "encode_curve_b64url",
+    # low-level escape hatch
+    "LowLevel",
     # connection
     "ConnSpec",
     "resolve_connection",
     "parse_connection",
-    # constants
+    # constants + option types
     "Efuse",
     "Pin",
     "Sensor",
+    "FpgaImage",
     "INTERNAL",
     "EXTERNAL",
     "BMP280_ADDR_PRIMARY",
@@ -144,6 +195,16 @@ __all__ = [
     "PIN10",
     "PIN11",
     "PIN12",
+    "DacPath",
+    "DacOutputPath",
+    "AnalogPath",
+    "AdcSource",
+    "Waveshape",
+    "ReplayMapping",
+    "LoopSource",
+    "DecodeProtocol",
+    "CanMode",
+    "FaultType",
     # errors
     "BenchPodError",
     "ConnectionConfigError",
@@ -152,6 +213,10 @@ __all__ = [
     "FlashError",
     "TargetUnreachableError",
     "DeviceBusyError",
+    "CloudAuthError",
+    "ServerApiError",
+    "UartTimeout",
+    "CanTimeout",
     # device lease
     "DeviceLease",
     # CI build reporting

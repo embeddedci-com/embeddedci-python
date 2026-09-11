@@ -1,0 +1,701 @@
+{
+  "AdcReading": {
+    "__fields__": [
+      "source",
+      "voltage",
+      "count",
+      "span",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
+  },
+  "AdcSource": "Literal['ext', 'cal1', 'cal2', 'amp']",
+  "AnalogPath": "Literal['off', 'dac_3v3', 'dac_5v', 'dac_12v', 'adc_ext', 'cal1', 'cal2', 'amp']",
+  "AnalogPathState": {
+    "__fields__": [
+      "path",
+      "dac_mux_register",
+      "cal_relay_register",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'AnalogPathState'\""
+  },
+  "BMP280_ADDR_PRIMARY": 118,
+  "BMP280_ADDR_SECONDARY": 119,
+  "BenchPod": {
+    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120) -> 'None'",
+    "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
+    "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
+    "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_disable": "(self) -> 'Dict[str, Any]'",
+    "can_read": "(self, *, max_frames: 'int' = 8) -> '_can.CanReadResult'",
+    "can_respond": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_respond_clear": "(self) -> 'Dict[str, Any]'",
+    "can_status": "(self) -> 'Dict[str, Any]'",
+    "can_term": "(self, on: 'bool') -> 'Dict[str, Any]'",
+    "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'Dict[str, Any]'",
+    "capabilities": "property",
+    "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None) -> 'Capture'",
+    "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None) -> 'CorrelatedCapture'",
+    "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None) -> 'LaCapture'",
+    "capture_uart": "(self, *, rx: 'Union[Pin, int]', tx: 'Union[Pin, int]', baud: 'int' = 115200, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
+    "close": "(self) -> 'None'",
+    "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
+    "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None) -> '_control_loop.ControlLoopHandle'",
+    "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
+    "dac_stop": "(self) -> 'None'",
+    "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
+    "disable_i2c_sensor": "(self) -> 'None'",
+    "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
+    "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
+    "enable_i2c_sensor": "(self, sensor: 'Union[Sensor, str]' = <Sensor.BMP280: 'bmp280'>, *, sda: 'Union[Pin, int]', scl: 'Union[Pin, int]', address: 'int' = 118, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None) -> 'Dict[str, Any]'",
+    "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
+    "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
+    "enabled_pulls": "(self) -> 'List[int]'",
+    "flash": "(self, *, swclk: 'Union[Pin, int]', swdio: 'Union[Pin, int]', nreset: 'bool' = False, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True) -> 'FlashResult'",
+    "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
+    "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'DacPath' = '5v', duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
+    "get_la_voltage": "(self) -> 'LaVoltage'",
+    "i2c_sensor_capture": "(self, samples: 'int' = 1024, *, sample_rate_hz: 'Optional[float]' = None) -> 'List[_i2c.I2CTransaction]'",
+    "i2c_sensor_regs": "(self, *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
+    "i2c_sensor_status": "(self) -> 'Dict[str, Any]'",
+    "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
+    "leased": "property",
+    "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
+    "loop_probe": "(self) -> '_control_loop.IVPoint'",
+    "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> '_can.CanBus'",
+    "open_uart": "(self, *, rx: 'Union[Pin, int]', tx: 'Union[Pin, int]', baud: 'int' = 115200, max_buffer: 'int' = 1048576) -> '_uart.UartSession'",
+    "ping": "(self) -> 'Any'",
+    "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int]', tx: 'Union[Pin, int]', efuse: 'Union[Efuse, int]' = <Efuse.INTERNAL: 1>, delay: 'float' = 1.0, duration: 'float' = 4.0, baud: 'int' = 115200, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3) -> '_uart.UartCapture'",
+    "power_off": "(self, efuse: 'Union[Efuse, int]' = <Efuse.INTERNAL: 1>, *, delay: 'Optional[float]' = None) -> 'None'",
+    "power_on": "(self, efuse: 'Union[Efuse, int]' = <Efuse.INTERNAL: 1>, *, delay: 'Optional[float]' = None) -> 'None'",
+    "power_status": "(self) -> 'PowerStatus'",
+    "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
+    "refresh_capabilities": "(self) -> 'Capabilities'",
+    "replay": "(self, source: 'Union[Capture, Sequence[float], Sequence[int]]', *, dac_path: 'DacPath' = '5v', mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, deep: 'Optional[bool]' = None, fault: 'Union[Fault, Dict[str, Any], None]' = None, are_codes: 'bool' = False, on_capture: 'bool' = False, route: 'bool' = True) -> 'ReplayHandle'",
+    "replay_waveform": "(self, waveform: \"Union[str, 'Waveform']\", *, dac_path: 'Optional[DacPath]' = None, mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, window_start: 'int' = 0, window_len: 'int' = 0, target_samples: 'int' = 0, fault: 'Union[Fault, Dict[str, Any], None]' = None, deep: 'Optional[bool]' = None, server_side: 'Optional[bool]' = None, on_capture: 'bool' = False) -> 'ReplayHandle'",
+    "reset_state": "(self) -> 'ResetState'",
+    "reset_target": "(self, *, pulse: 'float' = 0.1) -> 'ResetState'",
+    "save_capture_as_recording": "(self, capture: 'Capture', name: 'str', *, full_scale_v: 'Optional[float]' = None) -> \"'Waveform'\"",
+    "server_api": "property",
+    "set_i2c_sensor": "(self, *, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None) -> 'Dict[str, Any]'",
+    "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
+    "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
+    "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
+    "status": "(self) -> 'Dict[str, Any]'",
+    "target_power": "(self, efuse: 'Union[Efuse, int]' = <Efuse.INTERNAL: 1>, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
+    "target_status": "(self) -> 'TargetStatus'",
+    "transport": "property",
+    "usb_cc": "(self) -> 'UsbCcStatus'",
+    "waveforms": "property"
+  },
+  "BenchPodError": {},
+  "BuildReporter": {
+    "__init__": "(self, *, api_base: 'str', session_token: 'str', metadata: 'Dict[str, str]', target: 'str' = '', name: 'str' = '') -> 'None'",
+    "active": "property",
+    "build_id": "property",
+    "finalize": "(self) -> 'None'",
+    "record_wiring": "(self, *, target: 'Optional[str]' = None, swclk: 'Optional[int]' = None, swdio: 'Optional[int]' = None, nreset: 'Optional[bool]' = None, efuse: 'Optional[int]' = None) -> 'None'",
+    "set_result": "(self, success: 'bool', reason: 'str' = '') -> 'None'",
+    "upload_artifact": "(self, path: 'str') -> 'None'",
+    "upload_artifacts": "(self, paths: 'Iterable[str]') -> 'None'",
+    "upload_logs": "(self, name: 'str', text: 'str') -> 'None'"
+  },
+  "CanBus": {
+    "__init__": "(self, bp: \"'BenchPod'\", *, bitrate: 'int', mode: 'str', term: 'bool' = False, fd: 'bool' = False) -> 'None'",
+    "add_responder": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'dict'",
+    "assert_periodic": "(self, can_id: 'int', period: 'float', *, tol: 'float' = 0.25, min_count: 'int' = 3, duration: 'Optional[float]' = None) -> 'List[CanFrame]'",
+    "clear_responders": "(self) -> 'dict'",
+    "close": "(self) -> 'None'",
+    "collect": "(self, duration: 'float', *, match: 'Optional[Match]' = None, poll: 'float' = 0.02) -> 'List[CanFrame]'",
+    "expect": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float' = 1.0) -> 'CanFrame'",
+    "read": "(self, max_frames: 'int' = 8) -> 'List[CanFrame]'",
+    "read_until": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float', poll: 'float' = 0.02) -> 'Optional[CanFrame]'",
+    "set_term": "(self, on: 'bool') -> 'dict'",
+    "simulate_ecu": "(self, rules: 'dict') -> 'None'",
+    "status": "(self) -> 'dict'",
+    "write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'dict'"
+  },
+  "CanFrame": {
+    "__fields__": [
+      "id",
+      "data",
+      "ext",
+      "rtr",
+      "ts"
+    ],
+    "dlc": "property",
+    "from_dict": "(cls, d: 'dict') -> \"'CanFrame'\""
+  },
+  "CanMode": "Literal['normal', 'internal', 'external', 'listen']",
+  "CanReadResult": {
+    "__fields__": [
+      "frames",
+      "overflow"
+    ],
+    "from_reply": "(cls, data: 'Optional[dict]') -> \"'CanReadResult'\""
+  },
+  "CanTimeout": {
+    "__init__": "(self, message: 'str', *, frames=None) -> 'None'"
+  },
+  "Capabilities": {
+    "__fields__": [
+      "board",
+      "firmware_version",
+      "adc_bits",
+      "adc_fullscale_mv",
+      "adc_channels",
+      "adc_offset_counts",
+      "adc_affine",
+      "dac",
+      "dac_dc",
+      "dac_replay",
+      "dac_deep_replay",
+      "dac_control_loop",
+      "dac_loop_sources",
+      "dac_loop_input_map",
+      "dac_cotrig",
+      "dac_bits",
+      "dac_replay_bits",
+      "dac_replay_max_samples",
+      "dac_fullscale_mv",
+      "dac_channels",
+      "scope",
+      "analyzer",
+      "serial",
+      "tunnel",
+      "command",
+      "ota",
+      "la_vccio_mv",
+      "raw"
+    ],
+    "adc_max_count": "property",
+    "counts_to_volts": "(self, count: 'float') -> 'float'",
+    "from_parameters": "(cls, params: 'Mapping[str, Any]') -> \"'Capabilities'\"",
+    "from_status": "(cls, status: 'Mapping[str, Any]') -> \"'Capabilities'\"",
+    "merge": "(self, other: \"'Capabilities'\") -> \"'Capabilities'\""
+  },
+  "Capture": {
+    "__fields__": [
+      "counts",
+      "volts",
+      "sample_rate_hz",
+      "source"
+    ],
+    "dominant_frequency": "(self) -> 'float'",
+    "duration": "property",
+    "fft": "(self)",
+    "max": "(self) -> 'float'",
+    "mean": "(self) -> 'float'",
+    "min": "(self) -> 'float'",
+    "peak_to_peak": "(self) -> 'float'",
+    "rms": "(self) -> 'float'",
+    "rms_ac": "(self) -> 'float'",
+    "times": "(self) -> 'List[float]'"
+  },
+  "CloudAuthError": {},
+  "ConnSpec": {
+    "__fields__": [
+      "kind",
+      "addr",
+      "device",
+      "device_name"
+    ],
+    "is_cloud": "(self) -> 'bool'",
+    "is_serial": "(self) -> 'bool'",
+    "is_wifi": "(self) -> 'bool'"
+  },
+  "ConnectionConfigError": {},
+  "ControlLoopHandle": {
+    "__init__": "(self, *, probe: 'Callable[[], IVPoint]', stop: 'Callable[[], Any]', data: 'Optional[Dict[str, Any]]' = None, set_input: 'Optional[Callable[..., Any]]' = None) -> 'None'",
+    "probe": "(self) -> 'IVPoint'",
+    "set_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[str]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
+    "stop": "(self) -> 'None'"
+  },
+  "CorrelatedCapture": {
+    "__fields__": [
+      "adc",
+      "la"
+    ]
+  },
+  "DacHandle": {
+    "__init__": "(self, *, stop: 'Callable[[], Any]', dac_path: 'str' = '', cotrig: 'bool' = False, data: 'Optional[dict]' = None) -> 'None'",
+    "stop": "(self) -> 'None'"
+  },
+  "DacOutput": {
+    "__fields__": [
+      "path",
+      "voltage",
+      "code",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'DacOutput'\""
+  },
+  "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
+  "DacPath": "Literal['3v3', '5v', '12v']",
+  "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
+  "DeviceBusyError": {},
+  "DeviceLease": {
+    "__init__": "(self, *, api_base: 'str', token_provider: 'Callable[[], str]', device_name: 'str', ttl_seconds: 'int' = 120, run_label: 'Optional[str]' = None) -> 'None'",
+    "acquire": "(self, *, wait_timeout: 'float' = 600.0, poll_interval: 'float' = 5.0) -> 'None'",
+    "held": "property",
+    "lease_id": "property",
+    "release": "(self) -> 'None'"
+  },
+  "EXTERNAL": "Efuse.EXTERNAL",
+  "Efuse": {
+    "__members__": {
+      "EXTERNAL": 2,
+      "INTERNAL": 1
+    }
+  },
+  "EfuseState": {
+    "__fields__": [
+      "enabled",
+      "fault",
+      "valid"
+    ]
+  },
+  "Fault": {
+    "__fields__": [
+      "type",
+      "start",
+      "width",
+      "level"
+    ],
+    "to_dict": "(self) -> 'Dict[str, Any]'"
+  },
+  "FaultType": "Literal['flatline', 'spike', 'stuck']",
+  "FirmwareError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None) -> 'None'"
+  },
+  "FlashError": {},
+  "FlashResult": {
+    "__fields__": [
+      "ok",
+      "returncode",
+      "stdout",
+      "stderr",
+      "target_unreachable",
+      "stalled"
+    ]
+  },
+  "FpgaImage": {
+    "__members__": {
+      "DEEP_REPLAY": 1,
+      "LOOP": 0
+    }
+  },
+  "FpgaImageInfo": {
+    "__fields__": [
+      "image",
+      "version",
+      "features",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'FpgaImageInfo'\""
+  },
+  "I2CByte": {
+    "__fields__": [
+      "value",
+      "ack"
+    ]
+  },
+  "I2CMessage": {
+    "__fields__": [
+      "address",
+      "read",
+      "address_ack",
+      "data"
+    ],
+    "values": "property"
+  },
+  "I2CTransaction": {
+    "__fields__": [
+      "messages",
+      "complete"
+    ],
+    "address": "property",
+    "to": "(self, address: 'int') -> 'bool'"
+  },
+  "INTERNAL": "Efuse.INTERNAL",
+  "IVPoint": {
+    "__fields__": [
+      "i",
+      "v",
+      "input_code",
+      "source"
+    ],
+    "loop_input": "property"
+  },
+  "LaCapture": {
+    "__fields__": [
+      "words",
+      "sample_rate_hz",
+      "channels"
+    ],
+    "channel": "(self, la: 'int') -> 'List[int]'",
+    "decode": "(self, protocol: 'str' = 'i2c', **channels)",
+    "duration": "property",
+    "edges": "(self, la: 'int') -> 'int'"
+  },
+  "LaVoltage": {
+    "__fields__": [
+      "voltage",
+      "readback",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'LaVoltage'\"",
+    "is_set": "property"
+  },
+  "LoopInputMap": {
+    "__fields__": [
+      "mv_per_unit",
+      "range_min",
+      "range_max",
+      "mv_at_zero",
+      "trip"
+    ],
+    "to_request": "(self) -> 'Dict[str, Any]'"
+  },
+  "LoopSource": "Literal['adc', 'fixed', 'sweep']",
+  "LoopState": {
+    "__fields__": [
+      "source",
+      "input_code",
+      "step",
+      "output_code",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'LoopState'\""
+  },
+  "LowLevel": {
+    "__init__": "(self, pod: \"'BenchPod'\") -> 'None'",
+    "cal_switch": "(self, *, cal1: 'bool' = False, cal2: 'bool' = False, amp_measure: 'bool' = False, cal_path: 'bool' = False) -> 'Dict[str, Any]'",
+    "cal_switch_status": "(self) -> 'Dict[str, Any]'",
+    "dac_mux": "(self, *, ctrl1: 'Optional[str]' = None, ctrl2: 'Optional[str]' = None) -> 'Dict[str, Any]'",
+    "dac_mux_status": "(self) -> 'Dict[str, Any]'",
+    "dac_set": "(self, code: 'int', *, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
+  },
+  "NoopBuildReporter": {
+    "finalize": "(self) -> 'None'",
+    "record_wiring": "(self, **_kwargs: 'Any') -> 'None'",
+    "set_result": "(self, _success: 'bool', _reason: 'str' = '') -> 'None'",
+    "upload_artifact": "(self, _path: 'str') -> 'None'",
+    "upload_artifacts": "(self, _paths: 'Iterable[str]') -> 'None'",
+    "upload_logs": "(self, _name: 'str', _text: 'str') -> 'None'"
+  },
+  "PIN1": "Pin.PIN1",
+  "PIN10": "Pin.PIN10",
+  "PIN11": "Pin.PIN11",
+  "PIN12": "Pin.PIN12",
+  "PIN2": "Pin.PIN2",
+  "PIN3": "Pin.PIN3",
+  "PIN4": "Pin.PIN4",
+  "PIN5": "Pin.PIN5",
+  "PIN6": "Pin.PIN6",
+  "PIN7": "Pin.PIN7",
+  "PIN8": "Pin.PIN8",
+  "PIN9": "Pin.PIN9",
+  "Pin": {
+    "__members__": {
+      "PIN1": 1,
+      "PIN10": 10,
+      "PIN11": 11,
+      "PIN12": 12,
+      "PIN2": 2,
+      "PIN3": 3,
+      "PIN4": 4,
+      "PIN5": 5,
+      "PIN6": 6,
+      "PIN7": 7,
+      "PIN8": 8,
+      "PIN9": 9
+    }
+  },
+  "PowerStatus": {
+    "__fields__": [
+      "internal",
+      "external",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'PowerStatus'\"",
+    "rail": "(self, efuse: \"'Efuse | int'\") -> 'RailPower'"
+  },
+  "PullState": {
+    "__fields__": [
+      "la",
+      "enabled",
+      "direction",
+      "ohms",
+      "available",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any', la: 'int') -> \"'PullState'\""
+  },
+  "RailPower": {
+    "__fields__": [
+      "ok",
+      "bus_voltage",
+      "current"
+    ]
+  },
+  "ReplayHandle": {
+    "__init__": "(self, *, stop: 'Callable[[], Any]', samples: 'int' = 0, sample_rate_hz: 'float' = 0.0, dac_path: 'str' = '', deep: 'bool' = False, data: 'Optional[dict]' = None, cotrig: 'bool' = False) -> 'None'"
+  },
+  "ReplayMapping": "Literal['faithful', 'fit']",
+  "ResetState": {
+    "__fields__": [
+      "asserted",
+      "supported",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'ResetState'\""
+  },
+  "Segment": {
+    "__fields__": [
+      "shape",
+      "duration",
+      "v_start",
+      "v_end"
+    ],
+    "to_dict": "(self) -> 'Dict[str, Any]'"
+  },
+  "Sensor": {
+    "__members__": {
+      "BMP280": "bmp280"
+    }
+  },
+  "ServerApi": {
+    "__init__": "(self, *, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, token_provider: 'Optional[Callable[[], str]]' = None, timeout: 'float' = 60.0, lease_id: 'Optional[str]' = None) -> 'None'",
+    "capture_snapshot": "(self, capture_id: 'str') -> 'Dict[str, Any]'",
+    "device_parameters": "(self, name_or_id: 'str') -> 'Dict[str, Any]'",
+    "dual_capture_start": "(self, device_id: 'str', *, adc_samples: 'int', adc_rate_mhz: 'float', la_samples: 'int', la_rate_mhz: 'float') -> 'str'",
+    "list_devices": "(self) -> 'List[Dict[str, Any]]'",
+    "replay_start": "(self, payload: 'Dict[str, Any]') -> 'Dict[str, Any]'",
+    "request": "(self, method: 'str', path: 'str', *, query: 'Optional[Dict[str, Any]]' = None, json_body: 'Any' = None, raw_body: 'Optional[bytes]' = None, content_type: 'Optional[str]' = None, parse_json: 'bool' = True) -> 'Tuple[int, Any]'",
+    "resolve_device_id": "(self, name: 'str') -> 'str'",
+    "scope_capture_start": "(self, device_id: 'str', *, samples: 'int' = 256, sample_rate_mhz: 'float' = 1.0) -> 'str'"
+  },
+  "ServerApiError": {
+    "__init__": "(self, message: 'str', *, status: 'Optional[int]' = None) -> 'None'"
+  },
+  "SpiFrame": {
+    "__fields__": [
+      "index",
+      "start_us",
+      "end_us",
+      "mosi",
+      "miso",
+      "mosi_hex",
+      "miso_hex"
+    ]
+  },
+  "TargetStatus": {
+    "__fields__": [
+      "internal",
+      "external",
+      "supported",
+      "raw"
+    ],
+    "efuse": "(self, efuse: \"'Efuse | int'\") -> 'EfuseState'",
+    "from_reply": "(cls, reply: 'Any') -> \"'TargetStatus'\""
+  },
+  "TargetUnreachableError": {},
+  "TransportError": {},
+  "UartCapture": {
+    "__fields__": [
+      "text",
+      "lines",
+      "matched"
+    ],
+    "contains": "(self, needle: 'str') -> 'bool'",
+    "match": "(self, pattern: \"Union[str, 'Pattern[str]']\") -> 'bool'"
+  },
+  "UartFrame": {
+    "__fields__": [
+      "index",
+      "start_us",
+      "end_us",
+      "value",
+      "hex",
+      "text",
+      "ok",
+      "error"
+    ]
+  },
+  "UartSession": {
+    "__init__": "(self, link: 'RawLink', *, max_buffer: 'int' = 1048576, chunk: 'int' = 256) -> 'None'",
+    "close": "(self) -> 'None'",
+    "closed": "property",
+    "drain": "(self) -> 'str'",
+    "expect": "(self, pattern: 'Until', *, timeout: 'float')",
+    "lines": "property",
+    "read": "(self, *, timeout: 'float' = 0.0) -> 'str'",
+    "read_until": "(self, pattern: 'Until', *, timeout: 'float')",
+    "text": "property",
+    "write": "(self, data: 'Union[bytes, str]') -> 'None'"
+  },
+  "UartTimeout": {
+    "__init__": "(self, message: 'str', *, text: 'str' = '') -> 'None'"
+  },
+  "UsbCcStatus": {
+    "__fields__": [
+      "orientation",
+      "advertised",
+      "advertised_current",
+      "cc1_voltage",
+      "cc2_voltage",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbCcStatus'\""
+  },
+  "Waveform": {
+    "__fields__": [
+      "id",
+      "name",
+      "kind",
+      "sample_count",
+      "sample_rate_hz",
+      "bits",
+      "full_scale_v",
+      "recording_size_bytes",
+      "created_at",
+      "dac_path",
+      "segments",
+      "raw"
+    ],
+    "from_json": "(cls, m: 'Dict[str, Any]') -> \"'Waveform'\"",
+    "is_recording": "property"
+  },
+  "WaveformLibrary": {
+    "__init__": "(self, api: 'ServerApi') -> 'None'",
+    "delete": "(self, waveform_id: 'str') -> 'None'",
+    "download_recording": "(self, waveform_id: 'str') -> 'bytes'",
+    "find": "(self, name: 'str') -> 'Optional[Waveform]'",
+    "get": "(self, waveform_id: 'str') -> 'Waveform'",
+    "list": "(self) -> 'List[Waveform]'",
+    "preview": "(self, waveform_id: 'str', *, mapping: 'str' = 'faithful', dac_path: 'str' = '5v', points: 'int' = 4096) -> 'Dict[str, Any]'",
+    "rename": "(self, waveform_id: 'str', name: 'str') -> 'Waveform'",
+    "samples_b64": "(self, waveform_id: 'str') -> 'str'",
+    "save_recording": "(self, name: 'str', samples16: 'bytes', *, sample_rate_hz: 'float', full_scale_v: 'float') -> 'Waveform'",
+    "save_segments": "(self, name: 'str', *, dac_path: 'str', segments: 'Sequence') -> 'Waveform'",
+    "save_waveform": "(self, name: 'str', samples: 'Sequence[int]', *, sample_rate_hz: 'float', bits: 'int' = 8, full_scale_v: 'Optional[float]' = None) -> 'Waveform'"
+  },
+  "Waveshape": "Literal['sine', 'square', 'sawtooth']",
+  "__all__": [
+    "AdcReading",
+    "AdcSource",
+    "AnalogPath",
+    "AnalogPathState",
+    "BMP280_ADDR_PRIMARY",
+    "BMP280_ADDR_SECONDARY",
+    "BenchPod",
+    "BenchPodError",
+    "BuildReporter",
+    "CanBus",
+    "CanFrame",
+    "CanMode",
+    "CanReadResult",
+    "CanTimeout",
+    "Capabilities",
+    "Capture",
+    "CloudAuthError",
+    "ConnSpec",
+    "ConnectionConfigError",
+    "ControlLoopHandle",
+    "CorrelatedCapture",
+    "DacHandle",
+    "DacOutput",
+    "DacOutputPath",
+    "DacPath",
+    "DecodeProtocol",
+    "DeviceBusyError",
+    "DeviceLease",
+    "EXTERNAL",
+    "Efuse",
+    "EfuseState",
+    "Fault",
+    "FaultType",
+    "FirmwareError",
+    "FlashError",
+    "FlashResult",
+    "FpgaImage",
+    "FpgaImageInfo",
+    "I2CByte",
+    "I2CMessage",
+    "I2CTransaction",
+    "INTERNAL",
+    "IVPoint",
+    "LaCapture",
+    "LaVoltage",
+    "LoopInputMap",
+    "LoopSource",
+    "LoopState",
+    "LowLevel",
+    "NoopBuildReporter",
+    "PIN1",
+    "PIN10",
+    "PIN11",
+    "PIN12",
+    "PIN2",
+    "PIN3",
+    "PIN4",
+    "PIN5",
+    "PIN6",
+    "PIN7",
+    "PIN8",
+    "PIN9",
+    "Pin",
+    "PowerStatus",
+    "PullState",
+    "RailPower",
+    "ReplayHandle",
+    "ReplayMapping",
+    "ResetState",
+    "Segment",
+    "Sensor",
+    "ServerApi",
+    "ServerApiError",
+    "SpiFrame",
+    "TargetStatus",
+    "TargetUnreachableError",
+    "TransportError",
+    "UartCapture",
+    "UartFrame",
+    "UartSession",
+    "UartTimeout",
+    "UsbCcStatus",
+    "Waveform",
+    "WaveformLibrary",
+    "Waveshape",
+    "build_constant_curve",
+    "build_linear_curve",
+    "build_panel_curve",
+    "can",
+    "control_loop",
+    "curve_output_at",
+    "decode",
+    "dsp",
+    "encode_curve_b64url",
+    "i2c",
+    "input_percent_to_code",
+    "make_build_reporter",
+    "parse_connection",
+    "resolve_connection"
+  ],
+  "build_constant_curve": "(value_code: 'int', points: 'int' = 256) -> 'List[int]'",
+  "build_linear_curve": "(max_code: 'int', rising: 'bool' = True, points: 'int' = 256) -> 'List[int]'",
+  "build_panel_curve": "(voc_code: 'int', sharpness: 'float' = 4.0, points: 'int' = 256) -> 'List[int]'",
+  "can": "module",
+  "control_loop": "module",
+  "curve_output_at": "(curve: 'Sequence[int]', input_code: 'int') -> 'int'",
+  "decode": "module",
+  "dsp": "module",
+  "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
+  "i2c": "module",
+  "input_percent_to_code": "(percent: 'float') -> 'int'",
+  "make_build_reporter": "(*, api_base: 'Optional[str]' = None, audience: 'Optional[str]' = None, target: 'str' = '', name: 'str' = '') -> 'Any'",
+  "parse_connection": "(raw: 'str') -> 'ConnSpec'",
+  "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'"
+}

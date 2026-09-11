@@ -70,8 +70,8 @@ def find_openocd(explicit: Optional[str] = None) -> str:
     found = shutil.which("openocd")
     if not found:
         raise FlashError(
-            "openocd not found in PATH; install it first "
-            "(e.g. `brew install open-ocd` on macOS, `apt install openocd` on Debian/Ubuntu)"
+            "openocd not found in PATH; install an OpenOCD with the cmsis_dap_tcp backend (newer "
+            "than 0.12.0 — e.g. `brew install --HEAD open-ocd`, the xPack build, or from source)"
         )
     return found
 
@@ -111,7 +111,7 @@ def build_openocd_args(
     target = target.strip()
     file = file.strip()
     if not target and not extra_configs and not extra_args:
-        raise FlashError(
+        raise ValueError(
             "nothing to flash; pass target= (with file=) or extra config/args"
         )
 
@@ -179,7 +179,7 @@ def flash(
     ``brew install --HEAD open-ocd``).
     """
     if file and not target:
-        raise FlashError("file= requires target=")
+        raise ValueError("file= requires target=")
     nreset = bool(nreset)
     if connect_under_reset is None:
         connect_under_reset = nreset

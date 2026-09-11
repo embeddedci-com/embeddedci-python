@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci-openhtf"
-version = "0.1.0"
+version = "2.0.0"
 description = "OpenHTF plug for driving an EmbeddedCI BenchPod directly over TCP or serial (no cloud)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "EmbeddedCI" }]
 keywords = ["embedded", "hardware-in-the-loop", "openhtf", "benchpod", "swd", "manufacturing-test"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "embeddedci>=0.2",
+    "embeddedci>=2.0,<3",
     "openhtf>=1.6",
 ]
 

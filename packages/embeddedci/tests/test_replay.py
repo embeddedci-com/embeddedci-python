@@ -47,8 +47,10 @@ def test_replay_bits_v2_is_16():
 def test_replay_capture_maps_volts_and_routes_path():
     bp, t = _bp()
     cap = Capture(counts=[], volts=[0.0, 2.5, 5.0], sample_rate_hz=1000.0)
-    handle = bp.replay(cap, dac_path="5v", sample_rate_mhz=0.4)
+    handle = bp.replay(cap, dac_path="5v", sample_rate_hz=400_000)
     assert isinstance(handle, ReplayHandle)
+    assert t.uploads[-1]["replay"]["sample_rate_mhz"] == pytest.approx(0.4)
+    assert handle.sample_rate_hz == 400_000
     # routed the DAC path first
     assert {"cmd": "dac_out", "path": "5v"} in t.commands
     up = t.uploads[-1]
@@ -87,17 +89,34 @@ def test_replay_handle_context_manager_stops():
     assert {"cmd": "dac_stop"} in t.commands
 
 
-def test_replaying_while_capturing_pattern():
+def test_replay_capture_defaults_to_its_own_rate():
+    bp, t = _bp()
+    bp.replay(Capture(counts=[], volts=[1.0, 2.0], sample_rate_hz=200_000.0), dac_path="5v")
+    assert t.uploads[-1]["replay"]["sample_rate_mhz"] == pytest.approx(0.2)
+
+
+def test_replay_rejects_unknown_path_and_mapping():
+    bp, t = _bp()
+    with pytest.raises(ValueError, match="dac_path"):
+        bp.replay([1.0], dac_path="24v")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="mapping"):
+        bp.replay([1.0], mapping="stretch")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="fault type"):
+        bp.replay([1.0], fault={"type": "glitch"})
+    assert t.uploads == []
+
+
+def test_replay_while_capturing_pattern():
     bp, t = _bp()
     # arm a looping replay, run a (fake) capture alongside, then stop — the v18 concurrency story.
-    handle = bp.replaying([100] * 4000, dac_path="5v", are_codes=True)
+    handle = bp.replay([100] * 4000, dac_path="5v", are_codes=True)
     assert t.uploads[-1]["psram"] is True
     handle.stop()
     assert {"cmd": "dac_stop"} in t.commands
 
 
 def test_segment_and_fault_helpers_to_dict():
-    assert Segment("ramp", 5, 0.0, 1.0).to_dict() == {
+    assert Segment("ramp", 0.005, 0.0, 1.0).to_dict() == {
         "shape": "ramp", "duration_ms": 5.0, "v_start": 0.0, "v_end": 1.0}
     assert Fault("spike", 1, 2, 255).to_dict() == {
         "type": "spike", "start": 1, "width": 2, "level": 255}

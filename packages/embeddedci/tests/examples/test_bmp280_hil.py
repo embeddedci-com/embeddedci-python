@@ -159,7 +159,7 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
     txns = []
     chip_id = None
     for _ in range(6):
-        txns = device.i2c_sensor_la_decoded(samples=4096, sample_rate_mhz=0.5)
+        txns = device.i2c_sensor_capture(4096, sample_rate_hz=500_000)
         chip_id = i2c.read_register(txns, bp.BMP280_ADDR_PRIMARY, BMP280_CHIP_ID_REG)
         if chip_id is not None:
             break

@@ -7,7 +7,8 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 * ``usb``                          -> USB console, auto-detected by probing the ports
                                       (``serial`` is accepted as a legacy spelling)
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
-* ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (CI only)
+* ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (an API key
+                                      anywhere, or GitHub Actions OIDC)
 
 Precedence is handled by the caller: an explicit argument wins over the
 ``BENCHPOD_CONNECTION`` environment variable.
@@ -124,6 +125,6 @@ def resolve_connection(connection: "str | None" = None) -> ConnSpec:
         raise ConnectionConfigError(
             "no BenchPod connection configured; pass connection=... or set "
             f"the {ENV_VAR} environment variable "
-            "(e.g. '192.168.1.213', '/dev/ttyACM0', or 'serial')"
+            "(e.g. '192.168.1.213', '/dev/ttyACM0', 'usb', or 'embeddedci:<device-name>')"
         )
     return parse_connection(str(raw))

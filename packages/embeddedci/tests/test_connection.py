@@ -88,7 +88,9 @@ def test_constant_coercion():
     assert constants.coerce_efuse(2) == 2
     assert constants.coerce_pin(constants.PIN12) == 12
     assert constants.coerce_pin(1, "swclk") == 1
-    with pytest.raises(BenchPodError):
+    # Invalid arguments are ValueErrors; BenchPodError is reserved for device/transport failures.
+    with pytest.raises(ValueError):
         constants.coerce_efuse(3)
-    with pytest.raises(BenchPodError):
+    with pytest.raises(ValueError):
         constants.coerce_pin(13, "swdio")
+    assert not issubclass(ValueError, BenchPodError)

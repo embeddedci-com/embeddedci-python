@@ -2,7 +2,7 @@
 
 Covers the curve builder/encoder (parity with the web UI's controlLoopCurve.ts), the
 ControlLoopHandle, and the command plumbing for control_loop / loop_probe / fpga_image, plus the
-new on_capture (co-trigger) and stop_dac_after_us (auto-stop) parameters.
+on_capture (co-trigger) and stop_dac_after (auto-stop) parameters.
 """
 
 from __future__ import annotations
@@ -16,7 +16,13 @@ from embeddedci.benchpod import capture as cap_mod
 from embeddedci.benchpod import control_loop as cl
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import BenchPod
-from embeddedci.benchpod.control_loop import ControlLoopHandle, IVPoint, normalise_loop_params
+from embeddedci.benchpod.control_loop import (
+    ControlLoopHandle,
+    IVPoint,
+    LoopInputMap,
+    normalise_loop_params,
+)
+from embeddedci.benchpod.state import FpgaImageInfo, LoopState
 
 
 # -- curve builder / encoder (parity with controlLoopCurve.ts) ---------------
@@ -44,9 +50,15 @@ def test_encode_curve_b64url_is_le16_no_padding():
     assert raw[0] | (raw[1] << 8) == 1000
 
 
-def test_ivpoint_aliases():
-    p = IVPoint(i=123, v=456)
-    assert p.current_code == 123 and p.voltage_code == 456
+def test_loop_input_map_request_fields():
+    m = LoopInputMap(mv_per_unit=2.0, range_min=0.0, range_max=500.0, trip=450.0)
+    assert m.to_request() == {"in_mv_per_unit": 2.0, "in_mv_at_zero": 0.0, "in_min": 0.0,
+                              "in_max": 500.0, "in_trip": 450.0}
+    assert "in_trip" not in LoopInputMap(mv_per_unit=1.0, range_min=0, range_max=1).to_request()
+    with pytest.raises(ValueError, match="mv_per_unit"):
+        LoopInputMap(mv_per_unit=0, range_min=0, range_max=1).to_request()
+    with pytest.raises(ValueError, match="range_max"):
+        LoopInputMap(mv_per_unit=1, range_min=5, range_max=5).to_request()
 
 
 def test_control_loop_handle_stop_idempotent():
@@ -126,10 +138,24 @@ def test_loop_probe_returns_ivpoint():
 def test_fpga_image_swaps_and_invalidates_caps():
     bp, t = _bp({"fpga_image": {"image": 0, "version": 27, "features": 1}})
     _ = bp.capabilities  # prime the cache
-    out = bp.fpga_image(0)
-    assert out["features"] == 1
+    out = bp.fpga_image(cl_image_loop())
+    assert isinstance(out, FpgaImageInfo) and out.features == 1 and out.version == 27
     assert t.commands[-1] == {"cmd": "fpga_image", "image": 0}
     assert bp._caps is None  # cache invalidated so the new image's caps re-read
+    with pytest.raises(ValueError):
+        bp.fpga_image(2)
+
+
+def cl_image_loop():
+    from embeddedci.benchpod import FpgaImage
+
+    return FpgaImage.LOOP
+
+
+def test_control_loop_sends_the_input_map():
+    bp, t = _bp({"dac_control_loop": {"armed": True}})
+    bp.control_loop(curve=[1, 2], input_map=LoopInputMap(mv_per_unit=2.0, range_min=0, range_max=500))
+    assert t.commands[-1]["in_mv_per_unit"] == 2.0 and t.commands[-1]["in_max"] == 500.0
 
 
 def test_handle_probe_delegates_to_client():
@@ -141,14 +167,39 @@ def test_handle_probe_delegates_to_client():
     assert t.commands[-1] == {"cmd": "dac_stop"}
 
 
-# -- co-trigger (on_capture) + auto-stop (stop_dac_after_us) ------------------
+# -- co-trigger (on_capture) + auto-stop (stop_dac_after) ---------------------
 
 def test_generate_on_capture_sets_flag():
-    bp, t = _bp()
-    bp.generate("sine", freq=1000, amplitude=1.0, on_capture=True)
+    bp, t = _bp({"generate": {"cotrig": True}})
+    h = bp.generate("sine", freq_hz=1000, amplitude=1.0, on_capture=True)
     assert t.commands[-1]["cmd"] == "generate" and t.commands[-1]["on_capture"] is True
-    bp.generate("sine", freq=1000, amplitude=1.0)  # default off => absent
+    assert h.cotrig is True
+    bp.generate("sine", freq_hz=1000, amplitude=1.0)  # default off => absent
     assert "on_capture" not in t.commands[-1]
+
+
+def test_generate_maps_volts_to_generator_codes_and_routes_the_path():
+    bp, t = _bp()
+    h = bp.generate("square", freq_hz=50, amplitude=1.0, dac_path="5v", duration=0.25,
+                    sample_rate_hz=100_000)
+    route, gen = t.commands[-2], t.commands[-1]
+    assert route == {"cmd": "dac_out", "path": "5v"}
+    # 5 V over 255 levels: 1.0 V peak -> 51, default offset = mid-range 2.5 V -> 128.
+    assert gen == {"cmd": "generate", "waveform": "square", "freq": 50.0, "amplitude": 51,
+                   "offset": 128, "duration_ms": 250, "sample_rate_mhz": 0.1}
+    h.stop()
+    assert t.commands[-1] == {"cmd": "dac_stop"}
+
+
+def test_generate_rejects_values_outside_the_path():
+    bp, t = _bp()
+    with pytest.raises(ValueError, match="amplitude"):
+        bp.generate("sine", freq_hz=10, amplitude=0.001, dac_path="3v3")
+    with pytest.raises(ValueError, match="offset"):
+        bp.generate("sine", freq_hz=10, amplitude=1.0, offset=6.0, dac_path="5v")
+    with pytest.raises(ValueError, match="waveform"):
+        bp.generate("triangle", freq_hz=10, amplitude=1.0)  # type: ignore[arg-type]
+    assert t.commands == []
 
 
 def test_replay_on_capture_threads_and_reads_cotrig():
@@ -166,28 +217,27 @@ class FakeCaptureTransport:
         self.sent.append(req)
         yield {"status": "ok", "data": [], "more": False}
 
-    # scope_capture uses samples()/stream fallback via _stream_or_samples
     def command(self, req: dict) -> Any:
         self.sent.append(req)
         return {"data": []}
 
 
-def test_capture_la_stop_dac_after_us():
+def test_capture_la_stop_dac_after():
     t = FakeCaptureTransport()
-    cap_mod.capture_la(t, samples=8, sample_rate_mhz=1, stop_dac_after_us=250)
+    cap_mod.capture_la(t, samples=8, sample_rate_hz=1e6, stop_dac_after=250e-6)
     assert t.sent[-1]["cmd"] == "la_capture" and t.sent[-1]["stop_dac_after_us"] == 250
 
 
-def test_capture_analog_stop_dac_after_us():
+def test_capture_correlated_stop_dac_after():
     t = FakeCaptureTransport()
     caps = Capabilities.from_status({"adc_bits": 16, "adc_fullscale_mv": 4096})
-    cap_mod.capture_analog(t, caps, adc_samples=4, la_samples=0, stop_dac_after_us=100)
+    cap_mod.capture_correlated(t, caps, adc_samples=4, la_samples=0, stop_dac_after=100e-6)
     assert t.sent[-1]["cmd"] == "capture_dual" and t.sent[-1]["stop_dac_after_us"] == 100
 
 
-def test_capture_stop_dac_absent_when_zero():
+def test_capture_stop_dac_absent_when_unset():
     t = FakeCaptureTransport()
-    cap_mod.capture_la(t, samples=8, stop_dac_after_us=0)
+    cap_mod.capture_la(t, samples=8)
     assert "stop_dac_after_us" not in t.sent[-1]
 
 
@@ -275,7 +325,7 @@ def test_loop_input_steps_a_running_loop():
     bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "v": 123}})
     out = bp.loop_input(65535, source="fixed")
     assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 65535, "source": "fixed"}
-    assert out["input"] == 65535
+    assert isinstance(out, LoopState) and out.input_code == 65535 and out.output_code == 123
     # An input-only step keeps every other field at its device-side value.
     bp.loop_input(0)
     assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 0}

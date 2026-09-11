@@ -8,8 +8,9 @@ Run it against a pod on your LAN::
     python flash_and_boot.py --pod 192.168.1.50:8080 --firmware fw.elf
 
 Needs `openocd` on PATH (the pod is the CMSIS-DAP probe; OpenOCD drives the flash
-algorithm). The bench wiring below — which LA channel carries SWCLK/SWDIO/NRST
-and the DUT's UART TX/RX — is specific to your setup; edit the constants.
+algorithm). The bench wiring below — which LA channel carries SWCLK/SWDIO and the
+DUT's UART TX/RX, and the DUT's I/O voltage — is specific to your setup; edit the
+constants.
 
 A JSON test record is written next to this script via OpenHTF's standard
 OutputToJSON callback, and a PASS/FAIL summary is printed to the console.
@@ -24,6 +25,7 @@ from openhtf.output.callbacks import console_summary, json_factory
 from embeddedci_openhtf import benchpod_plug, boot_banner_phase, flash_phase
 
 # --- bench wiring (edit for your setup): LA channels 1-12 -------------------
+LA_VOLTAGE = 3.3                      # DUT I/O voltage in volts (1.8 or 3.3)
 SWCLK, SWDIO = 11, 12                 # SWD probe -> DUT (LA channels)
 NRESET = True                         # DUT reset wired to the pod's pin, J1 pin 22
 UART_RX, UART_TX = 1, 2               # RX = LA channel sampling the DUT's TX
@@ -32,7 +34,9 @@ BOOT_BANNER = "APP_OK"               # substring the firmware prints when health
 
 
 def build_test(pod: str, firmware: str) -> htf.Test:
-    bench = benchpod_plug(pod)        # direct TCP / serial connection, no cloud
+    # Direct TCP / serial connection, no cloud. The LA bank voltage must be selected
+    # before the pod will flash or proxy UART; la_voltage= applies it on connect.
+    bench = benchpod_plug(pod, la_voltage=LA_VOLTAGE)
     return htf.Test(
         flash_phase(bench, file=firmware, target=OPENOCD_TARGET,
                     swclk=SWCLK, swdio=SWDIO, nreset=NRESET),

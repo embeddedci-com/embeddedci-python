@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import List, Sequence
 
 from . import i2c as _i2c
-from .errors import BenchPodError
 
 
 def _channel_bits(words: Sequence[int], ch: int) -> List[int]:
@@ -55,18 +54,18 @@ def decode_uart(words: Sequence[int], *, rx: int, baud: float, sample_rate_hz: f
     data bits, an optional ``parity`` bit (``none``/``even``/``odd``), then stop bit(s).
     """
     if not 1 <= rx <= 12:
-        raise BenchPodError("uart decode needs an rx channel in 1..12")
+        raise ValueError("uart decode needs an rx channel in 1..12")
     if sample_rate_hz <= 0:
-        raise BenchPodError("uart decode needs a positive sample rate")
+        raise ValueError("uart decode needs a positive sample rate")
     if baud <= 0:
-        raise BenchPodError("uart decode needs a positive baud rate")
+        raise ValueError("uart decode needs a positive baud rate")
     if not 5 <= data_bits <= 9:
         data_bits = 8
     if stop_bits <= 0:
         stop_bits = 1.0
     spb = sample_rate_hz / baud
     if spb < 2:
-        raise BenchPodError(
+        raise ValueError(
             f"sample rate {sample_rate_hz:.0f} Hz is too low to decode {baud:.0f} baud "
             "(need at least ~2 samples/bit)"
         )
@@ -184,9 +183,9 @@ def decode_spi(words: Sequence[int], *, sclk: int, mosi: int = 0, miso: int = 0,
     an active-low ``cs`` gates and delimits words.
     """
     if not 1 <= sclk <= 12:
-        raise BenchPodError("spi decode needs a sclk channel in 1..12")
+        raise ValueError("spi decode needs a sclk channel in 1..12")
     if not 0 <= mode <= 3:
-        raise BenchPodError("spi mode must be 0..3")
+        raise ValueError("spi mode must be 0..3")
     if not 1 <= bits <= 32:
         bits = 8
     cpol = (mode >> 1) & 1
@@ -256,4 +255,4 @@ def decode(words: Sequence[int], protocol: str = "i2c", *, sample_rate_hz: float
         return decode_uart(words, sample_rate_hz=sample_rate_hz, **channels)
     if proto == "spi":
         return decode_spi(words, sample_rate_hz=sample_rate_hz, **channels)
-    raise BenchPodError(f"unsupported protocol {protocol!r} (supported: i2c, uart, spi)")
+    raise ValueError(f"unsupported protocol {protocol!r} (supported: i2c, uart, spi)")

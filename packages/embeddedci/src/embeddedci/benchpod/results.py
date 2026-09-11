@@ -1,4 +1,4 @@
-"""Capture result objects returned by the scope / logic-analyzer / correlated captures.
+"""Capture result objects returned by the ADC / logic-analyzer / correlated captures.
 
 These wrap the raw device data with the scaling already applied (ADC counts → volts via the
 device :class:`~embeddedci.benchpod.capabilities.Capabilities`) and add the summary helpers a
@@ -11,18 +11,17 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
-
-from . import i2c as _i2c
+from typing import List
 
 
 @dataclass
 class Capture:
-    """An ADC (scope) capture: raw counts plus calibrated volts and timing.
+    """An ADC capture: raw counts plus calibrated volts and timing.
 
     ``volts`` is the calibrated probe voltage per sample; ``counts`` the raw ADC codes.
     ``sample_rate_hz`` is the achieved rate (the firmware floors requested rates, so this may be
     below what was asked). Index ``i`` corresponds to ``t = i / sample_rate_hz`` seconds.
+    ``source`` is the ADC source the capture routed (``""`` when it left the routing alone).
     """
 
     counts: List[int] = field(default_factory=list)
@@ -60,7 +59,8 @@ class Capture:
         return math.sqrt(sum((v - m) ** 2 for v in self.volts) / len(self.volts))
 
     @property
-    def duration_s(self) -> float:
+    def duration(self) -> float:
+        """Capture length in seconds."""
         return len(self.volts) / self.sample_rate_hz if self.sample_rate_hz > 0 else 0.0
 
     def times(self) -> List[float]:
@@ -93,7 +93,7 @@ class Capture:
         return freqs.tolist(), mag.tolist()
 
     def dominant_frequency(self) -> float:
-        """The frequency (Hz) of the largest AC spectral bin (0.0 if indeterminate)."""
+        """The frequency (Hz) of the largest AC spectral bin (0.0 if indeterminate). Needs numpy."""
         freqs, mag = self.fft()
         if not freqs:
             return 0.0
@@ -117,13 +117,19 @@ class LaCapture:
         return len(self.words)
 
     @property
-    def duration_s(self) -> float:
+    def duration(self) -> float:
+        """Capture length in seconds."""
         return len(self.words) / self.sample_rate_hz if self.sample_rate_hz > 0 else 0.0
 
     def channel(self, la: int) -> List[int]:
         """Extract one 1-based LA channel as a list of 0/1 samples."""
         bit = la - 1
         return [(w >> bit) & 1 for w in self.words]
+
+    def edges(self, la: int) -> int:
+        """Number of level transitions on LA channel ``la``."""
+        bits = self.channel(la)
+        return sum(1 for a, b in zip(bits, bits[1:]) if a != b)
 
     def decode(self, protocol: str = "i2c", **channels):
         """Decode a protocol from this capture. See :func:`benchpod.decode.decode`.
@@ -136,14 +142,10 @@ class LaCapture:
 
         return _decode(self.words, protocol, sample_rate_hz=self.sample_rate_hz, **channels)
 
-    def decode_i2c(self, *, sda: int, scl: int):
-        """Convenience: decode I2C transactions from this capture."""
-        return _i2c.decode_from_la(self.words, sda_ch=sda, scl_ch=scl)
-
 
 @dataclass
-class AnalogCapture:
-    """A correlated ADC + LA capture from a single hardware trigger (aligned timebases)."""
+class CorrelatedCapture:
+    """An ADC and an LA capture taken from ONE hardware trigger, so their timebases align."""
 
     adc: Capture
     la: LaCapture

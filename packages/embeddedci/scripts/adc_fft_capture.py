@@ -182,7 +182,7 @@ def capture(args):
             else:
                 print(f"[adc ] capturing {n} samples @ {fs_hz/1e3:.1f} kS/s "
                       f"({n/fs_hz*1e3:.2f} ms window) from external source '{args.source}'...")
-            counts = bp.capture(n, sample_rate_mhz=rate)
+            counts = bp.capture_adc(n, sample_rate_hz=rate * 1e6).counts
         finally:
             # Always leave the pod quiet for whoever uses it next. (`measure`
             # already stops the DAC, but do it explicitly for the capture path.)

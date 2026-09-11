@@ -11,10 +11,11 @@ it at import time.
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Any, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
-from ..errors import TransportError
+from ..errors import FirmwareError, TransportError
 from ..protocol import encode_request, parse_reply, raise_for_status
 from .base import RawLink, Transport
 
@@ -330,6 +331,47 @@ class SerialTransport(Transport):
                 return out
         raise TransportError("incomplete chunked JSON reply over serial")
 
+    def _read_json_objects(self, idle_timeout: float) -> Iterator[Dict[str, Any]]:
+        """Yield each JSON object line; the timeout restarts whenever bytes arrive, so a long
+        streamed capture is bounded by silence rather than by its total length."""
+        buf = bytearray()
+        deadline = time.monotonic() + idle_timeout
+        while time.monotonic() < deadline:
+            chunk = self._port.read(256)
+            if chunk:
+                buf.extend(chunk)
+                deadline = time.monotonic() + idle_timeout
+            while b"\n" in buf:
+                raw_line, _, rest = buf.partition(b"\n")
+                buf = bytearray(rest)
+                s = raw_line.decode("utf-8", errors="replace").strip()
+                if not s.startswith("{"):
+                    continue  # echo, prompt, or [subsystem] debug line
+                try:
+                    obj = json.loads(s)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    yield obj
+        raise TransportError("timed out waiting for a streamed JSON reply over serial")
+
+    def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
+        """Send a streaming command and yield each raw chunk object until ``more`` is false.
+
+        The serial counterpart of :meth:`TcpTransport.stream_chunks`: callers see every chunk's
+        extra fields (achieved rates, the RLE LA frames), which :meth:`samples` flattens away.
+        """
+        self._enter_json()
+        self._port.write(encode_request(req))
+        self._port.flush()
+        cmd = req.get("cmd")
+        for obj in self._read_json_objects(self.timeout):
+            if obj.get("status") == "error":
+                raise FirmwareError(obj.get("message") or "streamed command failed", cmd=cmd)
+            yield obj
+            if not bool(obj.get("more", False)):
+                return
+
     @staticmethod
     def _clean(raw: str, cmd: str) -> str:
         s = raw.replace("\r\n", "\n").replace("\r", "\n")
@@ -342,7 +384,10 @@ class SerialTransport(Transport):
     # -- Transport API ------------------------------------------------------
 
     def status(self) -> Any:
-        return self._clean(self._send_command("status"), "status")
+        return self.command({"cmd": "status"})
+
+    def ping(self) -> Any:
+        return self.command({"cmd": "ping"})
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         state = "on" if on else "off"
@@ -353,12 +398,6 @@ class SerialTransport(Transport):
         for line in out.replace("\r", "\n").split("\n"):
             if line.strip().startswith("ERROR:"):
                 raise TransportError(f"firmware rejected target-power: {line.strip()}")
-
-    def set_la_voltage(self, mv: int) -> Any:
-        return self.command({"cmd": "la_voltage", "mv": mv})
-
-    def get_la_voltage(self) -> Any:
-        return self.command({"cmd": "la_voltage"})
 
     def _console_raw_handshake(
         self, cmd: str, ready: str, quit_byte: bytes

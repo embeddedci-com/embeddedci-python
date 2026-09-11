@@ -114,6 +114,9 @@ class Capabilities:
     #: the path. False on older gateware — only ``source="adc"`` works there. See
     #: :meth:`~embeddedci.benchpod.client.BenchPod.control_loop`.
     dac_loop_sources: bool = False
+    #: Engineering-units input map for the loop (gateware >= v30); see
+    #: :class:`~embeddedci.benchpod.control_loop.LoopInputMap`.
+    dac_loop_input_map: bool = False
     #: DAC↔capture co-trigger: a replay can be armed to fire on the next capture's hardware t0
     #: (phase-locked, gateware >= v27). See ``replay_waveform(on_capture=True)``.
     dac_cotrig: bool = False
@@ -219,7 +222,8 @@ class Capabilities:
             ("dac", "cap.dac"), ("dac_dc", "cap.dac_dc"), ("dac_replay", "cap.dac_replay"),
             ("dac_deep_replay", "cap.dac_deep_replay"),
             ("dac_control_loop", "cap.dac_control_loop"),
-            ("dac_loop_sources", "cap.dac_loop_sources"), ("dac_cotrig", "cap.dac_cotrig"),
+            ("dac_loop_sources", "cap.dac_loop_sources"),
+            ("dac_loop_input_map", "cap.dac_loop_input_map"), ("dac_cotrig", "cap.dac_cotrig"),
             ("scope", "cap.scope"),
             ("analyzer", "cap.analyzer"), ("serial", "cap.serial"), ("tunnel", "cap.tunnel"),
             ("command", "cap.command"), ("ota", "cap.ota"),

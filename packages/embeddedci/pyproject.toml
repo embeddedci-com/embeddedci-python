@@ -4,32 +4,36 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci"
-version = "0.2.3"
-description = "BenchPod pytest client for EmbeddedCI hardware-in-the-loop testing"
+version = "2.0.0"
+description = "BenchPod SDK and pytest plugin for EmbeddedCI hardware-in-the-loop testing"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "EmbeddedCI" }]
 keywords = ["embedded", "hardware-in-the-loop", "pytest", "benchpod", "swd", "openocd"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: Pytest",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "websocket-client>=1.6"]
+dev = ["pytest>=7.0", "websocket-client>=1.6", "numpy>=1.21"]
+# The pytest plugin (fixtures + --benchpod-* options) registers automatically; this extra just
+# installs pytest alongside the SDK.
+pytest = ["pytest>=7.0"]
 # Cloud destination (embeddedci:<device>): a synchronous WebSocket client for the byte tunnel.
 # OIDC mint + token exchange use the stdlib (urllib), so no extra HTTP dependency is needed.
 cloud = ["websocket-client>=1.6"]

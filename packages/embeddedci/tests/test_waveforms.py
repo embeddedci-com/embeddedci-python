@@ -93,7 +93,7 @@ def test_save_segments_normalizes():
 
     api = FakeApi({("POST", "/benchpod/waveforms/segments"): {"id": "s1", "kind": "segments"}})
     lib = WaveformLibrary(api)
-    lib.save_segments("ramp", dac_path="5v", segments=[Segment("ramp", 10, 0.0, 5.0)])
+    lib.save_segments("ramp", dac_path="5v", segments=[Segment("ramp", 0.01, 0.0, 5.0)])
     body = api.calls[-1]["json"]
     assert body["dac_path"] == "5v"
     assert body["segments"][0] == {"shape": "ramp", "duration_ms": 10.0, "v_start": 0.0, "v_end": 5.0}

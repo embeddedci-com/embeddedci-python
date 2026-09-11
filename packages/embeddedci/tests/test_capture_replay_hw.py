@@ -19,8 +19,8 @@ import pytest
 pytestmark = pytest.mark.hardware
 
 
-def test_scope_capture_returns_volts(benchpod):
-    cap = benchpod.scope_capture(256, sample_rate_mhz=1)
+def test_capture_adc_returns_volts(benchpod):
+    cap = benchpod.capture_adc(256, sample_rate_hz=1e6)
     assert len(cap) > 0
     assert len(cap.volts) == len(cap.counts)
     # calibrated volts should be a sane, finite number
@@ -29,20 +29,27 @@ def test_scope_capture_returns_volts(benchpod):
 
 @pytest.mark.benchpod_capability("analyzer")
 def test_raw_la_capture(benchpod):
-    la = benchpod.capture_la(1024, sample_rate_mhz=1)
+    la = benchpod.capture_la(1024, sample_rate_hz=1e6)
     assert len(la) > 0
     assert all(0 <= w < (1 << 12) for w in la.words[:32])
 
 
 def test_correlated_adc_la_capture(benchpod):
-    ac = benchpod.capture_analog(adc_samples=256, adc_rate_mhz=0.4, la_samples=256, la_rate_mhz=1)
+    ac = benchpod.capture_correlated(adc_samples=256, adc_sample_rate_hz=400_000,
+                                     la_samples=256, la_sample_rate_hz=1e6)
     assert len(ac.adc) > 0 and len(ac.la) > 0
+
+
+def test_deep_adc_capture_streams_from_psram(benchpod):
+    """Above the 32768-sample single-shot buffer, capture_adc switches to the PSRAM stream."""
+    cap = benchpod.capture_adc(65536, sample_rate_hz=400_000)
+    assert len(cap) == 65536
 
 
 @pytest.mark.benchpod_capability("dac_replay")
 def test_save_recording_and_replay(benchpod, benchpod_waveforms):
     """Capture → save to library → replay from the library → stop (the headline flow)."""
-    cap = benchpod.scope_capture(2048, sample_rate_mhz=0.4)
+    cap = benchpod.capture_adc(2048, sample_rate_hz=400_000)
     wf = benchpod.save_capture_as_recording(cap, f"pytest-{int(time.time())}")
     assert wf.is_recording and wf.id
 
@@ -62,6 +69,6 @@ def test_replay_while_capturing_concurrently(benchpod_dac):
     """gateware v18: a looping deep replay runs WHILE an LA capture streams (shared PSRAM bus)."""
     bp = benchpod_dac
     codes = [0xC000] * 65536  # deep constant waveform (streams from PSRAM, loops)
-    with bp.replay(codes, dac_path="5v", are_codes=True, sample_rate_mhz=0.4):
-        la = bp.capture_la(8192, sample_rate_mhz=1)   # must complete alongside the replay
+    with bp.replay(codes, dac_path="5v", are_codes=True, sample_rate_hz=400_000):
+        la = bp.capture_la(8192, sample_rate_hz=1e6)   # must complete alongside the replay
         assert len(la) == 8192

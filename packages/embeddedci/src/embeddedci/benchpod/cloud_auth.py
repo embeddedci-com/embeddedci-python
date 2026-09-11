@@ -58,7 +58,8 @@ def mint_oidc_token(audience: str = DEFAULT_AUDIENCE) -> str:
     if not in_actions and not req_url:
         raise CloudAuthError(
             "cannot mint a GitHub OIDC token: not running inside a GitHub Action. "
-            "The 'embeddedci' destination authenticates via GitHub Actions OIDC and only works in CI."
+            "Outside GitHub Actions, authenticate the 'embeddedci' destination with an API key "
+            "(api_key='eci_…', BENCHPOD_API_KEY, or --benchpod-api-key)."
         )
     if not req_url or not req_token:
         raise CloudAuthError(

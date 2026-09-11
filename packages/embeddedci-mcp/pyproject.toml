@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci-mcp"
-version = "0.1.0"
-description = "MCP server exposing the EmbeddedCI BenchPod SDK as tools for AI agents"
+version = "2.0.0"
+description = "MCP server that lets AI agents drive an EmbeddedCI BenchPod hardware-in-the-loop bench"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "EmbeddedCI" }]
 keywords = ["embedded", "hardware-in-the-loop", "mcp", "benchpod", "swd", "agent"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -20,21 +20,27 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "embeddedci>=0.1",
-    "mcp[cli]>=1.9,<2",
+    # cloud: the embeddedci:<device> destination; analysis: dominant frequency in capture summaries.
+    "embeddedci[cloud,analysis]>=2.0,<3",
+    "mcp>=1.12,<2",
+    "anyio>=4",
+    "pydantic>=2.7",
+    "starlette>=0.27",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "httpx>=0.27"]
 
 [project.scripts]
 embeddedci-mcp = "embeddedci_mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://embeddedci.com"
+Homepage = "https://www.embeddedci.com/docs/benchpod-mcp"
 Repository = "https://github.com/embeddedci-com/embeddedci-python"
 Issues = "https://github.com/embeddedci-com/embeddedci-python/issues"
 

@@ -1,6 +1,9 @@
 # Design: event-based UART for pytest (`open_uart`)
 
-**Status: design only — not implemented.**
+**Status: implemented** as `BenchPod.open_uart()` → `UartSession`
+([uart.py](../src/embeddedci/benchpod/uart.py)). This document records the design; the
+docstrings are the reference. Commands can run while a session is open over TCP and the
+cloud (see below), not over the USB console, where the proxy owns the serial link.
 
 ## Problem
 
@@ -32,8 +35,10 @@ An event-based session: open the UART (start buffering in the background),
 power the target with a plain non-delayed `power_on`, then read.
 
 ```python
+from embeddedci.benchpod import INTERNAL
+
 with bp.open_uart(rx=5, tx=4, baud=115200) as uart:
-    bp.power_on(bp.INTERNAL)                 # immediate — no pod-side delay
+    bp.power_on(INTERNAL)                    # immediate — no pod-side delay
     assert uart.read_until("APP_OK", timeout=6)
     # ... later, a second read from the same stream:
     uart.write(b"status\r\n")
@@ -165,17 +170,20 @@ backward-compatible.
 ## Worked example (the motivating case)
 
 ```python
+from embeddedci.benchpod import INTERNAL
+
+
 def test_boot_banner(benchpod):
     bp = benchpod
     with bp.open_uart(rx=5, tx=4, baud=115200) as uart:   # listening starts now
-        bp.power_on(bp.INTERNAL)                           # immediate eFuse start
+        bp.power_on(INTERNAL)                              # immediate eFuse start
         m = uart.read_until(r"APP_OK", timeout=6)
         assert m, f"no boot banner; got:\n{uart.text}"
 
         # a second, independent read on the same live stream
         uart.write(b"ping\r\n")
         assert uart.expect("pong", timeout=2)
-    bp.power_off(bp.INTERNAL)
+    bp.power_off(INTERNAL)
 ```
 
 No `delay=`, no `power_cycle_and_capture` — the banner is caught because listening

@@ -5,7 +5,8 @@ slave (currently a BMP280) on two LA channels so a DUT's I2C master can read it.
 See ``bench-pod-firmware/docs/API.md`` ("Emulated I2C sensor").
 
 These call ``transport.command``/``transport.samples`` directly, so they require
-a transport that speaks JSON: TCP natively, serial via its ``json`` console mode.
+a transport that speaks JSON: TCP and the cloud natively, serial via its ``json``
+console mode.
 """
 
 from __future__ import annotations
@@ -68,22 +69,26 @@ def sensor_regs(transport, start: int = 0, length: int = 256) -> List[int]:
     transport_samples = getattr(transport, "samples", None)
     if transport_samples is None:
         raise BenchPodError(
-            "I2C sensor emulation is only available on the TCP transport"
+            "reading the sensor register image needs a transport with chunked JSON replies"
         )
     return transport_samples({
         "cmd": "sensor_regs", "start": hex(int(start)), "len": int(length),
     })
 
 
-def sensor_la(transport, samples: int = 256,
-              sample_rate_mhz: Optional[float] = None) -> List[int]:
-    """Raw I2C-bus logic capture (packed bytes; 4 {SCL,SDA} samples each)."""
+def sensor_la(transport, samples: int = 1024,
+              sample_rate_hz: Optional[float] = None) -> List[int]:
+    """Raw capture of the emulated sensor's I2C bus (packed bytes; 4 {SCL,SDA} samples each)."""
     transport_samples = getattr(transport, "samples", None)
     if transport_samples is None:
         raise BenchPodError(
-            "I2C sensor emulation is only available on the TCP transport"
+            "capturing the sensor bus needs a transport with chunked JSON replies"
         )
+    if int(samples) <= 0:
+        raise ValueError(f"samples must be > 0, got {samples!r}")
     req: dict = {"cmd": "sensor_la", "samples": int(samples)}
-    if sample_rate_mhz is not None:
-        req["sample_rate_mhz"] = float(sample_rate_mhz)
+    if sample_rate_hz is not None:
+        if sample_rate_hz <= 0:
+            raise ValueError(f"sample_rate_hz must be > 0, got {sample_rate_hz!r}")
+        req["sample_rate_mhz"] = float(sample_rate_hz) / 1e6
     return transport_samples(req)

@@ -1,0 +1,2436 @@
+{
+  "adc_read": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read a voltage"
+    },
+    "input": {
+      "properties": {
+        "source": {
+          "default": "ext",
+          "enum": [
+            "ext",
+            "cal1",
+            "cal2",
+            "amp"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "title": "adc_readArguments",
+      "type": "object"
+    }
+  },
+  "analog_path": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Apply an analog path"
+    },
+    "input": {
+      "properties": {
+        "path": {
+          "enum": [
+            "off",
+            "dac_3v3",
+            "dac_5v",
+            "dac_12v",
+            "adc_ext",
+            "cal1",
+            "cal2",
+            "amp"
+          ],
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "analog_pathArguments",
+      "type": "object"
+    }
+  },
+  "can_close": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Close CAN"
+    },
+    "input": {
+      "properties": {},
+      "title": "can_closeArguments",
+      "type": "object"
+    }
+  },
+  "can_open": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Open CAN"
+    },
+    "input": {
+      "properties": {
+        "bitrate": {
+          "default": 500000,
+          "maximum": 1000000,
+          "minimum": 10000,
+          "title": "Bitrate",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "normal",
+          "description": "normal = on a bus with other nodes; internal/external = loopback self-test; listen = silent.",
+          "enum": [
+            "normal",
+            "internal",
+            "external",
+            "listen"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "term": {
+          "default": false,
+          "description": "Engage the 120 ohm termination.",
+          "title": "Term",
+          "type": "boolean"
+        }
+      },
+      "title": "can_openArguments",
+      "type": "object"
+    }
+  },
+  "can_read": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read CAN frames"
+    },
+    "input": {
+      "properties": {
+        "can_id": {
+          "anyOf": [
+            {
+              "maximum": 536870911,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Can Id"
+        },
+        "max_frames": {
+          "default": 32,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": 0.0,
+          "description": "With can_id: wait up to this long for it. Without: collect frames for this long (0 = what is buffered).",
+          "maximum": 120,
+          "minimum": 0,
+          "title": "Timeout",
+          "type": "number"
+        }
+      },
+      "title": "can_readArguments",
+      "type": "object"
+    }
+  },
+  "can_respond": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "CAN auto-responder"
+    },
+    "input": {
+      "properties": {
+        "clear": {
+          "default": false,
+          "description": "Remove all responder rules instead of adding one.",
+          "title": "Clear",
+          "type": "boolean"
+        },
+        "match_ext": {
+          "default": false,
+          "title": "Match Ext",
+          "type": "boolean"
+        },
+        "match_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Id"
+        },
+        "reply_data": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply Data"
+        },
+        "reply_ext": {
+          "default": false,
+          "title": "Reply Ext",
+          "type": "boolean"
+        },
+        "reply_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply Id"
+        }
+      },
+      "title": "can_respondArguments",
+      "type": "object"
+    }
+  },
+  "can_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "CAN status"
+    },
+    "input": {
+      "properties": {},
+      "title": "can_statusArguments",
+      "type": "object"
+    }
+  },
+  "can_write": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Send a CAN frame"
+    },
+    "input": {
+      "properties": {
+        "can_id": {
+          "maximum": 536870911,
+          "minimum": 0,
+          "title": "Can Id",
+          "type": "integer"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0-8 data bytes.",
+          "title": "Data"
+        },
+        "ext": {
+          "default": false,
+          "description": "29-bit extended identifier.",
+          "title": "Ext",
+          "type": "boolean"
+        },
+        "rtr": {
+          "default": false,
+          "title": "Rtr",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "can_id"
+      ],
+      "title": "can_writeArguments",
+      "type": "object"
+    }
+  },
+  "capture_adc": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Capture an ADC waveform"
+    },
+    "input": {
+      "properties": {
+        "points": {
+          "default": 200,
+          "description": "Points in the returned min/max envelope.",
+          "maximum": 2000,
+          "minimum": 8,
+          "title": "Points",
+          "type": "integer"
+        },
+        "sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "Sample Rate Hz"
+        },
+        "samples": {
+          "default": 4096,
+          "maximum": 8000000,
+          "minimum": 1,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "ext",
+                "cal1",
+                "cal2",
+                "amp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Route this ADC source first; omit to keep routing.",
+          "title": "Source"
+        }
+      },
+      "title": "capture_adcArguments",
+      "type": "object"
+    }
+  },
+  "capture_correlated": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Capture ADC and logic together"
+    },
+    "input": {
+      "properties": {
+        "adc_sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "Adc Sample Rate Hz"
+        },
+        "adc_samples": {
+          "default": 4096,
+          "maximum": 8000000,
+          "minimum": 0,
+          "title": "Adc Samples",
+          "type": "integer"
+        },
+        "la_sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "La Sample Rate Hz"
+        },
+        "la_samples": {
+          "default": 4096,
+          "maximum": 8000000,
+          "minimum": 0,
+          "title": "La Samples",
+          "type": "integer"
+        },
+        "points": {
+          "default": 200,
+          "description": "Points in the returned min/max envelope.",
+          "maximum": 2000,
+          "minimum": 8,
+          "title": "Points",
+          "type": "integer"
+        },
+        "stop_dac_after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds into the capture to cut a running DAC.",
+          "title": "Stop Dac After"
+        }
+      },
+      "title": "capture_correlatedArguments",
+      "type": "object"
+    }
+  },
+  "capture_la": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Capture logic channels"
+    },
+    "input": {
+      "properties": {
+        "sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "Sample Rate Hz"
+        },
+        "samples": {
+          "default": 4096,
+          "maximum": 8000000,
+          "minimum": 1,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "stop_dac_after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds into the capture to cut a running DAC output (see the DUT react).",
+          "title": "Stop Dac After"
+        }
+      },
+      "title": "capture_laArguments",
+      "type": "object"
+    }
+  },
+  "capture_uart": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Capture UART output"
+    },
+    "input": {
+      "properties": {
+        "baud": {
+          "default": 115200,
+          "maximum": 4000000,
+          "minimum": 300,
+          "title": "Baud",
+          "type": "integer"
+        },
+        "duration": {
+          "description": "Capture window in seconds.",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Duration",
+          "type": "number"
+        },
+        "rx": {
+          "description": "LA channel wired to the DUT's TX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Rx",
+          "type": "integer"
+        },
+        "tx": {
+          "description": "LA channel wired to the DUT's RX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Tx",
+          "type": "integer"
+        },
+        "until_regex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Python regular expression; stop as soon as it matches.",
+          "title": "Until Regex"
+        }
+      },
+      "required": [
+        "rx",
+        "tx",
+        "duration"
+      ],
+      "title": "capture_uartArguments",
+      "type": "object"
+    }
+  },
+  "command": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Raw firmware command"
+    },
+    "input": {
+      "properties": {
+        "request": {
+          "additionalProperties": true,
+          "description": "A firmware JSON command with a \"cmd\" key, e.g. {\"cmd\": \"usb_cc\"}.",
+          "title": "Request",
+          "type": "object"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "commandArguments",
+      "type": "object"
+    }
+  },
+  "connect": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Connect to a BenchPod"
+    },
+    "input": {
+      "properties": {
+        "connection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), 'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit for the server default.",
+          "title": "Connection"
+        },
+        "la_voltage": {
+          "anyOf": [
+            {
+              "enum": [
+                1.8,
+                3.3
+              ],
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage).",
+          "title": "La Voltage"
+        },
+        "lease_wait": {
+          "default": 30.0,
+          "description": "Cloud only: seconds to wait when another run holds the shared device.",
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Lease Wait",
+          "type": "number"
+        }
+      },
+      "title": "connectArguments",
+      "type": "object"
+    }
+  },
+  "control_loop": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Arm the DAC control loop"
+    },
+    "input": {
+      "$defs": {
+        "InputMapSpec": {
+          "description": "Engineering-units input map for the control loop (gateware >= v30).",
+          "properties": {
+            "mv_at_zero": {
+              "default": 0.0,
+              "description": "Sense chain offset, mV at a value of 0.",
+              "title": "Mv At Zero",
+              "type": "number"
+            },
+            "mv_per_unit": {
+              "description": "Sense chain gain at the front SMA, mV per unit.",
+              "exclusiveMinimum": 0,
+              "title": "Mv Per Unit",
+              "type": "number"
+            },
+            "range_max": {
+              "description": "Input value mapped to the last curve point.",
+              "title": "Range Max",
+              "type": "number"
+            },
+            "range_min": {
+              "description": "Input value mapped to the first curve point.",
+              "title": "Range Min",
+              "type": "number"
+            },
+            "trip": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional trip level, same unit.",
+              "title": "Trip"
+            }
+          },
+          "required": [
+            "mv_per_unit",
+            "range_min",
+            "range_max"
+          ],
+          "title": "InputMapSpec",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "curve": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Transfer function: DAC output codes indexed by input (1-2048 points, spread over the input range).",
+          "title": "Curve"
+        },
+        "input_code": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Input Code",
+          "type": "integer"
+        },
+        "input_map": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputMapSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "k": {
+          "default": 8192,
+          "description": "Damping, Q15 (32767 = jump straight to the target).",
+          "maximum": 32767,
+          "minimum": 1,
+          "title": "K",
+          "type": "integer"
+        },
+        "points": {
+          "default": 256,
+          "maximum": 2048,
+          "minimum": 2,
+          "title": "Points",
+          "type": "integer"
+        },
+        "sharpness": {
+          "default": 4.0,
+          "description": "Knee sharpness of the panel preset.",
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Sharpness",
+          "type": "number"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "adc",
+                "fixed",
+                "sweep"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "adc = closed loop; fixed = hold input_code (open loop); sweep = advance by step each tick.",
+          "title": "Source"
+        },
+        "step": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "tick_div": {
+          "default": 64,
+          "maximum": 65535,
+          "minimum": 8,
+          "title": "Tick Div",
+          "type": "integer"
+        },
+        "vmax": {
+          "default": 65535,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Vmax",
+          "type": "integer"
+        },
+        "vmin": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Vmin",
+          "type": "integer"
+        },
+        "voc_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instead of curve: solar-panel I-V preset with this open-circuit code.",
+          "title": "Voc Code"
+        }
+      },
+      "title": "control_loopArguments",
+      "type": "object"
+    }
+  },
+  "dac_output": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set a DC output voltage"
+    },
+    "input": {
+      "properties": {
+        "path": {
+          "enum": [
+            "3v3",
+            "5v",
+            "12v",
+            "off"
+          ],
+          "title": "Path",
+          "type": "string"
+        },
+        "volts": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Calibrated DC volts to drive; omit to only route.",
+          "title": "Volts"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "dac_outputArguments",
+      "type": "object"
+    }
+  },
+  "dac_stop": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop the DAC"
+    },
+    "input": {
+      "properties": {},
+      "title": "dac_stopArguments",
+      "type": "object"
+    }
+  },
+  "decode_la": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Decode a logic capture"
+    },
+    "input": {
+      "properties": {
+        "baud": {
+          "anyOf": [
+            {
+              "maximum": 4000000,
+              "minimum": 300,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baud"
+        },
+        "capture": {
+          "default": "last",
+          "description": "last = decode the previous capture_la; new = capture first (needs samples/sample_rate_hz).",
+          "enum": [
+            "last",
+            "new"
+          ],
+          "title": "Capture",
+          "type": "string"
+        },
+        "cs": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cs"
+        },
+        "max_items": {
+          "default": 200,
+          "maximum": 5000,
+          "minimum": 1,
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "miso": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Miso"
+        },
+        "mode": {
+          "default": 0,
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "mosi": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mosi"
+        },
+        "protocol": {
+          "enum": [
+            "i2c",
+            "uart",
+            "spi"
+          ],
+          "title": "Protocol",
+          "type": "string"
+        },
+        "rx": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rx"
+        },
+        "sample_rate_hz": {
+          "default": 1000000,
+          "exclusiveMinimum": 0,
+          "maximum": 50000000,
+          "title": "Sample Rate Hz",
+          "type": "number"
+        },
+        "samples": {
+          "default": 16384,
+          "maximum": 8000000,
+          "minimum": 1,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "scl": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scl"
+        },
+        "sclk": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sclk"
+        },
+        "sda": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sda"
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "title": "decode_laArguments",
+      "type": "object"
+    }
+  },
+  "disable_i2c_sensor": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop the emulated sensor"
+    },
+    "input": {
+      "properties": {},
+      "title": "disable_i2c_sensorArguments",
+      "type": "object"
+    }
+  },
+  "disconnect": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Disconnect"
+    },
+    "input": {
+      "properties": {},
+      "title": "disconnectArguments",
+      "type": "object"
+    }
+  },
+  "enable_i2c_sensor": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Emulate an I2C sensor"
+    },
+    "input": {
+      "properties": {
+        "address": {
+          "default": 118,
+          "description": "7-bit address (BMP280: 0x76 or 0x77).",
+          "maximum": 119,
+          "minimum": 3,
+          "title": "Address",
+          "type": "integer"
+        },
+        "pressure_pa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pressure Pa"
+        },
+        "scl": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Scl",
+          "type": "integer"
+        },
+        "sda": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Sda",
+          "type": "integer"
+        },
+        "temperature_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature C"
+        }
+      },
+      "required": [
+        "sda",
+        "scl"
+      ],
+      "title": "enable_i2c_sensorArguments",
+      "type": "object"
+    }
+  },
+  "flash": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Flash firmware over SWD"
+    },
+    "input": {
+      "properties": {
+        "connect_attempts": {
+          "default": 5,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Connect Attempts",
+          "type": "integer"
+        },
+        "connect_under_reset": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connect Under Reset"
+        },
+        "extra_args": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Args"
+        },
+        "extra_configs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Configs"
+        },
+        "file": {
+          "default": "",
+          "description": "Firmware image path on the machine running this server.",
+          "title": "File",
+          "type": "string"
+        },
+        "load_address": {
+          "default": "",
+          "description": "Load address for raw .bin images, e.g. 0x08000000.",
+          "title": "Load Address",
+          "type": "string"
+        },
+        "nreset": {
+          "default": false,
+          "description": "The target's reset line is wired to the pod's reset pin: enables connect-under-reset.",
+          "title": "Nreset",
+          "type": "boolean"
+        },
+        "reset": {
+          "default": true,
+          "title": "Reset",
+          "type": "boolean"
+        },
+        "swclk": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Swclk",
+          "type": "integer"
+        },
+        "swdio": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Swdio",
+          "type": "integer"
+        },
+        "target": {
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg.",
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "target_power": {
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Power this eFuse on before flashing.",
+          "title": "Target Power"
+        },
+        "timeout": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout",
+          "type": "number"
+        },
+        "verify": {
+          "default": true,
+          "title": "Verify",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "swclk",
+        "swdio",
+        "target"
+      ],
+      "title": "flashArguments",
+      "type": "object"
+    }
+  },
+  "fpga_image": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Switch gateware image"
+    },
+    "input": {
+      "properties": {
+        "image": {
+          "description": "loop = control-loop image; deep_replay = deep DAC replay from PSRAM.",
+          "enum": [
+            "loop",
+            "deep_replay"
+          ],
+          "title": "Image",
+          "type": "string"
+        }
+      },
+      "required": [
+        "image"
+      ],
+      "title": "fpga_imageArguments",
+      "type": "object"
+    }
+  },
+  "generate": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Generate a waveform"
+    },
+    "input": {
+      "properties": {
+        "amplitude": {
+          "description": "Peak volts.",
+          "exclusiveMinimum": 0,
+          "title": "Amplitude",
+          "type": "number"
+        },
+        "dac_path": {
+          "default": "5v",
+          "enum": [
+            "3v3",
+            "5v",
+            "12v"
+          ],
+          "title": "Dac Path",
+          "type": "string"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds; omit to run until dac_stop.",
+          "title": "Duration"
+        },
+        "freq_hz": {
+          "exclusiveMinimum": 0,
+          "title": "Freq Hz",
+          "type": "number"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Centre volts; default mid-range of dac_path.",
+          "title": "Offset"
+        },
+        "on_capture": {
+          "default": false,
+          "description": "Start on the next capture's hardware t0 (phase-locked).",
+          "title": "On Capture",
+          "type": "boolean"
+        },
+        "route": {
+          "default": true,
+          "description": "Route dac_path first. false = keep the current analog path (e.g. after analog_path('cal1') for a DAC-to-ADC loopback); dac_path then only sets the volts scaling.",
+          "title": "Route",
+          "type": "boolean"
+        },
+        "sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "Sample Rate Hz"
+        },
+        "waveform": {
+          "enum": [
+            "sine",
+            "square",
+            "sawtooth"
+          ],
+          "title": "Waveform",
+          "type": "string"
+        }
+      },
+      "required": [
+        "waveform",
+        "freq_hz",
+        "amplitude"
+      ],
+      "title": "generateArguments",
+      "type": "object"
+    }
+  },
+  "i2c_sensor_capture": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Capture the sensor's I2C bus"
+    },
+    "input": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Also report whether the DUT addressed this device.",
+          "title": "Address"
+        },
+        "register": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With address: the bytes the DUT read from this register.",
+          "title": "Register"
+        },
+        "sample_rate_hz": {
+          "default": 500000,
+          "exclusiveMinimum": 0,
+          "maximum": 50000000,
+          "title": "Sample Rate Hz",
+          "type": "number"
+        },
+        "samples": {
+          "default": 4096,
+          "maximum": 65536,
+          "minimum": 64,
+          "title": "Samples",
+          "type": "integer"
+        }
+      },
+      "title": "i2c_sensor_captureArguments",
+      "type": "object"
+    }
+  },
+  "i2c_sensor_regs": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated sensor registers"
+    },
+    "input": {
+      "properties": {
+        "length": {
+          "default": 256,
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Length",
+          "type": "integer"
+        },
+        "start": {
+          "default": 0,
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "title": "i2c_sensor_regsArguments",
+      "type": "object"
+    }
+  },
+  "i2c_sensor_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated sensor status"
+    },
+    "input": {
+      "properties": {},
+      "title": "i2c_sensor_statusArguments",
+      "type": "object"
+    }
+  },
+  "la_step": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Step pulse train"
+    },
+    "input": {
+      "properties": {
+        "delay": {
+          "description": "Seconds between step pulses.",
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Delay",
+          "type": "number"
+        },
+        "dir_la": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dir La"
+        },
+        "direction": {
+          "default": 0,
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Direction",
+          "type": "integer"
+        },
+        "la": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "La",
+          "type": "integer"
+        },
+        "steps": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Steps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "la",
+        "steps",
+        "delay"
+      ],
+      "title": "la_stepArguments",
+      "type": "object"
+    }
+  },
+  "list_waveforms": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List library waveforms"
+    },
+    "input": {
+      "properties": {},
+      "title": "list_waveformsArguments",
+      "type": "object"
+    }
+  },
+  "loop_input": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Move the loop input"
+    },
+    "input": {
+      "properties": {
+        "input_code": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Code"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "adc",
+                "fixed",
+                "sweep"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        }
+      },
+      "title": "loop_inputArguments",
+      "type": "object"
+    }
+  },
+  "loop_probe": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Probe the control loop"
+    },
+    "input": {
+      "properties": {},
+      "title": "loop_probeArguments",
+      "type": "object"
+    }
+  },
+  "power_cycle_and_capture": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Power-cycle and capture boot log"
+    },
+    "input": {
+      "properties": {
+        "baud": {
+          "default": 115200,
+          "maximum": 4000000,
+          "minimum": 300,
+          "title": "Baud",
+          "type": "integer"
+        },
+        "delay": {
+          "default": 1.0,
+          "description": "Seconds into the capture the power comes back.",
+          "maximum": 60,
+          "minimum": 0,
+          "title": "Delay",
+          "type": "number"
+        },
+        "duration": {
+          "default": 4.0,
+          "description": "Capture window in seconds; must exceed delay.",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Duration",
+          "type": "number"
+        },
+        "efuse": {
+          "default": 1,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Efuse",
+          "type": "integer"
+        },
+        "off_settle": {
+          "default": 0.3,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Off Settle",
+          "type": "number"
+        },
+        "rx": {
+          "description": "LA channel wired to the DUT's TX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Rx",
+          "type": "integer"
+        },
+        "tx": {
+          "description": "LA channel wired to the DUT's RX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Tx",
+          "type": "integer"
+        },
+        "until_regex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Python regular expression; stop as soon as it matches.",
+          "title": "Until Regex"
+        }
+      },
+      "required": [
+        "rx",
+        "tx"
+      ],
+      "title": "power_cycle_and_captureArguments",
+      "type": "object"
+    }
+  },
+  "power_off": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Power target off"
+    },
+    "input": {
+      "properties": {
+        "delay": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds: schedule the power-off pod-side.",
+          "title": "Delay"
+        },
+        "efuse": {
+          "default": 1,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Efuse",
+          "type": "integer"
+        }
+      },
+      "title": "power_offArguments",
+      "type": "object"
+    }
+  },
+  "power_on": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Power target on"
+    },
+    "input": {
+      "properties": {
+        "delay": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture).",
+          "title": "Delay"
+        },
+        "efuse": {
+          "default": 1,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Efuse",
+          "type": "integer"
+        }
+      },
+      "title": "power_onArguments",
+      "type": "object"
+    }
+  },
+  "power_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Power status"
+    },
+    "input": {
+      "properties": {},
+      "title": "power_statusArguments",
+      "type": "object"
+    }
+  },
+  "pull_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Pull resistor status"
+    },
+    "input": {
+      "properties": {},
+      "title": "pull_statusArguments",
+      "type": "object"
+    }
+  },
+  "replay": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Replay a waveform"
+    },
+    "input": {
+      "$defs": {
+        "FaultSpec": {
+          "description": "A fault spliced into a replayed waveform.",
+          "properties": {
+            "level": {
+              "anyOf": [
+                {
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Raw DAC code to hold (default per fault type).",
+              "title": "Level"
+            },
+            "start": {
+              "default": 0,
+              "description": "First replay sample the fault covers.",
+              "minimum": 0,
+              "title": "Start",
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "flatline",
+                "spike",
+                "stuck"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "width": {
+              "default": 0,
+              "description": "Samples covered; 0 = to the end.",
+              "minimum": 0,
+              "title": "Width",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "FaultSpec",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "dac_path": {
+          "default": "5v",
+          "enum": [
+            "3v3",
+            "5v",
+            "12v"
+          ],
+          "title": "Dac Path",
+          "type": "string"
+        },
+        "fault": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaultSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "from_last_capture": {
+          "default": false,
+          "description": "Replay the last capture_adc instead of volts.",
+          "title": "From Last Capture",
+          "type": "boolean"
+        },
+        "mapping": {
+          "default": "faithful",
+          "description": "faithful = reproduce volts (clip); fit = auto-scale.",
+          "enum": [
+            "faithful",
+            "fit"
+          ],
+          "title": "Mapping",
+          "type": "string"
+        },
+        "on_capture": {
+          "default": false,
+          "title": "On Capture",
+          "type": "boolean"
+        },
+        "route": {
+          "default": true,
+          "description": "Route dac_path first (false = keep the current analog path).",
+          "title": "Route",
+          "type": "boolean"
+        },
+        "sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replay rate; defaults to the capture's own rate.",
+          "title": "Sample Rate Hz"
+        },
+        "volts": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Waveform in volts, one value per sample.",
+          "title": "Volts"
+        }
+      },
+      "title": "replayArguments",
+      "type": "object"
+    }
+  },
+  "replay_waveform": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Replay a library waveform"
+    },
+    "input": {
+      "$defs": {
+        "FaultSpec": {
+          "description": "A fault spliced into a replayed waveform.",
+          "properties": {
+            "level": {
+              "anyOf": [
+                {
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Raw DAC code to hold (default per fault type).",
+              "title": "Level"
+            },
+            "start": {
+              "default": 0,
+              "description": "First replay sample the fault covers.",
+              "minimum": 0,
+              "title": "Start",
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "flatline",
+                "spike",
+                "stuck"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "width": {
+              "default": 0,
+              "description": "Samples covered; 0 = to the end.",
+              "minimum": 0,
+              "title": "Width",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "FaultSpec",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "dac_path": {
+          "anyOf": [
+            {
+              "enum": [
+                "3v3",
+                "5v",
+                "12v"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Output path; default the waveform's own (else 5v).",
+          "title": "Dac Path"
+        },
+        "fault": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaultSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mapping": {
+          "default": "faithful",
+          "enum": [
+            "faithful",
+            "fit"
+          ],
+          "title": "Mapping",
+          "type": "string"
+        },
+        "on_capture": {
+          "default": false,
+          "title": "On Capture",
+          "type": "boolean"
+        },
+        "sample_rate_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate in Hz; omit for the device maximum.",
+          "title": "Sample Rate Hz"
+        },
+        "target_samples": {
+          "default": 0,
+          "description": "Downsample a shallow replay to this many samples.",
+          "minimum": 0,
+          "title": "Target Samples",
+          "type": "integer"
+        },
+        "waveform_id": {
+          "title": "Waveform Id",
+          "type": "string"
+        },
+        "window_len": {
+          "default": 0,
+          "description": "Samples to replay; 0 = to the end.",
+          "minimum": 0,
+          "title": "Window Len",
+          "type": "integer"
+        },
+        "window_start": {
+          "default": 0,
+          "description": "First recording sample to replay.",
+          "minimum": 0,
+          "title": "Window Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "waveform_id"
+      ],
+      "title": "replay_waveformArguments",
+      "type": "object"
+    }
+  },
+  "reset_target": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Reset target"
+    },
+    "input": {
+      "properties": {
+        "action": {
+          "default": "pulse",
+          "description": "pulse = reset once; hold = keep the target in reset; release = let it run; status = read only.",
+          "enum": [
+            "pulse",
+            "hold",
+            "release",
+            "status"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "pulse": {
+          "default": 0.1,
+          "description": "Pulse length in seconds.",
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Pulse",
+          "type": "number"
+        }
+      },
+      "title": "reset_targetArguments",
+      "type": "object"
+    }
+  },
+  "save_capture_as_recording": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Save capture to the library"
+    },
+    "input": {
+      "properties": {
+        "full_scale_v": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Volts the top code represents; default the peak.",
+          "title": "Full Scale V"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "save_capture_as_recordingArguments",
+      "type": "object"
+    }
+  },
+  "set_i2c_sensor": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set emulated sensor values"
+    },
+    "input": {
+      "properties": {
+        "pressure_pa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pressure Pa"
+        },
+        "temperature_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature C"
+        }
+      },
+      "title": "set_i2c_sensorArguments",
+      "type": "object"
+    }
+  },
+  "set_la_voltage": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set LA I/O voltage"
+    },
+    "input": {
+      "properties": {
+        "voltage": {
+          "enum": [
+            1.8,
+            3.3
+          ],
+          "title": "Voltage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "voltage"
+      ],
+      "title": "set_la_voltageArguments",
+      "type": "object"
+    }
+  },
+  "set_pull": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set pull resistors"
+    },
+    "input": {
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "las": {
+          "description": "LA channels (1-8).",
+          "items": {
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Las",
+          "type": "array"
+        }
+      },
+      "required": [
+        "las",
+        "enabled"
+      ],
+      "title": "set_pullArguments",
+      "type": "object"
+    }
+  },
+  "status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Pod status"
+    },
+    "input": {
+      "properties": {},
+      "title": "statusArguments",
+      "type": "object"
+    }
+  },
+  "uart_close": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Close the UART session"
+    },
+    "input": {
+      "properties": {},
+      "title": "uart_closeArguments",
+      "type": "object"
+    }
+  },
+  "uart_open": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Open a UART session"
+    },
+    "input": {
+      "properties": {
+        "baud": {
+          "default": 115200,
+          "maximum": 4000000,
+          "minimum": 300,
+          "title": "Baud",
+          "type": "integer"
+        },
+        "rx": {
+          "description": "LA channel wired to the DUT's TX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Rx",
+          "type": "integer"
+        },
+        "tx": {
+          "description": "LA channel wired to the DUT's RX.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Tx",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rx",
+        "tx"
+      ],
+      "title": "uart_openArguments",
+      "type": "object"
+    }
+  },
+  "uart_read": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read the DUT console"
+    },
+    "input": {
+      "properties": {
+        "timeout": {
+          "default": 2.0,
+          "description": "Seconds to wait for until_regex (or, without one, for any new output).",
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Timeout",
+          "type": "number"
+        },
+        "until_regex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Python regular expression; stop as soon as it matches.",
+          "title": "Until Regex"
+        }
+      },
+      "title": "uart_readArguments",
+      "type": "object"
+    }
+  },
+  "uart_write": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Write to the DUT console"
+    },
+    "input": {
+      "properties": {
+        "line_ending": {
+          "default": "lf",
+          "description": "Appended after text.",
+          "enum": [
+            "none",
+            "lf",
+            "crlf"
+          ],
+          "title": "Line Ending",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "uart_writeArguments",
+      "type": "object"
+    }
+  }
+}

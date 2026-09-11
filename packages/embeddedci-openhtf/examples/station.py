@@ -30,6 +30,7 @@ from embeddedci_openhtf import (
     power_phase,
 )
 
+LA_VOLTAGE = 3.3                 # DUT I/O voltage in volts (1.8 or 3.3)
 UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-12)
 BOOT_BANNER = "APP_OK"
 
@@ -43,8 +44,9 @@ def main() -> None:
     if not args.pod:
         ap.error("no pod connection: pass --pod or set BENCHPOD_CONNECTION")
 
-    # persistent=True -> one connection shared across every DUT this session
-    bench = benchpod_plug(args.pod, persistent=True)
+    # persistent=True -> one connection shared across every DUT this session;
+    # la_voltage is selected once, on connect (and again after a reconnect).
+    bench = benchpod_plug(args.pod, persistent=True, la_voltage=LA_VOLTAGE)
     test = htf.Test(
         power_phase(bench, on=True),
         boot_banner_phase(bench, rx=UART_RX, tx=UART_TX, expect=BOOT_BANNER,

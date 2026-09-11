@@ -1,10 +1,11 @@
 """Transport abstraction shared by all BenchPod backends.
 
 A :class:`Transport` exposes the high-level operations every BenchPod backend
-must provide. The TCP transport additionally offers raw ``command``/``samples``
-JSON access (the serial console speaks text commands, not JSON, so those extras
-are TCP-only). :class:`RawLink` is the bidirectional byte stream that
-``dap_start`` hands to the flash bridge.
+must provide. The concrete TCP, serial and cloud transports additionally offer
+raw JSON access — ``command`` (one reply), ``samples`` (a chunked sample array)
+and ``stream_chunks`` (every chunk object) — which the client builds most
+operations on. :class:`RawLink` is the bidirectional byte stream that
+``dap_start``/``uart_proxy_start`` hand back.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ class Transport(ABC):
 
     @abstractmethod
     def status(self) -> Any:
-        """Return firmware/connection status (dict over TCP, text over serial)."""
+        """Return the pod's status report (a dict)."""
 
     @abstractmethod
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
@@ -56,22 +57,6 @@ class Transport(ABC):
         no LA channel to hand over."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support CMSIS-DAP (dap_start)"
-        )
-
-    def set_la_voltage(self, mv: int) -> Any:
-        """Select the LA I/O-bank voltage via the pod's TPS2116 mux; ``mv`` is
-        1800 or 3300. Must be set before any LA-bank op (flash/SWD, UART proxy,
-        LA capture, pull-ups, I2C-sensor). Returns the pod's ``{"mv","st"}`` state.
-        Not every backend implements it."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support set_la_voltage"
-        )
-
-    def get_la_voltage(self) -> Any:
-        """Report the current LA I/O-bank voltage state (``{"mv","st"}``); ``mv``
-        is 0 when not yet set. Not every backend implements it."""
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support get_la_voltage"
         )
 
     @abstractmethod

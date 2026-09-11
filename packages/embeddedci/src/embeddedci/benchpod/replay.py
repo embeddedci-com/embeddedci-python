@@ -1,15 +1,15 @@
-"""DAC arbitrary-waveform replay: fault/segment helpers and the armed-replay handle.
+"""DAC output handles plus the fault/segment helpers for arbitrary-waveform replay.
 
-A replay loops out of the DAC until it is stopped. On a v2 pod a *deep* replay streams from
-PSRAM and — with gateware v18 — an ADC/LA capture can run **at the same time** (the DAC reader
-and the capture writer are time-multiplexed on the quad bus). :class:`ReplayHandle` models the
-looping replay so a test can express "replay this while I capture" as a context manager::
+Both the parametric generator and a replay keep driving the DAC until they are stopped. On a v2
+pod a *deep* replay streams from PSRAM and — with gateware v18 — an ADC/LA capture can run **at
+the same time**. :class:`DacHandle` / :class:`ReplayHandle` model a running output so a test can
+express "drive this while I capture" as a context manager::
 
-    with bp.replay(recording, dac_path="5v", loop=True):
-        la = bp.capture_la(samples=8192, sample_rate_mhz=1)   # runs concurrently
+    with bp.replay(recording, dac_path="5v"):
+        la = bp.capture_la(8192, sample_rate_hz=1e6)   # runs concurrently
     # DAC stopped on exit
 
-The actual arming (route the DAC path, ``load_bin`` + ``replay`` over the tunnel, or the server's
+The arming itself (route the DAC path, ``load_bin`` + ``replay`` over the tunnel, or the server's
 ``/dac/replay/start``) lives on :class:`~embeddedci.benchpod.client.BenchPod`; this module holds
 the transport-independent pieces.
 """
@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
+
+from .constants import FAULT_TYPES, check_choice
 
 
 @dataclass
@@ -36,6 +38,7 @@ class Fault:
     level: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        check_choice(self.type, FAULT_TYPES, "fault type")
         d: Dict[str, Any] = {"type": self.type, "start": int(self.start), "width": int(self.width)}
         if self.level is not None:
             d["level"] = int(self.level)
@@ -44,52 +47,70 @@ class Fault:
 
 @dataclass
 class Segment:
-    """One piece of a segmented waveform (``ramp``/``hold``/``step``)."""
+    """One piece of a segmented waveform: ``ramp`` (``v_start`` → ``v_end``), ``hold`` or ``step``.
+
+    ``duration`` is in seconds; voltages in volts.
+    """
 
     shape: str
-    duration_ms: float
+    duration: float
     v_start: float
     v_end: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        if self.duration <= 0:
+            raise ValueError(f"segment duration must be > 0 seconds, got {self.duration!r}")
         return {
             "shape": self.shape,
-            "duration_ms": float(self.duration_ms),
+            "duration_ms": float(self.duration) * 1000.0,
             "v_start": float(self.v_start),
             "v_end": float(self.v_end if self.v_end is not None else self.v_start),
         }
 
 
-class ReplayHandle:
-    """A currently-armed (looping) DAC replay. Use as a context manager or call :meth:`stop`."""
+class DacHandle:
+    """A running DAC output (generator or replay). Use as a context manager or call :meth:`stop`."""
 
-    def __init__(self, *, stop: Callable[[], Any], samples: int = 0, sample_rate_hz: float = 0.0,
-                 dac_path: str = "", deep: bool = False, data: Optional[dict] = None,
-                 cotrig: bool = False) -> None:
+    def __init__(self, *, stop: Callable[[], Any], dac_path: str = "", cotrig: bool = False,
+                 data: Optional[dict] = None) -> None:
         self._stop = stop
-        self.samples = samples
-        self.sample_rate_hz = sample_rate_hz
         self.dac_path = dac_path
-        self.deep = deep
-        self.data = data or {}
-        #: True when the DAC was ARMED to co-trigger with the next capture (``on_capture``) rather
-        #: than started immediately — it begins driving on that capture's hardware t0. When False
-        #: the replay is already playing. Reflects the device/server ``cotrig`` reply.
+        #: True when the DAC was ARMED to start on the next capture's hardware t0 (``on_capture``)
+        #: rather than started immediately. When False the output is already driving.
         self.cotrig = cotrig
+        #: The device/server reply that armed it.
+        self.data = data or {}
         self._stopped = False
 
-    def stop(self) -> Any:
-        """Stop the looping replay (idempotent)."""
+    def stop(self) -> None:
+        """Stop the output (idempotent)."""
         if self._stopped:
-            return None
+            return
         self._stopped = True
-        return self._stop()
+        self._stop()
 
-    def __enter__(self) -> "ReplayHandle":
+    def __enter__(self) -> "DacHandle":
         return self
 
     def __exit__(self, *exc: object) -> None:
         self.stop()
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"{type(self).__name__}(dac_path={self.dac_path!r}, cotrig={self.cotrig})"
+
+
+class ReplayHandle(DacHandle):
+    """A looping DAC replay: a :class:`DacHandle` that also knows what it is replaying."""
+
+    def __init__(self, *, stop: Callable[[], Any], samples: int = 0, sample_rate_hz: float = 0.0,
+                 dac_path: str = "", deep: bool = False, data: Optional[dict] = None,
+                 cotrig: bool = False) -> None:
+        super().__init__(stop=stop, dac_path=dac_path, cotrig=cotrig, data=data)
+        self.samples = samples
+        #: The replay rate, or 0.0 when the device picked it.
+        self.sample_rate_hz = sample_rate_hz
+        #: The replay streams from PSRAM (deeper than the DAC's block RAM).
+        self.deep = deep
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (f"ReplayHandle(samples={self.samples}, rate_hz={self.sample_rate_hz:.0f}, "
@@ -102,7 +123,9 @@ def normalize_fault(fault: "Fault | dict | None") -> Optional[Dict[str, Any]]:
         return None
     if isinstance(fault, Fault):
         return fault.to_dict()
-    return dict(fault)
+    d = dict(fault)
+    check_choice(str(d.get("type", "")), FAULT_TYPES, "fault type")
+    return d
 
 
 def normalize_segments(segments) -> list:

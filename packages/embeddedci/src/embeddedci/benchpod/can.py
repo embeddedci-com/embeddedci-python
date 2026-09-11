@@ -24,12 +24,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Union
 
+from .constants import CAN_MODES, check_choice
 from .errors import CanTimeout
 
 if TYPE_CHECKING:  # avoid a circular import at runtime
     from .client import BenchPod
-
-CAN_MODES = ("normal", "internal", "external", "listen")
 
 # A frame matcher for read_until/expect: an int CAN id, or a predicate on a frame.
 Match = Union[int, Callable[["CanFrame"], bool]]
@@ -73,6 +72,20 @@ def frames_from_reply(data: Optional[dict]) -> List[CanFrame]:
     return [CanFrame.from_dict(f) for f in data.get("frames", [])]
 
 
+@dataclass
+class CanReadResult:
+    """Frames drained from the pod's RX ring by one ``BenchPod.can_read``."""
+
+    frames: List[CanFrame] = field(default_factory=list)
+    #: Frames the pod dropped because its RX ring was full since the last read.
+    overflow: int = 0
+
+    @classmethod
+    def from_reply(cls, data: Optional[dict]) -> "CanReadResult":
+        d = data if isinstance(data, dict) else {}
+        return cls(frames=frames_from_reply(d), overflow=int(d.get("overflow", 0) or 0))
+
+
 def _matcher(match: Optional[Match]) -> Callable[["CanFrame"], bool]:
     if match is None:
         return lambda _f: True
@@ -92,8 +105,7 @@ class CanBus:
 
     def __init__(self, bp: "BenchPod", *, bitrate: int, mode: str,
                  term: bool = False, fd: bool = False) -> None:
-        if mode not in CAN_MODES:
-            raise ValueError(f"mode must be one of {CAN_MODES}, got {mode!r}")
+        check_choice(mode, CAN_MODES, "mode")
         self._bp = bp
         self.bitrate = int(bitrate)
         self.mode = mode
@@ -114,12 +126,12 @@ class CanBus:
     # -- reading ------------------------------------------------------------
     def _pull(self) -> None:
         """Drain the pod's RX ring into the local buffer."""
-        self._pending.extend(frames_from_reply(self._bp.can_read(max=8)))
+        self._pending.extend(self._bp.can_read(max_frames=8).frames)
 
-    def read(self, max: int = 8) -> List[CanFrame]:
-        """Return up to ``max`` buffered/received frames (non-blocking, FIFO)."""
+    def read(self, max_frames: int = 8) -> List[CanFrame]:
+        """Return up to ``max_frames`` buffered/received frames (non-blocking, FIFO)."""
         self._pull()
-        out, self._pending = self._pending[:max], self._pending[max:]
+        out, self._pending = self._pending[:max_frames], self._pending[max_frames:]
         return out
 
     def read_until(self, match: Optional[Match] = None, *,
