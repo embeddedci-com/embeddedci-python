@@ -27,7 +27,7 @@ def _ensure_loop_image(device) -> bool:
     if device.capabilities.dac_control_loop:
         return True
     try:
-        out = device.fpga_image(0)  # 0 = closed-loop demo image
+        out = device.fpga_image(0)  # 0 = closed-loop image
     except Exception:
         return False
     time.sleep(1.0)  # let the reconfigured gateware + front-end settle
