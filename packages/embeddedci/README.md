@@ -263,7 +263,9 @@ pull-ups, an armed sensor) carries into the next one — use the teardown fixtur
   (`pytest -m "not hardware"`). Skipping comes from the fixtures, not the marker.
 * `@pytest.mark.benchpod_capability("dac_deep_replay", ...)` — skips the test unless the connected
   device advertises every named `Capabilities` flag (`scope`, `analyzer`, `dac_replay`,
-  `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources`, `dac_cotrig`, …).
+  `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources`, `dac_cotrig`, …). For the
+  image-bound `dac_control_loop` and `dac_deep_replay` it switches the pod's gateware image instead
+  of skipping, when the pod carries both images (see [Gateware images](#gateware-images)).
 
 ## Power, reset and power monitoring
 
@@ -530,9 +532,9 @@ with bp.replay(ramp, dac_path="3v3", sample_rate_hz=10_000,
   are_codes=False, on_capture=False)` — `source` is a `Capture` (its volts, at its own sample rate
   by default), a sequence of volts, or raw DAC codes with `are_codes=True`. `mapping="faithful"`
   reproduces the voltage (clipping outside the path's range), `"fit"` auto-scales. Above 2048 samples
-  the replay streams from PSRAM (`deep`), which needs the deep-replay gateware
-  (`capabilities.dac_deep_replay`). Replay streams the waveform to the pod, so it needs a **TCP or
-  cloud** connection.
+  the replay streams from PSRAM (`deep`), which needs the deep-replay gateware image: the pod is
+  switched to it automatically (see [Gateware images](#gateware-images)), and `switch_image=False`
+  raises instead. Replay streams the waveform to the pod, so it needs a **TCP or cloud** connection.
 * `Fault(type, start, width, level=None)` — `"flatline"`, `"spike"` or `"stuck"` spliced into the
   replay at sample indices; `level` is an optional raw DAC code.
 
@@ -580,9 +582,47 @@ streaming it over the device connection.
 > OIDC), so nothing extra is needed. On a LAN or USB connection pass an API key (`api_key=`,
 > `--benchpod-api-key` or `BENCHPOD_API_KEY`). Captures and direct `replay(...)` never need one.
 
+## Gateware images
+
+The pod's FPGA runs one of two gateware images, both stored on the pod:
+
+| Image | Adds | Capability flag |
+|---|---|---|
+| `FpgaImage.LOOP` (0) | the [in-fabric control loop](#in-fabric-dac-control-loop) | `dac_control_loop` |
+| `FpgaImage.DEEP_REPLAY` (1) | replays longer than 2048 samples, streamed from PSRAM | `dac_deep_replay` |
+
+Everything else — captures, the generator, DC output, short replays, UART, I2C sensor emulation,
+CAN — works on both.
+
+**Switching is automatic.** `control_loop()`, `replay()` and `replay_waveform()` switch the pod to
+the image they need (`switch_image=True`, the default), log a warning on the `embeddedci.benchpod`
+logger, and record the switch on the returned handle as `switched_image` (an `FpgaImageInfo`, or
+`None` when no switch was needed). Pass `switch_image=False` to get a `BenchPodError` instead, for a
+test that must not disturb the pod. `replay_waveform` through the server switches only for a
+recording that would otherwise be downsampled (longer than the shallow replay depth, with no
+`target_samples`), and waits until the server sees the new image. A pod that reports neither flag has
+a single image and is never switched.
+
+What a switch does:
+
+* It reprograms the FPGA from the pod's config flash and cold-boots it, which takes **~2-3 s**.
+* It **resets the FPGA**, so a running DAC output or control loop, an open UART session and I2C
+  sensor emulation stop. Switch first, then start those — for example once in a session fixture:
+
+  ```python
+  if not bp.capabilities.dac_deep_replay:
+      bp.fpga_image(FpgaImage.DEEP_REPLAY)
+  ```
+
+* The selection is written to the config flash, so the pod normally stays on that image after a
+  power cycle.
+* In pytest, `@pytest.mark.benchpod_capability("dac_control_loop")` (or `"dac_deep_replay"`)
+  switches the image for the test instead of skipping it.
+
 ## In-fabric DAC control loop
 
-On the **loop gateware image** the iCE40 runs a control loop in fabric: each tick it takes an input,
+On the **loop gateware image** (switched to automatically — see [Gateware images](#gateware-images))
+the iCE40 runs a control loop in fabric: each tick it takes an input,
 looks it up in a reloadable curve (`out = curve[input]`), damps toward that target, clamps to
 `[vmin, vmax]` and drives the DAC — no host in the loop. Any transfer function you can tabulate
 works; a solar-panel I-V curve is one preset. Curves and inputs are 16-bit codes (0–65535).
@@ -594,12 +634,10 @@ the DAC and output stage can be metered on their own before trusting the loop (g
 ```python
 import time
 
-from embeddedci.benchpod import FpgaImage, build_panel_curve, curve_output_at, input_percent_to_code
-
-if not bp.capabilities.dac_control_loop:
-    bp.fpga_image(FpgaImage.LOOP)                  # reprograms the iCE40 from flash (~2-3 s)
+from embeddedci.benchpod import build_panel_curve, curve_output_at, input_percent_to_code
 
 curve = build_panel_curve(voc_code=52_000, sharpness=6)
+# On the deep-replay image this first switches the pod to the loop image (~3 s).
 with bp.control_loop(curve=curve, vmax=65_535, source="fixed", input_code=0) as loop:
     for pct in (0, 50, 100):
         code = input_percent_to_code(pct)
@@ -634,8 +672,9 @@ with bp.control_loop(curve=curve, input_map=shunt) as loop:
 * `bp.loop_input(...)` / `loop.set_input(...)` re-target a running loop and return a `LoopState`;
   `bp.loop_probe()` / `loop.probe()` return an `IVPoint` — assert against `loop_input`, which is what
   indexed the curve (in a fixed or sweep run the ADC reading `i` is not in the path).
-* `fpga_image(FpgaImage.DEEP_REPLAY)` switches back to the deep-replay image; the returned
-  `FpgaImageInfo` carries `image`, `version` and `features`, and cached capabilities are re-read.
+* `loop.switched_image` is the `FpgaImageInfo` (`image`, `version`, `features`) of the switch
+  `control_loop` made, or `None` if the pod was already on the loop image; `switch_image=False`
+  raises instead of switching.
 
 ## CAN
 

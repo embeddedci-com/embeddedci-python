@@ -41,7 +41,7 @@
     "capture_uart": "(self, *, rx: 'Union[Pin, int]', tx: 'Union[Pin, int]', baud: 'int' = 115200, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
-    "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None) -> '_control_loop.ControlLoopHandle'",
+    "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None, switch_image: 'bool' = True) -> '_control_loop.ControlLoopHandle'",
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
@@ -72,8 +72,8 @@
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "refresh_capabilities": "(self) -> 'Capabilities'",
-    "replay": "(self, source: 'Union[Capture, Sequence[float], Sequence[int]]', *, dac_path: 'DacPath' = '5v', mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, deep: 'Optional[bool]' = None, fault: 'Union[Fault, Dict[str, Any], None]' = None, are_codes: 'bool' = False, on_capture: 'bool' = False, route: 'bool' = True) -> 'ReplayHandle'",
-    "replay_waveform": "(self, waveform: \"Union[str, 'Waveform']\", *, dac_path: 'Optional[DacPath]' = None, mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, window_start: 'int' = 0, window_len: 'int' = 0, target_samples: 'int' = 0, fault: 'Union[Fault, Dict[str, Any], None]' = None, deep: 'Optional[bool]' = None, server_side: 'Optional[bool]' = None, on_capture: 'bool' = False) -> 'ReplayHandle'",
+    "replay": "(self, source: 'Union[Capture, Sequence[float], Sequence[int]]', *, dac_path: 'DacPath' = '5v', mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, deep: 'Optional[bool]' = None, fault: 'Union[Fault, Dict[str, Any], None]' = None, are_codes: 'bool' = False, on_capture: 'bool' = False, route: 'bool' = True, switch_image: 'bool' = True) -> 'ReplayHandle'",
+    "replay_waveform": "(self, waveform: \"Union[str, 'Waveform']\", *, dac_path: 'Optional[DacPath]' = None, mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, window_start: 'int' = 0, window_len: 'int' = 0, target_samples: 'int' = 0, fault: 'Union[Fault, Dict[str, Any], None]' = None, deep: 'Optional[bool]' = None, server_side: 'Optional[bool]' = None, on_capture: 'bool' = False, switch_image: 'bool' = True) -> 'ReplayHandle'",
     "reset_state": "(self) -> 'ResetState'",
     "reset_target": "(self, *, pulse: 'float' = 0.1) -> 'ResetState'",
     "save_capture_as_recording": "(self, capture: 'Capture', name: 'str', *, full_scale_v: 'Optional[float]' = None) -> \"'Waveform'\"",
@@ -207,7 +207,7 @@
   },
   "ConnectionConfigError": {},
   "ControlLoopHandle": {
-    "__init__": "(self, *, probe: 'Callable[[], IVPoint]', stop: 'Callable[[], Any]', data: 'Optional[Dict[str, Any]]' = None, set_input: 'Optional[Callable[..., Any]]' = None) -> 'None'",
+    "__init__": "(self, *, probe: 'Callable[[], IVPoint]', stop: 'Callable[[], Any]', data: 'Optional[Dict[str, Any]]' = None, set_input: 'Optional[Callable[..., Any]]' = None, switched_image: 'Optional[FpgaImageInfo]' = None) -> 'None'",
     "probe": "(self) -> 'IVPoint'",
     "set_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[str]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "stop": "(self) -> 'None'"
@@ -441,7 +441,7 @@
     ]
   },
   "ReplayHandle": {
-    "__init__": "(self, *, stop: 'Callable[[], Any]', samples: 'int' = 0, sample_rate_hz: 'float' = 0.0, dac_path: 'str' = '', deep: 'bool' = False, data: 'Optional[dict]' = None, cotrig: 'bool' = False) -> 'None'"
+    "__init__": "(self, *, stop: 'Callable[[], Any]', samples: 'int' = 0, sample_rate_hz: 'float' = 0.0, dac_path: 'str' = '', deep: 'bool' = False, data: 'Optional[dict]' = None, cotrig: 'bool' = False, switched_image: \"Optional['FpgaImageInfo']\" = None) -> 'None'"
   },
   "ReplayMapping": "Literal['faithful', 'fit']",
   "ResetState": {

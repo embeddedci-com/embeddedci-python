@@ -93,6 +93,23 @@ def test_firmware_refusals_are_tool_errors(connected):
         call("set_la_voltage", voltage=1.8)
 
 
+def test_tools_switch_the_gateware_image(connected):
+    if not (connected["capabilities"]["dac_control_loop"] or connected["capabilities"]["dac_deep_replay"]):
+        pytest.skip("the pod has a single gateware image")
+    try:
+        call("fpga_image", image="deep_replay")
+        armed = call("control_loop", curve=[0, 30000], source="fixed", input_code=0)
+        assert armed["switched_image"] == "loop"
+        call("dac_stop")
+        with pytest.raises(ToolError, match="switch_image"):
+            call("replay", volts=[1.0] * 4096, switch_image=False)
+        res = call("replay", volts=[1.0] * 4096, route=False)
+        assert res["deep"] is True and res["switched_image"] == "deep_replay"
+    finally:
+        call("dac_stop")
+        call("fpga_image", image="loop")
+
+
 def test_dut_flash_boot_and_console(connected, pytestconfig):
     firmware = pytestconfig.getoption("benchpod_firmware")
     if not firmware:

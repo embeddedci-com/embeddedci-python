@@ -19,6 +19,10 @@ frozen for 2.x (`tests/tools_surface.json`).
 - **Non-blocking.** Tools run on worker threads under a device lock; long operations send progress.
   Previously a flash blocked the whole server for its duration.
 - **Units are volts, seconds and hertz** throughout.
+- **Gateware images switch automatically.** `control_loop`, `replay` and `replay_waveform` take
+  `switch_image` (default true), put the pod on the gateware image they need (~3 s) and report it
+  as `switched_image`; `switch_image: false` fails instead. The server instructions tell agents
+  that a switch resets the FPGA.
 - **Cloud pods work out of the box** (`embeddedci[cloud]` is a dependency). `connect` waits at
   most `--lease-wait` (30 s) for a busy pod, and an idle session releases its lease after
   `--idle-timeout` (600 s), reconnecting on the next call.

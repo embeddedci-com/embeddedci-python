@@ -241,11 +241,6 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
 # times land at sample indices, and the fitted slope is the real sample rate. The drift a wrong
 # rate causes grows with the capture length (samples / 24 MHz regardless of rate: ~170 ms for
 # the LA test, ~80 ms for the ADC test), far above the few ms of network jitter.
-RATE_BUG = ("known pod bug: the LA sampler and the ADC engine sample every divider+1 clocks, so "
-            "the real rate is d/(d+1) of the reported one — remove this mark once it is fixed")
-
-
-@pytest.mark.xfail(strict=True, reason=RATE_BUG)
 def test_la_sample_rate_matches_the_host_clock(pod, bench):
     np = pytest.importorskip("numpy")
     ch = bench.free_la[0]
@@ -259,7 +254,6 @@ def test_la_sample_rate_matches_the_host_clock(pod, bench):
         f"{la.sample_rate_hz:.0f} Hz)")
 
 
-@pytest.mark.xfail(strict=True, reason=RATE_BUG)
 def test_adc_sample_rate_matches_the_host_clock(pod):
     np = pytest.importorskip("numpy")
     pod.analog_path("cal1")
@@ -285,9 +279,42 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
 
 # -- DAC replay depth vs gateware image ----------------------------------------------------
 
-def test_deep_replay_is_refused_on_the_loop_image(loop_image):
+def test_deep_replay_is_refused_on_the_loop_image_without_switching(loop_image):
     with pytest.raises(BenchPodError, match="DEEP_REPLAY"):
-        loop_image.replay([1.0] * 4096, dac_path="5v", route=False)
+        loop_image.replay([1.0] * 4096, dac_path="5v", route=False, switch_image=False)
+    assert loop_image.refresh_capabilities().dac_control_loop  # still on the loop image
+
+
+def test_deep_replay_switches_to_the_deep_replay_image(loop_image):
+    np = pytest.importorskip("numpy")
+    pod = loop_image
+    period = [0.8] * 100 + [2.2] * 100                 # 100 Hz at 20 kS/s
+    with pod.replay(period * 41, dac_path="5v", sample_rate_hz=20_000, route=False) as h:
+        assert h.deep and h.switched_image is not None
+        assert h.switched_image.image == FpgaImage.DEEP_REPLAY
+        pod.analog_path("cal1")                        # after the switch, which resets the FPGA
+        time.sleep(0.5)
+        adc = pod.capture_adc(8192, sample_rate_hz=20_000)
+    assert pod.refresh_capabilities().dac_deep_replay
+    assert abs(adc.dominant_frequency() - 100) < 5 and int(np.ptp(adc.counts)) > 800
+
+
+def test_control_loop_switches_to_the_loop_image(deep_image):
+    pod = deep_image
+    if not pod.capabilities.dac_loop_sources:
+        pytest.skip("the gateware has no selectable loop input")
+    with pod.control_loop(curve=build_linear_curve(30000), source="fixed", input_code=0) as loop:
+        assert loop.switched_image is not None and loop.switched_image.image == FpgaImage.LOOP
+        pod.analog_path("dac_3v3")
+        time.sleep(0.1)
+        assert loop.probe().loop_input == 0
+    assert pod.refresh_capabilities().dac_control_loop
+
+
+def test_control_loop_without_switching_is_refused_on_the_deep_replay_image(deep_image):
+    with pytest.raises(BenchPodError, match="switch_image"):
+        deep_image.control_loop(curve=build_linear_curve(30000), switch_image=False)
+    assert deep_image.refresh_capabilities().dac_deep_replay  # still on the deep-replay image
 
 
 def test_control_loop_fixed_input_indexes_the_curve(loop_image):

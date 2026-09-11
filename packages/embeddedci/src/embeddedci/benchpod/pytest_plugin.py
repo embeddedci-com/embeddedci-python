@@ -205,8 +205,13 @@ def pytest_configure(config: "pytest.Config") -> None:
     config.addinivalue_line(
         "markers",
         "benchpod_capability(name): skip the test unless the connected device advertises the "
-        "given capability (e.g. 'scope', 'analyzer', 'dac_replay', 'dac_deep_replay').",
+        "given capability (e.g. 'scope', 'analyzer', 'dac_replay'); 'dac_control_loop' and "
+        "'dac_deep_replay' switch the gateware image when the pod carries both.",
     )
+
+
+#: Capabilities that come with one gateware image, and that image.
+_IMAGE_CAPABILITIES = {"dac_control_loop": "LOOP", "dac_deep_replay": "DEEP_REPLAY"}
 
 
 @pytest.fixture(autouse=True)
@@ -215,18 +220,29 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
 
     Autouse so it runs during setup: a ``hardware`` test skips when no connection is configured
     (even if it never requests a device fixture), and a ``benchpod_capability`` test resolves the
-    ``benchpod`` device and skips on any capability it lacks.
+    ``benchpod`` device and skips on any capability it lacks — except an image-bound one
+    (``dac_control_loop`` / ``dac_deep_replay``) on a pod that carries both gateware images, which
+    is switched to the right image instead, as the SDK does for ``control_loop`` / ``replay``.
     """
     if request.node.get_closest_marker("hardware") and not _resolve_connection(request.config):
         pytest.skip(f"hardware test: no BenchPod connection configured (--benchpod-connection / {ENV_VAR})")
     marks = list(request.node.iter_markers(name="benchpod_capability"))
     if not marks:
         return
-    caps = request.getfixturevalue("benchpod").capabilities  # may itself skip if no connection
+    from .constants import FpgaImage
+
+    pod = request.getfixturevalue("benchpod")  # may itself skip if no connection
+    caps = pod.capabilities
     for mark in marks:
-        for name in mark.args:
-            if not getattr(caps, str(name), False):
-                pytest.skip(f"device does not advertise capability {name!r}")
+        for name in map(str, mark.args):
+            if getattr(caps, name, False):
+                continue
+            image = _IMAGE_CAPABILITIES.get(name)
+            if image is not None and (caps.dac_control_loop or caps.dac_deep_replay):
+                pod._ensure_image(FpgaImage[image], switch=True,
+                                  needed_for=f"a test marked benchpod_capability({name!r})")
+                continue
+            pytest.skip(f"device does not advertise capability {name!r}")
 
 
 def _resolve_connection(config: "pytest.Config") -> Optional[str]:

@@ -358,15 +358,16 @@ def control_loop_phase(plug: type, *, voc_code: Optional[int] = None, sharpness:
                        k: int = DEFAULT_K, vmin: int = DEFAULT_VMIN, vmax: int = DEFAULT_VMAX,
                        tick_div: int = DEFAULT_TICK_DIV, probes: int = 8,
                        v_range: _Range = None, i_range: _Range = None,
-                       name: str = "control_loop") -> object:
+                       switch_image: bool = True, name: str = "control_loop") -> object:
     """A phase that arms the closed-loop DAC controller, lets it settle, and records its
     operating point.
 
     Arms an in-fabric panel/MPPT emulator (``voc_code`` + ``sharpness`` synthesise the curve),
     polls it ``probes`` times and records the settled ``control_loop_v`` (DAC code) and
     ``control_loop_i`` (ADC code) — raw codes, not volts. Pass ``v_range`` / ``i_range`` as
-    ``(low, high)`` codes for pass/fail limits. Stops the loop before returning. Needs the loop
-    gateware image (:attr:`Capabilities.dac_control_loop`).
+    ``(low, high)`` codes for pass/fail limits. Stops the loop before returning. A pod on the
+    deep-replay gateware image is switched to the loop image first (~3 s, logged);
+    ``switch_image=False`` makes the phase fail instead.
     """
     _check_range("v_range", v_range)
     _check_range("i_range", i_range)
@@ -382,7 +383,10 @@ def control_loop_phase(plug: type, *, voc_code: Optional[int] = None, sharpness:
     @htf.measures(v_meas, i_meas)
     def _loop(test, bench):
         with control_loop(bench, voc_code=voc_code, sharpness=sharpness, k=k,
-                          vmin=vmin, vmax=vmax, tick_div=tick_div) as loop:
+                          vmin=vmin, vmax=vmax, tick_div=tick_div,
+                          switch_image=switch_image) as loop:
+            if loop.switched_image is not None:
+                test.logger.warning("switched the FPGA to the loop gateware image")
             pt = loop.probe()
             for _ in range(max(1, probes) - 1):
                 pt = loop.probe()
@@ -395,19 +399,23 @@ def control_loop_phase(plug: type, *, voc_code: Optional[int] = None, sharpness:
 
 def dac_replay_phase(plug: type, *, waveform_id: str, dac_path: DacPath = "5v",
                      mapping: ReplayMapping = "faithful", target_samples: int = 4096,
-                     stop_after: bool = False, name: str = "dac_replay") -> object:
+                     stop_after: bool = False, switch_image: bool = True,
+                     name: str = "dac_replay") -> object:
     """A phase that loads a cloud-stored waveform and replays it (looping) on the DAC.
 
     Needs server access (``BENCHPOD_API_KEY``). By default the replay keeps looping after the
     phase (so a later capture phase can observe it); set ``stop_after=True`` to stop it at the end
-    of this phase.
+    of this phase. A replay that needs the deep-replay gateware image switches the pod to it first
+    (~3 s, logged; see :meth:`BenchPod.replay_waveform <embeddedci.benchpod.BenchPod.replay_waveform>`).
     """
 
     @htf.PhaseOptions(name=name)
     @htf.plug(bench=plug)
     def _replay(test, bench):
         handle = replay_waveform(bench, waveform_id, dac_path=dac_path, mapping=mapping,
-                                 target_samples=target_samples)
+                                 target_samples=target_samples, switch_image=switch_image)
+        if handle.switched_image is not None:
+            test.logger.warning("switched the FPGA to the deep-replay gateware image")
         test.logger.info("replaying waveform %s on %s (%d samples)",
                          waveform_id, dac_path, handle.samples)
         if stop_after:

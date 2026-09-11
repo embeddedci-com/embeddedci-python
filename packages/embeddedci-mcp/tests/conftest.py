@@ -60,11 +60,16 @@ class FakeTransport(Transport):
         self.reset_asserted = False
         self.can_rx: List[dict] = []
         self.rules = 0
+        #: Running gateware image (0 = loop, 1 = deep replay); None = a pod without switchable images.
+        self.image = None
 
     # -- Transport ABC --
     def status(self) -> Any:
+        caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig"]
+        if self.image is not None:
+            caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
         return {"version": "2.0.0", "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
-                "caps": ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig"]}
+                "caps": caps}
 
     def ping(self) -> Any:
         return "pong"
@@ -153,7 +158,9 @@ class FakeTransport(Transport):
         return {"cotrig": bool(req.get("on_capture"))}
 
     def _cmd_fpga_image(self, req):
-        return {"image": req["image"], "version": 30, "features": 1 if req["image"] == 0 else 0}
+        if self.image is not None:
+            self.image = req["image"]
+        return {"image": req["image"], "version": 30, "features": 1 if req["image"] == 0 else 2}
 
     def _cmd_dac_control_loop(self, req):
         return {"armed": True, "k": req["k"], "vmin": req["vmin"], "vmax": req["vmax"],

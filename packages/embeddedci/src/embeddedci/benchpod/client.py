@@ -26,6 +26,7 @@ hatches below that API and are not covered by its stability guarantee.
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
@@ -103,6 +104,21 @@ API_KEY_ENV = "BENCHPOD_API_KEY"
 
 #: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
 _GENERATOR_MAX_CODE = 255
+
+_log = logging.getLogger("embeddedci.benchpod")
+
+#: The capability flag and FPGA_FEATURES bit each gateware image carries.
+_IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay"}
+_IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02}
+
+#: Seconds to wait for the server's cached capabilities to follow an image switch.
+_SERVER_CAPS_WAIT = 15.0
+
+
+def _images_switchable(caps: Capabilities) -> bool:
+    """Whether the pod carries both gateware images: it advertises one of the image-bound
+    features (the rule the web UI uses too)."""
+    return bool(caps.dac_control_loop or caps.dac_deep_replay)
 
 
 def _dict(data: Any) -> Dict[str, Any]:
@@ -832,6 +848,7 @@ class BenchPod:
                      input_code: int = 0,
                      step: int = 0,
                      input_map: Optional[_control_loop.LoopInputMap] = None,
+                     switch_image: bool = True,
                      ) -> _control_loop.ControlLoopHandle:
         """Arm the in-fabric DAC control loop.
 
@@ -839,8 +856,10 @@ class BenchPod:
         damps toward that target (``k``, Q15) and clamps to ``[vmin, vmax]``, then drives the DAC.
         Provide the curve as raw ``curve`` codes (0..65535), a base64url ``curve`` string, or
         ``voc_code`` (+ ``sharpness``) to synthesise the solar-panel I-V preset; omit all to run
-        clamp-only. Needs the loop gateware image (:attr:`Capabilities.dac_control_loop` — switch
-        with :meth:`fpga_image`).
+        clamp-only. Needs the loop gateware image (:attr:`Capabilities.dac_control_loop`): with
+        ``switch_image`` (the default) a pod on the deep-replay image is switched first (~3 s, see
+        :meth:`fpga_image`), and ``switch_image=False`` raises :class:`BenchPodError` instead. The
+        handle's ``switched_image`` records a switch.
 
         ``source`` picks the INPUT (needs :attr:`Capabilities.dac_loop_sources`; ``None`` = device
         default, the live ADC): ``"adc"`` closes the loop around the DUT, ``"fixed"`` holds
@@ -881,11 +900,15 @@ class BenchPod:
             req["step"] = int(step)
         if input_map is not None:
             req.update(input_map.to_request())
+        # After every argument check, so a bad call never reprograms the FPGA.
+        switched = self._ensure_image(FpgaImage.LOOP, needed_for="the control loop",
+                                      switch=switch_image)
         data = _dict(self.command(req))
         if data.get("armed") is False:
             raise BenchPodError(f"control loop did not arm: {data!r}")
         return _control_loop.ControlLoopHandle(
-            probe=self.loop_probe, stop=self.dac_stop, data=data, set_input=self.loop_input)
+            probe=self.loop_probe, stop=self.dac_stop, data=data, set_input=self.loop_input,
+            switched_image=switched)
 
     def loop_input(self, input_code: Optional[int] = None, *,
                    source: Optional[LoopSource] = None, step: Optional[int] = None) -> LoopState:
@@ -927,7 +950,14 @@ class BenchPod:
 
         ``FpgaImage.LOOP`` (0) is the control-loop image, ``FpgaImage.DEEP_REPLAY`` (1) the deep
         DAC replay image. The pod reprograms the FPGA from its config flash and cold-resets it
-        (~2-3 s). Drops the cached :attr:`capabilities` so the next read reflects the new image.
+        (~2-3 s), which stops anything running in the FPGA: a DAC output or control loop, a UART
+        session, I2C sensor emulation. The selection is written to the config flash, so the pod
+        normally stays on it after a power cycle. Drops the cached :attr:`capabilities` so the next
+        read reflects the new image.
+
+        You rarely need to call this: :meth:`control_loop`, :meth:`replay` and
+        :meth:`replay_waveform` switch automatically when they need the other image
+        (``switch_image=True``).
         """
         img = int(image)
         if img not in tuple(FpgaImage):
@@ -935,6 +965,57 @@ class BenchPod:
         data = self.command({"cmd": "fpga_image", "image": img})
         self._caps = None
         return FpgaImageInfo.from_reply(data)
+
+    def _ensure_image(self, image: FpgaImage, *, needed_for: str,
+                      switch: bool) -> Optional[FpgaImageInfo]:
+        """Make sure the pod runs gateware ``image`` before ``needed_for``.
+
+        Returns the :class:`FpgaImageInfo` of the switch it made, or ``None`` when none was needed:
+        the pod is already on ``image``, or it carries a single image (nothing to switch to — the
+        operation goes ahead and the firmware decides). With ``switch=False`` a needed switch
+        raises :class:`BenchPodError`.
+        """
+        flag = _IMAGE_FLAG[image]
+        caps = self.capabilities
+        if getattr(caps, flag) or not _images_switchable(caps):
+            return None
+        if not switch:
+            raise BenchPodError(
+                f"{needed_for} needs the {image.name} gateware image, but the pod is running the "
+                f"other one (capabilities.{flag} is False): pass switch_image=True or call "
+                f"fpga_image(FpgaImage.{image.name}) first")
+        _log.warning("switching the FPGA to the %s gateware image for %s (~3 s); this resets the "
+                     "FPGA, so any DAC output, UART session or I2C sensor emulation stops",
+                     image.name, needed_for)
+        info = self.fpga_image(image)
+        # Judge by the reply's feature bits: on a cloud connection the merged capabilities can lag.
+        if not info.features & _IMAGE_FEATURE[image]:
+            raise BenchPodError(
+                f"switched the FPGA to the {image.name} image for {needed_for}, but the image that "
+                f"booted does not carry it (features=0x{info.features:02x})")
+        self._wait_for_server_caps(flag)
+        return info
+
+    def _wait_for_server_caps(self, flag: str) -> None:
+        """After an image switch, wait until the server's cached capabilities show ``flag`` (the pod
+        re-announces them), so server-side operations and merged capabilities see the new image."""
+        api = self._try_server_api()
+        if api is None or not self._device_name:
+            return
+        deadline = time.monotonic() + _SERVER_CAPS_WAIT
+        while True:
+            try:
+                params = api.device_parameters(self._device_name)
+                if str(params.get(f"cap.{flag}", "")).lower() == "true":
+                    break
+            except BenchPodError:
+                pass
+            if time.monotonic() >= deadline:
+                _log.warning("the server still reports the previous gateware image %.0f s after the "
+                             "switch", _SERVER_CAPS_WAIT)
+                break
+            time.sleep(0.5)
+        self._caps = None
 
     # -- DAC arbitrary-waveform replay ----------------------------------------
 
@@ -947,7 +1028,8 @@ class BenchPod:
 
     def _arm_replay(self, code_bytes: bytes, *, bits: int, dac_path: str,
                     sample_rate_hz: Optional[float], deep: Optional[bool],
-                    on_capture: bool = False, route: bool = True) -> ReplayHandle:
+                    on_capture: bool = False, route: bool = True,
+                    switch_image: bool = True) -> ReplayHandle:
         """Route the DAC path, upload the codes and arm a looping replay over the transport."""
         fn = getattr(self._transport, "load_replay", None)
         if fn is None:
@@ -959,14 +1041,17 @@ class BenchPod:
         if deep is None:
             deep = n_samples > 2048  # exceeds the shallow DAC BRAM depth -> stream from PSRAM
         caps = self.capabilities
+        switched: Optional[FpgaImageInfo] = None
         if deep and caps.dac_replay and not caps.dac_deep_replay:
             # The loop image accepts a PSRAM replay and then outputs nothing (measured on a pod), so
-            # refuse it here rather than arm a silent DAC.
-            raise BenchPodError(
-                f"a {n_samples}-sample replay streams from PSRAM, which the running gateware image "
-                "cannot play (capabilities.dac_deep_replay is False): switch images with "
-                "fpga_image(FpgaImage.DEEP_REPLAY), or replay at most 2048 samples"
-            )
+            # switch to the deep-replay image — or refuse — rather than arm a silent DAC.
+            if not _images_switchable(caps):
+                raise BenchPodError(
+                    f"a {n_samples}-sample replay streams from PSRAM, which this pod's gateware "
+                    "cannot play (capabilities.dac_deep_replay is False): replay at most 2048 samples")
+            switched = self._ensure_image(
+                FpgaImage.DEEP_REPLAY, switch=switch_image,
+                needed_for=f"a {n_samples}-sample replay (it streams from PSRAM)")
         if dac_path and route:
             self.command({"cmd": "dac_out", "path": dac_path})
         replay_req: Dict[str, Any] = {"cmd": "replay", "samples": n_samples}
@@ -978,14 +1063,15 @@ class BenchPod:
         d = _dict(fn(data=code_bytes, replay=replay_req, psram=deep))
         return ReplayHandle(stop=self.dac_stop, samples=n_samples,
                             sample_rate_hz=float(sample_rate_hz or 0.0), dac_path=dac_path,
-                            deep=deep, data=d, cotrig=bool(d.get("cotrig", False)))
+                            deep=deep, data=d, cotrig=bool(d.get("cotrig", False)),
+                            switched_image=switched)
 
     def replay(self, source: Union[Capture, Sequence[float], Sequence[int]], *,
                dac_path: DacPath = "5v", mapping: ReplayMapping = "faithful",
                sample_rate_hz: Optional[float] = None, deep: Optional[bool] = None,
                fault: Union[Fault, Dict[str, Any], None] = None,
                are_codes: bool = False, on_capture: bool = False,
-               route: bool = True) -> ReplayHandle:
+               route: bool = True, switch_image: bool = True) -> ReplayHandle:
         """Replay a waveform on the DAC, streaming it to the device over the transport.
 
         ``route=False`` keeps the current analog switching (see :meth:`generate`).
@@ -993,7 +1079,10 @@ class BenchPod:
         ``source`` is a :class:`Capture` (its volts are replayed), a sequence of volts, or — with
         ``are_codes=True`` — raw DAC codes. Volts map to codes for ``dac_path`` (``faithful``
         reproduces the voltage, clipping outside range; ``fit`` auto-scales). ``fault`` splices a
-        :class:`Fault` in. The replay LOOPS until the returned :class:`ReplayHandle` is stopped,
+        :class:`Fault` in. More than 2048 samples stream from PSRAM, which needs the deep-replay
+        gateware image: with ``switch_image`` (the default) the pod is switched to it first (~3 s,
+        recorded as the handle's ``switched_image``); ``switch_image=False`` raises instead.
+        The replay LOOPS until the returned :class:`ReplayHandle` is stopped,
         so it can run concurrently with a capture (gateware v18)::
 
             with bp.replay(cap, dac_path="5v"):
@@ -1020,7 +1109,7 @@ class BenchPod:
             codes = _dsp.apply_fault(codes, f, bits=bits)
         return self._arm_replay(_dsp.codes_to_bytes(codes, bits), bits=bits, dac_path=dac_path,
                                 sample_rate_hz=sample_rate_hz, deep=deep, on_capture=on_capture,
-                                route=route)
+                                route=route, switch_image=switch_image)
 
     def replay_waveform(self, waveform: Union[str, "Waveform"], *,
                         dac_path: Optional[DacPath] = None, mapping: ReplayMapping = "faithful",
@@ -1028,7 +1117,7 @@ class BenchPod:
                         window_start: int = 0, window_len: int = 0, target_samples: int = 0,
                         fault: Union[Fault, Dict[str, Any], None] = None,
                         deep: Optional[bool] = None, server_side: Optional[bool] = None,
-                        on_capture: bool = False) -> ReplayHandle:
+                        on_capture: bool = False, switch_image: bool = True) -> ReplayHandle:
         """Load a **cloud-stored** waveform from the library and replay it on the DAC.
 
         ``waveform`` is a waveform id or a :class:`~embeddedci.benchpod.waveforms.Waveform`.
@@ -1038,6 +1127,11 @@ class BenchPod:
         is cloud-connected; otherwise it fetches the recording and replays it over the device
         connection with the SAME DSP applied client-side. Needs server access (the cloud session
         or an ``api_key``).
+
+        With ``switch_image`` (the default) a replay that needs the deep-replay gateware image
+        switches the pod to it first: client-side, one deeper than 2048 samples; server-side, a
+        recording longer than the shallow replay depth when no ``target_samples`` asks for a
+        downsampled one (``switch_image=False`` then leaves the server to downsample).
         """
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         wid = waveform.id if hasattr(waveform, "id") else waveform
@@ -1054,6 +1148,17 @@ class BenchPod:
             use_server = bool(self._device_name)  # the server can only reach a cloud-registered device
         if use_server:
             api = self._require_server_api()
+            switched: Optional[FpgaImageInfo] = None
+            caps = self.capabilities
+            if switch_image and caps.dac_replay and not caps.dac_deep_replay:
+                # On the loop image the server downsamples to the shallow depth; switch instead (as
+                # the web UI does) unless the caller asked for a downsampled replay.
+                want = int(window_len) or max(0, int(wf.sample_count or 0) - int(window_start))
+                shallow = caps.dac_replay_max_samples or _dsp.REPLAY_MAX_SAMPLES
+                if want > shallow and not 0 < target_samples <= shallow:
+                    switched = self._ensure_image(
+                        FpgaImage.DEEP_REPLAY, switch=True,
+                        needed_for=f"a full-length {want}-sample replay")
             payload: Dict[str, Any] = {"device_id": api.resolve_device_id(self._device_name),
                                        "waveform_id": wid, "dac_path": dac_path, "mapping": mapping}
             mhz = _capture.rate_mhz(sample_rate_hz)
@@ -1076,7 +1181,8 @@ class BenchPod:
             return ReplayHandle(stop=self.dac_stop, samples=int(data.get("samples", 0) or 0),
                                 sample_rate_hz=float(sample_rate_hz or 0.0), dac_path=dac_path,
                                 deep=bool(self.capabilities.dac_deep_replay), data=data,
-                                cotrig=bool(on_capture and self.capabilities.dac_cotrig))
+                                cotrig=bool(on_capture and self.capabilities.dac_cotrig),
+                                switched_image=switched)
 
         # Client-side: fetch + DSP + stream over the transport.
         bits = self._replay_bits()
@@ -1101,7 +1207,8 @@ class BenchPod:
         else:  # dac_waveform: inline codes, already at the waveform's bit width
             code_bytes = base64.b64decode(lib.samples_b64(wid))  # type: ignore[arg-type]
         return self._arm_replay(code_bytes, bits=bits, dac_path=dac_path,  # type: ignore[arg-type]
-                                sample_rate_hz=sample_rate_hz, deep=deep, on_capture=on_capture)
+                                sample_rate_hz=sample_rate_hz, deep=deep, on_capture=on_capture,
+                                switch_image=switch_image)
 
     def save_capture_as_recording(self, capture: Capture, name: str, *,
                                   full_scale_v: Optional[float] = None) -> "Waveform":

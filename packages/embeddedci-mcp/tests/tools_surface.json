@@ -758,6 +758,12 @@
           "title": "Step",
           "type": "integer"
         },
+        "switch_image": {
+          "default": true,
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "title": "Switch Image",
+          "type": "boolean"
+        },
         "tick_div": {
           "default": 64,
           "maximum": 65535,
@@ -1957,6 +1963,12 @@
           "description": "Replay rate; defaults to the capture's own rate.",
           "title": "Sample Rate Hz"
         },
+        "switch_image": {
+          "default": true,
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "title": "Switch Image",
+          "type": "boolean"
+        },
         "volts": {
           "anyOf": [
             {
@@ -2093,6 +2105,12 @@
           "default": null,
           "description": "Sample rate in Hz; omit for the device maximum.",
           "title": "Sample Rate Hz"
+        },
+        "switch_image": {
+          "default": true,
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "title": "Switch Image",
+          "type": "boolean"
         },
         "target_samples": {
           "default": 0,

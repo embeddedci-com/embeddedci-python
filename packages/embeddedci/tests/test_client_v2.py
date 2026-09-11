@@ -306,7 +306,7 @@ def test_deep_replay_refused_on_an_image_without_it():
     bp = BenchPod(transport=loop, lease=False)
     bp.replay([1.0] * 2048, dac_path="5v")          # shallow: fine on the loop image
     with pytest.raises(benchpod.BenchPodError, match="DEEP_REPLAY"):
-        bp.replay([1.0] * 4096, dac_path="5v")
+        bp.replay([1.0] * 4096, dac_path="5v", switch_image=False)
     assert loop.uploads == [False]                   # nothing uploaded for the refused replay
 
     deep = ImageFake(["dac", "dac_replay", "dac_deep_replay"])

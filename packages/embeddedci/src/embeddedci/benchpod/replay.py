@@ -17,9 +17,12 @@ the transport-independent pieces.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from .constants import FAULT_TYPES, check_choice
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .state import FpgaImageInfo
 
 
 @dataclass
@@ -104,13 +107,16 @@ class ReplayHandle(DacHandle):
 
     def __init__(self, *, stop: Callable[[], Any], samples: int = 0, sample_rate_hz: float = 0.0,
                  dac_path: str = "", deep: bool = False, data: Optional[dict] = None,
-                 cotrig: bool = False) -> None:
+                 cotrig: bool = False, switched_image: Optional["FpgaImageInfo"] = None) -> None:
         super().__init__(stop=stop, dac_path=dac_path, cotrig=cotrig, data=data)
         self.samples = samples
         #: The replay rate, or 0.0 when the device picked it.
         self.sample_rate_hz = sample_rate_hz
         #: The replay streams from PSRAM (deeper than the DAC's block RAM).
         self.deep = deep
+        #: The gateware image switch made for this replay (``None`` when none was needed). A switch
+        #: resets the FPGA, stopping anything else that ran in it.
+        self.switched_image = switched_image
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (f"ReplayHandle(samples={self.samples}, rate_hz={self.sample_rate_hz:.0f}, "

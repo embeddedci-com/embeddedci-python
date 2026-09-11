@@ -57,7 +57,9 @@ class FakeTransport(Transport):
 
     def __init__(self, banner: bytes = b"reset\r\nAPP_OK build 1\r\n",
                  adc_samples: Optional[List[int]] = None,
-                 fail_capture: bool = False) -> None:
+                 fail_capture: bool = False, image: Optional[int] = None) -> None:
+        #: Running gateware image (0 = loop, 1 = deep replay); None = no switchable images.
+        self.image = image
         self.banner = banner
         self.power_calls: List[dict] = []
         self.commands: List[dict] = []   # raw `command` + `samples` requests seen
@@ -67,7 +69,11 @@ class FakeTransport(Transport):
         self.closed = False
 
     def status(self):
-        return {"status": "ok", "fake": True}
+        status = {"status": "ok", "fake": True}
+        if self.image is not None:
+            status["caps"] = ["dac", "dac_replay",
+                              "dac_control_loop" if self.image == 0 else "dac_deep_replay"]
+        return status
 
     def ping(self):
         return {"status": "ok", "data": "pong"}
@@ -106,6 +112,9 @@ class FakeTransport(Transport):
         if cmd == "dac_loop_probe":
             return {"i": 4096, "v": 51000}
         if cmd == "fpga_image":
+            if self.image is not None:
+                self.image = req.get("image")
+                return {"image": self.image, "version": 27, "features": 1 if self.image == 0 else 2}
             return {"image": req.get("image"), "version": 27, "features": 1}
         return None
 

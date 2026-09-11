@@ -255,6 +255,8 @@ class ReplayResult(BaseModel):
     dac_path: str
     deep: bool
     cotrig: bool
+    switched_image: Optional[Literal["loop", "deep_replay"]] = Field(None, description=(
+        "The gateware image this call switched the pod to; null when no switch was needed."))
 
 
 class WaveformInfo(BaseModel):
@@ -288,6 +290,8 @@ class LoopArmResult(BaseModel):
     source: Optional[str]
     input_code: int
     step: int
+    switched_image: Optional[Literal["loop", "deep_replay"]] = Field(None, description=(
+        "The gateware image this call switched the pod to; null when no switch was needed."))
 
 
 class LoopStateResult(BaseModel):

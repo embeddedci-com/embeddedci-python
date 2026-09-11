@@ -57,6 +57,9 @@ versioning. See the [`embeddedci` changelog](../embeddedci/CHANGELOG.md) for the
   `adc_capture`, `control_loop`, `fpga_image`, `dac_output_phase`, `adc_read_phase`,
   `control_loop_phase` (previously only importable from `embeddedci_openhtf.analog`).
 - `rms_range` / `min_range` / `max_range` and `attachment=` on both volts capture phases.
+- `control_loop_phase(..., switch_image=True)` and `dac_replay_phase(..., switch_image=True)`: the
+  pod is switched to the gateware image the phase needs (via the SDK's automatic switching), and the
+  switch is logged; `switch_image=False` makes the phase fail instead.
 
 ### Fixed
 

@@ -15,7 +15,7 @@ BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
 
 | Tier | File | Needs | What it proves |
 |---|---|---|---|
-| pod | `test_e2e_pod.py` | `--benchpod-connection` | status/capabilities/typed state, LA voltage, rev3-only features, argument validation, firmware errors, every analog path, DAC codes vs the SDK volts mapping, DAC→ADC readback, `generate` levels in volts, `route=False` loopbacks, replay (shallow, co-triggered, deep on the deep image, refused on the loop image), `stop_dac_after`, shallow + deep ADC, LA + correlated capture, LA step pulses, control loop (fixed/sweep/input map), gateware image round trip, bias resistors, I2C sensor emulation, UART session plumbing, CAN loopback + responder |
+| pod | `test_e2e_pod.py` | `--benchpod-connection` | status/capabilities/typed state, LA voltage, rev3-only features, argument validation, firmware errors, every analog path, DAC codes vs the SDK volts mapping, DAC→ADC readback, `generate` levels in volts, `route=False` loopbacks, replay (shallow, co-triggered, deep on the deep image, refused on the loop image), `stop_dac_after`, shallow + deep ADC, LA + correlated capture, LA step pulses, control loop (fixed/sweep/input map), gateware image round trip and automatic switching (control loop, deep replay, `switch_image=False`), bias resistors, I2C sensor emulation, UART session plumbing, CAN loopback + responder |
 | dut | `test_e2e_dut.py` | + `--benchpod-firmware` and the wired board | SWD flash, boot banner via power cycle, power monitor + eFuse see the board, interactive console (help/status/reset), firmware detects the emulated BMP280, firmware reports a missing sensor, `i2c_sensor_capture` sees the boot probe, a 4 s logic capture of the boot decodes the chip-id read (and every transaction the pod served) and the UART banner |
 | usb | `test_e2e_usb.py` | `BENCHPOD_E2E_USB` | the text console: status/ping/LA voltage/power, fail-fast hints for everything else |
 | cloud | `test_e2e_cloud.py` | `BENCHPOD_E2E_CLOUD_DEVICE` + `BENCHPOD_API_KEY` | lease, command channel, tunnel captures, commands during a UART session, waveform library save → replay → delete |
@@ -42,19 +42,6 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 | Biased channel nothing uses | LA6 | `BENCHPOD_E2E_FREE_PULL_LA` |
 | Highest DAC output voltage | 3.3 V | `BENCHPOD_E2E_DAC_MAX_V` |
 | Drive the bipolar 12v output (±1 V) | no | `BENCHPOD_E2E_ALLOW_12V=1` |
-
-## Known issues
-
-- **LA and ADC sample rates reported too high** (pod firmware 0.3.0-dev, gateware v31). Both the
-  LA sampler and the ADC engine sample every `divider+1` clocks, so the real rate is `d/(d+1)` of
-  the reported `sample_rate_hz` (`d` = the 24 MHz clock divider). LA, measured against the DUT's
-  UART: 0.922× at 2 MS/s, 0.959× at 1 MS/s, 0.978× at 500 kS/s, 0.989× at 250 kS/s; against the
-  host clock: 0.960× at 1 MS/s. ADC against the host clock: 0.983× at 400 kS/s. Timing derived
-  from a capture is off by that much, and UART decoded from a 1 MS/s capture loses ~3% of
-  characters. Regression tests, all strict xfails that turn red once the firmware is fixed (then
-  remove their marks, and the decode test's): `test_la_sample_rate_matches_the_host_clock` and
-  `test_adc_sample_rate_matches_the_host_clock` (pod tier, no DUT needed) and
-  `test_la_sample_rate_matches_the_dut_uart` (DUT tier).
 
 ## Not covered here
 

@@ -64,6 +64,9 @@ RateHz = Annotated[Optional[float], Field(description="Sample rate in Hz; omit f
 Regex = Annotated[Optional[str], Field(description="Python regular expression; stop as soon as it matches.")]
 Byte = Annotated[int, Field(ge=0, le=255)]
 Code16 = Annotated[int, Field(ge=0, le=65535)]
+SwitchImage = Annotated[bool, Field(description=(
+    "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, "
+    "stopping any DAC output, UART session or I2C sensor emulation. false = fail instead."))]
 
 
 # -- plumbing --------------------------------------------------------------------
@@ -715,9 +718,17 @@ async def dac_stop() -> m.StopResult:
     return m.StopResult()
 
 
+def _image_name(info: Any) -> Optional[str]:
+    """The tool-level name of the image an SDK switch went to (None when there was no switch)."""
+    if info is None:
+        return None
+    return "loop" if int(info.image) == int(FpgaImage.LOOP) else "deep_replay"
+
+
 def _replay_result(handle: Any) -> m.ReplayResult:
     return m.ReplayResult(samples=handle.samples, sample_rate_hz=handle.sample_rate_hz,
-                          dac_path=handle.dac_path, deep=handle.deep, cotrig=handle.cotrig)
+                          dac_path=handle.dac_path, deep=handle.deep, cotrig=handle.cotrig,
+                          switched_image=_image_name(handle.switched_image))
 
 
 @mcp.tool(annotations=_ann("Replay a waveform", destructive=True))
@@ -730,9 +741,13 @@ async def replay(
     fault: Optional[m.FaultSpec] = None,
     on_capture: bool = False,
     route: Annotated[bool, Field(description="Route dac_path first (false = keep the current analog path).")] = True,
+    switch_image: SwitchImage = True,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.ReplayResult:
-    """Loop a waveform out of the DAC until dac_stop — agent-provided volts or the last ADC capture."""
+    """Loop a waveform out of the DAC until dac_stop — agent-provided volts or the last ADC capture.
+
+    More than 2048 samples need the deep_replay gateware image, switched to automatically.
+    """
     if (volts is None) == (not from_last_capture):
         raise ToolError("invalid argument: pass exactly one of volts or from_last_capture=true")
 
@@ -745,7 +760,8 @@ async def replay(
             source = SESSION.last_adc
         return _replay_result(pod.replay(source, dac_path=dac_path, mapping=mapping,
                                          sample_rate_hz=sample_rate_hz, fault=_fault(fault),
-                                         on_capture=on_capture, route=route))
+                                         on_capture=on_capture, route=route,
+                                         switch_image=switch_image))
 
     return await _call_reporting(ctx, "uploading replay", op)
 
@@ -770,14 +786,19 @@ async def replay_waveform(
     target_samples: Annotated[int, Field(ge=0, description="Downsample a shallow replay to this many samples.")] = 0,
     fault: Optional[m.FaultSpec] = None,
     on_capture: bool = False,
+    switch_image: SwitchImage = True,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.ReplayResult:
-    """Loop a cloud-library waveform out of the DAC until dac_stop (needs server access)."""
+    """Loop a cloud-library waveform out of the DAC until dac_stop (needs server access).
+
+    A recording too long for a shallow replay switches the pod to the deep_replay gateware image
+    (unless target_samples asks for a downsampled replay).
+    """
     return await _call_reporting(ctx, "arming replay", lambda: _replay_result(
         SESSION.require().replay_waveform(
             waveform_id, dac_path=dac_path, mapping=mapping, sample_rate_hz=sample_rate_hz,
             window_start=window_start, window_len=window_len, target_samples=target_samples,
-            fault=_fault(fault), on_capture=on_capture)))
+            fault=_fault(fault), on_capture=on_capture, switch_image=switch_image)))
 
 
 @mcp.tool(annotations=_ann("Save capture to the library", cloud=True))
@@ -814,11 +835,13 @@ async def control_loop(
     input_code: Code16 = 0,
     step: Code16 = 0,
     input_map: Optional[m.InputMapSpec] = None,
+    switch_image: SwitchImage = True,
+    ctx: Context = None,  # type: ignore[assignment]
 ) -> m.LoopArmResult:
     """Run a tabulated transfer function in the FPGA: each tick out = curve[input], damped and clamped.
 
-    Needs the loop gateware (capabilities.dac_control_loop; switch with fpga_image('loop')).
-    Poll with loop_probe, move the input with loop_input, stop with dac_stop.
+    Needs the loop gateware image, switched to automatically. Poll with loop_probe, move the input
+    with loop_input, stop with dac_stop.
     """
     if curve is not None and not 1 <= len(curve) <= 2048:
         raise ToolError("invalid argument: curve needs 1-2048 points")
@@ -828,12 +851,12 @@ async def control_loop(
         h = SESSION.require().control_loop(curve=curve, voc_code=voc_code, sharpness=sharpness,
                                            points=points, k=k, vmin=vmin, vmax=vmax,
                                            tick_div=tick_div, source=source, input_code=input_code,
-                                           step=step, input_map=imap)
+                                           step=step, input_map=imap, switch_image=switch_image)
         return m.LoopArmResult(armed=h.armed, k=h.k, vmin=h.vmin, vmax=h.vmax, tick_div=h.tick_div,
                                curve_points=h.curve_pts, source=h.source, input_code=h.input_code,
-                               step=h.step)
+                               step=h.step, switched_image=_image_name(h.switched_image))
 
-    return await _call(op)
+    return await _call_reporting(ctx, "arming the control loop", op)
 
 
 @mcp.tool(annotations=_ann("Move the loop input", destructive=True))
@@ -861,7 +884,11 @@ async def fpga_image(
         "loop = control-loop image; deep_replay = deep DAC replay from PSRAM."))],
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FpgaImageResult:
-    """Reprogram the pod's FPGA with another stored gateware image (~2-3 s)."""
+    """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
+
+    Rarely needed: control_loop, replay and replay_waveform switch automatically. The switch resets
+    the FPGA (any DAC output, UART session or I2C sensor emulation stops).
+    """
     img = FpgaImage.LOOP if image == "loop" else FpgaImage.DEEP_REPLAY
     info = await _call_reporting(ctx, "switching gateware", lambda: SESSION.require().fpga_image(img))
     return m.FpgaImageResult(image=image, version=info.version, features=info.features)

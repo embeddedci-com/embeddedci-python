@@ -141,6 +141,12 @@ Resources: `benchpod://wiring` (LA channels, bias resistors, analog paths, an ex
   `save_capture_as_recording` don't capture again.
 - **Sessions.** `uart_open` buffers the DUT's console in the background (open it before
   `power_on`, then `uart_read` / `uart_write`); `can_open` keeps a CAN bus open across calls.
+- **Gateware images.** The pod's FPGA runs either the `loop` image (`control_loop`) or the
+  `deep_replay` image (replays longer than 2048 samples). `control_loop`, `replay` and
+  `replay_waveform` switch automatically (~3 s) and report it as `switched_image`;
+  `switch_image: false` fails instead. A switch resets the FPGA — a running DAC output, UART session
+  or I2C sensor emulation stops — and the server instructions tell the agent to start those after it.
+  `fpga_image` switches explicitly.
 - **Non-blocking.** Tools run on worker threads under one device lock: a 5-minute flash doesn't
   freeze the server, sends progress notifications, and concurrent calls can't interleave commands.
 - **Annotations.** Read-only tools (`status`, `power_status`, `adc_read`, …) are marked so clients

@@ -23,8 +23,9 @@ Where the input comes from is selectable (gateware >= v29,
     whole curve at a deterministic rate, again with no ADC involved.
 
 Only the **loop gateware image** provides the loop at all
-(:attr:`Capabilities.dac_control_loop`); use
-:meth:`~embeddedci.benchpod.client.BenchPod.fpga_image` to switch a device onto it.
+(:attr:`Capabilities.dac_control_loop`);
+:meth:`~embeddedci.benchpod.client.BenchPod.control_loop` switches a pod on the deep-replay image
+onto it automatically (``switch_image=True``).
 
 This module holds the transport-independent pieces — the curve builders/encoder (a faithful port
 of the web UI's ``controlLoopCurve.ts``) and the :class:`ControlLoopHandle`. The commands
@@ -39,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .constants import LOOP_SOURCES
-from .state import LoopState
+from .state import FpgaImageInfo, LoopState
 
 #: Points UPLOADED in a curve command. The gateware LUT is 2048 entries (``ADC >> 5``), but one
 #: command is transport-capped (~1.2 KB), so the SDK sends a compact curve and the firmware
@@ -255,11 +256,15 @@ class ControlLoopHandle:
 
     def __init__(self, *, probe: Callable[[], IVPoint], stop: Callable[[], Any],
                  data: Optional[Dict[str, Any]] = None,
-                 set_input: Optional[Callable[..., Any]] = None) -> None:
+                 set_input: Optional[Callable[..., Any]] = None,
+                 switched_image: Optional[FpgaImageInfo] = None) -> None:
         self._probe = probe
         self._stop = stop
         self._set_input = set_input
         self._stopped = False
+        #: The gateware image switch made to arm this loop (``None`` when the pod was already on the
+        #: loop image). A switch resets the FPGA, stopping anything else that ran in it.
+        self.switched_image = switched_image
         d = data or {}
         self.armed = bool(d.get("armed", True))
         self.k = int(d.get("k", DEFAULT_K))

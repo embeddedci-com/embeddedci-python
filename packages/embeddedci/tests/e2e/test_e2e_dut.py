@@ -150,10 +150,6 @@ def test_logic_capture_decodes_the_boot_i2c(boot_capture, pod, bench):
     assert served > 0 and abs(len(txns) - served) <= 2, (len(txns), served)
 
 
-LA_RATE_BUG = ("known pod bug: the real LA sample rate is d/(d+1) of the reported one (4% slow at "
-               "1 MS/s, an off-by-one in the LA clock divider), so UART bits drift off-centre")
-
-
 def _samples_per_bit(bits, guess: float) -> float:
     """Fit the bit period (in samples) from the run lengths of a serial line."""
     runs, count = [], 1
@@ -170,7 +166,6 @@ def _samples_per_bit(bits, guess: float) -> float:
     return spb
 
 
-@pytest.mark.xfail(strict=True, reason=LA_RATE_BUG + " — remove this mark once the firmware is fixed")
 def test_la_sample_rate_matches_the_dut_uart(boot_capture, bench):
     """The DUT's USART (115200 from its 16 MHz HSI, ±1%) is an independent clock: the bit period
     measured in samples must match the capture's reported sample rate."""
@@ -182,7 +177,6 @@ def test_la_sample_rate_matches_the_dut_uart(boot_capture, bench):
         f"{la.sample_rate_hz:.0f} Hz: the real rate is {spb / expected:.4f}x the reported one")
 
 
-@pytest.mark.xfail(reason=LA_RATE_BUG)
 def test_logic_capture_decodes_the_boot_uart(boot_capture, pod, bench):
     la, _ = boot_capture
     text = decode.uart_text(pod.decode(la, "uart", rx=bench.uart_rx, baud=115200))

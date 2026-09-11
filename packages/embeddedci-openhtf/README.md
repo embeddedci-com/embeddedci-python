@@ -182,6 +182,10 @@ Notes:
   `loopback_measure_phase` does this for you.
 - A waveform started without `duration` keeps running after its phase; stop it with
   `signal_stop(bench)` (e.g. in a teardown phase).
+- `control_loop_phase` and `dac_replay_phase` (and the `control_loop`, `replay` and
+  `replay_waveform` helpers) switch the pod to the gateware image they need — loop or deep replay —
+  automatically (~3 s, logged); pass `switch_image=False` to fail instead. A switch resets the FPGA,
+  so start waveforms, UART sessions and I2C sensor emulation after it.
 - Use a TCP connection. The STM32 pod's USB serial console is a text shell without a JSON
   mode, so over serial only `power_phase`, status and the LA voltage work; flashing, UART,
   analog and replay phases need TCP (or the cloud).

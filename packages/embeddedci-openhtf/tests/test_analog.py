@@ -221,6 +221,21 @@ def test_control_loop_and_fpga_image_helpers_through_plug_proxy():
     assert (pt.i, pt.v) == (4096, 51000)
 
 
+def test_control_loop_phase_switches_the_gateware_image_when_needed():
+    tx = FakeTransport(image=1)
+    rec = _run(control_loop_phase(benchpod_plug(transport=tx), voc_code=52000))
+    assert rec.outcome == tr.Outcome.PASS
+    assert _cmds(tx).index("fpga_image") < _cmds(tx).index("dac_control_loop")
+    assert {"cmd": "fpga_image", "image": 0} in tx.commands
+
+
+def test_control_loop_phase_with_switch_image_false_fails_on_the_other_image():
+    tx = FakeTransport(image=1)
+    rec = _run(control_loop_phase(benchpod_plug(transport=tx), voc_code=52000, switch_image=False))
+    assert rec.outcome == tr.Outcome.ERROR
+    assert "fpga_image" not in _cmds(tx) and "dac_control_loop" not in _cmds(tx)
+
+
 # -- DC output / single reading ----------------------------------------------------------
 
 def test_dac_output_phase_routes_and_sets_volts():

@@ -107,6 +107,13 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
 - `generate(..., route=False)` / `replay(..., route=False)` keep the current analog switching, so a
   DAC→ADC loopback set up with `analog_path("cal1")` survives starting the output.
 - `BenchPod.leased`: whether this client holds a cloud device lease.
+- **Automatic gateware image switching.** `control_loop()`, `replay()` and `replay_waveform()` take
+  `switch_image=True` and switch the pod to the image they need (loop / deep replay) instead of
+  failing, logging a warning; `ControlLoopHandle.switched_image` / `ReplayHandle.switched_image`
+  record the switch. `switch_image=False` raises a `BenchPodError` (the control loop used to reach
+  the firmware and fail there). The `benchpod_capability` marker switches the image for
+  `dac_control_loop` / `dac_deep_replay` instead of skipping. The README has a new
+  "Gateware images" section.
 - The `hardware` marker now skips a test when no connection is configured, even if the test
   requests no device fixture.
 
@@ -126,8 +133,8 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
   a pod. `generate`'s default offset on `12v` is now 0 V. (`dsp.volts_to_codes` gained
   `path_min_v`; `dsp.dac_path_range_v` gives each path's range.)
 - A replay deeper than 2048 samples on the control-loop gateware image was accepted and then
-  produced no output (measured on a pod); it now raises a `BenchPodError` naming
-  `fpga_image(FpgaImage.DEEP_REPLAY)`.
+  produced no output (measured on a pod); it now switches the pod to the deep-replay image first
+  (or raises a `BenchPodError` with `switch_image=False`).
 - `DacOutput.path` reports the output path you asked for (`5v`), not the firmware's analog-path
   name (`dac_5v`).
 - `replay_waveform` scaled a segments waveform for its stored path but routed the `5v` default.
