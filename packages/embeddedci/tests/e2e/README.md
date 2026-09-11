@@ -45,12 +45,16 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 
 ## Known issues
 
-- **LA sample rate reported too high** (pod firmware 0.3.0-dev, gateware v31). The real rate is
-  `d/(d+1)` of the reported `sample_rate_hz` (`d` = the 24 MHz clock divider). Measured against
-  the DUT's UART: 0.922× at 2 MS/s, 0.959× at 1 MS/s, 0.978× at 500 kS/s, 0.989× at 250 kS/s.
-  Timing derived from a logic capture is off by that much, and UART decoded from a 1 MS/s capture
-  loses ~3% of characters. `test_la_sample_rate_matches_the_dut_uart` is a strict xfail: it turns
-  red once the firmware is fixed, so remove its mark (and the decode test's) then.
+- **LA and ADC sample rates reported too high** (pod firmware 0.3.0-dev, gateware v31). Both the
+  LA sampler and the ADC engine sample every `divider+1` clocks, so the real rate is `d/(d+1)` of
+  the reported `sample_rate_hz` (`d` = the 24 MHz clock divider). LA, measured against the DUT's
+  UART: 0.922× at 2 MS/s, 0.959× at 1 MS/s, 0.978× at 500 kS/s, 0.989× at 250 kS/s; against the
+  host clock: 0.960× at 1 MS/s. ADC against the host clock: 0.983× at 400 kS/s. Timing derived
+  from a capture is off by that much, and UART decoded from a 1 MS/s capture loses ~3% of
+  characters. Regression tests, all strict xfails that turn red once the firmware is fixed (then
+  remove their marks, and the decode test's): `test_la_sample_rate_matches_the_host_clock` and
+  `test_adc_sample_rate_matches_the_host_clock` (pod tier, no DUT needed) and
+  `test_la_sample_rate_matches_the_dut_uart` (DUT tier).
 
 ## Not covered here
 

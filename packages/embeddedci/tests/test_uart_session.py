@@ -44,13 +44,13 @@ class FakeLink:
             self._cond.notify_all()
 
 
-def test_read_until_substring():
+def test_read_until_returns_the_output_through_the_match():
     link = FakeLink()
     with UartSession(link) as uart:
-        link.feed(b"SELFTEST: boot\r\nAPP_OK\r\n")
-        assert uart.read_until("APP_OK", timeout=2) == "APP_OK"
-        assert "SELFTEST" in uart.text
-        assert "APP_OK" in uart.lines
+        link.feed(b"SELFTEST: boot\r\nAPP_OK\r\nmore")
+        assert uart.read_until("APP_OK", timeout=2) == "SELFTEST: boot\r\nAPP_OK"
+        assert uart.read() == "\r\nmore"
+        assert "SELFTEST" in uart.text and "APP_OK" in uart.lines  # history keeps everything
 
 
 def test_event_based_banner_arrives_after_open():
@@ -59,7 +59,7 @@ def test_event_based_banner_arrives_after_open():
     link = FakeLink()
     with UartSession(link) as uart:
         threading.Timer(0.1, lambda: link.feed(b"APP_OK\r\n")).start()
-        assert uart.expect("APP_OK", timeout=2)
+        assert uart.expect("APP_OK", timeout=2) == "APP_OK"
 
 
 def test_expect_timeout_carries_text():
@@ -71,12 +71,67 @@ def test_expect_timeout_carries_text():
         assert "some noise" in ei.value.text
 
 
-def test_regex_match_returns_match():
+def test_expect_regex_returns_the_match():
     link = FakeLink()
     with UartSession(link) as uart:
         link.feed(b"rx_byte_count=42\r\n")
-        m = uart.read_until(re.compile(r"rx_byte_count=(\d+)"), timeout=2)
+        m = uart.expect(re.compile(r"rx_byte_count=(\d+)"), timeout=2)
         assert m.group(1) == "42"
+        assert uart.read() == "\r\n"
+
+
+def test_expect_marks_the_match_read_so_a_repeated_prompt_needs_new_output():
+    link = FakeLink()
+    with UartSession(link) as uart:
+        link.feed(b"> ")
+        uart.expect("> ", timeout=2)
+        with pytest.raises(UartTimeout):
+            uart.expect("> ", timeout=0.2)
+        link.feed(b"help\r\n> ")
+        assert uart.read_until("> ", timeout=2) == "help\r\n> "
+
+
+def test_read_returns_only_new_output():
+    link = FakeLink()
+    with UartSession(link) as uart:
+        link.feed(b"aaa")
+        assert uart.read(timeout=2) == "aaa"
+        assert uart.read() == ""
+        threading.Timer(0.1, lambda: link.feed(b"bbb")).start()
+        assert uart.read(timeout=2) == "bbb"
+        assert uart.text == "aaabbb"
+
+
+def test_read_until_timeout_leaves_the_output_unread():
+    link = FakeLink()
+    with UartSession(link) as uart:
+        link.feed(b"partial")
+        assert uart.read_until("END", timeout=0.2) is None
+        assert uart.read() == "partial"
+
+
+def test_predicate_marks_everything_unread_as_read():
+    link = FakeLink()
+    with UartSession(link) as uart:
+        link.feed(b"count=3\r\n")
+        assert uart.expect(lambda text: "count=" in text, timeout=2) is True
+        assert uart.read() == ""
+
+
+def test_multibyte_characters_split_across_reads_and_invalid_bytes():
+    link = FakeLink()
+    with UartSession(link, chunk=1) as uart:
+        link.feed("é".encode() + b"\xff" + b"ok")
+        assert uart.read_until("ok", timeout=2) == "é�ok"
+
+
+def test_overflow_keeps_the_newest_output():
+    link = FakeLink()
+    with UartSession(link, max_buffer=10) as uart:
+        link.feed(b"0123456789ABCDEF")
+        uart.expect("F", timeout=2)
+        assert uart.text == "6789ABCDEF" and uart.overflowed
+        assert uart.read() == ""
 
 
 def test_write_forwards_to_link():
@@ -84,18 +139,6 @@ def test_write_forwards_to_link():
     with UartSession(link) as uart:
         uart.write("ping\r\n")
         assert bytes(link.written) == b"ping\r\n"
-
-
-def test_drain_returns_only_new():
-    link = FakeLink()
-    with UartSession(link) as uart:
-        link.feed(b"aaa")
-        assert uart.read_until("aaa", timeout=2)
-        assert "aaa" in uart.drain()
-        link.feed(b"bbb")
-        assert uart.read_until("bbb", timeout=2)
-        second = uart.drain()
-        assert second == "bbb" and "aaa" not in second
 
 
 def test_close_stops_reader_and_returns_none():

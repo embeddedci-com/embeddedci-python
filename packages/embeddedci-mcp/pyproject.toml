@@ -8,12 +8,12 @@ version = "2.0.0"
 description = "MCP server that lets AI agents drive an EmbeddedCI BenchPod hardware-in-the-loop bench"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "EmbeddedCI" }]
 keywords = ["embedded", "hardware-in-the-loop", "mcp", "benchpod", "swd", "agent"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

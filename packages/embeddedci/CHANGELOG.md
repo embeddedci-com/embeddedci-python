@@ -73,7 +73,9 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
 | `Segment(shape, duration_ms, v_start, v_end)` | `Segment(shape, duration, v_start, v_end)` — `duration` in seconds |
 | `dac_stop()` / `ReplayHandle.stop()` returned the reply | return `None` |
 | **UART** | |
-| `UartSession.read_until` / `expect` searched everything ever received | search the text since the last `drain()` (as `drain` was documented) |
+| `UartSession.read(timeout=)` returned everything received so far | returns the output since the last read and marks it read (everything received is `.text`) |
+| `UartSession.drain()` | `read()` |
+| `UartSession.read_until` / `expect` searched everything ever received and consumed nothing; both returned the match | both search the unread output and mark it read up to the end of the match; `read_until` returns that output (or `None`), `expect` returns the match (`re.Match` for a regex) |
 | **Control loop** | |
 | `loop_input(...)` → dict | → `LoopState(source, input_code, step, output_code)` |
 | `ControlLoopHandle.set_input(...)` → dict | → `LoopState` |

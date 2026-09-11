@@ -75,13 +75,10 @@ def test_interactive_console(dut, bench):
         dut.power_on(bench.efuse)                       # immediate: the session is already buffering
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
         uart.expect("> ", timeout=5)
-        uart.drain()
         uart.write("help\r")
         uart.expect("commands:", timeout=5)
-        uart.drain()
         uart.write("status\r")
         uart.expect("bmp280_detected=", timeout=5)
-        uart.drain()
         uart.write("reset\r")                           # the app reboots itself over the console
         uart.expect("RESET: rebooting", timeout=5)
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)

@@ -360,13 +360,16 @@ with bp.open_uart(rx=PIN5, tx=PIN4, baud=115200) as uart:
     bp.power_on(INTERNAL)                    # immediate: the session is already buffering
     uart.expect("APP_OK", timeout=6)         # raises UartTimeout (with .text) on timeout
     uart.write("status\r\n")
-    m = uart.read_until(re.compile(r"uptime=(\d+)"), timeout=2)   # None on timeout
-    assert m, uart.text
+    uptime = uart.expect(re.compile(r"uptime=(\d+)"), timeout=2).group(1)   # expect returns the match
+    reply = uart.read_until("> ", timeout=2)    # the output up to the next prompt; None on timeout
+    rest = uart.read()                          # whatever arrived since
 ```
 
-`UartSession` also has `read(timeout=)` (all text so far), `drain()` (text since the last `drain`),
-`text`, `lines`, `closed`, and `overflowed` (set when more than `max_buffer` bytes arrived and the
-oldest were dropped). Running commands such as `power_on` while a session is open needs a TCP or
+Reading works like a console. `read(timeout=)` returns the output since the last read (waiting up to
+`timeout` when there is none), and `read_until` / `expect` mark the output read up to the end of
+their match, so the next call only sees newer output. `text` and `lines` keep everything received;
+`closed` says the session ended, and `overflowed` is set when more than `max_buffer` characters
+arrived and the oldest were dropped. Running commands such as `power_on` while a session is open needs a TCP or
 cloud connection.
 
 ## LA bias resistors

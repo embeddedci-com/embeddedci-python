@@ -528,11 +528,10 @@
     "__init__": "(self, link: 'RawLink', *, max_buffer: 'int' = 1048576, chunk: 'int' = 256) -> 'None'",
     "close": "(self) -> 'None'",
     "closed": "property",
-    "drain": "(self) -> 'str'",
     "expect": "(self, pattern: 'Until', *, timeout: 'float')",
     "lines": "property",
     "read": "(self, *, timeout: 'float' = 0.0) -> 'str'",
-    "read_until": "(self, pattern: 'Until', *, timeout: 'float')",
+    "read_until": "(self, pattern: 'Until', *, timeout: 'float') -> 'Optional[str]'",
     "text": "property",
     "write": "(self, data: 'Union[bytes, str]') -> 'None'"
   },

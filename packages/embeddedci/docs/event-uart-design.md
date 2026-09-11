@@ -55,26 +55,24 @@ A new `UartSession` returned by `BenchPod.open_uart(...)`:
 
 ```python
 class UartSession:
-    # --- reading ---
-    def read_until(self, pattern: Until, *, timeout: float) -> Optional[re.Match | str]:
-        """Block until `pattern` (substring/regex/predicate) appears in the
-        accumulated text or `timeout` elapses. Returns the match (truthy) or
-        None on timeout. Does NOT consume — `text` keeps growing."""
-
+    # --- reading: one read cursor, like a console ---
     def read(self, *, timeout: float = 0.0) -> str:
-        """Return all text received so far. timeout>0 waits up to that long for
-        at least one new byte; timeout=0 is non-blocking."""
+        """Return the output since the last read and mark it read. With nothing
+        unread, timeout>0 waits up to that long for new output."""
 
-    def expect(self, pattern: Until, *, timeout: float) -> re.Match | str:
-        """Like read_until but raises UartTimeout instead of returning None."""
+    def read_until(self, pattern: Until, *, timeout: float) -> Optional[str]:
+        """Wait until `pattern` (substring/regex/predicate) appears in the unread
+        output; return that output through the match and mark it read. None on
+        timeout (nothing marked read)."""
+
+    def expect(self, pattern: Until, *, timeout: float) -> re.Match | str | bool:
+        """Like read_until, but returns the match (regex groups) and raises
+        UartTimeout instead of returning None."""
 
     @property
-    def text(self) -> str: ...          # everything decoded so far
+    def text(self) -> str: ...          # everything received (history)
     @property
     def lines(self) -> list[str]: ...   # convenience split
-
-    def drain(self) -> str:
-        """Return + clear the buffer (so the next read_until only sees new data)."""
 
     # --- writing (proxy is bidirectional) ---
     def write(self, data: bytes | str) -> None: ...
@@ -102,22 +100,22 @@ open_uart()
   return UartSession(link, thread, buffer, condition)
 ```
 
-- **Buffer**: a `bytearray` guarded by a `threading.Lock`; a `threading.Condition`
-  signals readers when new bytes arrive or the link closes.
+- **Buffer**: decoded text guarded by a `threading.Lock`; a `threading.Condition`
+  signals readers when new output arrives or the link closes.
 - **Reader thread**: `while not stopped: data = link.read(chunk); if not data: mark
   closed + notify; break; with lock: buffer += data; notify_all()`.
   `link.read` already blocks until data/EOF, so the thread parks when the DUT is
   quiet — no busy-poll.
-- **`read_until`**: under the condition, re-evaluate the predicate against
-  `buffer.decode("utf-8", errors="replace")` (decode the whole buffer each time, as
-  `capture()` does, so multi-byte chars split across chunks resolve); `wait(timeout)`
-  until it matches, the deadline passes, or the link closes.
+- **`read_until` / `expect`**: under the condition, search the unread text (after the
+  read cursor); `wait(timeout)` until it matches, the deadline passes, or the link
+  closes; on a match advance the cursor to the end of the match.
 - **`close()`**: set `stopped`, `link.close()` (which unblocks the reader's
   in-flight `read` and tells the firmware to leave PROTO_UART), `thread.join()`.
 - **Bounded buffer**: cap at `max_buffer`; on overflow drop oldest and set an
   `overflowed` flag (surfaced on read) so a chatty DUT can't OOM a long session.
-- **Decode position**: keep raw bytes; decode lazily in `text`/`read_until`. Track a
-  `consumed` offset for `drain()`.
+- **Decoding**: the reader thread decodes with an incremental UTF-8 decoder
+  (`errors="replace"`), so a multi-byte character split across chunks survives and the
+  read cursor is a character offset that can't land inside one.
 
 `capture_uart` can be re-expressed on top of this (open → `read_until` or sleep
 `duration` → snapshot `text`/`lines` → close), keeping the existing one-shot API

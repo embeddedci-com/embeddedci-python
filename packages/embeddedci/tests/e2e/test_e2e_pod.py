@@ -31,7 +31,7 @@ from embeddedci.benchpod import (
 )
 from embeddedci.benchpod.constants import ANALOG_PATHS
 
-from e2e_helpers import SETTLE, adc_levels, p2p, split_levels
+from e2e_helpers import SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
 
 pytestmark = pytest.mark.hardware
 
@@ -237,6 +237,52 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
     assert la.edges(ch) > 0, f"no step edges seen on LA{ch}"
 
 
+# The host clock is the independent reference for the capture clock: events sent at known host
+# times land at sample indices, and the fitted slope is the real sample rate. The drift a wrong
+# rate causes grows with the capture length (samples / 24 MHz regardless of rate: ~170 ms for
+# the LA test, ~80 ms for the ADC test), far above the few ms of network jitter.
+RATE_BUG = ("known pod bug: the LA sampler and the ADC engine sample every divider+1 clocks, so "
+            "the real rate is d/(d+1) of the reported one — remove this mark once it is fixed")
+
+
+@pytest.mark.xfail(strict=True, reason=RATE_BUG)
+def test_la_sample_rate_matches_the_host_clock(pod, bench):
+    np = pytest.importorskip("numpy")
+    ch = bench.free_la[0]
+    la, stamps = events_during(lambda: pod.capture_la(4_000_000, sample_rate_hz=1_000_000),
+                               lambda k: pod.la_step(ch, steps=1, delay=0.001),
+                               count=25, interval=0.2)
+    bits = np.asarray(la.channel(ch), dtype=np.int8)
+    rate = host_clock_rate(np.flatnonzero(np.diff(bits) == 1) + 1, stamps)
+    assert rate == pytest.approx(la.sample_rate_hz, rel=0.005), (
+        f"the LA really samples at {rate:.0f} Hz ({rate / la.sample_rate_hz:.4f}x the reported "
+        f"{la.sample_rate_hz:.0f} Hz)")
+
+
+@pytest.mark.xfail(strict=True, reason=RATE_BUG)
+def test_adc_sample_rate_matches_the_host_clock(pod):
+    np = pytest.importorskip("numpy")
+    pod.analog_path("cal1")
+
+    def toggle_dac(k):  # a 5 kHz burst on even events, flat on odd ones
+        if k % 2 == 0:
+            pod.generate("square", freq_hz=5000, amplitude=0.8, offset=1.5, route=False)
+        else:
+            pod.dac_stop()
+
+    cap, stamps = events_during(lambda: pod.capture_adc(2_000_000, sample_rate_hz=400_000),
+                                toggle_dac, count=22, interval=0.25)
+    block = 100
+    counts = np.asarray(cap.counts, dtype=np.int64)
+    blocks = counts[: len(counts) // block * block].reshape(-1, block)
+    active = (blocks.max(axis=1) - blocks.min(axis=1)) > 800
+    edges = (np.flatnonzero(np.diff(active.astype(np.int8)) != 0) + 1) * block
+    rate = host_clock_rate(edges, stamps)
+    assert rate == pytest.approx(cap.sample_rate_hz, rel=0.005), (
+        f"the ADC really samples at {rate:.0f} Hz ({rate / cap.sample_rate_hz:.4f}x the reported "
+        f"{cap.sample_rate_hz:.0f} Hz)")
+
+
 # -- DAC replay depth vs gateware image ----------------------------------------------------
 
 def test_deep_replay_is_refused_on_the_loop_image(loop_image):
@@ -339,7 +385,7 @@ def test_uart_session_on_unwired_channels(pod, bench):
         uart.read(timeout=0.3)
         assert not uart.closed
         assert uart.read_until("never-appears", timeout=0.1) is None
-        uart.drain()
+        uart.read()
     assert pod.ping()  # commands work again once the session is closed
 
 

@@ -412,13 +412,11 @@ async def uart_read(
         uart = SESSION.require_uart()
         matched: Optional[bool] = None
         if pattern is not None:
-            matched = uart.read_until(pattern, timeout=timeout) is not None  # searches unread text
-            new = uart.drain()
+            through_match = uart.read_until(pattern, timeout=timeout)  # searches unread text
+            matched = through_match is not None
+            new = (through_match or "") + uart.read()
         else:
-            new = uart.drain()
-            if not new and timeout > 0:
-                uart.read(timeout=timeout)
-                new = uart.drain()
+            new = uart.read(timeout=timeout)
         return m.UartReadResult(text=clip(new, MAX_TEXT), matched=matched, closed=uart.closed,
                                 overflowed=uart.overflowed, truncated=len(new) > MAX_TEXT)
 
