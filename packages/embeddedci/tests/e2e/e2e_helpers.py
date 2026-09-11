@@ -57,12 +57,16 @@ def events_during(capture: Callable[[], Any], fire: Callable[[int], Any], *, cou
     time.sleep(lead)
     stamps: List[float] = []
     t0 = time.monotonic()
-    for k in range(count):
-        while time.monotonic() < t0 + k * interval:
-            time.sleep(0.0005)
-        stamps.append(time.monotonic())
-        fire(k)
-    thread.join()
+    try:
+        for k in range(count):
+            while time.monotonic() < t0 + k * interval:
+                time.sleep(0.0005)
+            stamps.append(time.monotonic())
+            fire(k)
+    finally:
+        # even when fire() raises: an abandoned capture keeps the pod's single capture slot and
+        # the next test's capture is refused as "busy"
+        thread.join()
     if "error" in result:
         raise result["error"]
     return result["capture"], stamps

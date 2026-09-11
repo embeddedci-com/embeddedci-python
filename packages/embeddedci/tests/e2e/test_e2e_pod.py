@@ -232,9 +232,16 @@ def test_capture_la_and_correlated(pod):
 
 def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
     ch = bench.free_la[0]
-    pod.la_step(ch, steps=400, delay=0.002)
-    la = pod.capture_la(200_000, sample_rate_hz=1_000_000)
-    assert la.edges(ch) > 0, f"no step edges seen on LA{ch}"
+    steps, delay = 400, 0.002
+    t0 = time.monotonic()
+    pod.la_step(ch, steps=steps, delay=delay)
+    try:
+        la = pod.capture_la(200_000, sample_rate_hz=1_000_000)
+        assert la.edges(ch) > 0, f"no step edges seen on LA{ch}"
+    finally:
+        # la_step returns at once but the FPGA keeps pulsing (one pulse per 2 * delay: ~1.6 s here)
+        # and refuses another train as "busy" until it ends, so wait it out for the next test.
+        time.sleep(max(0.0, t0 + steps * 2 * delay + 0.1 - time.monotonic()))
 
 
 # The host clock is the independent reference for the capture clock: events sent at known host

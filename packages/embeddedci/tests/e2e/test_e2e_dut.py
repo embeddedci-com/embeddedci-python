@@ -98,17 +98,31 @@ def test_firmware_detects_the_emulated_bmp280(dut, bench):
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
 
 
+# The DUT probes the BMP280 (0x76) only in the first ~30-45 ms of its boot I2C burst, which starts
+# ~2.30 s after power_on() returns; the rest of the ~170 ms burst probes the VL53L0X (0x29). A
+# 4096-byte sensor capture at 500 kHz is 16384 samples = ~33 ms and calls are ~250 ms apart, so
+# polling misses the probe about half the time: time one window to it instead. On the bench a call
+# made 2.28-2.34 s after power_on() catches it.
+BMP280_PROBE_AT = 2.31
+
+
 def test_i2c_sensor_capture_sees_the_boot_probe(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
     dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76)
     try:
-        dut.power_on(bench.efuse)
-        txns = []
-        deadline = time.monotonic() + 10
-        # each window is ~8 ms: poll until one lands inside the DUT's sensor-init burst
-        while not i2c.addressed(txns, 0x76) and time.monotonic() < deadline:
-            txns = dut.i2c_sensor_capture(4096, sample_rate_hz=500_000)
-        assert i2c.addressed(txns, 0x76), i2c.format_transactions(txns)
+        lead, misses = BMP280_PROBE_AT, []
+        for _ in range(3):
+            dut.power_off(bench.efuse)
+            time.sleep(0.5)
+            dut.power_on(bench.efuse)
+            time.sleep(lead)
+            txns = dut.i2c_sensor_capture(4096, sample_rate_hz=500_000)  # 5 samples per 100 kHz bit
+            if i2c.addressed(txns, 0x76):
+                break
+            misses.append((lead, len(txns)))
+            lead += 0.02 if not txns else -0.02    # an idle window was early, a ToF-probe one late
+        assert i2c.addressed(txns, 0x76), f"(lead s, transactions) per miss: {misses}\n" \
+                                          f"{i2c.format_transactions(txns)}"
     finally:
         dut.disable_i2c_sensor()
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
