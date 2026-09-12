@@ -10,6 +10,11 @@
 
 [tool.uv.workspace]
 members = ["packages/*"]
+# packages/embeddedci-py39-shim also declares name = "embeddedci" (it is published as the 0.2.4
+# placeholder into that same PyPI project), so leaving it in the glob makes uv fail with
+# "Two workspace members are both named `embeddedci`". It is never developed against locally —
+# it is built and published on its own tag.
+exclude = ["packages/embeddedci-py39-shim"]
 
 [tool.uv.sources]
 # Inside the workspace, embeddedci-mcp resolves embeddedci from the sibling

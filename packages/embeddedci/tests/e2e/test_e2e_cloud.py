@@ -41,14 +41,28 @@ def test_commands_over_the_command_channel(cloud):
 
 
 def test_captures_over_the_tunnel(cloud):
-    assert len(cloud.capture_adc(2048, sample_rate_hz=100_000)) == 2048
-    assert len(cloud.capture_la(8192, sample_rate_hz=1_000_000)) == 8192
+    """Length alone would pass on 2048 zeros — check the payload survived the tunnel intact."""
+    adc = cloud.capture_adc(2048, sample_rate_hz=100_000)
+    assert len(adc) == 2048
+    assert adc.sample_rate_hz == pytest.approx(100_000, rel=0.05), adc.sample_rate_hz
+    # Real ADC counts, not a zero-filled or truncated frame.
+    assert all(0 <= c <= 65535 for c in adc.counts)
+    assert len(set(adc.counts)) > 1, "every ADC sample identical: the tunnel delivered filler"
+
+    la = cloud.capture_la(8192, sample_rate_hz=1_000_000)
+    assert len(la) == 8192
+    assert la.sample_rate_hz == pytest.approx(1_000_000, rel=0.05), la.sample_rate_hz
+    assert all(0 <= w < 4096 for w in la.words), "LA words must be 12-bit"
 
 
 def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud):
+    """The point is that the command channel still answers while the tunnel is busy."""
     with cloud.open_uart(rx=9, tx=10) as uart:
         assert cloud.power_status().internal.ok
-        uart.read(timeout=0.2)
+        # Nothing is wired to these channels, so the content is not the point — but the session
+        # must stay usable and return promptly rather than raising or hanging.
+        assert isinstance(uart.read(timeout=0.2), str)
+        assert cloud.ping()                      # the command channel survived the tunnel read
 
 
 def test_waveform_library_save_and_replay(cloud):

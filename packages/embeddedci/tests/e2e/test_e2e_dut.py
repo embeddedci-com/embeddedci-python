@@ -98,6 +98,50 @@ def test_firmware_detects_the_emulated_bmp280(dut, bench):
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
 
 
+def test_firmware_reads_back_the_value_we_injected(dut, bench):
+    """The headline claim, end to end: what the pod pretends the sensor reads is what the DUT reports.
+
+    Everything else about the emulator only proves the DUT *found* a BMP280. This proves the whole
+    chain — our calibration words, our raw registers, the DUT's own BMP280 compensation maths — by
+    injecting a value, asking the app what it sees, then changing it and asking again. A regression
+    in the emulated compensation would keep `chip id match=0x58` green and break only this.
+    """
+    injected, changed = 22.5, 31.25       # deliberately not round in the raw domain
+    pressure = 101_000
+
+    dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
+    dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76,
+                          temperature_c=injected, pressure_pa=pressure)
+    try:
+        with dut.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
+            dut.power_on(bench.efuse)
+            uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
+            uart.expect("> ", timeout=5)
+
+            first = _reported_temperature(uart)
+            assert first == pytest.approx(injected, abs=0.6), \
+                f"injected {injected} C, the DUT reported {first} C"
+
+            # Change it underneath a running DUT and ask again: the app re-reads over I2C.
+            dut.set_i2c_sensor(temperature_c=changed, pressure_pa=pressure)
+            second = _reported_temperature(uart)
+            assert second == pytest.approx(changed, abs=0.6), \
+                f"changed to {changed} C, the DUT reported {second} C"
+            assert abs(second - first) > 5.0, "the reading did not follow the emulated sensor"
+    finally:
+        dut.power_off(bench.efuse)
+        dut.disable_i2c_sensor()
+        dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
+
+
+def _reported_temperature(uart) -> float:
+    """Ask the app for `status` and return the temperature it just read over I2C."""
+    uart.write("status\r")
+    match = uart.expect(re.compile(r"temperature=(-?\d+\.\d+) C"), timeout=8)
+    assert match, "the app printed no temperature in its status output"
+    return float(match.group(1))
+
+
 # The DUT probes the BMP280 (0x76) only in the first ~30-45 ms of its boot I2C burst, which starts
 # ~2.30 s after power_on() returns; the rest of the ~170 ms burst probes the VL53L0X (0x29). A
 # 4096-byte sensor capture at 500 kHz is 16384 samples = ~33 ms and calls are ~250 ms apart, so
@@ -213,7 +257,11 @@ def test_power_profile_of_a_boot(power_pod, bench):
     prof = session.result
     assert 4.5 < prof.avg_voltage < 5.5 and 0.01 < prof.avg_current < 1.0, prof
     assert prof.min_current <= prof.avg_current <= prof.peak_current
-    assert prof.energy == pytest.approx(prof.avg_power * prof.duration, rel=1e-6)
+    # `avg_power` is defined as energy / duration, so comparing it back against energy only checks
+    # the SDK's own arithmetic. Check the instrument instead: the pod integrates energy and charge
+    # from its own samples, so they must agree with V x Q and with the averages it reported.
+    assert prof.energy == pytest.approx(prof.avg_voltage * prof.charge, rel=0.05), \
+        f"energy {prof.energy:.4f} J vs avg_voltage x charge {prof.avg_voltage * prof.charge:.4f} J"
     assert prof.charge == pytest.approx(prof.avg_current * prof.duration, rel=0.05)
     assert prof.n == pytest.approx(prof.rate_hz * prof.duration, rel=0.2)
     assert 0 < len(prof.samples) <= 1000 and not prof.fault and not prof.truncated

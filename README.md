@@ -88,3 +88,18 @@ configuration and the tool list.
 Each package publishes from its own tag (`embeddedci-v*`, `embeddedci-mcp-v*`,
 `embeddedci-openhtf-v*`) via `.github/workflows/publish.yml`; the tag must match the version in
 that package's `pyproject.toml`. Release `embeddedci` first — the other two depend on it from PyPI.
+
+### The Python 3.9 placeholder
+
+`packages/embeddedci-py39-shim` is published into the **same** PyPI project as `embeddedci` 0.2.4,
+from the `embeddedci-py39-shim-v*` tag. It exists because 2.x requires Python 3.10+: on 3.9 pip
+skips 2.x and would otherwise resolve to the last 3.9-compatible release (0.2.3), silently handing
+the user a pre-2.0 API. Yanking the 0.x releases does **not** fix that — pip's install path passes
+`allow_yanked=True` and only *deprioritises* yanked candidates, so when they are the only candidates
+it installs one anyway. The placeholder pins `requires-python = ">=3.9,<3.10"`, so on 3.9 it is the
+newest installable version and its import fails with an actionable message, while 3.10+ resolution
+is untouched.
+
+It is excluded from the uv workspace (`[tool.uv.workspace] exclude`) because it declares the same
+package name as `packages/embeddedci`, and its tag pattern deliberately does not start with
+`embeddedci-v` so the main publish job cannot fire on it.

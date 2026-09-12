@@ -49,10 +49,16 @@ def test_control_loop_settles_on_panel_curve(benchpod):
             assert last is not None
             # the loop drove the DAC somewhere inside the clamp window
             assert 0 <= last.v <= voc
-            # for a measured current i, the DAC target is curve[i >> 5]; the loop should be
-            # heading toward it (allow a wide band for damping + analog settle)
+            # For a measured current i the DAC target is curve[i >> 5]; the loop must actually be
+            # ON that target. A previous `< voc` bound here was unfalsifiable: the line above
+            # already constrains v to [0, voc], so the error can never reach voc. Measured on the
+            # bench the settled error is ~1 count in 52000, so 5% is still a very loose band while
+            # being something a broken loop can fail.
             idx = min(len(curve) - 1, (last.i >> 5) * len(curve) // 2048)
-            assert abs(last.v - curve[idx]) < voc  # sane, not railed at the wrong end
+            error = abs(last.v - curve[idx])
+            assert error < 0.05 * voc, \
+                f"loop settled at v={last.v} for i={last.i}, target curve[{idx}]={curve[idx]} " \
+                f"(error {error} = {error / voc:.1%} of Voc)"
     finally:
         benchpod.dac_stop()
 

@@ -46,6 +46,20 @@ pip install embeddedci
 pip install "embeddedci[cloud,analysis]"     # with extras
 ```
 
+On Python 3.10 or newer this gives you the current 2.x release. On **Python 3.9 it cannot** — pip
+skips 2.x and installs the 0.2.4 placeholder instead, which fails on import with a message telling
+you to upgrade. (Before that placeholder existed, 3.9 quietly resolved to 0.2.3: a completely
+different, pre-2.0 API, installed without any warning.)
+
+Pinning the major version is still the most explicit form, and turns a wrong Python into a resolver
+error rather than an import error:
+
+```bash
+pip install "embeddedci>=2,<3"
+```
+
+`python -c "import embeddedci; print(embeddedci.__version__)"` tells you what you actually got.
+
 | Extra | Adds | Needed for |
 |---|---|---|
 | `cloud` | `websocket-client` | the `embeddedci:<device-name>` destination |

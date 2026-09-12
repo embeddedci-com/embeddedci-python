@@ -115,7 +115,21 @@ def test_firmware_errors_surface_as_firmware_error(pod):
 
 @pytest.mark.parametrize("path", [p for p in ANALOG_PATHS if p != "dac_12v"])
 def test_analog_path_applies(pod, path):
-    assert pod.analog_path(path).path == path
+    state = pod.analog_path(path)
+    assert state.path == path
+    # `path` alone is the pod echoing the string we sent. The mux and relay registers are what the
+    # hardware was actually set to, so assert on those — and that re-reading returns the same thing
+    # rather than only reflecting the last write.
+    assert (state.dac_mux_register, state.cal_relay_register) == \
+        (pod.analog_path(path).dac_mux_register, pod.analog_path(path).cal_relay_register)
+
+
+def test_analog_paths_are_not_all_the_same_switch_setting(pod):
+    """Distinct paths must drive distinct hardware, not just return distinct names."""
+    settings = {p: (s.dac_mux_register, s.cal_relay_register)
+                for p in ANALOG_PATHS if p != "dac_12v"
+                for s in [pod.analog_path(p)]}
+    assert len(set(settings.values())) > 1, f"every path set the same registers: {settings}"
 
 
 def test_dac_output_codes_match_the_sdk_volts_mapping(pod, bench):
@@ -279,7 +293,16 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
     pod.la_step(ch, steps=steps, delay=delay)
     try:
         la = pod.capture_la(200_000, sample_rate_hz=1_000_000)
-        assert la.edges(ch) > 0, f"no step edges seen on LA{ch}"
+        # 200k samples at 1 MS/s = 0.2 s of a train pulsing every 2 * delay (4 ms) = ~50 pulses,
+        # so ~100 edges. `> 0` would pass on a single spurious edge; bound it on both sides and
+        # check the measured pulse width matches the delay we asked for.
+        edges = la.edges(ch)
+        assert 60 < edges < 140, f"expected ~100 edges on LA{ch} in 0.2 s, saw {edges}"
+        widths = la.pulse_widths(ch)
+        assert widths, f"no complete pulses on LA{ch}"
+        median = sorted(widths)[len(widths) // 2]
+        assert median == pytest.approx(delay, rel=0.15), \
+            f"pulse width {median * 1e3:.2f} ms, asked for {delay * 1e3:.2f} ms"
     finally:
         # la_step returns at once but the FPGA keeps pulsing (one pulse per 2 * delay: ~1.6 s here)
         # and refuses another train as "busy" until it ends, so wait it out for the next test.
@@ -446,8 +469,13 @@ def test_i2c_sensor_emulation(pod, bench):
     pod.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, temperature_c=21.0, pressure_pa=100_000)
     try:
         assert pod.i2c_sensor_regs(start=0xD0, length=1) == [0x58]
+        before_regs = pod.i2c_sensor_regs(start=0xFA, length=3)
         pod.set_i2c_sensor(temperature_c=30.0)
         assert pod.i2c_sensor_status()["active"]
+        # A changed setting must reach the emulator's register file: the BMP280 temperature lives
+        # in 0xFA..0xFC, so the raw registers must differ after set_i2c_sensor.
+        assert pod.i2c_sensor_regs(start=0xFA, length=3) != before_regs, \
+            "set_i2c_sensor did not change the emulated temperature registers"
         assert isinstance(pod.i2c_sensor_capture(1024, sample_rate_hz=1_000_000), list)
     finally:
         pod.disable_i2c_sensor()

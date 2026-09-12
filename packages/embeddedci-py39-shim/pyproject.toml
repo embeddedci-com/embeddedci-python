@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# A deprecation placeholder published as embeddedci 0.2.4, for Python 3.9 ONLY.
+#
+# Why it exists: embeddedci 2.x needs Python 3.10+, so on 3.9 pip skips it and silently falls back
+# to the last 3.9-compatible release (0.2.3) — a completely different pre-2.0 API, with no error.
+# Yanking the 0.x releases does not fix that: pip's install path allows yanked candidates and only
+# deprioritises them, so when they are the only candidates it installs one anyway.
+#
+# `requires-python = ">=3.9,<3.10"` keeps the blast radius to exactly the broken case: on 3.9 this
+# is the newest installable version so pip picks it and the import fails with a message that says
+# what to do; on 3.10+ it is not a candidate at all and 2.x resolves as normal.
+[project]
+name = "embeddedci"
+version = "0.2.4"
+description = "Placeholder: embeddedci 2.x requires Python 3.10 or newer"
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "EmbeddedCI" }]
+classifiers = [
+    "Development Status :: 7 - Inactive",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.9",
+]
+
+[project.urls]
+Homepage = "https://embeddedci.com"
+Documentation = "https://embeddedci.com/docs/benchpod-pytest"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embeddedci"]
