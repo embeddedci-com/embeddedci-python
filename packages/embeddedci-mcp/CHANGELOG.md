@@ -81,9 +81,13 @@ New tool groups:
   pulses and `gpio_release` frees them. A channel already in use is refused with
   `PinConflictError: pin conflict: LA5 is in use by uart_rx; …` and a bias resistor that fights the
   mode with `PullConflictError: …`, both carrying the firmware's own message.
+- **`la_timing`.** Re-measures a logic capture without re-capturing it: edge times, pulse widths,
+  frequency, duty cycle and the delay between two channels (trigger pin → result pin).
 - **Power profiles.** `measure_power(duration, efuse, rate_hz, points)` profiles a target-power rail
   and returns average/minimum/peak current, voltage, energy, charge and average power, plus an
-  optional downsampled current/voltage trace. `power_profile_start` / `power_profile_stop` do the
+  optional downsampled current/voltage trace. `rate_hz` in the result is the rate actually delivered
+  and `adc_rate_hz` the sensor's configured conversion rate (ask for 100-500 Hz; it flattens near
+  365 Hz). `power_profile_start` / `power_profile_stop` do the
   same around other tool calls; the running profile is session state (`status` shows
   `power_profile_running`) and is dropped on `disconnect`. Needs the pod's `power_profile`
   capability.

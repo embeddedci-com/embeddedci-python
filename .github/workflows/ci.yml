@@ -27,7 +27,15 @@ jobs:
         # Hardware tests skip without a BENCHPOD_CONNECTION, so the suite stays green on
         # runners without a pod. The API/tool surface snapshot tests fail on any unreviewed
         # change to the frozen 2.x surface.
-        run: pytest -q packages/embeddedci packages/embeddedci-mcp
+        #
+        # ONE RUN PER PACKAGE (same as `make test`). Collecting both in a single pytest call
+        # breaks: each package has a tests/conftest.py, and the test modules do `from conftest
+        # import call` — whichever package is collected first wins the top-level `conftest`
+        # name, so the other package's imports resolve against the wrong module. The two
+        # test_image_switching.py files collide the same way. Keep these as separate steps.
+        run: |
+          pytest -q packages/embeddedci
+          pytest -q packages/embeddedci-mcp
       - name: Install + test the OpenHTF plug
         # Tested on the Python versions the package declares (3.10-3.13).
         if: matrix.python-version != '3.14'

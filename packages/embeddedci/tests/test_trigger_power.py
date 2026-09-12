@@ -125,7 +125,7 @@ def test_measure_power_request_and_units():
         {"status": "ok", "t_us": [], "current_ua": [], "bus_mv": [], "stats": STATS, "more": False},
     ]
     prof = bp.measure_power(1.0, keep_samples=2)
-    assert pod.requests[-1] == {"cmd": "power_profile", "efuse": 2, "rate_hz": 1000,
+    assert pod.requests[-1] == {"cmd": "power_profile", "efuse": 2, "rate_hz": 500,
                                 "keep_samples": 2, "duration_ms": 1000}
     assert isinstance(prof, PowerProfile)
     assert prof.avg_current == pytest.approx(0.052) and prof.peak_current == pytest.approx(0.18)
@@ -144,7 +144,7 @@ def test_power_profile_session_start_stop():
     with session as prof:
         with pytest.raises(BenchPodError, match="still running"):
             _ = prof.result
-    assert pod.requests[0] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 1000, "keep_samples": 0,
+    assert pod.requests[0] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500, "keep_samples": 0,
                                "max_duration_ms": 5000, "action": "start"}
     assert pod.requests[-1] == {"cmd": "power_profile", "action": "stop"}
     assert prof.result.n == 950 and prof.stop() is prof.result

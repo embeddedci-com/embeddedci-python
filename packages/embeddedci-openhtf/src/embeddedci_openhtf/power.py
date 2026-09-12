@@ -1,8 +1,9 @@
 """Power-profile helpers for OpenHTF phases: what the DUT actually draws.
 
-The pod samples its target-power rail's INA238 monitor about a thousand times a second without
-gaps, so average, minimum and peak current, bus voltage, energy and charge are integrated over
-every sample rather than estimated from snapshots — which is what a "does this firmware meet its
+The pod samples its target-power rail's INA238 monitor a few hundred times a second (ask for
+100-500 Hz; it flattens near 365 Hz and reports the rate it achieved), and every sample is
+timestamped, so average, minimum and peak current, bus voltage, energy and charge are integrated
+over real time rather than estimated from snapshots — which is what a "does this firmware meet its
 sleep budget?" test needs.
 
 **Units are SI**: ``duration`` seconds, currents amps, voltages volts, ``energy`` joules,
@@ -33,7 +34,7 @@ def measure_power(bench: Any, duration: float, **kwargs: Any) -> PowerProfile:
 
     Keyword arguments go to :meth:`BenchPod.measure_power
     <embeddedci.benchpod.BenchPod.measure_power>`: ``efuse`` (default the wiring profile's rail),
-    ``rate_hz`` (100-2000) and ``keep_samples`` (up to 4096 ``(t, amps, volts)`` points).
+    ``rate_hz`` (100-500) and ``keep_samples`` (up to 4096 ``(t, amps, volts)`` points).
     """
     return bench.measure_power(duration, **kwargs)
 
@@ -41,7 +42,7 @@ def measure_power(bench: Any, duration: float, **kwargs: Any) -> PowerProfile:
 # -- phase factory -----------------------------------------------------------
 
 def measure_power_phase(plug: type, *, duration: float,
-                        efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 1000.0,
+                        efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 500.0,
                         keep_samples: int = 0, avg_current_range: _Range = None,
                         peak_current_range: _Range = None, energy_range: _Range = None,
                         prefix: str = "power", attachment: Optional[str] = "power.json",
@@ -82,7 +83,8 @@ def measure_power_phase(plug: type, *, duration: float,
         test.measurements[f"{prefix}_avg_voltage_v"] = profile.avg_voltage
         test.measurements[f"{prefix}_energy_j"] = profile.energy
         if attachment and profile.samples:
-            payload = {"efuse": profile.efuse, "rate_hz": profile.rate_hz, "n": profile.n,
+            payload = {"efuse": profile.efuse, "rate_hz": profile.rate_hz,
+                       "adc_rate_hz": profile.adc_rate_hz, "n": profile.n,
                        "duration": profile.duration,
                        "samples": [list(s) for s in profile.samples]}
             test.attach(attachment, json.dumps(payload).encode("utf-8"),

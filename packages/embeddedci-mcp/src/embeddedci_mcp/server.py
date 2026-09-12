@@ -335,8 +335,10 @@ async def power_off(
 async def measure_power(
     duration: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
     efuse: WiredEfuse = None,
-    rate_hz: Annotated[float, Field(ge=100, le=2000, description=(
-        "Samples per second; the pod clamps this to what it can achieve and reports the real rate."))] = 1000.0,
+    rate_hz: Annotated[float, Field(ge=100, le=500, description=(
+        "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling "
+        "loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, "
+        "adc_rate_hz what the sensor was configured for."))] = 500.0,
     points: Annotated[int, Field(ge=0, le=500, description=(
         "Points of current/voltage trace to return alongside the statistics; 0 = statistics only."))] = 0,
     ctx: Context = None,  # type: ignore[assignment]
@@ -355,7 +357,8 @@ async def measure_power(
 @mcp.tool(annotations=_ann("Start a power profile"))
 async def power_profile_start(
     efuse: WiredEfuse = None,
-    rate_hz: Annotated[float, Field(ge=100, le=2000, description="Samples per second.")] = 1000.0,
+    rate_hz: Annotated[float, Field(ge=100, le=500, description=(
+        "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that."))] = 500.0,
     max_duration: Annotated[float, Field(gt=0, le=600, description=(
         "Seconds after which the pod stops sampling by itself (the result is then truncated)."))] = 60.0,
 ) -> m.PowerProfileStartResult:

@@ -131,9 +131,12 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
   (`trigger_timeout`, `TriggerTimeout`); results carry `.trigger`.
 - **Timing helpers.** `LaCapture.edge_times`, `first_edge`, `level_at`, `pulse_widths`, `frequency`,
   `duty_cycle`, `delay`; `Capture.crossing_times`, `first_crossing`; the `Edge` option type.
-- **Power profiles.** `bp.measure_power()` and `bp.power_profile()` → `PowerProfile` (average/min/peak
-  current, voltage, energy, charge, trace) from gap-free sampling of the rail monitor; the README
-  documents the rails' current limits.
+- **Power profiles.** `bp.measure_power()` and `bp.power_profile()` → `PowerProfile` /
+  `PowerProfileSession` (average/min/peak current, voltage, energy, charge, trace) from timestamped
+  sampling of the rail monitor, integrated over real time. `rate_hz` is the rate actually delivered
+  (measured) and `adc_rate_hz` the sensor's configured conversion rate: ask for 100-500 Hz and the
+  pod tracks the request to ~200 Hz, flattening near 365 Hz. The README documents the rails' current
+  limits.
 - `Capabilities.la_pins`, `gpio_read`, `capture_trigger`, `power_profile`.
 - The `hardware` marker now skips a test when no connection is configured, even if the test
   requests no device fixture.

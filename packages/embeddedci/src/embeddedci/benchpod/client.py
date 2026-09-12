@@ -1560,7 +1560,7 @@ class BenchPod:
     # -- power profiles -------------------------------------------------------
 
     def measure_power(self, duration: float, *, efuse: Optional[Union[Efuse, int]] = None,
-                      rate_hz: float = 1000.0, keep_samples: int = 0) -> PowerProfile:
+                      rate_hz: float = 500.0, keep_samples: int = 0) -> PowerProfile:
         """Profile a target-power rail for ``duration`` seconds (blocking) and return the
         :class:`~embeddedci.benchpod.power.PowerProfile`: average, minimum and peak current, voltage,
         energy and charge. ``efuse`` defaults to the wiring profile's rail; ``keep_samples`` (up to
@@ -1571,7 +1571,7 @@ class BenchPod:
         req["duration_ms"] = max(1, int(round(duration * 1000)))
         return PowerProfile.from_chunks(self._power_profile_chunks(req))
 
-    def power_profile(self, *, efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 1000.0,
+    def power_profile(self, *, efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 500.0,
                       keep_samples: int = 4096, max_duration: float = 60.0) -> PowerProfileSession:
         """A power profile around a block of code::
 
@@ -1589,8 +1589,10 @@ class BenchPod:
 
     def _power_request(self, efuse: Optional[Union[Efuse, int]], rate_hz: float,
                        keep_samples: int) -> Dict[str, Any]:
-        if not 100 <= rate_hz <= 2000:
-            raise ValueError(f"rate_hz must be 100..2000, got {rate_hz!r}")
+        if not 100 <= rate_hz <= 500:
+            raise ValueError(f"rate_hz must be 100..500, got {rate_hz!r} (the pod samples one "
+                             "reading per firmware pass; above ~200 Hz it delivers what it can, "
+                             "flattening near 365 Hz, and the result's rate_hz says what you got)")
         if not 0 <= int(keep_samples) <= 4096:
             raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
         rail = self._efuse(efuse)

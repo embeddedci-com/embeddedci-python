@@ -1,9 +1,14 @@
 """Power profiles: the DUT's supply current and voltage over time, with average, peak and energy.
 
-The pod samples the target-power rail's INA238 monitor about a thousand times a second without gaps
-(each sample averages its whole period), so energy and charge are integrated rather than estimated
-from snapshots. Rail limits: the internal rail (eFuse 1, 5 V) trips at about 2.0 A and the external
-rail (eFuse 2, 5-20 V) at about 3.0 A; a trip shorter than a sample does not show in the profile.
+The pod samples the target-power rail's INA238 monitor a few hundred times a second — ask for
+100-500 Hz and it delivers what its sampling loop allows, flattening near 365 Hz (``rate_hz`` in the
+result is the measured rate, ``adc_rate_hz`` the sensor's configured conversion rate). Each sample
+averages its whole conversion window and carries its own timestamp, so energy and charge are
+integrated over real time rather than estimated from snapshots; a load that switches faster than a
+few milliseconds is averaged, not resolved.
+
+Rail limits: the internal rail (eFuse 1, 5 V) trips at about 2.0 A and the external rail (eFuse 2,
+5-20 V) at about 3.0 A; a trip shorter than a sample does not show in the profile.
 """
 
 from __future__ import annotations

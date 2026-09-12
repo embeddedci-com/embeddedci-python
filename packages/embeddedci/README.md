@@ -17,14 +17,16 @@ can:
 The same test runs against a pod on your desk or a remote pod in CI.
 
 ```python
-from embeddedci.benchpod import INTERNAL, PIN4, PIN5, PIN11, PIN12, BenchPod
+from embeddedci.benchpod import BenchPod
 
 with BenchPod("192.168.1.213", la_voltage=3.3) as bp:        # or "usb", or "embeddedci:my-bench"
-    bp.flash(file="build/app.elf", target="target/stm32f4x.cfg",
-             swclk=PIN11, swdio=PIN12, nreset=True, target_power=INTERNAL)
-    boot = bp.power_cycle_and_capture(rx=PIN5, tx=PIN4, delay=1.0, duration=5.0, until="APP_OK")
+    bp.flash(file="build/app.elf", target="target/stm32f4x.cfg")
+    boot = bp.power_cycle_and_capture(duration=5.0, until="APP_OK")
     assert boot.matched, boot.text
 ```
+
+No pin numbers: the SWD channels, the UART pair, the baud and the power rail come from the bench's
+[wiring profile](#wiring-profile). Pass them explicitly when you want to override it.
 
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
 [API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) ·
@@ -80,6 +82,50 @@ openocd -c "adapter driver cmsis-dap" -c "cmsis-dap backend tcp" -c "exit"
 ```
 
 ## Quick start
+
+Most people use this through **pytest** — that is what the plugin is for. Two files and you have a
+hardware test that runs on your desk and in CI:
+
+```python
+# conftest.py
+import pytest
+
+@pytest.fixture(scope="session")
+def benchpod_la_voltage():
+    return 3.3                               # your DUT's I/O voltage, once for the whole suite
+```
+
+```python
+# test_bench.py
+import pytest
+
+
+def test_pod_is_alive(benchpod):
+    assert benchpod.ping()                   # no wiring, no firmware: the honest first green tick
+
+
+@pytest.mark.hardware
+def test_target_flashes_and_boots(benchpod_target, firmware):
+    assert benchpod_target.flash(file=firmware, target="target/stm32f4x.cfg").ok
+    boot = benchpod_target.power_cycle_and_capture(duration=5.0, until="APP_OK")
+    assert boot.matched, boot.text
+
+
+@pytest.mark.hardware
+def test_boot_stays_inside_its_power_budget(benchpod_target):
+    profile = benchpod_target.measure_power(3.0)
+    assert profile.peak_current < 0.25       # amps, measured on the rail
+    assert not profile.fault                 # the eFuse never tripped
+```
+
+```bash
+pytest --benchpod-connection=192.168.1.213 --benchpod-firmware=build/app.elf
+```
+
+Without a connection the hardware fixtures **skip** rather than fail, so the suite stays green on a
+runner with no pod. See [pytest plugin](#pytest-plugin) for every fixture, option and marker.
+
+Driving a pod directly, without pytest:
 
 ```python
 from embeddedci.benchpod import INTERNAL, BenchPod
@@ -149,7 +195,7 @@ automatically.)
   keeps the untouched firmware reply in `.raw`.
 * **String options are `Literal` types** and are validated: `DacPath`, `DacOutputPath`,
   `AnalogPath`, `AdcSource`, `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`,
-  `CanMode`, `FaultType`.
+  `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge`.
 * **Named constants instead of magic numbers**:
 
   | Concept | Constants | Wire value |
@@ -385,9 +431,20 @@ assert boot.peak_current < 0.5 and not boot.fault
 t, amps, volts = boot.samples[0]                         # bin-averaged trace (keep_samples, ≤ 4096)
 ```
 
-`PowerProfile`: `efuse`, `rate_hz`, `n`, `duration` (s), `avg_current`, `min_current`, `peak_current` (A),
-`avg_voltage`, `min_voltage`, `max_voltage` (V), `energy` (J), `charge` (C), `avg_power` (W), `fault`
-(the eFuse tripped), `truncated` (stopped at `max_duration`), `samples`. `rate_hz` is 100-2000.
+`PowerProfile`: `efuse`, `rate_hz`, `adc_rate_hz`, `n`, `duration` (s), `avg_current`, `min_current`,
+`peak_current` (A), `avg_voltage`, `min_voltage`, `max_voltage` (V), `energy` (J), `charge` (C),
+`avg_power` (W), `fault` (the eFuse tripped), `truncated` (stopped at `max_duration`), `samples`.
+
+**Sample rate.** Ask for 100-500 Hz (default 500). The pod takes one reading per firmware pass, so
+what you get back is not always what you asked for: it tracks the request to ~200 Hz, then beats
+against the pass interval and flattens near 365 Hz. `rate_hz` is what was **actually delivered**
+(measured) and `adc_rate_hz` what the current sensor was configured for. Every sample carries its own
+timestamp, so the trace and the energy/charge integrals are exact either way — the rate only tells you
+how finely a transient was resolved. Measured on a v2 pod:
+
+| Asked | 100 | 200 | 300 | 400 | 450 | 500 |
+|---|---|---|---|---|---|---|
+| Delivered | 105 | 189 | 288 | 305 | 361 | 364 |
 
 | Rail | Supply | Current limit | Cut-off | Monitor resolution |
 |---|---|---|---|---|
@@ -648,11 +705,11 @@ both = bp.capture_correlated(adc_samples=4096, adc_sample_rate_hz=400_000,
 print(both.adc.duration, both.la.duration)              # one hardware trigger: timebases align
 ```
 
-* `capture_adc(samples=4096, *, sample_rate_hz=None, source=None)` — omitted rate = the device
+* `capture_adc(samples=4096, *, sample_rate_hz=None, source=None, trigger=None, trigger_timeout=10.0)` — omitted rate = the device
   maximum; the **achieved** rate is on the result. `source` routes the ADC first (omitted, the
   current routing is left alone). `volts` use the front-SMA calibration; for the other sources
   compare `counts` or use `adc_read`.
-* `capture_la(samples=4096, *, sample_rate_hz=None, stop_dac_after=None)` — 12-bit words; bit *n* is
+* `capture_la(samples=4096, *, sample_rate_hz=None, stop_dac_after=None, trigger=None, trigger_timeout=10.0)` — 12-bit words; bit *n* is
   channel LA*n+1*.
 * `capture_correlated(...)` — ADC + LA from one trigger; set either count to 0 for a single stream.
 * `bp.decode(source, protocol, **channels)` / `LaCapture.decode(...)` — off-device decoding of

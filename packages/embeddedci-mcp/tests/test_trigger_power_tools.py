@@ -66,7 +66,7 @@ def test_the_schema_bounds_the_trigger_arguments(connected):
 
 def test_measure_power_reports_statistics_in_si_units(connected):
     result = call("measure_power", duration=1.0)
-    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 1000,
+    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500,
                                       "keep_samples": 0, "duration_ms": 1000}
     assert result["efuse"] == 1 and result["n"] == 950
     # the delivered rate, with the sensor's configured conversion rate beside it

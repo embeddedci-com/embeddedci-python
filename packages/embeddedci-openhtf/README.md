@@ -240,8 +240,10 @@ test = htf.Test(
 ### Power profiles
 
 `measure_power_phase` profiles a target-power rail while the DUT does something, and records what
-it drew — the "does this firmware meet its sleep budget?" measurement. Sampling is gap-free at
-~1 kHz, so energy and charge are integrated rather than estimated.
+it drew — the "does this firmware meet its sleep budget?" measurement. Every sample is timestamped
+and the integrals run over those timestamps, so energy and charge are integrated rather than
+estimated. `rate_hz` is 100-500 (default 500); the pod delivers what you ask to ~200 Hz and flattens
+near 365 Hz above that, reporting the real rate back.
 
 ```python
 from embeddedci_openhtf import measure_power_phase

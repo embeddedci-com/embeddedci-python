@@ -2300,9 +2300,9 @@
           "type": "integer"
         },
         "rate_hz": {
-          "default": 1000.0,
-          "description": "Samples per second; the pod clamps this to what it can achieve and reports the real rate.",
-          "maximum": 2000,
+          "default": 500.0,
+          "description": "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, adc_rate_hz what the sensor was configured for.",
+          "maximum": 500,
           "minimum": 100,
           "title": "Rate Hz",
           "type": "number"
@@ -2570,9 +2570,9 @@
           "type": "number"
         },
         "rate_hz": {
-          "default": 1000.0,
-          "description": "Samples per second.",
-          "maximum": 2000,
+          "default": 500.0,
+          "description": "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that.",
+          "maximum": 500,
           "minimum": 100,
           "title": "Rate Hz",
           "type": "number"

@@ -64,7 +64,7 @@ versioning. See the [`embeddedci` changelog](../embeddedci/CHANGELOG.md) for the
   delay_range, name="la_delay")`, recording `la_delay_s` (units `"s"`). `trigger` (an SDK
   `Trigger`) starts the capture on an LA edge or level.
 - **Power profiles** (`embeddedci_openhtf.power`): `measure_power(bench, duration, **kwargs)` and
-  `measure_power_phase(plug, *, duration, efuse=None, rate_hz=1000.0, keep_samples=0,
+  `measure_power_phase(plug, *, duration, efuse=None, rate_hz=500.0, keep_samples=0,
   avg_current_range=None, peak_current_range=None, energy_range=None, prefix="power",
   attachment="power.json", name="measure_power")`, recording `<prefix>_avg_current_a` and
   `_peak_current_a` (A), `_avg_voltage_v` (V) and `_energy_j` (J), with the kept `(t, amps, volts)`

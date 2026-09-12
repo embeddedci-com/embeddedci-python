@@ -51,6 +51,26 @@ board. Without it the agent is told to call `set_la_voltage` before touching the
 }
 ```
 
+### Codex
+
+The Codex CLI keeps its MCP servers in `~/.codex/config.toml`. Add it with the CLI:
+
+```bash
+codex mcp add benchpod \
+  --env BENCHPOD_CONNECTION=192.168.1.213 --env BENCHPOD_LA_VOLTAGE=3.3 \
+  -- uvx embeddedci-mcp
+```
+
+…or write the entry yourself (`codex mcp list` shows what is configured):
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.benchpod]
+command = "uvx"
+args = ["embeddedci-mcp"]
+env = { BENCHPOD_CONNECTION = "192.168.1.213", BENCHPOD_LA_VOLTAGE = "3.3" }
+```
+
 ### A pod in the cloud
 
 Use the device name and an [API key](https://www.embeddedci.com/docs/benchpod-mcp) — the cloud
@@ -158,8 +178,10 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   owner and how to free it — so the agent releases GPIO before opening a UART session on that
   channel. Captures observe all 12 channels whatever owns them.
 - **Power profiles.** `measure_power(duration)` reports average, minimum and peak current, voltage,
-  energy and charge from gap-free ~1 kHz sampling (so energy is integrated, not estimated), with an
-  optional downsampled trace (`points`). `power_profile_start` / `power_profile_stop` bracket other
+  energy and charge. Every sample is timestamped and the integrals run over those timestamps, so
+  energy is integrated rather than estimated. `rate_hz` (100-500, default 500) tracks the request to
+  ~200 Hz and then flattens near 365 Hz — the result reports the rate actually delivered in
+  `rate_hz` and the sensor's configured rate in `adc_rate_hz`. Optional downsampled trace (`points`). `power_profile_start` / `power_profile_stop` bracket other
   tool calls; the running profile lives on the session (`status` reports it) and is dropped on
   `disconnect`.
 - **Sessions.** `uart_open` buffers the DUT's console in the background (open it before

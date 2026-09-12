@@ -40,7 +40,7 @@ def test_measure_power_returns_si_units():
     plug = benchpod_plug(transport=tx)()
     profile = measure_power(plug, 1.0)
     assert isinstance(profile, PowerProfile)
-    assert _request(tx) == {"cmd": "power_profile", "efuse": 1, "rate_hz": 1000.0,
+    assert _request(tx) == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500,
                             "keep_samples": 0, "duration_ms": 1000}
     assert profile.avg_current == pytest.approx(0.052)
     assert profile.peak_current == pytest.approx(0.18)
