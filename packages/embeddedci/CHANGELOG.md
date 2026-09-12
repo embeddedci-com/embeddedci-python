@@ -123,7 +123,9 @@ CI fails on any unreviewed change. `BenchPod.command()`, `BenchPod.transport` an
   fall back to the profile; LA arguments accept role/signal names.
 - **GPIO on the LA pins and pin ownership.** `bp.gpio()` → `GpioPin` (`configure`, `set`, `high`/`low`,
   `activate`, `read`, `wait_for`, `pulse`, `release`), `set_gpio`, `read_gpio`, `pin_levels`,
-  `wait_for_level`, `release_gpio`, `la_pins()` → `LaPinState`. Each channel has one function at a time:
+  `wait_for_level`, `release_gpio`, `la_pins()` → `LaPinState`, and `gpio_pins()`/`configure_gpio()` to
+  claim several channels as one group (a conflict on any of them claims none). Each channel has one
+  function at a time:
   a second one fails with `PinConflictError`, an incompatible bias resistor with `PullConflictError`.
 - **Triggered captures.** `Trigger(la, edge)` on `capture_adc`/`capture_la`/`capture_correlated`
   (`trigger_timeout`, `TriggerTimeout`); results carry `.trigger`.

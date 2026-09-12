@@ -27,7 +27,13 @@ class PowerProfile:
     """
 
     efuse: int
+    #: Samples per second actually delivered (measured: ``n`` over ``duration``). The pod reads one
+    #: sensor register per firmware pass, so this lands below the rate you asked for — roughly
+    #: 350-450 Hz. Each sample carries its own timestamp, so the trace stays exact either way.
     rate_hz: float
+    #: The conversion rate the current sensor was configured for — the ceiling ``rate_hz`` works
+    #: towards, not what arrived.
+    adc_rate_hz: float
     n: int
     duration: float
     avg_current: float
@@ -69,6 +75,7 @@ class PowerProfile:
         samples = tuple((t / 1e6, i / 1e6, v / 1000.0) for t, i, v in zip(t_us, ua, mv))
         return cls(
             efuse=int(stats.get("efuse", 0) or 0), rate_hz=float(stats.get("rate_hz", 0) or 0),
+            adc_rate_hz=float(stats.get("adc_rate_hz", stats.get("rate_hz", 0)) or 0),
             n=int(stats.get("n", 0) or 0), duration=float(stats.get("duration_ms", 0) or 0) / 1000.0,
             avg_current=_ua(stats, "avg_ua"), min_current=_ua(stats, "min_ua"),
             peak_current=_ua(stats, "peak_ua"), avg_voltage=_mv(stats, "avg_mv"),

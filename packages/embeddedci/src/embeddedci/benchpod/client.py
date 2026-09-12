@@ -1449,11 +1449,34 @@ class BenchPod:
         channel, and :class:`~embeddedci.benchpod.errors.PullConflictError` when its engaged bias
         resistor can't work with ``mode`` (an open-drain output over LA7/LA8's pull-down). The channel
         stays GPIO — across disconnects — until :meth:`release_gpio`.
+
+        Use :meth:`gpio_pins` for several channels: it claims them as a group, so a conflict on one
+        leaves the others untouched.
         """
         la_i, signal = self._resolve_la(la)
         pin = GpioPin(self, la_i, signal=signal)
         pin.configure(mode, level=level)
         return pin
+
+    def gpio_pins(self, las: Sequence[Union[Pin, int, str]], mode: GpioMode = "output", *,
+                  level: Optional[int] = None) -> List[GpioPin]:
+        """Claim several LA channels as GPIO in **one** command, and return a
+        :class:`~embeddedci.benchpod.gpio.GpioPin` each, in the order given.
+
+        Same arguments as :meth:`gpio`, which is the one-channel form. The pod validates the whole
+        group before it claims any of it, so a
+        :class:`~embeddedci.benchpod.errors.PinConflictError` or
+        :class:`~embeddedci.benchpod.errors.PullConflictError` on any channel leaves every channel
+        as it was — unlike calling :meth:`gpio` in a loop, which would leave the earlier ones
+        claimed::
+
+            reset, boot0 = bp.gpio_pins(["RESET", "BOOT0"], "open_drain")
+        """
+        resolved = [self._resolve_la(x) for x in (list(las) if isinstance(las, (list, tuple)) else [las])]
+        if not resolved:
+            raise ValueError("give at least one LA channel")
+        self._gpio_configure([la for la, _ in resolved], mode, level)
+        return [GpioPin(self, la, signal=signal) for la, signal in resolved]
 
     def set_gpio(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]]], level: int) -> None:
         """Set the level of a GPIO output or open-drain channel — or of several (a list) at once."""
@@ -1507,6 +1530,13 @@ class BenchPod:
         target: Any = "all" if not las else _one_or_many(self._resolve_las(list(las)))
         with _classified_errors():
             self.command({"cmd": "gpio", "la": target, "mode": "off"})
+
+    def configure_gpio(self, las: Sequence[Union[Pin, int, str]], mode: GpioMode = "output", *,
+                       level: Optional[int] = None) -> List[LaPinState]:
+        """Claim LA channels as GPIO in one command and return the pod's
+        :class:`~embeddedci.benchpod.gpio.LaPinState` for each — the low-level form of
+        :meth:`gpio_pins`, for when you want what the pod reports rather than objects to drive."""
+        return self._gpio_configure(self._resolve_las(las), mode, level)
 
     def _gpio_configure(self, las: List[int], mode: str, level: Optional[int]) -> List[LaPinState]:
         check_choice(mode, GPIO_MODES, "mode")
@@ -1565,7 +1595,9 @@ class BenchPod:
             raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
         rail = self._efuse(efuse)
         self._require_capability("power_profile", "power profiles")
-        return {"cmd": "power_profile", "efuse": rail, "rate_hz": float(rate_hz),
+        # The API takes hertz as a float like every other rate, but the firmware's JSON parser
+        # wants a whole number here — send 1000, not 1000.0.
+        return {"cmd": "power_profile", "efuse": rail, "rate_hz": int(round(rate_hz)),
                 "keep_samples": int(keep_samples)}
 
     def _power_profile_chunks(self, req: Dict[str, Any]) -> Iterator[Dict[str, Any]]:

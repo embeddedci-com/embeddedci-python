@@ -15,7 +15,10 @@ from conftest import call
 
 EXPECTED_TOOLS = {
     "connect", "disconnect", "status", "set_la_voltage",
+    "wiring", "set_wiring",
     "power_on", "power_off", "power_status", "reset_target",
+    "measure_power", "power_profile_start", "power_profile_stop",
+    "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "flash",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
@@ -53,7 +56,9 @@ def test_every_tool_is_described_annotated_and_structured():
 
 def test_instructions_carry_the_session_start():
     assert mcp.instructions == INSTRUCTIONS
-    for needle in ("connect", "set_la_voltage", "LA7/LA8", "flash runs OpenOCD"):
+    for needle in ("connect", "set_la_voltage", "LA7/LA8", "flash runs OpenOCD",
+                   "Call `wiring` first", "gpio_release", "pin conflict", "trigger_la",
+                   "measure_power"):
         assert needle in INSTRUCTIONS
 
 

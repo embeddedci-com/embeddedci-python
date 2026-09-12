@@ -51,7 +51,17 @@ from .measurements import (
     uart_matched_measurement,
 )
 from .phases import boot_banner_phase, flash_phase, power_phase
+from .pins import (
+    gpio,
+    gpio_phase,
+    la_delay,
+    la_delay_phase,
+    read_gpio,
+    release_gpio,
+    set_gpio,
+)
 from .plug import BenchPodPlug, benchpod_plug, close_persistent_benchpods
+from .power import measure_power, measure_power_phase
 
 try:
     __version__ = version("embeddedci-openhtf")
@@ -73,6 +83,16 @@ __all__ = [
     "loopback_measure_phase",
     "control_loop_phase",
     "dac_replay_phase",
+    "gpio_phase",
+    "measure_power_phase",
+    "la_delay_phase",
+    # pin + power helpers
+    "gpio",
+    "set_gpio",
+    "read_gpio",
+    "release_gpio",
+    "measure_power",
+    "la_delay",
     # analog low-level helpers
     "signal_generate",
     "signal_stop",

@@ -58,7 +58,28 @@ Connection forms (all **direct**, never cloud):
 | OpenHTF config | `htf.conf.load(benchpod_connection="...")` then `@htf.plug(bench=BenchPodPlug)` |
 
 Extra keyword arguments to `benchpod_plug` go to `BenchPod(...)` (`la_voltage=`,
-`timeout=`, or `transport=` to inject a fake backend in tests).
+`wiring=`, `timeout=`, or `transport=` to inject a fake backend in tests).
+
+### Wiring profile
+
+The pod has no fixed-role pins, so the bench's *wiring profile* is what says which DUT signal sits
+on which LA channel. Pass it to the plug — a dict, a path to a `.json` / `.toml` file, or a
+`Wiring` — and it reaches `BenchPod(wiring=...)`:
+
+```python
+bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+```
+
+Every channel, baud, power rail and SWD argument a helper or phase leaves out then comes from the
+profile, and its names work wherever a channel number does:
+
+```python
+@htf.plug(bench=bench)
+def pulse_and_wait(test, bench):
+    bench.power_on()                                     # the profile's eFuse
+    gpio(bench, "TRIGGER").pulse(0.001)                  # the channel named TRIGGER
+    assert bench.signal("READY").wait_for(1, timeout=2)
+```
 
 ### LA voltage
 
@@ -193,6 +214,55 @@ Notes:
 The low-level helpers take a connected `BenchPod` or the injected plug:
 `signal_generate`, `signal_stop`, `analog_path`, `dac_output`, `adc_read`,
 `adc_capture`, `replay`, `replay_waveform`, `control_loop`, `fpga_image`.
+
+### Pins, GPIO and timing
+
+Each LA channel has exactly one function at a time. `gpio` claims one so the pod can drive or read
+it, `set_gpio` / `read_gpio` use it and `release_gpio` gives it back — claiming a channel another
+function owns raises `PinConflictError` naming the owner, so release a GPIO channel before a UART
+session, a flash or sensor emulation needs it. `la_delay` captures the logic channels and measures
+the seconds between an edge on one channel and the next edge on another.
+
+```python
+import openhtf as htf
+from embeddedci_openhtf import benchpod_plug, gpio_phase, la_delay_phase, release_gpio
+
+bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+
+test = htf.Test(
+    gpio_phase(bench, la="TRIGGER", mode="output", level=0),
+    # how long the DUT takes to answer a trigger, to one sample (1 µs here)
+    la_delay_phase(bench, from_la="TRIGGER", to_la="READY", samples=200_000,
+                   sample_rate_hz=1_000_000, delay_range=(0, 50e-6)),
+)
+```
+
+### Power profiles
+
+`measure_power_phase` profiles a target-power rail while the DUT does something, and records what
+it drew — the "does this firmware meet its sleep budget?" measurement. Sampling is gap-free at
+~1 kHz, so energy and charge are integrated rather than estimated.
+
+```python
+from embeddedci_openhtf import measure_power_phase
+
+measure_power_phase(bench, duration=5.0,
+                    avg_current_range=(0, 0.020),      # 20 mA average budget, in amps
+                    peak_current_range=(0, 0.250),
+                    energy_range=(0, 0.5),             # joules
+                    keep_samples=2048)                 # also attach the trace as power.json
+```
+
+| Phase | Records |
+| --- | --- |
+| `gpio_phase` | log only (the channel stays claimed for later phases) |
+| `la_delay_phase` | `la_delay_s` (s) |
+| `measure_power_phase` | `<prefix>_avg_current_a`, `_peak_current_a` (A), `_avg_voltage_v` (V), `_energy_j` (J); the kept samples attached as `power.json` |
+
+The matching low-level helpers are `gpio`, `set_gpio`, `read_gpio`, `release_gpio`, `la_delay` and
+`measure_power`. A triggered capture (`trigger=Trigger("TRIGGER", "rising")` on `la_delay`, or
+`bench.capture_la(..., trigger=...)`) starts sampling on an LA edge or level, so a short event can
+be caught at a high rate.
 
 ```python
 import openhtf as htf

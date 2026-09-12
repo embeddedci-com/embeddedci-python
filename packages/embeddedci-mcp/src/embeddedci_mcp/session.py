@@ -2,8 +2,8 @@
 
 The MCP server process is long-lived, but each tool invocation is independent. :class:`Session`
 holds the connected :class:`~embeddedci.benchpod.BenchPod` plus what lives across calls: an open
-UART session, an open CAN bus, and the last ADC/LA captures (so decoding or saving does not need
-a second capture).
+UART session, an open CAN bus, a running power profile, and the last ADC/LA captures (so decoding
+or saving does not need a second capture).
 
 ``lock`` serialises device access: tools run on worker threads, and two tool calls must never
 interleave commands on the pod.
@@ -20,7 +20,14 @@ import threading
 import time
 from typing import Optional, Tuple
 
-from embeddedci.benchpod import BenchPod, CanBus, Capture, LaCapture, UartSession
+from embeddedci.benchpod import (
+    BenchPod,
+    CanBus,
+    Capture,
+    LaCapture,
+    PowerProfileSession,
+    UartSession,
+)
 from embeddedci.benchpod.connection import CLOUD_PREFIX, DISCOVER_KEYWORDS, ENV_VAR, _is_device_path
 from embeddedci.benchpod.errors import BenchPodError, ConnectionConfigError
 
@@ -73,6 +80,8 @@ class Session:
         self.uart_port: Optional[Tuple[int, int, int]] = None
         self.can: Optional[CanBus] = None
         self.can_config: Optional[Tuple[int, str, bool]] = None
+        #: A power profile started by ``power_profile_start`` and not yet stopped.
+        self.power_profile: Optional[PowerProfileSession] = None
         self.last_adc: Optional[Capture] = None
         self.last_la: Optional[LaCapture] = None
 
@@ -134,6 +143,7 @@ class Session:
     def _close_device(self) -> None:
         self.close_uart()
         self.close_can()
+        self.power_profile = None  # pod-side sampling stops by itself at its max_duration
         if self._pod is not None:
             try:
                 self._pod.close()
@@ -207,10 +217,17 @@ class Session:
         self.can = None
         self.can_config = None
 
+    def require_power_profile(self) -> PowerProfileSession:
+        if self.power_profile is None:
+            raise SessionStateError("no power profile is running — call power_profile_start first "
+                                    "(or measure_power for a fixed window)")
+        return self.power_profile
+
     def info(self) -> m.SessionInfo:
         leased = self._pod is not None and self._pod.leased
         return m.SessionInfo(
             uart_open=self.uart is not None, can_open=self.can is not None,
+            power_profile_running=self.power_profile is not None,
             last_adc_capture_samples=len(self.last_adc) if self.last_adc is not None else None,
             last_la_capture_samples=len(self.last_la) if self.last_la is not None else None,
             idle_disconnect_after=self.idle_timeout if (leased and self.idle_timeout > 0) else None,

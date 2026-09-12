@@ -162,6 +162,25 @@ def test_pin_conflicts_are_their_own_error():
     assert isinstance(ei.value, FirmwareError)
 
 
+def test_several_pins_are_claimed_as_a_group():
+    bp, pod = _bp()
+    a, b = bp.gpio_pins([9, 10], "open_drain")
+    assert (a.la, b.la) == (9, 10)
+    assert pod.commands[-1] == {"cmd": "gpio", "la": [9, 10], "mode": "open_drain"}
+    assert [p.gpio for p in bp.configure_gpio([1, 2], "input")] == ["input", "input"]
+
+
+def test_a_conflict_in_a_group_claims_nothing():
+    pod = PinPod()
+    pod.function[5] = "uart_rx"  # a UART session already owns LA5
+    bp, _ = _bp(pod)
+    with pytest.raises(PinConflictError) as ei:
+        bp.gpio_pins([9, 5])
+    assert ei.value.la == 5 and ei.value.function == "uart_rx"
+    # the pod validates the whole group first, so LA9 is untouched — unlike a loop over gpio().
+    assert pod.function[9] == "none"
+
+
 def test_pull_conflicts_are_their_own_error():
     pod = PinPod()
     pod.pull_on[7] = True

@@ -49,6 +49,26 @@ versioning. See the [`embeddedci` changelog](../embeddedci/CHANGELOG.md) for the
 
 ### Added
 
+- **Wiring profile.** `benchpod_plug(..., wiring=<dict | "bench.json" | Wiring>)` passes through to
+  `BenchPod(wiring=...)`, so the bench's map of DUT signal → LA channel supplies the channels, baud,
+  power rail and SWD target a helper or phase leaves out, and its names work wherever a channel
+  number does (`gpio(bench, "TRIGGER")`, `la_delay_phase(from_la="TRIGGER", to_la="READY")`).
+- **GPIO on the LA pins** (`embeddedci_openhtf.pins`): helpers `gpio(bench, la, mode="output",
+  level=None)`, `set_gpio`, `read_gpio`, `release_gpio`, and the phase
+  `gpio_phase(plug, *, la, mode="output", level=None, name="gpio")`. Each LA channel has one owner
+  at a time, so claiming one another function holds raises `PinConflictError` naming the owner —
+  release a GPIO channel before a UART session, a flash or sensor emulation uses it.
+- **Timing between two channels**: `la_delay(bench, from_la, to_la, *, samples, sample_rate_hz,
+  from_edge="rising", to_edge="rising", trigger=None)` and
+  `la_delay_phase(plug, *, from_la, to_la, samples, sample_rate_hz, from_edge, to_edge, trigger,
+  delay_range, name="la_delay")`, recording `la_delay_s` (units `"s"`). `trigger` (an SDK
+  `Trigger`) starts the capture on an LA edge or level.
+- **Power profiles** (`embeddedci_openhtf.power`): `measure_power(bench, duration, **kwargs)` and
+  `measure_power_phase(plug, *, duration, efuse=None, rate_hz=1000.0, keep_samples=0,
+  avg_current_range=None, peak_current_range=None, energy_range=None, prefix="power",
+  attachment="power.json", name="measure_power")`, recording `<prefix>_avg_current_a` and
+  `_peak_current_a` (A), `_avg_voltage_v` (V) and `_energy_j` (J), with the kept `(t, amps, volts)`
+  samples attached as JSON.
 - OpenHTF conf key **`benchpod_la_voltage`** (default `None`, falling back to
   `BENCHPOD_LA_VOLTAGE` via the SDK), passed as `BenchPod(la_voltage=...)`. `benchpod_plug(...,
   la_voltage=3.3)` binds it per plug and wins over the conf key. The pod refuses flashing, UART,

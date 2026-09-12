@@ -4,12 +4,14 @@ MCP client does — through FastMCP's argument validation, error mapping and res
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Optional
 
 import anyio
 import pytest
 
 from embeddedci.benchpod import BenchPod
+from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
+from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.transport.base import Transport
 
 import embeddedci_mcp.session as session_mod
@@ -62,10 +64,34 @@ class FakeTransport(Transport):
         self.rules = 0
         #: Running gateware image (0 = loop, 1 = deep replay); None = a pod without switchable images.
         self.image = None
+        #: Capabilities the pod reports; drop entries to test a pod without a feature.
+        self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
+                     "la_pins", "gpio_read", "capture_trigger", "power_profile"]
+        # -- LA pin ownership (the firmware's table): function, gpio mode and commanded level.
+        self.function: Dict[int, str] = {la: "none" for la in range(1, 13)}
+        self.mode: Dict[int, Any] = {la: None for la in range(1, 13)}
+        self.level: Dict[int, Any] = {la: None for la in range(1, 13)}
+        self.pull_on: Dict[int, bool] = {la: False for la in range(1, 9)}
+        #: Levels the "DUT" drives on channels the pod is not driving (bitmask, bit la-1).
+        self.inputs = 0
+        #: Set to a firmware message to make the next streamed capture / power profile fail with it.
+        self.error: Optional[str] = None
+        self.power_profile_running = False
+        self.power_efuse = 1
+        #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
+        self.power_samples: Dict[str, Any] = {
+            "t_us": [0, 250_000, 500_000, 750_000],
+            "current_ua": [40_000, 180_000, 50_000, 48_000],
+            "bus_mv": [5010, 4990, 5000, 5005]}
+        #: The statistics its last chunk carries (µA / mV / µJ / µC, as the firmware sends them).
+        self.power_stats: Dict[str, Any] = {
+            "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000, "min_ua": 40_000,
+            "peak_ua": 180_000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
+            "energy_uj": 260_500, "charge_uc": 52_000, "fault": False, "truncated": False}
 
     # -- Transport ABC --
     def status(self) -> Any:
-        caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig"]
+        caps = list(self.caps)
         if self.image is not None:
             caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
         return {"version": "2.0.0", "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
@@ -82,6 +108,13 @@ class FakeTransport(Transport):
         return FakeRawLink()
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int):
+        for la, fn in list(self.function.items()):  # a new proxy replaces the previous one
+            if fn in ("uart_rx", "uart_tx"):
+                self.function[la] = "none"
+        for la in (rx, tx):
+            if self.function[la] != "none":
+                raise FirmwareError(self._conflict(la), cmd="uart_proxy_start")
+        self.function[rx], self.function[tx] = "uart_rx", "uart_tx"
         link = FakeRawLink(self.uart_data)
         self.uart_links.append(link)
         return link
@@ -139,9 +172,80 @@ class FakeTransport(Transport):
         if "la" not in req:
             return {"la_pullup_mask": 3, "pullups_available": 1}
         la = req["la"]
-        return {"la": la, "pullup": 1 if req.get("pullup") == "on" else 0,
-                "ohms": "4.7k" if la <= 2 else "10k", "pull": "down" if la in (7, 8) else "up",
+        if "pullup" in req:
+            self.pull_on[la] = req["pullup"] == "on"
+        return {"la": la, "pullup": int(self.pull_on.get(la, False)),
+                "ohms": PULL_OHMS.get(la, ""), "pull": "down" if la in PULLDOWN_CHANNELS else "up",
                 "pullups_available": 1}
+
+    # -- LA pin ownership + GPIO (the firmware's la_pins / gpio contract) --
+    def _conflict(self, la: int) -> str:
+        fn = self.function[la]
+        how = (f'release it with {{"cmd":"gpio","la":{la},"mode":"off"}}' if fn == "gpio"
+               else "stop the uart proxy first")
+        return f"pin conflict: LA{la} is in use by {fn}; {how}"
+
+    def _pin(self, la: int) -> Dict[str, Any]:
+        pull = None
+        if la in PULL_OHMS:
+            pull = {"dir": "down" if la in PULLDOWN_CHANNELS else "up", "ohms": PULL_OHMS[la],
+                    "on": self.pull_on[la]}
+        return {"la": la, "function": self.function[la], "gpio": self.mode[la],
+                "level": self.level[la], "pull": pull}
+
+    def _levels(self) -> int:
+        mask = self.inputs
+        for la in range(1, 13):
+            if self.mode[la] in ("output", "open_drain") and self.level[la] is not None:
+                mask = (mask & ~(1 << (la - 1))) | (self.level[la] << (la - 1))
+        return mask
+
+    def _cmd_la_pins(self, req):
+        return {"pins": [self._pin(la) for la in range(1, 13)], "levels": self._levels()}
+
+    def _cmd_gpio(self, req):
+        if "mode" not in req and "level" not in req:  # read live levels
+            return {"levels": self._levels(), "pins": [self._pin(la) for la in range(1, 13)]}
+        raw = req["la"]
+        las = list(range(1, 13)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
+        mode = req.get("mode")
+        if mode == "off":
+            for la in las:
+                if self.function[la] == "gpio":
+                    self.function[la], self.mode[la], self.level[la] = "none", None, None
+            return {"pins": [self._pin(la) for la in las]}
+        if mode is not None:
+            for la in las:  # validate everything before changing anything
+                if self.function[la] not in ("none", "gpio"):
+                    raise FirmwareError(self._conflict(la), cmd="gpio")
+                if mode == "open_drain" and la in (7, 8) and self.pull_on[la]:
+                    raise FirmwareError(
+                        f"pull conflict: LA{la} has its 10k pull-down engaged, which gpio open_drain "
+                        "can't work with (a released line would read low); disable it with "
+                        f'{{"cmd":"la","la":{la},"pullup":"off"}} or use another channel', cmd="gpio")
+            for la in las:
+                self.function[la], self.mode[la] = "gpio", mode
+                self.level[la] = (None if mode == "input"
+                                  else req.get("level", 1 if mode == "open_drain" else 0))
+            return {"pins": [self._pin(la) for la in las]}
+        for la in las:
+            if self.mode[la] not in ("output", "open_drain"):
+                raise FirmwareError(
+                    f"LA{la} is not a gpio output (function {self.function[la]}); configure it with "
+                    f'{{"cmd":"gpio","la":{la},"mode":"output"}}', cmd="gpio")
+            self.level[la] = req["level"]
+        return {"pins": [self._pin(la) for la in las]}
+
+    # -- power profile (start/status come through `command`; the result streams in chunks) --
+    def _cmd_power_profile(self, req):
+        if self.error:
+            raise FirmwareError(self.error, cmd="power_profile")
+        if req.get("action") == "status":
+            return {"running": self.power_profile_running, "efuse": self.power_efuse,
+                    "elapsed_ms": 100, "n": 95}
+        self.power_profile_running = True
+        self.power_efuse = int(req.get("efuse", 1))
+        return {"started": True, "efuse": self.power_efuse, "rate_hz": 950.0}
 
     def _cmd_analog_path(self, req):
         return {"path": req["path"], "u55": 3, "u58": 9}
@@ -203,7 +307,16 @@ class FakeTransport(Transport):
     def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
         self.requests.append(req)
         cmd = req["cmd"]
-        if cmd == "capture":
+        if self.error:
+            raise FirmwareError(self.error, cmd=cmd)
+        if cmd == "power_profile":
+            self.power_profile_running = False
+            if "efuse" in req:
+                self.power_efuse = int(req["efuse"])
+            yield {"status": "ok", **self.power_samples, "more": True}
+            yield {"status": "ok", "t_us": [], "current_ua": [], "bus_mv": [],
+                   "stats": dict(self.power_stats, efuse=self.power_efuse), "more": False}
+        elif cmd == "capture":
             yield {"status": "ok", "data": sine_counts(req["samples"]), "adc_rate_hz": 100_000.0,
                    "more": False}
         elif cmd == "la_capture":
@@ -221,6 +334,12 @@ class FakeTransport(Transport):
     def load_replay(self, *, data: bytes, replay: dict, psram: bool = False) -> Any:
         self.uploads.append({"len": len(data), "replay": replay, "psram": psram})
         return {"samples": replay["samples"], "cotrig": bool(replay.get("on_capture"))}
+
+
+def without_caps(transport: "FakeTransport", *caps: str) -> None:
+    """Make the connected pod report firmware without ``caps`` (capabilities are cached on connect)."""
+    transport.caps = [c for c in transport.caps if c not in caps]
+    SESSION.require().refresh_capabilities()
 
 
 def call(tool: str, /, **arguments: Any) -> Any:

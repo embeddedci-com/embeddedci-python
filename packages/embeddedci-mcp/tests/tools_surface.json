@@ -347,6 +347,44 @@
           "default": null,
           "description": "Route this ADC source first; omit to keep routing.",
           "title": "Source"
+        },
+        "trigger_edge": {
+          "default": "rising",
+          "description": "What starts the capture on trigger_la.",
+          "enum": [
+            "rising",
+            "falling",
+            "high",
+            "low"
+          ],
+          "title": "Trigger Edge",
+          "type": "string"
+        },
+        "trigger_la": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
+          "title": "Trigger La"
+        },
+        "trigger_timeout": {
+          "default": 10.0,
+          "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Trigger Timeout",
+          "type": "number"
         }
       },
       "title": "capture_adcArguments",
@@ -423,6 +461,44 @@
           "default": null,
           "description": "Seconds into the capture to cut a running DAC.",
           "title": "Stop Dac After"
+        },
+        "trigger_edge": {
+          "default": "rising",
+          "description": "What starts both streams on trigger_la.",
+          "enum": [
+            "rising",
+            "falling",
+            "high",
+            "low"
+          ],
+          "title": "Trigger Edge",
+          "type": "string"
+        },
+        "trigger_la": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
+          "title": "Trigger La"
+        },
+        "trigger_timeout": {
+          "default": 10.0,
+          "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Trigger Timeout",
+          "type": "number"
         }
       },
       "title": "capture_correlatedArguments",
@@ -471,6 +547,44 @@
           "default": null,
           "description": "Seconds into the capture to cut a running DAC output (see the DUT react).",
           "title": "Stop Dac After"
+        },
+        "trigger_edge": {
+          "default": "rising",
+          "description": "What starts the capture on trigger_la.",
+          "enum": [
+            "rising",
+            "falling",
+            "high",
+            "low"
+          ],
+          "title": "Trigger Edge",
+          "type": "string"
+        },
+        "trigger_la": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
+          "title": "Trigger La"
+        },
+        "trigger_timeout": {
+          "default": 10.0,
+          "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Trigger Timeout",
+          "type": "number"
         }
       },
       "title": "capture_laArguments",
@@ -488,11 +602,19 @@
     "input": {
       "properties": {
         "baud": {
-          "default": 115200,
-          "maximum": 4000000,
-          "minimum": 300,
-          "title": "Baud",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 4000000,
+              "minimum": 300,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UART baud rate; omit for the wiring profile's uart_baud.",
+          "title": "Baud"
         },
         "duration": {
           "description": "Capture window in seconds.",
@@ -502,18 +624,50 @@
           "type": "number"
         },
         "rx": {
-          "description": "LA channel wired to the DUT's TX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Rx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
+          "title": "Rx"
         },
         "tx": {
-          "description": "LA channel wired to the DUT's RX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Tx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx.",
+          "title": "Tx"
         },
         "until_regex": {
           "anyOf": [
@@ -530,8 +684,6 @@
         }
       },
       "required": [
-        "rx",
-        "tx",
         "duration"
       ],
       "title": "capture_uartArguments",
@@ -1085,12 +1237,19 @@
     "input": {
       "properties": {
         "address": {
-          "default": 118,
-          "description": "7-bit address (BMP280: 0x76 or 0x77).",
-          "maximum": 119,
-          "minimum": 3,
-          "title": "Address",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 119,
+              "minimum": 3,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "7-bit address (BMP280: 0x76 or 0x77); omit for the profile's i2c_addr.",
+          "title": "Address"
         },
         "pressure_pa": {
           "anyOf": [
@@ -1105,18 +1264,50 @@
           "title": "Pressure Pa"
         },
         "scl": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Scl",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) of the bus's SCL; omit for the profile's i2c_scl.",
+          "title": "Scl"
         },
         "sda": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Sda",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) of the bus's SDA; omit for the profile's i2c_sda.",
+          "title": "Sda"
         },
         "temperature_c": {
           "anyOf": [
@@ -1131,10 +1322,6 @@
           "title": "Temperature C"
         }
       },
-      "required": [
-        "sda",
-        "scl"
-      ],
       "title": "enable_i2c_sensorArguments",
       "type": "object"
     }
@@ -1211,10 +1398,17 @@
           "type": "string"
         },
         "nreset": {
-          "default": false,
-          "description": "The target's reset line is wired to the pod's reset pin: enables connect-under-reset.",
-          "title": "Nreset",
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. Omit for the profile's swd_nreset.",
+          "title": "Nreset"
         },
         "reset": {
           "default": true,
@@ -1222,22 +1416,54 @@
           "type": "boolean"
         },
         "swclk": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Swclk",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's SWCLK; omit for the profile's swd_swclk.",
+          "title": "Swclk"
         },
         "swdio": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Swdio",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's SWDIO; omit for the profile's swd_swdio.",
+          "title": "Swdio"
         },
         "target": {
-          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg.",
-          "minLength": 1,
+          "default": "",
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target.",
           "title": "Target",
           "type": "string"
         },
@@ -1271,11 +1497,6 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "swclk",
-        "swdio",
-        "target"
-      ],
       "title": "flashArguments",
       "type": "object"
     }
@@ -1408,6 +1629,300 @@
       "type": "object"
     }
   },
+  "gpio_mode": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Use LA channels as GPIO"
+    },
+    "input": {
+      "properties": {
+        "la": {
+          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 12,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "La",
+          "type": "array"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "enum": [
+                0,
+                1
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting level of an output (default 0) or open-drain channel (default 1, released). Not allowed for input.",
+          "title": "Level"
+        },
+        "mode": {
+          "default": "output",
+          "description": "output = push-pull; open_drain = 0 pulls low and 1 releases; input = high-Z, level readable.",
+          "enum": [
+            "input",
+            "output",
+            "open_drain"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "la"
+      ],
+      "title": "gpio_modeArguments",
+      "type": "object"
+    }
+  },
+  "gpio_pulse": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Pulse a GPIO channel"
+    },
+    "input": {
+      "properties": {
+        "count": {
+          "default": 1,
+          "description": "Number of pulses.",
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "la": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "title": "La"
+        },
+        "width": {
+          "description": "Seconds the pulse is high (and low between pulses).",
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "la",
+        "width"
+      ],
+      "title": "gpio_pulseArguments",
+      "type": "object"
+    }
+  },
+  "gpio_read": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read pin levels"
+    },
+    "input": {
+      "properties": {
+        "la": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "maximum": 12,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              },
+              "maxItems": 12,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "title": "La"
+        }
+      },
+      "title": "gpio_readArguments",
+      "type": "object"
+    }
+  },
+  "gpio_release": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Release GPIO channels"
+    },
+    "input": {
+      "properties": {
+        "la": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "maximum": 12,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              },
+              "maxItems": 12,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "title": "La"
+        }
+      },
+      "title": "gpio_releaseArguments",
+      "type": "object"
+    }
+  },
+  "gpio_wait": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Wait for a pin level"
+    },
+    "input": {
+      "properties": {
+        "la": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "title": "La"
+        },
+        "level": {
+          "default": 1,
+          "description": "0 = low; 1 = high (open_drain: released).",
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Level",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": 5.0,
+          "description": "Seconds to wait.",
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Timeout",
+          "type": "number"
+        }
+      },
+      "required": [
+        "la"
+      ],
+      "title": "gpio_waitArguments",
+      "type": "object"
+    }
+  },
+  "gpio_write": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Drive GPIO channels"
+    },
+    "input": {
+      "properties": {
+        "la": {
+          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 12,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "La",
+          "type": "array"
+        },
+        "level": {
+          "description": "0 = low; 1 = high (open_drain: released).",
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Level",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "la",
+        "level"
+      ],
+      "title": "gpio_writeArguments",
+      "type": "object"
+    }
+  },
   "i2c_sensor_capture": {
     "annotations": {
       "destructiveHint": false,
@@ -1504,6 +2019,19 @@
       "type": "object"
     }
   },
+  "la_pins": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "LA pin functions"
+    },
+    "input": {
+      "properties": {},
+      "title": "la_pinsArguments",
+      "type": "object"
+    }
+  },
   "la_step": {
     "annotations": {
       "destructiveHint": true,
@@ -1565,6 +2093,81 @@
         "delay"
       ],
       "title": "la_stepArguments",
+      "type": "object"
+    }
+  },
+  "la_timing": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Measure timing on a logic capture"
+    },
+    "input": {
+      "properties": {
+        "after": {
+          "default": 0.0,
+          "description": "Ignore edges earlier than this many seconds into the capture.",
+          "minimum": 0,
+          "title": "After",
+          "type": "number"
+        },
+        "edge": {
+          "default": "rising",
+          "description": "Which transitions to list and to time the delay from.",
+          "enum": [
+            "rising",
+            "falling",
+            "both"
+          ],
+          "title": "Edge",
+          "type": "string"
+        },
+        "la": {
+          "description": "LA channel (1-12) the signal is wired to.",
+          "maximum": 12,
+          "minimum": 1,
+          "title": "La",
+          "type": "integer"
+        },
+        "max_edges": {
+          "default": 100,
+          "maximum": 5000,
+          "minimum": 1,
+          "title": "Max Edges",
+          "type": "integer"
+        },
+        "to_edge": {
+          "default": "rising",
+          "enum": [
+            "rising",
+            "falling",
+            "both"
+          ],
+          "title": "To Edge",
+          "type": "string"
+        },
+        "to_la": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-12) the signal is wired to.",
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Also measure the delay to the next to_edge on this channel.",
+          "title": "To La"
+        }
+      },
+      "required": [
+        "la"
+      ],
+      "title": "la_timingArguments",
       "type": "object"
     }
   },
@@ -1654,6 +2257,64 @@
       "type": "object"
     }
   },
+  "measure_power": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Profile the target's power"
+    },
+    "input": {
+      "properties": {
+        "duration": {
+          "description": "Seconds to sample (blocking).",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Duration",
+          "type": "number"
+        },
+        "efuse": {
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "title": "Efuse"
+        },
+        "points": {
+          "default": 0,
+          "description": "Points of current/voltage trace to return alongside the statistics; 0 = statistics only.",
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Points",
+          "type": "integer"
+        },
+        "rate_hz": {
+          "default": 1000.0,
+          "description": "Samples per second; the pod clamps this to what it can achieve and reports the real rate.",
+          "maximum": 2000,
+          "minimum": 100,
+          "title": "Rate Hz",
+          "type": "number"
+        }
+      },
+      "required": [
+        "duration"
+      ],
+      "title": "measure_powerArguments",
+      "type": "object"
+    }
+  },
   "power_cycle_and_capture": {
     "annotations": {
       "destructiveHint": true,
@@ -1665,11 +2326,19 @@
     "input": {
       "properties": {
         "baud": {
-          "default": 115200,
-          "maximum": 4000000,
-          "minimum": 300,
-          "title": "Baud",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 4000000,
+              "minimum": 300,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UART baud rate; omit for the wiring profile's uart_baud.",
+          "title": "Baud"
         },
         "delay": {
           "default": 1.0,
@@ -1688,14 +2357,21 @@
           "type": "number"
         },
         "efuse": {
-          "default": 1,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Efuse",
-          "type": "integer"
+          "default": null,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "title": "Efuse"
         },
         "off_settle": {
           "default": 0.3,
@@ -1705,18 +2381,50 @@
           "type": "number"
         },
         "rx": {
-          "description": "LA channel wired to the DUT's TX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Rx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
+          "title": "Rx"
         },
         "tx": {
-          "description": "LA channel wired to the DUT's RX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Tx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx.",
+          "title": "Tx"
         },
         "until_regex": {
           "anyOf": [
@@ -1732,10 +2440,6 @@
           "title": "Until Regex"
         }
       },
-      "required": [
-        "rx",
-        "tx"
-      ],
       "title": "power_cycle_and_captureArguments",
       "type": "object"
     }
@@ -1764,14 +2468,21 @@
           "title": "Delay"
         },
         "efuse": {
-          "default": 1,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Efuse",
-          "type": "integer"
+          "default": null,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "title": "Efuse"
         }
       },
       "title": "power_offArguments",
@@ -1802,17 +2513,95 @@
           "title": "Delay"
         },
         "efuse": {
-          "default": 1,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Efuse",
-          "type": "integer"
+          "default": null,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "title": "Efuse"
         }
       },
       "title": "power_onArguments",
+      "type": "object"
+    }
+  },
+  "power_profile_start": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Start a power profile"
+    },
+    "input": {
+      "properties": {
+        "efuse": {
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "title": "Efuse"
+        },
+        "max_duration": {
+          "default": 60.0,
+          "description": "Seconds after which the pod stops sampling by itself (the result is then truncated).",
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Max Duration",
+          "type": "number"
+        },
+        "rate_hz": {
+          "default": 1000.0,
+          "description": "Samples per second.",
+          "maximum": 2000,
+          "minimum": 100,
+          "title": "Rate Hz",
+          "type": "number"
+        }
+      },
+      "title": "power_profile_startArguments",
+      "type": "object"
+    }
+  },
+  "power_profile_stop": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop a power profile"
+    },
+    "input": {
+      "properties": {
+        "points": {
+          "default": 0,
+          "description": "Points of current/voltage trace to return alongside the statistics; 0 = statistics only.",
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "title": "power_profile_stopArguments",
       "type": "object"
     }
   },
@@ -2316,6 +3105,36 @@
       "type": "object"
     }
   },
+  "set_wiring": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Set the wiring profile"
+    },
+    "input": {
+      "properties": {
+        "profile": {
+          "additionalProperties": true,
+          "description": "The profile as a JSON object (schema version 1): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals [{name, la, direction, active_low, description}]. Absent keys take their default; a pin set to null is not wired.",
+          "title": "Profile",
+          "type": "object"
+        },
+        "save": {
+          "default": false,
+          "description": "Also store the profile for this device on embeddedci.com (cloud devices only), so other runs and the web UI see it. false = use it for this connection only.",
+          "title": "Save",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profile"
+      ],
+      "title": "set_wiringArguments",
+      "type": "object"
+    }
+  },
   "status": {
     "annotations": {
       "idempotentHint": false,
@@ -2354,31 +3173,67 @@
     "input": {
       "properties": {
         "baud": {
-          "default": 115200,
-          "maximum": 4000000,
-          "minimum": 300,
-          "title": "Baud",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 4000000,
+              "minimum": 300,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UART baud rate; omit for the wiring profile's uart_baud.",
+          "title": "Baud"
         },
         "rx": {
-          "description": "LA channel wired to the DUT's TX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Rx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
+          "title": "Rx"
         },
         "tx": {
-          "description": "LA channel wired to the DUT's RX.",
-          "maximum": 12,
-          "minimum": 1,
-          "title": "Tx",
-          "type": "integer"
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx.",
+          "title": "Tx"
         }
       },
-      "required": [
-        "rx",
-        "tx"
-      ],
       "title": "uart_openArguments",
       "type": "object"
     }
@@ -2448,6 +3303,19 @@
         "text"
       ],
       "title": "uart_writeArguments",
+      "type": "object"
+    }
+  },
+  "wiring": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Wiring profile"
+    },
+    "input": {
+      "properties": {},
+      "title": "wiringArguments",
       "type": "object"
     }
   }

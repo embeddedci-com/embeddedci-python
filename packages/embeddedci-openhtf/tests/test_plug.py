@@ -111,6 +111,25 @@ def test_conf_connection_timeout_and_la_voltage_reach_benchpod(monkeypatch):
     assert seen == {"connection": "10.0.0.9:8080", "timeout": 7.5, "la_voltage": 3.3}
 
 
+def test_wiring_reaches_benchpod_as_a_dict_and_as_a_file(tmp_path):
+    tx = FakeTransport()
+    plug = benchpod_plug(transport=tx, wiring={"uart_rx": 7, "uart_tx": 8, "efuse": 2})()
+    assert plug.wiring.uart_rx == 7 and plug.wiring.efuse == 2
+    assert plug.wiring.la("uart_tx") == 8
+
+    path = tmp_path / "bench.json"
+    path.write_text('{"i2c_sda": 3, "i2c_scl": 6, "signals": [{"name": "READY", "la": 7}]}')
+    from_file = benchpod_plug(transport=FakeTransport(), wiring=str(path))()
+    assert from_file.wiring.source == "file" and from_file.wiring.la("READY") == 7
+
+
+def test_wiring_supplies_the_defaults_of_proxied_calls():
+    tx = FakeTransport()
+    plug = benchpod_plug(transport=tx, wiring={"efuse": 2})()
+    plug.power_on()  # no rail given: the profile's
+    assert tx.power_calls == [{"efuse": 2, "on": True, "delay_ms": 0}]
+
+
 def test_pod_kwargs_are_immutable_and_not_shared():
     assert isinstance(BenchPodPlug.pod_kwargs, MappingProxyType)
     bound = benchpod_plug(transport=FakeTransport(), timeout=5.0)

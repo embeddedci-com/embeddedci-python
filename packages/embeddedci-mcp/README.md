@@ -108,10 +108,12 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 | Group | Tools |
 | --- | --- |
 | Connection | `connect`, `disconnect`, `status`, `set_la_voltage` |
-| Power | `power_on`, `power_off`, `power_status`, `reset_target` |
+| Wiring profile | `wiring`, `set_wiring` |
+| Power | `power_on`, `power_off`, `power_status`, `reset_target`, `measure_power`, `power_profile_start`, `power_profile_stop` |
 | Flash | `flash` |
 | UART | `capture_uart`, `power_cycle_and_capture`, `uart_open`, `uart_write`, `uart_read`, `uart_close` |
 | Emulated I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture` |
+| Pins + GPIO | `la_pins`, `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait`, `gpio_pulse`, `gpio_release` |
 | Pull resistors | `set_pull`, `pull_status` |
 | Analog | `analog_path`, `dac_output`, `adc_read` |
 | Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la`, `la_timing` |
@@ -120,8 +122,8 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 | CAN | `can_open`, `can_write`, `can_read`, `can_respond`, `can_status`, `can_close` |
 | Other | `la_step`, `command` (raw firmware escape hatch) |
 
-Resources: `benchpod://wiring` (LA channels, bias resistors, analog paths, an example bench) and
-`benchpod://help` (the server instructions).
+Resources: `benchpod://wiring` (the connected bench's own wiring profile, then LA channels, bias
+resistors and analog paths) and `benchpod://help` (the server instructions).
 
 ## How it behaves
 
@@ -135,10 +137,31 @@ Resources: `benchpod://wiring` (LA channels, bias resistors, analog paths, an ex
   the cause, e.g. `FirmwareError: la voltage not set` or `NotConnectedError: …`. A completed
   operation with a negative outcome is a normal result: `flash` returns `ok: false` with its logs,
   a UART capture `matched: false`.
+- **Wiring profile.** `wiring` is the bench's map of DUT signal → LA channel, plus the target-power
+  rail, the UART baud and the SWD target. Omitted channel / baud / rail / SWD arguments come from
+  it, and channel arguments also accept its names (`trigger_la: "READY"`, `rx: "uart_rx"`), so an
+  agent that read `wiring` once can call `flash()`, `uart_open()` or `power_on()` with no
+  pin numbers at all. `set_wiring` replaces it for the connection, or stores it on embeddedci.com
+  with `save: true`.
 - **Agent-sized captures.** `capture_adc` returns calibrated statistics, the dominant frequency and a
   min/max envelope; `capture_la` returns per-channel levels, edges and frequencies. The last captures
   stay in the session, so `decode_la`, `replay(from_last_capture=true)` and
   `save_capture_as_recording` don't capture again.
+- **Triggered captures.** `capture_adc`, `capture_la` and `capture_correlated` take `trigger_la`
+  (+ `trigger_edge` rising/falling/high/low and `trigger_timeout`) so sampling starts on an event —
+  t = 0 is the trigger — and the summary echoes it as `trigger: "LA9 rising"`. A condition that
+  never happens fails with `TriggerTimeout: …`.
+- **Pins and GPIO.** Each LA channel has one owner at a time: none, GPIO, a UART proxy, SWD, the
+  emulated sensor or a step train. `la_pins` shows the table, `gpio_mode` / `gpio_write` /
+  `gpio_read` / `gpio_wait` / `gpio_pulse` drive and watch channels, `gpio_release` frees them. A
+  second claim fails with `PinConflictError: pin conflict: LA5 is in use by uart_rx; …` naming the
+  owner and how to free it — so the agent releases GPIO before opening a UART session on that
+  channel. Captures observe all 12 channels whatever owns them.
+- **Power profiles.** `measure_power(duration)` reports average, minimum and peak current, voltage,
+  energy and charge from gap-free ~1 kHz sampling (so energy is integrated, not estimated), with an
+  optional downsampled trace (`points`). `power_profile_start` / `power_profile_stop` bracket other
+  tool calls; the running profile lives on the session (`status` reports it) and is dropped on
+  `disconnect`.
 - **Sessions.** `uart_open` buffers the DUT's console in the background (open it before
   `power_on`, then `uart_read` / `uart_write`); `can_open` keeps a CAN bus open across calls.
 - **Gateware images.** The pod's FPGA runs either the `loop` image (`control_loop`) or the
@@ -162,6 +185,16 @@ Resources: `benchpod://wiring` (LA channels, bias resistors, analog paths, an ex
 connect()                                   # BENCHPOD_CONNECTION + BENCHPOD_LA_VOLTAGE
 flash(swclk=11, swdio=12, nreset=true, target="target/stm32f4x.cfg", file="build/app.elf", target_power=1)
 power_cycle_and_capture(rx=5, tx=4, delay=1.0, duration=5.0, until_regex="APP_OK")
+```
+
+With a wiring profile stored for the bench, the same run needs no pin numbers:
+
+```
+connect()
+wiring()                                    # SWCLK on LA11, DUT TX on LA5, rail eFuse 1, …
+flash(file="build/app.elf")
+power_cycle_and_capture(delay=1.0, duration=5.0, until_regex="APP_OK")
+measure_power(duration=2.0, points=100)     # what the firmware draws once it is up
 ```
 
 ## Stability

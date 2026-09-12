@@ -524,6 +524,8 @@ reset = bp.signal("RESET_N")                  # a wiring-profile signal, honouri
 reset.configure()
 reset.activate()
 
+a, b = bp.gpio_pins([11, 12], "open_drain")   # claimed as a group: a conflict on either claims neither
+
 bp.release_gpio(9, 10)                        # back to high-Z; no arguments releases every GPIO pin
 ```
 
@@ -541,7 +543,8 @@ except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release 
     bp.release_gpio(exc.la)
 ```
 
-`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`).
+`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`),
+and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()` returning those states.
 Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
 disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),
 and the LA voltage can't change while any channel is in use.

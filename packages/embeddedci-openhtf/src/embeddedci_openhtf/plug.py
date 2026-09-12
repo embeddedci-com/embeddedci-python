@@ -29,6 +29,19 @@ Two ways to point it at a pod:
       def power_up(test, bench):
           bench.power_on()
 
+**Wiring profile.** Pass ``wiring=`` to :func:`benchpod_plug` — a dict, a path to a ``.json`` /
+``.toml`` file, or a :class:`~embeddedci.benchpod.Wiring` — and it reaches ``BenchPod(wiring=...)``
+like every other pod keyword. The bench's map of DUT signal to LA channel then supplies the
+channels, baud, power rail and SWD target every helper and phase leaves out, and names work
+wherever a channel does::
+
+    bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+
+    @htf.plug(bench=bench)
+    def run(test, bench):
+        bench.power_on()                     # the profile's rail
+        gpio(bench, "TRIGGER").pulse(0.001)  # the channel the profile names TRIGGER
+
 **LA voltage.** The pod refuses every LA-bank operation — flashing, the UART
 proxy, LA capture, pull resistors, I2C-sensor emulation — until the LA I/O-bank
 voltage (1.8 or 3.3 V) is selected. Pass ``la_voltage=`` to :func:`benchpod_plug`,
@@ -248,8 +261,10 @@ def benchpod_plug(connection: Optional[str] = None, *, persistent: bool = False,
     Set ``persistent=True`` to keep one connection open across test executions
     (reuse the *same* returned class for every ``Test.execute()`` so they share
     it); see :func:`close_persistent_benchpods`. Extra keyword args are forwarded
-    to ``BenchPod(...)``: ``la_voltage=`` (volts), ``timeout=`` (seconds), or
-    ``transport=`` to inject a fake backend in tests.
+    to ``BenchPod(...)``: ``la_voltage=`` (volts), ``wiring=`` (a dict, a
+    ``.json``/``.toml`` path or a :class:`~embeddedci.benchpod.Wiring`, which then
+    supplies the channels, baud and power rail a phase leaves out), ``timeout=``
+    (seconds), or ``transport=`` to inject a fake backend in tests.
     """
     return type(
         "BoundBenchPodPlug",

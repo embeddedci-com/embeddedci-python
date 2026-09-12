@@ -16,7 +16,7 @@ content. No protocol, flash or decode logic lives here — it all comes from the
 
 import re
 import time
-from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, TypeVar
+from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, TypeVar, Union
 
 import anyio
 from mcp.server.fastmcp import Context, FastMCP
@@ -34,10 +34,14 @@ from embeddedci.benchpod import (
     Edge,
     Fault,
     FpgaImage,
+    GpioMode,
     LoopInputMap,
     LoopSource,
     ReplayMapping,
+    Trigger,
+    TriggerEdge,
     Waveshape,
+    Wiring,
     i2c,
 )
 from embeddedci.benchpod import decode as sdk_decode
@@ -46,7 +50,7 @@ from embeddedci.benchpod.errors import BenchPodError
 from . import models as m
 from .guide import INSTRUCTIONS, WIRING
 from .session import SESSION, SessionStateError
-from .summaries import adc_summary, clip, la_summary
+from .summaries import adc_summary, clip, la_summary, pin_state, power_summary, wiring_summary
 
 mcp = FastMCP("embeddedci-benchpod", instructions=INSTRUCTIONS)
 
@@ -56,9 +60,24 @@ T = TypeVar("T")
 MAX_TEXT = 16_000
 
 LaPin = Annotated[int, Field(ge=1, le=12, description="LA channel (1-12) the signal is wired to.")]
+#: An LA channel given as a number or by the name the wiring profile gives it.
+LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=12)], str], Field(description=(
+    "LA channel 1-12, or a name from the wiring profile — a signal ('READY') or a role "
+    "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."))]
 BiasPin = Annotated[int, Field(ge=1, le=8)]
 EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power eFuse: 1 = internal 5 V, 2 = external supply.")]
+WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
+    "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail."))]
 BaudRate = Annotated[int, Field(ge=300, le=4_000_000)]
+WiredBaud = Annotated[Optional[int], Field(ge=300, le=4_000_000, description=(
+    "UART baud rate; omit for the wiring profile's uart_baud."))]
+TriggerLa = Annotated[Optional[Union[Annotated[int, Field(ge=1, le=12)], str]], Field(description=(
+    "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before "
+    "sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the "
+    "capture_trigger capability."))]
+TriggerTimeoutS = Annotated[float, Field(gt=0, le=600, description=(
+    "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout."))]
+GpioLevel = Annotated[Literal[0, 1], Field(description="0 = low; 1 = high (open_drain: released).")]
 Samples = Annotated[int, Field(ge=1, le=8_000_000)]
 EnvelopePoints = Annotated[int, Field(ge=8, le=2000, description="Points in the returned min/max envelope.")]
 RateHz = Annotated[Optional[float], Field(description="Sample rate in Hz; omit for the device maximum.")]
@@ -147,6 +166,27 @@ def _fault(spec: Optional[m.FaultSpec]) -> Optional[Fault]:
     return Fault(type=spec.type, start=spec.start, width=spec.width, level=spec.level)
 
 
+def _la(pod: Any, value: Any) -> int:
+    """An LA channel from a number 1-12 or a wiring-profile name."""
+    return pod.wiring.la(value) if isinstance(value, str) else int(value)
+
+
+def _channel(pod: Any, value: Any, key: str) -> int:
+    """Like :func:`_la`, but an omitted channel comes from the profile's ``key`` role."""
+    if value is not None:
+        return _la(pod, value)
+    la = getattr(pod.wiring, key)
+    if la is None:
+        raise ValueError(f"{key} was not given and the wiring profile has no {key}; pass it or "
+                         "set it in the profile (see the `wiring` tool)")
+    return int(la)
+
+
+def _trigger(la: Any, edge: str) -> Optional[Trigger]:
+    """A :class:`Trigger` for the capture tools (the SDK resolves wiring names)."""
+    return None if la is None else Trigger(la, edge)  # type: ignore[arg-type]
+
+
 # -- connection ---------------------------------------------------------------------
 
 def _status() -> m.StatusResult:
@@ -223,27 +263,127 @@ async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
     return m.LaVoltageResult(voltage=state.voltage, readback=state.readback)
 
 
+# -- wiring profile -------------------------------------------------------------------
+
+@mcp.tool(annotations=_ann("Wiring profile", read_only=True))
+async def wiring() -> m.WiringResult:
+    """Which DUT signal is on which LA channel — call this first, before any channel argument.
+
+    Returns the bench's effective profile: a 12-row pin table (what is wired to each channel and
+    its bias resistor), the named signals, the target-power rail, the UART baud and the SWD target,
+    plus warnings about risky wiring. Every tool whose channel, baud, rail or SWD arguments are
+    omitted takes them from this profile, and channel arguments accept these names.
+    """
+    return await _call(lambda: wiring_summary(SESSION.require().wiring))
+
+
+@mcp.tool(annotations=_ann("Set the wiring profile", idempotent=True, cloud=True))
+async def set_wiring(
+    profile: Annotated[Dict[str, Any], Field(description=(
+        "The profile as a JSON object (schema version 1): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
+        "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals "
+        "[{name, la, direction, active_low, description}]. Absent keys take their default; a pin "
+        "set to null is not wired."))],
+    save: Annotated[bool, Field(description=(
+        "Also store the profile for this device on embeddedci.com (cloud devices only), so other "
+        "runs and the web UI see it. false = use it for this connection only."))] = False,
+) -> m.WiringResult:
+    """Replace the wiring profile this connection uses (and optionally store it on embeddedci.com).
+
+    The profile is validated first: two roles or signals on one LA channel, an out-of-range pin or
+    an unknown key are rejected with a message naming every problem.
+    """
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        pod.wiring = Wiring.from_dict(profile)
+        if save:
+            pod.save_wiring()
+        return wiring_summary(pod.wiring, saved=save)
+
+    return await _call(op)
+
+
 # -- power ----------------------------------------------------------------------------
+
+def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float]) -> m.PowerResult:
+    pod = SESSION.require()
+    rail = pod.wiring.efuse if efuse is None else efuse
+    pod.target_power(rail, on=on, delay=delay)
+    return m.PowerResult(efuse=rail, on=on, delay=delay)
+
 
 @mcp.tool(annotations=_ann("Power target on", destructive=True, idempotent=True))
 async def power_on(
-    efuse: EfuseRail = 1,
+    efuse: WiredEfuse = None,
     delay: Annotated[Optional[float], Field(description=(
         "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture)."))] = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail on."""
-    await _call(lambda: SESSION.require().power_on(efuse, delay=delay))
-    return m.PowerResult(efuse=efuse, on=True, delay=delay)
+    """Switch the target's power rail on. The result says which rail was used."""
+    return await _call(lambda: _switch_power(efuse, True, delay))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))
 async def power_off(
-    efuse: EfuseRail = 1,
+    efuse: WiredEfuse = None,
     delay: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail off."""
-    await _call(lambda: SESSION.require().power_off(efuse, delay=delay))
-    return m.PowerResult(efuse=efuse, on=False, delay=delay)
+    """Switch the target's power rail off. The result says which rail was used."""
+    return await _call(lambda: _switch_power(efuse, False, delay))
+
+
+@mcp.tool(annotations=_ann("Profile the target's power"))
+async def measure_power(
+    duration: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
+    efuse: WiredEfuse = None,
+    rate_hz: Annotated[float, Field(ge=100, le=2000, description=(
+        "Samples per second; the pod clamps this to what it can achieve and reports the real rate."))] = 1000.0,
+    points: Annotated[int, Field(ge=0, le=500, description=(
+        "Points of current/voltage trace to return alongside the statistics; 0 = statistics only."))] = 0,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.PowerProfileResult:
+    """Measure the DUT's supply current and voltage for a window: average, minimum and peak current,
+    voltage, energy and charge (gap-free sampling, so energy is integrated, not estimated).
+
+    Use this for a self-contained window (a boot, a sleep interval). To profile across other tool
+    calls, bracket them with power_profile_start / power_profile_stop.
+    """
+    return await _call_reporting(ctx, "profiling power", lambda: power_summary(
+        SESSION.require().measure_power(duration, efuse=efuse, rate_hz=rate_hz,
+                                        keep_samples=points), points))
+
+
+@mcp.tool(annotations=_ann("Start a power profile"))
+async def power_profile_start(
+    efuse: WiredEfuse = None,
+    rate_hz: Annotated[float, Field(ge=100, le=2000, description="Samples per second.")] = 1000.0,
+    max_duration: Annotated[float, Field(gt=0, le=600, description=(
+        "Seconds after which the pod stops sampling by itself (the result is then truncated)."))] = 60.0,
+) -> m.PowerProfileStartResult:
+    """Start sampling the target-power rail in the background, then run the steps you want to
+    profile and call power_profile_stop. Replaces any profile already running."""
+    def op() -> m.PowerProfileStartResult:
+        pod = SESSION.require()
+        rail = pod.wiring.efuse if efuse is None else efuse
+        SESSION.power_profile = pod.power_profile(efuse=rail, rate_hz=rate_hz,
+                                                  max_duration=max_duration).start()
+        return m.PowerProfileStartResult(efuse=rail, rate_hz=rate_hz, max_duration=max_duration)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Stop a power profile"))
+async def power_profile_stop(
+    points: Annotated[int, Field(ge=0, le=500, description=(
+        "Points of current/voltage trace to return alongside the statistics; 0 = statistics only."))] = 0,
+) -> m.PowerProfileResult:
+    """Stop the running power profile and return its statistics (and, with points, a trace)."""
+    def op() -> m.PowerProfileResult:
+        SESSION.require()
+        profile = SESSION.require_power_profile().stop()
+        SESSION.power_profile = None
+        return power_summary(profile, points)
+
+    return await _call(op)
 
 
 @mcp.tool(annotations=_ann("Power status", read_only=True))
@@ -287,12 +427,16 @@ async def reset_target(
 
 @mcp.tool(annotations=_ann("Flash firmware over SWD", destructive=True))
 async def flash(
-    swclk: LaPin,
-    swdio: LaPin,
-    target: Annotated[str, Field(min_length=1, description="OpenOCD target config, e.g. target/stm32f4x.cfg.")],
+    swclk: Annotated[Optional[LaRef], Field(description=(
+        "LA channel (or wiring name) wired to the DUT's SWCLK; omit for the profile's swd_swclk."))] = None,
+    swdio: Annotated[Optional[LaRef], Field(description=(
+        "LA channel (or wiring name) wired to the DUT's SWDIO; omit for the profile's swd_swdio."))] = None,
+    target: Annotated[str, Field(description=(
+        "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target."))] = "",
     file: Annotated[str, Field(description="Firmware image path on the machine running this server.")] = "",
-    nreset: Annotated[bool, Field(description=(
-        "The target's reset line is wired to the pod's reset pin: enables connect-under-reset."))] = False,
+    nreset: Annotated[Optional[bool], Field(description=(
+        "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
+        "Omit for the profile's swd_nreset."))] = None,
     load_address: Annotated[str, Field(description="Load address for raw .bin images, e.g. 0x08000000.")] = "",
     target_power: Annotated[Optional[Literal[1, 2]], Field(description="Power this eFuse on before flashing.")] = None,
     verify: bool = True,
@@ -306,12 +450,16 @@ async def flash(
 ) -> m.FlashResult:
     """Program the DUT over SWD through the pod's CMSIS-DAP probe (OpenOCD runs on this server's host).
 
+    The SWD pins, the reset flag and the target config come from the wiring profile when omitted.
     A failed flash is a normal result (ok=false): read target_unreachable (unpowered, mis-wired or
     held in reset), stalled, and the log tails to decide what to change.
     """
     def op() -> m.FlashResult:
-        result = SESSION.require().flash(
-            swclk=swclk, swdio=swdio, nreset=nreset, target=target, file=file,
+        pod = SESSION.require()
+        result = pod.flash(
+            swclk=_channel(pod, swclk, "swd_swclk"), swdio=_channel(pod, swdio, "swd_swdio"),
+            nreset=pod.wiring.swd_nreset if nreset is None else nreset,
+            target=target or pod.wiring.swd_target, file=file,
             load_address=load_address, target_power=target_power, verify=verify, reset=reset,
             connect_under_reset=connect_under_reset, extra_configs=tuple(extra_configs or ()),
             extra_args=tuple(extra_args or ()), timeout=timeout,
@@ -332,16 +480,25 @@ def _uart_result(cap: Any) -> m.UartCaptureResult:
                                bytes=len(cap.text.encode("utf-8")), truncated=len(cap.text) > MAX_TEXT)
 
 
+UartRx = Annotated[Optional[LaRef], Field(description=(
+    "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx."))]
+UartTx = Annotated[Optional[LaRef], Field(description=(
+    "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx."))]
+
+
 @mcp.tool(annotations=_ann("Capture UART output"))
 async def capture_uart(
-    rx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's TX.")],
-    tx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's RX.")],
     duration: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds.")],
-    baud: BaudRate = 115200,
+    rx: UartRx = None,
+    tx: UartTx = None,
+    baud: WiredBaud = None,
     until_regex: Regex = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
-    """Record the DUT's UART output for a fixed window (or until until_regex matches)."""
+    """Record the DUT's UART output for a fixed window (or until until_regex matches).
+
+    The channels and baud come from the wiring profile when omitted.
+    """
     pattern = _compile(until_regex)
     return await _call_reporting(ctx, "capturing UART", lambda: _uart_result(
         SESSION.require().capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern)))
@@ -349,17 +506,20 @@ async def capture_uart(
 
 @mcp.tool(annotations=_ann("Power-cycle and capture boot log", destructive=True))
 async def power_cycle_and_capture(
-    rx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's TX.")],
-    tx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's RX.")],
-    efuse: EfuseRail = 1,
+    rx: UartRx = None,
+    tx: UartTx = None,
+    efuse: WiredEfuse = None,
     delay: Annotated[float, Field(ge=0, le=60, description="Seconds into the capture the power comes back.")] = 1.0,
     duration: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds; must exceed delay.")] = 4.0,
-    baud: BaudRate = 115200,
+    baud: WiredBaud = None,
     until_regex: Regex = None,
     off_settle: Annotated[float, Field(ge=0, le=10)] = 0.3,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
-    """Power the target off, then capture UART while it powers back on — the boot banner lands in the window."""
+    """Power the target off, then capture UART while it powers back on — the boot banner lands in the window.
+
+    The channels, baud and power rail come from the wiring profile when omitted.
+    """
     pattern = _compile(until_regex)
     return await _call_reporting(ctx, "power-cycling", lambda: _uart_result(
         SESSION.require().power_cycle_and_capture(rx=rx, tx=tx, efuse=efuse, delay=delay,
@@ -369,21 +529,25 @@ async def power_cycle_and_capture(
 
 @mcp.tool(annotations=_ann("Open a UART session"))
 async def uart_open(
-    rx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's TX.")],
-    tx: Annotated[int, Field(ge=1, le=12, description="LA channel wired to the DUT's RX.")],
-    baud: BaudRate = 115200,
+    rx: UartRx = None,
+    tx: UartTx = None,
+    baud: WiredBaud = None,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
     Open it BEFORE an action whose output matters (power_on, reset_target), then uart_read; use
-    uart_write to type into the DUT's console.
+    uart_write to type into the DUT's console. The channels and baud come from the wiring profile
+    when omitted; the result says which were used. A channel used as GPIO must be released first
+    (gpio_release).
     """
     def op() -> m.UartSessionResult:
         pod = SESSION.require()
+        rx_i, tx_i = _channel(pod, rx, "uart_rx"), _channel(pod, tx, "uart_tx")
+        rate = int(pod.wiring.uart_baud if baud is None else baud)
         SESSION.close_uart()
-        SESSION.uart = pod.open_uart(rx=rx, tx=tx, baud=baud)
-        SESSION.uart_port = (rx, tx, baud)
-        return m.UartSessionResult(open=True, rx=rx, tx=tx, baud=baud)
+        SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate)
+        SESSION.uart_port = (rx_i, tx_i, rate)
+        return m.UartSessionResult(open=True, rx=rx_i, tx=tx_i, baud=rate)
 
     return await _call(op)
 
@@ -438,13 +602,19 @@ async def uart_close() -> m.UartSessionResult:
 
 @mcp.tool(annotations=_ann("Emulate an I2C sensor"))
 async def enable_i2c_sensor(
-    sda: LaPin,
-    scl: LaPin,
-    address: Annotated[int, Field(ge=0x03, le=0x77, description="7-bit address (BMP280: 0x76 or 0x77).")] = 0x76,
+    sda: Annotated[Optional[LaRef], Field(description=(
+        "LA channel (or wiring name) of the bus's SDA; omit for the profile's i2c_sda."))] = None,
+    scl: Annotated[Optional[LaRef], Field(description=(
+        "LA channel (or wiring name) of the bus's SCL; omit for the profile's i2c_scl."))] = None,
+    address: Annotated[Optional[int], Field(ge=0x03, le=0x77, description=(
+        "7-bit address (BMP280: 0x76 or 0x77); omit for the profile's i2c_addr."))] = None,
     temperature_c: Optional[float] = None,
     pressure_pa: Optional[float] = None,
 ) -> m.DeviceReply:
-    """Make the pod act as a BMP280 on sda/scl for the DUT to read. Engage pull-ups on both lines first (set_pull)."""
+    """Make the pod act as a BMP280 on sda/scl for the DUT to read. Engage pull-ups on both lines first (set_pull).
+
+    The channels and address come from the wiring profile when omitted.
+    """
     return m.DeviceReply(reply=await _call(lambda: SESSION.require().enable_i2c_sensor(
         sda=sda, scl=scl, address=address, temperature_c=temperature_c, pressure_pa=pressure_pa)) or {})
 
@@ -534,6 +704,149 @@ async def pull_status() -> m.PullStatusResult:
     return await _call(op)
 
 
+# -- LA pin ownership + GPIO ---------------------------------------------------------------
+
+GpioChannels = Annotated[List[LaRef], Field(min_length=1, max_length=12, description=(
+    "LA channels as numbers 1-12 or wiring-profile names."))]
+OptionalGpioChannels = Annotated[Optional[List[LaRef]], Field(max_length=12, description=(
+    "LA channels as numbers 1-12 or wiring-profile names."))]
+
+
+@mcp.tool(annotations=_ann("LA pin functions", read_only=True))
+async def la_pins() -> m.LaPinsResult:
+    """What owns each of the 12 LA channels — none (free), gpio, uart_rx/uart_tx, swd_clk/swd_dio,
+    i2c_sda/i2c_scl or step — plus each channel's GPIO mode, commanded level and bias resistor.
+
+    Read this when a tool is refused with a pin conflict: it names the owner to stop. Live pin
+    levels come along when the gateware can read them. Captures observe every channel whatever
+    owns it.
+    """
+    def op() -> m.LaPinsResult:
+        pod = SESSION.require()
+        pins = [pin_state(p) for p in pod.la_pins()]
+        levels = None
+        if pod.capabilities.gpio_read:
+            levels = [m.PinLevel(la=la, level=v) for la, v in sorted(pod.pin_levels().items())]
+        return m.LaPinsResult(pins=pins, levels=levels)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Use LA channels as GPIO", destructive=True, idempotent=True))
+async def gpio_mode(
+    la: GpioChannels,
+    mode: Annotated[GpioMode, Field(description=(
+        "output = push-pull; open_drain = 0 pulls low and 1 releases; input = high-Z, level readable."))] = "output",
+    level: Annotated[Optional[Literal[0, 1]], Field(description=(
+        "Starting level of an output (default 0) or open-drain channel (default 1, released). "
+        "Not allowed for input."))] = None,
+) -> m.GpioPinsResult:
+    """Claim LA channels as GPIO so the pod can drive or read them.
+
+    A channel stays GPIO — across disconnects — until gpio_release, and while it is GPIO nothing
+    else can use it: release it before uart_open, flash or enable_i2c_sensor on that channel.
+    A channel already owned by another function is refused with a PinConflictError naming the
+    owner, and an engaged bias resistor that would fight the mode with a PullConflictError.
+    """
+    def op() -> m.GpioPinsResult:
+        pod = SESSION.require()
+        las = [_la(pod, ch) for ch in la]
+        # configure_gpio sends the whole list in one command, which the pod validates as a unit —
+        # so a conflict on any channel leaves every channel as it was.
+        return m.GpioPinsResult(pins=[pin_state(p) for p in pod.configure_gpio(las, mode, level=level)])
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Drive GPIO channels", destructive=True, idempotent=True))
+async def gpio_write(la: GpioChannels, level: GpioLevel) -> m.GpioWriteResult:
+    """Set the level of GPIO output / open-drain channels (all of them in one pod command).
+
+    The channels must already be in an output or open_drain mode (gpio_mode).
+    """
+    def op() -> m.GpioWriteResult:
+        pod = SESSION.require()
+        las = [_la(pod, ch) for ch in la]
+        pod.set_gpio(las, level)
+        return m.GpioWriteResult(la=las, level=level)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Read pin levels", read_only=True))
+async def gpio_read(la: OptionalGpioChannels = None) -> m.GpioReadResult:
+    """The live level (0/1) of LA channels — omit `la` for all 12.
+
+    Works whatever owns a channel; a GPIO input is the usual way to watch a DUT output.
+    """
+    def op() -> m.GpioReadResult:
+        pod = SESSION.require()
+        levels = pod.pin_levels()
+        wanted = sorted(levels) if la is None else [_la(pod, ch) for ch in la]
+        return m.GpioReadResult(levels=[m.PinLevel(la=ch, level=levels[ch]) for ch in wanted])
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Wait for a pin level", read_only=True))
+async def gpio_wait(
+    la: LaRef,
+    level: GpioLevel = 1,
+    timeout: Annotated[float, Field(ge=0, le=600, description="Seconds to wait.")] = 5.0,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.GpioWaitResult:
+    """Wait until an LA channel reads `level` (reached=false when the timeout passes first).
+
+    Polled from this host, so it resolves to a few milliseconds plus the round trip — for precise
+    timing use a triggered capture (capture_la trigger_la) and la_timing instead.
+    """
+    def op() -> m.GpioWaitResult:
+        pod = SESSION.require()
+        ch = _la(pod, la)
+        start = time.monotonic()
+        reached = pod.wait_for_level(ch, level, timeout=timeout)
+        return m.GpioWaitResult(la=ch, level=level, reached=reached,
+                                waited=round(time.monotonic() - start, 4))
+
+    return await _call_reporting(ctx, "waiting for the pin", op)
+
+
+@mcp.tool(annotations=_ann("Pulse a GPIO channel", destructive=True))
+async def gpio_pulse(
+    la: LaRef,
+    width: Annotated[float, Field(gt=0, le=10, description="Seconds the pulse is high (and low between pulses).")],
+    count: Annotated[int, Field(ge=1, le=10_000_000, description="Number of pulses.")] = 1,
+) -> m.GpioPulseResult:
+    """Emit FPGA-timed pulses on an LA channel — a trigger for the DUT, or a step/dir motor train.
+
+    The channel must be free or a GPIO output at level 0 (it returns to its GPIO level afterwards).
+    The FPGA runs the train by itself, so this returns as soon as it starts.
+    """
+    def op() -> m.GpioPulseResult:
+        pod = SESSION.require()
+        ch = _la(pod, la)
+        pod.la_step(ch, steps=count, delay=width)
+        return m.GpioPulseResult(la=ch, count=count, width=width)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Release GPIO channels", idempotent=True))
+async def gpio_release(la: OptionalGpioChannels = None) -> m.GpioReleaseResult:
+    """Stop using channels as GPIO — they go back to high-Z, watched by captures.
+
+    Omit `la` to release every GPIO channel (channels owned by other functions are left alone).
+    Do this before starting a UART session, flashing or emulating a sensor on those channels.
+    """
+    def op() -> m.GpioReleaseResult:
+        pod = SESSION.require()
+        las = [] if la is None else [_la(pod, ch) for ch in la]
+        pod.release_gpio(*las)
+        return m.GpioReleaseResult(released=las)
+
+    return await _call(op)
+
+
 # -- analog ------------------------------------------------------------------------------
 
 @mcp.tool(annotations=_ann("Apply an analog path", idempotent=True))
@@ -574,15 +887,21 @@ async def capture_adc(
     sample_rate_hz: RateHz = None,
     source: Annotated[Optional[AdcSource], Field(description="Route this ADC source first; omit to keep routing.")] = None,
     points: EnvelopePoints = 200,
+    trigger_la: TriggerLa = None,
+    trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
+    trigger_timeout: TriggerTimeoutS = 10.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.AdcCaptureResult:
     """Capture the ADC and summarise it: calibrated stats, dominant frequency and a min/max envelope.
 
-    Above 32768 samples the capture streams from PSRAM (multi-second captures work). The capture
-    is kept for replay and save_capture_as_recording.
+    Above 32768 samples the capture streams from PSRAM (multi-second captures work). With
+    trigger_la the capture waits for that edge or level, so t = 0 is the trigger moment. The
+    capture is kept for replay and save_capture_as_recording.
     """
     def op() -> m.AdcCaptureResult:
-        cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source)
+        cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source,
+                                            trigger=_trigger(trigger_la, trigger_edge),
+                                            trigger_timeout=trigger_timeout)
         SESSION.last_adc = cap
         return adc_summary(cap, points)
 
@@ -595,15 +914,21 @@ async def capture_la(
     sample_rate_hz: RateHz = None,
     stop_dac_after: Annotated[Optional[float], Field(description=(
         "Seconds into the capture to cut a running DAC output (see the DUT react)."))] = None,
+    trigger_la: TriggerLa = None,
+    trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
+    trigger_timeout: TriggerTimeoutS = 10.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.LaCaptureResult:
     """Capture all 12 LA channels and summarise each: levels, edge count, first edge, estimated frequency.
 
-    The capture is kept for decode_la.
+    With trigger_la the capture starts on that edge or level instead of immediately, so a short
+    event can be caught at a high sample rate. The capture is kept for decode_la and la_timing.
     """
     def op() -> m.LaCaptureResult:
         la = SESSION.require().capture_la(samples, sample_rate_hz=sample_rate_hz,
-                                          stop_dac_after=stop_dac_after)
+                                          stop_dac_after=stop_dac_after,
+                                          trigger=_trigger(trigger_la, trigger_edge),
+                                          trigger_timeout=trigger_timeout)
         SESSION.last_la = la
         return la_summary(la)
 
@@ -618,13 +943,20 @@ async def capture_correlated(
     la_sample_rate_hz: RateHz = None,
     stop_dac_after: Annotated[Optional[float], Field(description="Seconds into the capture to cut a running DAC.")] = None,
     points: EnvelopePoints = 200,
+    trigger_la: TriggerLa = None,
+    trigger_edge: Annotated[TriggerEdge, Field(description="What starts both streams on trigger_la.")] = "rising",
+    trigger_timeout: TriggerTimeoutS = 10.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.CorrelatedCaptureResult:
-    """ADC and LA captured from one hardware trigger, so their timebases align. Both are kept."""
+    """ADC and LA captured from one hardware trigger, so their timebases align. Both are kept.
+
+    With trigger_la both streams start on that edge or level.
+    """
     def op() -> m.CorrelatedCaptureResult:
         cc = SESSION.require().capture_correlated(
             adc_samples=adc_samples, adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
-            la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after)
+            la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after,
+            trigger=_trigger(trigger_la, trigger_edge), trigger_timeout=trigger_timeout)
         if adc_samples:
             SESSION.last_adc = cc.adc
         if la_samples:
@@ -1057,8 +1389,19 @@ async def command(
 # -- resources ----------------------------------------------------------------------------
 
 @mcp.resource("benchpod://wiring", name="wiring", title="BenchPod wiring reference",
-              description="LA channels, bias resistors, eFuses, analog paths and an example bench.")
-def wiring() -> str:
+              description=("The connected device's wiring profile (which DUT signal is on which LA "
+                           "channel), then LA channels, bias resistors, eFuses and analog paths."))
+def wiring_resource() -> str:
+    """The connected bench's own profile followed by the static reference (reference only when
+    there is no connection, or when the profile cannot be read)."""
+    if SESSION.connected:
+        try:
+            with SESSION.lock:
+                profile = SESSION.require().wiring
+            return (f"This bench's wiring profile (source: {profile.source})\n\n"
+                    f"{profile.describe()}\n\n{WIRING}")
+        except (BenchPodError, ValueError):
+            pass
     return WIRING
 
 

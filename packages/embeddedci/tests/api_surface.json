@@ -41,6 +41,7 @@
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
+    "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[LaPinState]'",
     "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None, switch_image: 'bool' = True) -> '_control_loop.ControlLoopHandle'",
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
@@ -57,6 +58,7 @@
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'DacPath' = '5v', duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
     "get_la_voltage": "(self) -> 'LaVoltage'",
     "gpio": "(self, la: 'Union[Pin, int, str]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'GpioPin'",
+    "gpio_pins": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[GpioPin]'",
     "i2c_sensor_capture": "(self, samples: 'int' = 1024, *, sample_rate_hz: 'Optional[float]' = None) -> 'List[_i2c.I2CTransaction]'",
     "i2c_sensor_regs": "(self, *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
     "i2c_sensor_status": "(self) -> 'Dict[str, Any]'",
@@ -479,6 +481,7 @@
     "__fields__": [
       "efuse",
       "rate_hz",
+      "adc_rate_hz",
       "n",
       "duration",
       "avg_current",

@@ -83,6 +83,100 @@ class LaVoltageResult(BaseModel):
     readback: Optional[float] = None
 
 
+# -- wiring profile ----------------------------------------------------------------
+
+class WiringSignal(BaseModel):
+    """A named DUT signal the profile puts on one LA channel."""
+
+    name: str
+    la: int
+    direction: str = Field(description="input, output, open_drain or bidir, as seen from the pod.")
+    active_low: bool = False
+    description: str = ""
+
+
+class WiringPin(BaseModel):
+    la: int
+    wired_to: Optional[str] = Field(None, description=(
+        "The role (uart_rx, i2c_sda, swd_swclk, …) or signal name on this channel; null = unused."))
+    pull: Optional[str] = Field(None, description="Fixed bias resistor, e.g. '4.7k up'; null on LA9-LA12.")
+
+
+class WiringResult(BaseModel):
+    """The bench's effective wiring profile: which DUT signal is on which LA channel."""
+
+    source: str = Field(description="Where the profile came from: defaults, file, server or dict.")
+    version: int = 1
+    la_voltage: float = Field(description="LA I/O-bank voltage the profile asks for, in volts.")
+    efuse: int = Field(description="Target-power rail the tools default to.")
+    uart_baud: int
+    i2c_address: int = Field(description="Emulated-sensor address as a 7-bit integer.")
+    swd_nreset: bool
+    swd_target: str
+    pins: List[WiringPin] = Field(description="LA1-LA12 with what is wired to each and its bias resistor.")
+    signals: List[WiringSignal] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list,
+                                description="Wiring that works but is risky (e.g. an I2C bus with no pull-up).")
+    profile: Dict[str, Any] = Field(default_factory=dict, description="The profile as its JSON object.")
+    saved: bool = Field(False, description="set_wiring stored this profile on embeddedci.com.")
+
+
+# -- LA pin ownership + GPIO -------------------------------------------------------
+
+class LaPinResult(BaseModel):
+    la: int
+    function: str = Field(description=(
+        "What owns the channel: none (free, watched by captures), gpio, uart_rx, uart_tx, swd_clk, "
+        "swd_dio, i2c_sda, i2c_scl, step or step_dir."))
+    gpio: Optional[str] = Field(None, description="GPIO mode when function is gpio: input, output or open_drain.")
+    level: Optional[int] = Field(None, description="Commanded level of a GPIO output / open-drain channel.")
+    pull: Optional[str] = Field(None, description="Bias direction: up, down, or null on LA9-LA12.")
+    pull_ohms: Optional[str] = None
+    pull_on: bool = False
+    in_use: bool = Field(description="A function other than none owns the channel.")
+
+
+class PinLevel(BaseModel):
+    la: int
+    level: int
+
+
+class LaPinsResult(BaseModel):
+    pins: List[LaPinResult]
+    levels: Optional[List[PinLevel]] = Field(None, description=(
+        "Live pin levels; null when the gateware cannot read them (no gpio_read capability)."))
+
+
+class GpioPinsResult(BaseModel):
+    pins: List[LaPinResult] = Field(description="The channels this call configured or released.")
+
+
+class GpioWriteResult(BaseModel):
+    la: List[int]
+    level: int
+
+
+class GpioReadResult(BaseModel):
+    levels: List[PinLevel]
+
+
+class GpioWaitResult(BaseModel):
+    la: int
+    level: int
+    reached: bool = Field(description="False means the timeout passed without the channel reaching level.")
+    waited: float = Field(description="Seconds spent waiting.")
+
+
+class GpioPulseResult(BaseModel):
+    la: int
+    count: int
+    width: float = Field(description="Seconds each pulse is high (and low between pulses).")
+
+
+class GpioReleaseResult(BaseModel):
+    released: List[int] = Field(description="Channels released; empty list = every GPIO channel.")
+
+
 # -- power -----------------------------------------------------------------------
 
 class PowerResult(BaseModel):
@@ -108,6 +202,38 @@ class PowerStatusResult(BaseModel):
 class ResetResult(BaseModel):
     asserted: bool
     supported: bool = True
+
+
+class PowerProfileResult(BaseModel):
+    """A target-power rail profiled over time. Currents are amps, voltages volts, energy joules,
+    charge coulombs, durations seconds."""
+
+    efuse: int
+    rate_hz: float = Field(description="Samples per second actually delivered (measured). The pod reads one sensor register per firmware pass, so this lands below what was asked for — roughly 350-450 Hz. Every sample carries its own timestamp, so the trace is exact regardless.")
+    adc_rate_hz: float = Field(default=0.0, description="Conversion rate the current sensor was configured for — the ceiling, not what arrived.")
+    n: int = Field(description="Raw samples the statistics cover.")
+    duration: float
+    avg_current: float
+    min_current: float
+    peak_current: float
+    avg_voltage: float
+    min_voltage: float
+    max_voltage: float
+    energy: float = Field(description="Joules, integrated over every sample.")
+    charge: float = Field(description="Coulombs.")
+    avg_power: float = Field(description="Watts (energy over duration).")
+    fault: bool = Field(description="The eFuse tripped (over-current or short) during the profile.")
+    truncated: bool = Field(description="Sampling stopped at max_duration rather than on request.")
+    trace_step: float = Field(0.0, description="Seconds covered by each trace point.")
+    trace_current: List[float] = Field(default_factory=list, description="Amps per trace point.")
+    trace_voltage: List[float] = Field(default_factory=list, description="Volts per trace point.")
+
+
+class PowerProfileStartResult(BaseModel):
+    running: bool = True
+    efuse: int
+    rate_hz: float = Field(description="Sample rate asked for; the achieved rate is in the stop result.")
+    max_duration: float = Field(description="Seconds after which the pod stops sampling by itself.")
 
 
 # -- flash + UART ------------------------------------------------------------------
@@ -209,6 +335,9 @@ class AdcCaptureResult(BaseModel):
     envelope_step: float = Field(description="Seconds covered by each envelope point.")
     envelope_min: List[float]
     envelope_max: List[float]
+    trigger: Optional[str] = Field(None, description=(
+        "The trigger that started the capture, e.g. 'LA9 rising'; null for a free-running capture. "
+        "t = 0 is the trigger moment."))
 
 
 class LaChannelSummary(BaseModel):
@@ -226,6 +355,9 @@ class LaCaptureResult(BaseModel):
     sample_rate_hz: float
     duration: float
     channels: List[LaChannelSummary]
+    trigger: Optional[str] = Field(None, description=(
+        "The trigger that started the capture, e.g. 'LA9 rising'; null for a free-running capture. "
+        "t = 0 is the trigger moment."))
 
 
 class PulseStats(BaseModel):
