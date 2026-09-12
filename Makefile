@@ -24,7 +24,9 @@ test:  # one run per package, like CI (their tests/conftest.py modules share a n
 
 e2e:
 	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…]"; exit 2; }
-	BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs packages/embeddedci/tests/e2e \
+	# tests/examples too: it is the first thing a new user runs, so it must not rot.
+	BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs \
+		packages/embeddedci/tests/e2e packages/embeddedci/tests/examples \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
 	$(PYTHON) -m pytest -v -rs packages/embeddedci-mcp/tests/test_e2e_mcp.py \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)

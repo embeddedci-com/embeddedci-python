@@ -69,6 +69,14 @@ def wiring(pins):
         efuse=pins.efuse,
     )
 
+# Seconds from power-on to APP_OK. The app probes its sensors with retries, so the "no sensor"
+# path is the slow one; `until=APP_OK` returns as soon as the banner lands, so a generous budget
+# costs nothing when the board is healthy.
+BOOT_TIMEOUT = 25.0
+# Roughly when the app probes the emulated BMP280, in seconds after power-on. A decode window is
+# only ~33 ms wide, so it has to be aimed rather than fired immediately (see the decode test).
+BMP280_PROBE_AT = 2.31
+
 APP_OK = re.compile(r"APP_OK")
 PRESENT = re.compile(r"chip id match=0x58|bmp280_detected=yes")
 ABSENT = re.compile(r"bmp280_detected=no|BMP280 init FAILED")
@@ -108,12 +116,14 @@ def test_app_boots_with_bmp280(benchpod_sensor, wiring, firmware):
         address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
     )
 
+    # Wait for APP_OK: it is the LAST thing the app prints, so a capture that stops at the
+    # earlier BMP280 line would not contain it.
     cap = device.power_cycle_and_capture(
         rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
-        delay=1.5, duration=6.0, until=PRESENT,
+        delay=1.5, duration=BOOT_TIMEOUT, until=APP_OK,
     )
 
-    assert cap.match(APP_OK), f"no APP_OK banner:\n{cap.text}"
+    assert cap.matched, f"no APP_OK within {BOOT_TIMEOUT}s:\n{cap.text[-2000:]}"
     assert cap.match(PRESENT), f"BMP280 not detected:\n{cap.text}"
 
     # The DUT actually probed the emulated sensor.
@@ -127,10 +137,10 @@ def test_app_boots_without_bmp280(benchpod, wiring, firmware):
 
     cap = device.power_cycle_and_capture(
         rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
-        delay=1.5, duration=6.0, until=ABSENT,
+        delay=1.5, duration=BOOT_TIMEOUT, until=APP_OK,
     )
 
-    assert cap.match(APP_OK), f"no APP_OK banner:\n{cap.text}"
+    assert cap.matched, f"no APP_OK within {BOOT_TIMEOUT}s:\n{cap.text[-2000:]}"
     assert cap.match(ABSENT), f"expected BMP280 absent:\n{cap.text}"
 
 
@@ -140,8 +150,12 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
     Decodes the actual I2C waveform the pod sampled while serving the emulated
     BMP280. No UART proxy here, so it's a single clean flow on one connection:
     power on (returns immediately), then a blocking ``sensor_la`` capture runs
-    while the DUT boots and probes the sensor a few ms later. We sweep a handful
-    of back-to-back capture windows to span the boot-to-probe interval.
+    while the DUT boots and probes the sensor.
+
+    Timing is the whole trick: 4096 samples at 500 kS/s is only ~8 ms of bus, while the DUT does
+    not probe until ~2.3 s after power-on. Firing windows back-to-back from power-on therefore
+    captures nothing but idle. Aim the window instead — sleep the expected lead, capture, and nudge
+    the lead on a miss (an idle window was early; a window with other traffic was late).
     """
     device = benchpod_sensor
     _flash(device, wiring, firmware)
@@ -151,23 +165,22 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
         address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
     )
 
-    device.power_off(wiring.efuse)
-    time.sleep(0.3)
-    device.power_on(wiring.efuse)  # returns immediately; capture below covers boot
-
-    # ~6 windows of ~33 ms (4096 bytes @ 0.5 MS/s = 5 samples/bit @ 100 kHz)
-    # collectively span ~200 ms — enough to catch the one-shot boot probe.
-    txns = []
-    chip_id = None
-    for _ in range(6):
-        txns = device.i2c_sensor_capture(4096, sample_rate_hz=500_000)
+    txns, chip_id, lead, misses = [], None, BMP280_PROBE_AT, []
+    for _ in range(4):
+        device.power_off(wiring.efuse)
+        time.sleep(0.5)
+        device.power_on(wiring.efuse)      # returns immediately
+        time.sleep(lead)                   # let the DUT get as far as its sensor probe
+        txns = device.i2c_sensor_capture(4096, sample_rate_hz=500_000)  # 5 samples per 100 kHz bit
         chip_id = i2c.read_register(txns, bp.BMP280_ADDR_PRIMARY, BMP280_CHIP_ID_REG)
         if chip_id is not None:
             break
+        misses.append((round(lead, 2), len(txns)))
+        lead += 0.02 if not txns else -0.02   # idle window = too early; busy window = too late
 
     print("decoded I2C bus:\n" + i2c.format_transactions(txns))
     assert i2c.addressed(txns, bp.BMP280_ADDR_PRIMARY), \
-        "no I2C traffic to the BMP280 address was captured"
+        f"no I2C traffic to the BMP280 address; (lead s, transactions) per miss: {misses}"
     assert chip_id == [BMP280_CHIP_ID], \
         f"expected chip-id read 0x{BMP280_CHIP_ID:02X}, decoded {chip_id}"
 
