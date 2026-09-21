@@ -97,6 +97,15 @@ def test_parse_text_status_of_a_rev3_board():
     assert s["board_rev"] == "v3" and s["nrst_pin"] is True and s["usb_cc"] is True
 
 
+def test_parse_text_status_boot_health():
+    s = parse_text_status(STATUS + "  reset  : software\r\n  crash  : HardFault pc=0x1 task=net\r\n"
+                          '  safe   : safe mode: 2 failed boots in a row, the last in "network"; network off\r\n')
+    assert s["safe_mode"] is True and s["safe_reason"].startswith("2 failed boots")
+    assert s["last_crash"] == "HardFault pc=0x1 task=net" and s["reset"] == "software"
+    clean = parse_text_status(STATUS + "  crash  : none\r\n")
+    assert clean["safe_mode"] is False and clean["safe_reason"] == ""
+
+
 def test_status_ping_and_la_voltage_over_the_text_console():
     t = _transport()
     assert t.status()["board"] == "stm32h563"

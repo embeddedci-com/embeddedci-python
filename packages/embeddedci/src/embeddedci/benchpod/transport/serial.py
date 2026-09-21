@@ -85,6 +85,12 @@ def parse_text_status(raw: str) -> Dict[str, Any]:
         out["adc_fullscale_mv"] = int(m.group(1))
     if m := re.search(r"gateware v(\d+)", str(out.get("fpga", ""))):
         out["gateware"] = int(m.group(1))
+    # Boot health under the JSON status keys: "safe : safe mode: <reason>", "crash : <line>".
+    safe = str(out.get("safe", ""))
+    out["safe_mode"] = bool(safe)
+    out["safe_reason"] = safe[len("safe mode:"):].strip() if safe.startswith("safe mode:") else safe
+    if "crash" in out:
+        out["last_crash"] = out["crash"]
     return out
 
 

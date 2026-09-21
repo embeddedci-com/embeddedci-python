@@ -81,6 +81,12 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
     return None
 
 
+def _crash_text(v: Any) -> str:
+    """The firmware's crash summary, with its "none" (no crash) mapped to ``""``."""
+    s = str(v or "").strip()
+    return "" if s.lower() == "none" else s
+
+
 @dataclass
 class Capabilities:
     """Resolved capabilities for a connected device.
@@ -152,6 +158,16 @@ class Capabilities:
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
+
+    # boot health (this boot)
+    #: The pod came up in safe mode after repeated failed boots; some features are off.
+    safe_mode: bool = False
+    #: Why, and what is off, e.g. ``2 failed boots in a row, the last in "ice40/psram"; iCE40/PSRAM off``.
+    safe_reason: str = ""
+    #: The crash that caused this boot (``""`` when the last reset was not a crash).
+    last_crash: str = ""
+    #: Why the pod last reset: ``"power-on"``, ``"pin"``, ``"software"``, ``"iwdg"``, ...
+    reset_cause: str = ""
     #: raw source map this was parsed from (for debugging / passthrough).
     raw: Dict[str, Any] = field(default_factory=dict)
 
@@ -216,6 +232,10 @@ class Capabilities:
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
+        c.safe_mode = _as_bool(status, "safe_mode") is True
+        c.safe_reason = str(status.get("safe_reason", "") or "") if c.safe_mode else ""
+        c.last_crash = _crash_text(status.get("last_crash", status.get("crash")))
+        c.reset_cause = str(status.get("reset", status.get("reset_cause", "")) or "")
         c._apply_affine(status)
         return c
 
@@ -261,6 +281,10 @@ class Capabilities:
             b = _as_bool(params, key)
             if b is not None:
                 setattr(c, attr, b)
+        c.safe_mode = _as_bool(params, "cap.safe_mode") is True
+        c.safe_reason = str(params.get("cap.safe_reason", "") or "") if c.safe_mode else ""
+        c.last_crash = _crash_text(params.get("cap.last_crash"))
+        c.reset_cause = str(params.get("cap.reset_cause", "") or "")
         # affine cal: explicit cap.adc_cal_* first, else per-board default.
         cal_b = _as_float(params, "cap.adc_cal_b")
         if cal_b is not None and cal_b != 0:
@@ -290,6 +314,22 @@ class Capabilities:
         default = ADC_AFFINE_DEFAULTS.get(board if board is not None else self.board)
         if default is not None:
             self.adc_affine = default
+
+    # -- boot health --------------------------------------------------------
+
+    def boot_warning(self) -> Optional[str]:
+        """A one-line warning when the pod is in safe mode or crashed on its last boot, else None.
+
+        Both end with what to do: power-cycle (unplug and replug) the pod.
+        """
+        if self.safe_mode:
+            why = f": {self.safe_reason}" if self.safe_reason else ""
+            return (f"the pod is in safe mode{why}. Some features are off; unplug and replug it "
+                    "to restart it normally")
+        if self.last_crash:
+            return (f"the pod crashed and restarted itself ({self.last_crash}). If it misbehaves, "
+                    "unplug and replug it")
+        return None
 
     # -- scaling ------------------------------------------------------------
 

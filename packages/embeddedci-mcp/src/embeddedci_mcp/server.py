@@ -45,6 +45,7 @@ from embeddedci.benchpod import (
     i2c,
 )
 from embeddedci.benchpod import decode as sdk_decode
+from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.errors import BenchPodError
 
 from . import models as m
@@ -198,6 +199,10 @@ def _status() -> m.StatusResult:
     pod = SESSION.require()
     firmware = pod.status()
     warnings: List[str] = []
+    # From this status, not the cached capabilities: it describes the boot running now.
+    boot = Capabilities.from_status(firmware).boot_warning()
+    if boot:
+        warnings.append(boot)
     try:
         la = pod.get_la_voltage().voltage
     except BenchPodError:

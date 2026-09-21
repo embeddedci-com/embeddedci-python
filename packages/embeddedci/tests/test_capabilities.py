@@ -79,3 +79,25 @@ def test_rev3_board_features_from_the_text_console_status():
     caps = Capabilities.from_status({"board": "stm32h563", "board_rev": "v3",
                                      "nrst_pin": True, "usb_cc": True})
     assert caps.nrst_pin and caps.usb_cc
+
+
+def test_boot_health_from_status():
+    c = Capabilities.from_status({"board": "stm32h563", "reset": "software",
+                                  "last_crash": "HardFault pc=0x1 task=net", "safe_mode": True,
+                                  "safe_reason": '2 failed boots in a row, the last in "network"; network off'})
+    assert c.safe_mode and c.reset_cause == "software" and c.last_crash.startswith("HardFault")
+    assert "safe mode: 2 failed boots" in c.boot_warning() and "unplug and replug" in c.boot_warning()
+
+    clean = Capabilities.from_status({"reset": "power-on", "last_crash": "none", "safe_mode": False})
+    assert clean.last_crash == "" and not clean.safe_mode and clean.boot_warning() is None
+    # Older firmware reports none of it.
+    assert Capabilities.from_status({"board": "stm32h563"}).boot_warning() is None
+
+
+def test_boot_health_from_parameters():
+    c = Capabilities.from_parameters({"cap.safe_mode": "false", "cap.safe_reason": "",
+                                      "cap.last_crash": "assert pc=0x0 task=hw", "cap.reset_cause": "software"})
+    assert not c.safe_mode and c.last_crash == "assert pc=0x0 task=hw"
+    assert c.boot_warning().startswith("the pod crashed and restarted itself")
+    assert Capabilities.from_parameters({"cap.safe_mode": "true"}).boot_warning().startswith(
+        "the pod is in safe mode. Some features are off")

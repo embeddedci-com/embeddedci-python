@@ -90,6 +90,26 @@ def test_connect_reports_status_and_la_voltage(fake_open, fake_transport):
     assert fake_open["la_voltage"] == 3.3 and fake_open["lease_wait"] == 30.0
 
 
+def test_status_warns_about_safe_mode_and_crashes(fake_open, fake_transport, monkeypatch):
+    base = fake_transport.status
+    extra = {"safe_mode": True, "last_crash": "UsageFault pc=0x1 task=hw",
+             "safe_reason": '2 failed boots in a row, the last in "ice40/psram"; iCE40/PSRAM off'}
+    monkeypatch.setattr(fake_transport, "status", lambda: {**base(), **extra})
+    result = call("connect", connection="192.168.1.50", la_voltage=3.3)
+    assert len(result["warnings"]) == 1
+    assert "safe mode" in result["warnings"][0] and "iCE40/PSRAM off" in result["warnings"][0]
+    assert "unplug and replug" in result["warnings"][0]
+
+    extra.update(safe_mode=False, safe_reason="")
+    result = call("status")
+    assert result["warnings"] == [
+        "the pod crashed and restarted itself (UsageFault pc=0x1 task=hw). If it misbehaves, "
+        "unplug and replug it"]
+
+    extra.update(last_crash="none")
+    assert call("status")["warnings"] == []
+
+
 def test_connect_without_la_voltage_warns(fake_open):
     result = call("connect", connection="usb")
     assert result["kind"] == "serial" and result["la_voltage"] is None
