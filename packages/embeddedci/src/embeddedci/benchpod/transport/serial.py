@@ -76,6 +76,8 @@ def parse_text_status(raw: str) -> Dict[str, Any]:
             out["board_rev"] = m.group(1)
         if m := re.search(r"\bnrst_pin=(\w+)", board):
             out["nrst_pin"] = m.group(1) == "yes"
+        if m := re.search(r"\busb_cc=(\w+)", board):
+            out["usb_cc"] = m.group(1) == "yes"
     adc = str(out.get("adc", ""))
     if m := re.search(r"(\d+)-bit", adc):
         out["adc_bits"] = int(m.group(1))

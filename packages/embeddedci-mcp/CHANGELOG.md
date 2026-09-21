@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `capabilities` in `connect`/`status` gains `board_rev`, `nrst_pin` and `usb_cc`.
+- Fix: `reset_target` accepts `pulse` up to 1 s (was 10). The pod never held it longer.
+
 ## 2.0.0
 
 Built on `embeddedci` 2.0. From this release the tool names, input schemas and annotations are

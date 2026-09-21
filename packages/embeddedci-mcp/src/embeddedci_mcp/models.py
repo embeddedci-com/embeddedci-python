@@ -35,6 +35,7 @@ class InputMapSpec(BaseModel):
 
 class CapabilitiesInfo(BaseModel):
     board: str = ""
+    board_rev: str = Field("", description="PCB revision: v2, v3 or unknown.")
     firmware_version: str = ""
     adc_bits: int = 0
     scope: bool = False
@@ -50,6 +51,8 @@ class CapabilitiesInfo(BaseModel):
     gpio_read: bool = Field(False, description="Live pin levels read directly (else via a short capture).")
     capture_trigger: bool = Field(False, description="Triggered captures (trigger_la on the capture tools).")
     power_profile: bool = Field(False, description="Power profiles (measure_power, power_profile_start).")
+    nrst_pin: bool = Field(False, description="Dedicated target-reset pin (reset_target, flash nreset).")
+    usb_cc: bool = Field(False, description='USB-C CC monitoring (command {"cmd": "usb_cc"}).')
 
     @classmethod
     def from_caps(cls, caps: Any) -> "CapabilitiesInfo":

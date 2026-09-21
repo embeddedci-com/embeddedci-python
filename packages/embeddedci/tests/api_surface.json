@@ -156,6 +156,7 @@
     "__fields__": [
       "board",
       "firmware_version",
+      "board_rev",
       "adc_bits",
       "adc_fullscale_mv",
       "adc_channels",
@@ -184,6 +185,8 @@
       "gpio_read",
       "capture_trigger",
       "power_profile",
+      "nrst_pin",
+      "usb_cc",
       "la_vccio_mv",
       "raw"
     ],

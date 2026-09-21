@@ -144,9 +144,10 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="Path to a firmware image, for tests that flash a real target.",
     )
     group.addoption(
-        "--benchpod-efuse", action="store", type=int, default=1,
+        "--benchpod-efuse", action="store", type=int, default=None,
         dest="benchpod_efuse",
-        help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default 1).",
+        help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default: the wiring "
+        "profile's rail, which is 1 unless the profile says otherwise).",
     )
     group.addoption(
         "--benchpod-la-voltage", action="store", type=float, default=None,
@@ -371,8 +372,12 @@ def _release_gpio(device: BenchPod) -> None:
 
 @pytest.fixture
 def benchpod_target(benchpod: BenchPod, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
-    """A BenchPod whose target is powered on (``--benchpod-efuse``) for the test, off at teardown."""
-    efuse = pytestconfig.getoption("benchpod_efuse")
+    """A BenchPod whose target is powered on for the test, off at teardown.
+
+    The rail is ``--benchpod-efuse`` when given, else the wiring profile's — the same rail
+    ``power_cycle_and_capture`` and ``measure_power`` default to.
+    """
+    efuse = pytestconfig.getoption("benchpod_efuse") or benchpod.wiring.efuse
     benchpod.power_on(efuse)
     try:
         yield benchpod
@@ -385,9 +390,9 @@ def benchpod_pins(pytestconfig: "pytest.Config") -> BenchPodPins:
     """The pod's generic LA channels (``pin_1`` .. ``pin_12``) and the eFuse rail.
 
     Channels are not roles — map your bench wiring (which signal is on which LA
-    channel) in the test itself. The eFuse rail comes from ``--benchpod-efuse``.
+    channel) in the test itself. The eFuse rail comes from ``--benchpod-efuse`` (default 1).
     """
-    return BenchPodPins(efuse=pytestconfig.getoption("benchpod_efuse"))
+    return BenchPodPins(efuse=pytestconfig.getoption("benchpod_efuse") or 1)
 
 
 @pytest.fixture(scope="session")

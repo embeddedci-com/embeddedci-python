@@ -227,3 +227,40 @@ def test_session(benchpod):
 """)
     result = pytester.runpytest("-p", "no:cacheprovider", "--benchpod-connection=10.0.0.9")
     result.assert_outcomes(passed=1)
+
+
+TARGET_CONFTEST = """
+import pytest
+from embeddedci.benchpod import Wiring, pytest_plugin
+
+powered = []
+
+class FakePod:
+    def __init__(self, connection, **kwargs):
+        self.capabilities = type("C", (), {"la_pins": False})()
+        self.wiring = Wiring(efuse=2)
+    def power_on(self, efuse):
+        powered.append(("on", efuse))
+    def power_off(self, efuse):
+        powered.append(("off", efuse))
+    def close(self):
+        pass
+
+pytest_plugin.BenchPod = FakePod
+"""
+
+
+@pytest.mark.parametrize("flag, rail", [(None, 2), ("--benchpod-efuse=1", 1)])
+def test_benchpod_target_powers_the_wiring_profiles_rail(pytester, flag, rail):
+    pytester.makeconftest(TARGET_CONFTEST)
+    pytester.makepyfile(f"""
+import conftest
+
+def test_target(benchpod_target):
+    assert conftest.powered == [("on", {rail})]
+
+def test_after():
+    assert conftest.powered == [("on", {rail}), ("off", {rail})]
+""")
+    args = ["-p", "no:cacheprovider", "--benchpod-connection=10.0.0.9"] + ([flag] if flag else [])
+    pytester.runpytest(*args).assert_outcomes(passed=2)

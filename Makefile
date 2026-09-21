@@ -1,7 +1,7 @@
 # Developer shortcuts. Unit tests need no hardware; the e2e targets drive a real BenchPod.
 #
 #   make test
-#   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…]
+#   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…] [REV=v3]
 #   BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
 #
 # The board's LA voltage is set once in packages/embeddedci/tests/conftest.py; the bench wiring in
@@ -12,8 +12,11 @@ POD ?=
 FIRMWARE ?=
 USB ?=
 CLOUD_DEVICE ?=
+REV ?=
 
 FIRMWARE_OPT = $(if $(FIRMWARE),--benchpod-firmware=$(abspath $(FIRMWARE)),)
+# REV=v3 makes a pod that reports another board revision fail instead of taking the v2 branches.
+REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),)
 
 .PHONY: test e2e e2e-cloud
 
@@ -23,12 +26,12 @@ test:  # one run per package, like CI (their tests/conftest.py modules share a n
 	$(PYTHON) -m pytest -q packages/embeddedci-openhtf
 
 e2e:
-	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…]"; exit 2; }
+	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…] [REV=v3]"; exit 2; }
 	# tests/examples too: it is the first thing a new user runs, so it must not rot.
-	BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs \
+	$(REV_ENV) BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs \
 		packages/embeddedci/tests/e2e packages/embeddedci/tests/examples \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
-	$(PYTHON) -m pytest -v -rs packages/embeddedci-mcp/tests/test_e2e_mcp.py \
+	$(REV_ENV) $(PYTHON) -m pytest -v -rs packages/embeddedci-mcp/tests/test_e2e_mcp.py \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
 	$(PYTHON) -m pytest -v -rs packages/embeddedci-openhtf/tests/test_e2e_openhtf.py \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)

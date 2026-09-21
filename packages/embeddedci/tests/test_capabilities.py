@@ -63,3 +63,19 @@ def test_merge_prefers_server_params():
     assert merged.dac_replay_max_samples == 2097152
     assert merged.dac_deep_replay is True
     assert merged.board == "stm32h563"  # kept from status (server had none)
+
+
+def test_rev3_board_features_from_status():
+    v3 = Capabilities.from_status({"board": "stm32h563", "board_rev": "v3", "nrst_pin": True,
+                                   "caps": ["la", "nrst_pin", "usb_cc"]})
+    assert v3.board_rev == "v3" and v3.nrst_pin and v3.usb_cc
+    v2 = Capabilities.from_status({"board": "stm32h563", "board_rev": "v2", "nrst_pin": False,
+                                   "caps": ["la"]})
+    assert v2.board_rev == "v2" and not v2.nrst_pin and not v2.usb_cc
+
+
+def test_rev3_board_features_from_the_text_console_status():
+    # the USB text console has no caps[] list, only top-level booleans
+    caps = Capabilities.from_status({"board": "stm32h563", "board_rev": "v3",
+                                     "nrst_pin": True, "usb_cc": True})
+    assert caps.nrst_pin and caps.usb_cc

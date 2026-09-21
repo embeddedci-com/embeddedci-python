@@ -84,6 +84,36 @@ def test_interactive_console(dut, bench):
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
 
 
+@pytest.fixture
+def reset_wired(dut, bench):
+    """The DUT with its reset line on the pod's reset pin (rev3 pods, J1 pin 22)."""
+    if not bench.nreset:
+        pytest.skip("wire the DUT's NRST to the pod's reset pin (J1 pin 22) and set BENCHPOD_E2E_NRESET=1")
+    if not dut.capabilities.nrst_pin:
+        pytest.fail("BENCHPOD_E2E_NRESET=1 but the pod has no reset pin (not a rev3 pod?)")
+    yield dut
+    dut.set_reset(False)
+
+
+def test_reset_pin_reboots_the_dut_without_a_power_cycle(reset_wired, bench):
+    with reset_wired.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
+        reset_wired.power_on(bench.efuse)
+        uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
+        reset_wired.reset_target(pulse=0.05)
+        uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
+        # the rail stayed up the whole time: this was a reset, not a power cycle
+        assert reset_wired.target_status().efuse(bench.efuse).enabled
+
+
+def test_held_reset_keeps_the_dut_quiet_until_released(reset_wired, bench):
+    reset_wired.set_reset(True)
+    with reset_wired.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
+        reset_wired.power_on(bench.efuse)
+        assert uart.read_until(APP_OK, timeout=4.0) is None, "the DUT booted while held in reset"
+        reset_wired.set_reset(False)
+        uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
+
+
 def test_firmware_detects_the_emulated_bmp280(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
     dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76,

@@ -1,5 +1,16 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `Capabilities` gains `board_rev`, `nrst_pin` and `usb_cc`: the firmware reported them, the SDK
+  dropped them.
+- Fix: `benchpod_target` powered eFuse 1 whatever the wiring profile said, while
+  `power_cycle_and_capture` and `measure_power` used the profile's rail. Without
+  `--benchpod-efuse` it now follows the profile.
+- Fix: `reset_target(pulse=)` above 1 s raises `ValueError`. The pod clamps the pulse to 1 s, so
+  a longer one was silently shortened. The docstring no longer claims it returns before the pulse
+  ends.
+
 ## 2.0.0 — the frozen API
 
 2.0.0 is the first release with a stability promise. Everything in

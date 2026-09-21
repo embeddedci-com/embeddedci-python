@@ -2958,9 +2958,9 @@
         },
         "pulse": {
           "default": 0.1,
-          "description": "Pulse length in seconds.",
+          "description": "Pulse length in seconds (at most 1).",
           "exclusiveMinimum": 0,
-          "maximum": 10,
+          "maximum": 1,
           "title": "Pulse",
           "type": "number"
         }

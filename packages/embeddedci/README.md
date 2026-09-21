@@ -302,7 +302,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-connection` | `BENCHPOD_CONNECTION` | — | connection string (also the `benchpod_connection` ini option) |
 | `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | override the `benchpod_la_voltage` fixture for one run (1.8 or 3.3); the flag wins over the fixture, the env var only applies when neither is set |
 | `--benchpod-wiring` | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`); the flag wins over the `benchpod_wiring` fixture, the env var only applies when neither is set |
-| `--benchpod-efuse` | — | `1` | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external) |
+| `--benchpod-efuse` | — | the profile's rail | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external); `benchpod_target` otherwise follows the wiring profile, `pins.efuse` is 1 |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
 | `--benchpod-api-key` | `BENCHPOD_API_KEY` | — | API key for the cloud destination and the waveform library |
@@ -328,7 +328,7 @@ benchpod_connection = 192.168.1.213
 | `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, a cloud device's stored profile, the defaults). An explicit profile also supplies the LA voltage when nothing else sets one |
 | `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
-| `benchpod_target` | function | `benchpod` with the `--benchpod-efuse` rail powered on for the test, off at teardown |
+| `benchpod_target` | function | `benchpod` with the target rail (`--benchpod-efuse`, else the wiring profile's) powered on for the test, off at teardown |
 | `benchpod_sensor` | function | `benchpod`; disarms the emulated I2C sensor at teardown |
 | `benchpod_dac` | function | `benchpod`; stops any DAC output (generate, replay, control loop) at teardown |
 | `benchpod_capabilities` | session | `benchpod.capabilities` |

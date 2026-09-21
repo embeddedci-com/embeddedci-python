@@ -459,11 +459,11 @@ class BenchPod:
     def reset_target(self, *, pulse: float = 0.1) -> ResetState:
         """Pulse the target's reset line for ``pulse`` seconds (rev3 pods, DUT header J1 pin 22).
 
-        Resets the DUT without power-cycling it. The pulse runs pod-side; this returns
-        immediately.
+        Resets the DUT without power-cycling it. The pod times the pulse and replies once the line
+        is released, so the DUT is already running again when this returns. At most 1 s.
         """
-        if pulse <= 0:
-            raise ValueError(f"pulse must be > 0 seconds, got {pulse!r}")
+        if not 0 < pulse <= 1.0:
+            raise ValueError(f"pulse must be > 0 and at most 1 second, got {pulse!r}")
         ms = max(1, int(round(pulse * 1000)))
         return ResetState.from_reply(self.command({"cmd": "nrst", "pulse_ms": ms}))
 

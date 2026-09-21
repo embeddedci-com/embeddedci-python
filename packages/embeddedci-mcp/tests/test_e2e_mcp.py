@@ -93,6 +93,31 @@ def test_firmware_refusals_are_tool_errors(connected):
         call("set_la_voltage", voltage=1.8)
 
 
+def test_rev3_tools(connected):
+    """The reset pin, the 1.8 V bank and USB-C CC through the tools an agent would call."""
+    expected = os.environ.get("BENCHPOD_E2E_BOARD_REV", "")
+    if expected:
+        assert connected["firmware"].get("board_rev") == expected, connected["firmware"]
+    if not connected["firmware"].get("nrst_pin"):
+        pytest.skip("not a rev3 pod")
+    caps = connected["capabilities"]
+    assert caps["board_rev"] == "v3" and caps["nrst_pin"] and caps["usb_cc"], caps
+    try:
+        assert call("set_la_voltage", voltage=1.8) == {"voltage": 1.8, "readback": 1.8}
+    finally:
+        assert call("set_la_voltage", voltage=3.3)["readback"] == 3.3
+    try:
+        assert call("reset_target", action="hold")["asserted"] is True
+        assert call("reset_target", action="status")["asserted"] is True
+    finally:
+        assert call("reset_target", action="release")["asserted"] is False
+    assert call("reset_target", action="pulse", pulse=0.05)["asserted"] is False
+    with pytest.raises(ToolError):
+        call("reset_target", pulse=5)                   # longer than the pod can hold
+    cc = call("command", request={"cmd": "usb_cc"})
+    assert cc["supported"] is True and cc["orientation"] in ("none", "cc1", "cc2"), cc
+
+
 def test_tools_switch_the_gateware_image(connected):
     if not (connected["capabilities"]["dac_control_loop"] or connected["capabilities"]["dac_deep_replay"]):
         pytest.skip("the pod has a single gateware image")

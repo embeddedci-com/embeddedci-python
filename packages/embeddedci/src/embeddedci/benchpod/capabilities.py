@@ -92,6 +92,9 @@ class Capabilities:
 
     board: str = ""
     firmware_version: str = ""
+    #: PCB revision the firmware detected at boot: ``"v2"``, ``"v3"``, ``"unknown"``, or ``""``
+    #: when the firmware does not report one.
+    board_rev: str = ""
 
     # ADC
     adc_bits: int = 8
@@ -141,6 +144,11 @@ class Capabilities:
     capture_trigger: bool = False
     #: Gap-free power profiles of a target rail (:meth:`BenchPod.measure_power`).
     power_profile: bool = False
+    #: The dedicated target-reset pin (rev3 pods): :meth:`BenchPod.reset_target` and
+    #: ``flash(nreset=True)``.
+    nrst_pin: bool = False
+    #: USB-C CC-line monitoring (rev3 pods): :meth:`BenchPod.usb_cc`.
+    usb_cc: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -159,6 +167,10 @@ class Capabilities:
         c = cls(raw=dict(status))
         c.board = str(status.get("board", "") or "")
         c.firmware_version = str(status.get("version", status.get("firmware_version", "")) or "")
+        c.board_rev = str(status.get("board_rev", "") or "")
+        # Top-level booleans too: the USB text console reports these but has no caps[] list.
+        c.nrst_pin = status.get("nrst_pin") is True
+        c.usb_cc = status.get("usb_cc") is True
         if (v := _as_int(status, "adc_bits")) is not None:
             c.adc_bits = v
             # `status` doesn't carry the DAC-replay width, but a 16-bit-ADC pod (v2) replays
@@ -199,6 +211,8 @@ class Capabilities:
                 ("gpio_read", "gpio_read"),
                 ("capture_trigger", "capture_trigger"),
                 ("power_profile", "power_profile"),
+                ("nrst_pin", "nrst_pin"),
+                ("usb_cc", "usb_cc"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -211,6 +225,7 @@ class Capabilities:
         c = cls(raw=dict(params))
         c.board = str(params.get("cap.board", "") or "")
         c.firmware_version = str(params.get("cap.firmware_version", "") or "")
+        c.board_rev = str(params.get("cap.board_rev", "") or "")
         if (v := _as_int(params, "cap.adc_bits")) is not None and v > 0:
             c.adc_bits = v
         fs = _as_float(params, "cap.adc_fullscale_mv") or _as_float(params, "cap.adc_vref_mv")
@@ -241,6 +256,7 @@ class Capabilities:
             ("command", "cap.command"), ("ota", "cap.ota"),
             ("la_pins", "cap.la_pins"), ("gpio_read", "cap.gpio_read"),
             ("capture_trigger", "cap.capture_trigger"), ("power_profile", "cap.power_profile"),
+            ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
         ):
             b = _as_bool(params, key)
             if b is not None:

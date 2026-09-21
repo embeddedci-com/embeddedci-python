@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import pytest
 
@@ -47,6 +47,8 @@ class Bench:
     free_pull_la: int     # a biased channel (LA1-LA8) nothing depends on
     dac_max_v: float      # the highest voltage the tests drive on a DAC output
     allow_12v: bool       # whether the bipolar 12v output may be driven (±1 V)
+    board_rev: str        # the PCB revision this bench's pod must report ("" = accept any)
+    nrst_la: Optional[int]  # LA channel jumpered to the pod's reset pin (J1 pin 22), if any
 
 
 @pytest.fixture(scope="session")
@@ -66,6 +68,8 @@ def bench() -> Bench:
         free_pull_la=int(_env("FREE_PULL_LA", "6")),
         dac_max_v=float(_env("DAC_MAX_V", "3.3")),
         allow_12v=_env("ALLOW_12V", "0") == "1",
+        board_rev=_env("BOARD_REV", ""),
+        nrst_la=int(_env("NRST_LA", "0")) or None,
     )
 
 
@@ -124,6 +128,15 @@ def deep_image(pod: BenchPod) -> BenchPod:
 
 
 @pytest.fixture(scope="session")
-def rev3(pod: BenchPod) -> bool:
-    """Whether the pod has the rev3 extras (reset pin, USB-C CC, 1.8 V bank)."""
-    return bool(pod.status().get("nrst_pin"))
+def rev3(pod: BenchPod, bench: Bench) -> bool:
+    """Whether the pod has the rev3 extras (reset pin, USB-C CC, 1.8 V bank).
+
+    With BENCHPOD_E2E_BOARD_REV set, a pod that reports another revision fails here. Without it a
+    v3 board whose strap is misread as v2 would take every test's v2 branch and pass green.
+    """
+    status = pod.status()
+    detected = str(status.get("board_rev", ""))
+    if bench.board_rev and detected != bench.board_rev:
+        pytest.fail(f"the pod reports board_rev={detected!r} (strap {status.get('board_rev_mv')} mV), "
+                    f"the bench expects {bench.board_rev!r} (BENCHPOD_E2E_BOARD_REV)")
+    return bool(status.get("nrst_pin"))

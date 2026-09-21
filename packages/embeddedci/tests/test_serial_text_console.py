@@ -92,6 +92,11 @@ def test_parse_text_status():
     assert s["adc_bits"] == 16 and s["adc_fullscale_mv"] == 4096 and s["gateware"] == 31
 
 
+def test_parse_text_status_of_a_rev3_board():
+    s = parse_text_status(STATUS.replace("rev v2  nrst_pin=no  usb_cc=no", "rev v3  nrst_pin=yes  usb_cc=yes"))
+    assert s["board_rev"] == "v3" and s["nrst_pin"] is True and s["usb_cc"] is True
+
+
 def test_status_ping_and_la_voltage_over_the_text_console():
     t = _transport()
     assert t.status()["board"] == "stm32h563"

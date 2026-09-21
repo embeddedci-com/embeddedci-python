@@ -410,7 +410,7 @@ async def power_status() -> m.PowerStatusResult:
 async def reset_target(
     action: Annotated[Literal["pulse", "hold", "release", "status"], Field(description=(
         "pulse = reset once; hold = keep the target in reset; release = let it run; status = read only."))] = "pulse",
-    pulse: Annotated[float, Field(gt=0, le=10, description="Pulse length in seconds.")] = 0.1,
+    pulse: Annotated[float, Field(gt=0, le=1, description="Pulse length in seconds (at most 1).")] = 0.1,
 ) -> m.ResetResult:
     """Drive the DUT's reset line from the pod's reset pin (rev3 pods, DUT header J1 pin 22)."""
     def op() -> m.ResetResult:
