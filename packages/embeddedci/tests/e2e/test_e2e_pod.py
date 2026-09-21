@@ -336,8 +336,11 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
         else:
             pod.dac_stop()
 
+    # Every event must land inside the 5 s acquisition (the fire loop starts ~0.4 s in): a command
+    # sent after it ends queues behind the read-back, ~12 MB of decimal text over the same
+    # connection (~30 s), and times out.  18 events end at ~4.7 s; the fit needs 8.
     cap, stamps = events_during(lambda: pod.capture_adc(2_000_000, sample_rate_hz=400_000),
-                                toggle_dac, count=22, interval=0.25)
+                                toggle_dac, count=18, interval=0.25)
     block = 100
     counts = np.asarray(cap.counts, dtype=np.int64)
     blocks = counts[: len(counts) // block * block].reshape(-1, block)

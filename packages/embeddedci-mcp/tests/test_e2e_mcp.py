@@ -114,7 +114,7 @@ def test_rev3_tools(connected):
     assert call("reset_target", action="pulse", pulse=0.05)["asserted"] is False
     with pytest.raises(ToolError):
         call("reset_target", pulse=5)                   # longer than the pod can hold
-    cc = call("command", request={"cmd": "usb_cc"})
+    cc = call("command", request={"cmd": "usb_cc"})["reply"]   # the raw firmware reply
     assert cc["supported"] is True and cc["orientation"] in ("none", "cc1", "cc2"), cc
 
 

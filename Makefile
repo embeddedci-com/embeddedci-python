@@ -18,14 +18,20 @@ FIRMWARE_OPT = $(if $(FIRMWARE),--benchpod-firmware=$(abspath $(FIRMWARE)),)
 # REV=v3 makes a pod that reports another board revision fail instead of taking the v2 branches.
 REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),)
 
-.PHONY: test e2e e2e-cloud
+.PHONY: test e2e e2e-cloud check-sdk
 
 test:  # one run per package, like CI (their tests/conftest.py modules share a name)
 	$(PYTHON) -m pytest -q packages/embeddedci
 	$(PYTHON) -m pytest -q packages/embeddedci-mcp
 	$(PYTHON) -m pytest -q packages/embeddedci-openhtf
 
-e2e:
+# The e2e tiers must test THIS checkout.  Installing a package that depends on embeddedci (the
+# OpenHTF plug, say) can quietly swap the editable install for the PyPI release, and every test
+# then exercises old code while the header still looks fine.
+check-sdk:
+	@$(PYTHON) scripts/check_sdk.py
+
+e2e: check-sdk
 	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…] [REV=v3]"; exit 2; }
 	# tests/examples too: it is the first thing a new user runs, so it must not rot.
 	$(REV_ENV) BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs \
