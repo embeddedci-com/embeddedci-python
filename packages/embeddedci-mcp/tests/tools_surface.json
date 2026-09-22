@@ -363,7 +363,7 @@
         "trigger_la": {
           "anyOf": [
             {
-              "maximum": 12,
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -477,7 +477,7 @@
         "trigger_la": {
           "anyOf": [
             {
-              "maximum": 12,
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -563,7 +563,7 @@
         "trigger_la": {
           "anyOf": [
             {
-              "maximum": 12,
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -628,7 +628,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -636,7 +636,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -651,7 +651,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -659,7 +659,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -1047,8 +1047,8 @@
         "cs": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1069,8 +1069,8 @@
         "miso": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1095,8 +1095,8 @@
         "mosi": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1119,8 +1119,8 @@
         "rx": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1148,8 +1148,8 @@
         "scl": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1163,8 +1163,8 @@
         "sclk": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1178,8 +1178,8 @@
         "sda": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1268,7 +1268,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -1276,7 +1276,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -1291,7 +1291,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -1299,7 +1299,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -1420,7 +1420,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -1428,7 +1428,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -1443,7 +1443,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -1451,7 +1451,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -1640,11 +1640,11 @@
     "input": {
       "properties": {
         "la": {
-          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names.",
           "items": {
             "anyOf": [
               {
-                "maximum": 12,
+                "maximum": 14,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -1652,9 +1652,9 @@
                 "type": "string"
               }
             ],
-            "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
           },
-          "maxItems": 12,
+          "maxItems": 14,
           "minItems": 1,
           "title": "La",
           "type": "array"
@@ -1716,7 +1716,7 @@
         "la": {
           "anyOf": [
             {
-              "maximum": 12,
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1724,7 +1724,7 @@
               "type": "string"
             }
           ],
-          "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
           "title": "La"
         },
         "width": {
@@ -1758,7 +1758,7 @@
               "items": {
                 "anyOf": [
                   {
-                    "maximum": 12,
+                    "maximum": 14,
                     "minimum": 1,
                     "type": "integer"
                   },
@@ -1766,9 +1766,9 @@
                     "type": "string"
                   }
                 ],
-                "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
               },
-              "maxItems": 12,
+              "maxItems": 14,
               "type": "array"
             },
             {
@@ -1776,7 +1776,7 @@
             }
           ],
           "default": null,
-          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names.",
           "title": "La"
         }
       },
@@ -1800,7 +1800,7 @@
               "items": {
                 "anyOf": [
                   {
-                    "maximum": 12,
+                    "maximum": 14,
                     "minimum": 1,
                     "type": "integer"
                   },
@@ -1808,9 +1808,9 @@
                     "type": "string"
                   }
                 ],
-                "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
               },
-              "maxItems": 12,
+              "maxItems": 14,
               "type": "array"
             },
             {
@@ -1818,7 +1818,7 @@
             }
           ],
           "default": null,
-          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names.",
           "title": "La"
         }
       },
@@ -1838,7 +1838,7 @@
         "la": {
           "anyOf": [
             {
-              "maximum": 12,
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -1846,7 +1846,7 @@
               "type": "string"
             }
           ],
-          "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
           "title": "La"
         },
         "level": {
@@ -1886,11 +1886,11 @@
     "input": {
       "properties": {
         "la": {
-          "description": "LA channels as numbers 1-12 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names.",
           "items": {
             "anyOf": [
               {
-                "maximum": 12,
+                "maximum": 14,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -1898,9 +1898,9 @@
                 "type": "string"
               }
             ],
-            "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
           },
-          "maxItems": 12,
+          "maxItems": 14,
           "minItems": 1,
           "title": "La",
           "type": "array"
@@ -2052,8 +2052,8 @@
         "dir_la": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -2074,8 +2074,8 @@
           "type": "integer"
         },
         "la": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
+          "description": "LA channel (1-14) the signal is wired to.",
+          "maximum": 14,
           "minimum": 1,
           "title": "La",
           "type": "integer"
@@ -2124,8 +2124,8 @@
           "type": "string"
         },
         "la": {
-          "description": "LA channel (1-12) the signal is wired to.",
-          "maximum": 12,
+          "description": "LA channel (1-14) the signal is wired to.",
+          "maximum": 14,
           "minimum": 1,
           "title": "La",
           "type": "integer"
@@ -2150,8 +2150,8 @@
         "to_la": {
           "anyOf": [
             {
-              "description": "LA channel (1-12) the signal is wired to.",
-              "maximum": 12,
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
               "minimum": 1,
               "type": "integer"
             },
@@ -2385,7 +2385,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -2393,7 +2393,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -2408,7 +2408,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -2416,7 +2416,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -3192,7 +3192,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -3200,7 +3200,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"
@@ -3215,7 +3215,7 @@
             {
               "anyOf": [
                 {
-                  "maximum": 12,
+                  "maximum": 14,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -3223,7 +3223,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-12, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
             },
             {
               "type": "null"

@@ -385,7 +385,7 @@ class BenchPod:
         return GpioPin(self, la, signal=signal)
 
     def _resolve_la(self, value: Any, name: str = "la") -> Tuple[int, Optional[Signal]]:
-        """An LA channel from 1-12 / a ``Pin`` / a wiring-profile name (role or signal)."""
+        """An LA channel from 1-14 / a ``Pin`` / a wiring-profile name (role or signal)."""
         if isinstance(value, str):
             profile = self.wiring
             la = profile.la(value)
@@ -504,7 +504,7 @@ class BenchPod:
     ) -> FlashResult:
         """Flash an SWD target through the pod's CMSIS-DAP probe and report the result.
 
-        ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN12`` or 1-12). ``nreset`` is a
+        ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN14`` or 1-14). ``nreset`` is a
         flag, not a pin: pass ``True`` when the target's reset line is wired to the pod's reset
         pin (DUT header J1 pin 22). ``target`` is an OpenOCD target config
         (``target/stm32f4x.cfg``) and ``file`` the image. ``target_power`` of
@@ -874,7 +874,7 @@ class BenchPod:
     def capture_la(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
                    stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
                    trigger_timeout: float = 10.0) -> LaCapture:
-        """Capture raw 12-channel logic-analyzer words and return a :class:`LaCapture`.
+        """Capture raw 14-channel logic-analyzer words and return a :class:`LaCapture`.
 
         ``stop_dac_after`` (seconds) cuts a concurrently-running DAC that far into the capture,
         sample-precise from the capture's hardware t0 (gateware >= v21). ``trigger`` (a
@@ -922,7 +922,7 @@ class BenchPod:
 
     def decode(self, source: Union[LaCapture, Sequence[int]], protocol: DecodeProtocol = "i2c", *,
                sample_rate_hz: Optional[float] = None, **channels: Any) -> list:
-        """Decode ``i2c``/``uart``/``spi`` from an LA capture (or raw 12-bit words) off-device.
+        """Decode ``i2c``/``uart``/``spi`` from an LA capture (or raw 14-bit words) off-device.
 
         Channels by protocol: i2c ``sda``, ``scl``; uart ``rx``, ``baud``; spi ``sclk`` (+ ``mosi``,
         ``miso``, ``cs``, ``mode``). See :func:`embeddedci.benchpod.decode.decode`.
@@ -1443,7 +1443,7 @@ class BenchPod:
              level: Optional[int] = None) -> GpioPin:
         """Use an LA channel as GPIO and return its :class:`~embeddedci.benchpod.gpio.GpioPin`.
 
-        ``la`` is 1-12, a ``Pin`` or a wiring-profile name. ``mode``: ``output`` (push-pull, starts at
+        ``la`` is 1-14, a ``Pin`` or a wiring-profile name. ``mode``: ``output`` (push-pull, starts at
         ``level``, default 0), ``open_drain`` (0 pulls low, 1 releases; starts released) or ``input``.
         Raises :class:`~embeddedci.benchpod.errors.PinConflictError` when another function owns the
         channel, and :class:`~embeddedci.benchpod.errors.PullConflictError` when its engaged bias
@@ -1491,7 +1491,7 @@ class BenchPod:
         return self.pin_levels()[self._resolve_la(la)[0]]
 
     def pin_levels(self) -> Dict[int, int]:
-        """The live level of every LA channel: ``{1: 0, 2: 1, …, 12: 0}``.
+        """The live level of every LA channel: ``{1: 0, 2: 1, …, 14: 0}``.
 
         Read straight from the pins (gateware >= v35); older gateware answers with the last sample of
         a short logic capture instead.
@@ -1502,7 +1502,7 @@ class BenchPod:
         else:
             cap = self.capture_la(64, sample_rate_hz=1_000_000)
             mask = cap.words[-1] if cap.words else 0
-        return {ch: (mask >> (ch - 1)) & 1 for ch in range(1, 13)}
+        return {ch: (mask >> (ch - 1)) & 1 for ch in range(1, 15)}
 
     def wait_for_level(self, la: Union[Pin, int, str], level: int, *, timeout: float,
                        poll: float = 0.005) -> bool:

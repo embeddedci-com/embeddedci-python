@@ -27,9 +27,9 @@ class PinPod:
     def __init__(self, *, caps: Optional[List[str]] = None) -> None:
         self.caps = ["la", "la_pins", "gpio_read"] if caps is None else caps
         self.commands: List[dict] = []
-        self.function = {la: "none" for la in range(1, 13)}
-        self.mode: Dict[int, Optional[str]] = {la: None for la in range(1, 13)}
-        self.level: Dict[int, Optional[int]] = {la: None for la in range(1, 13)}
+        self.function = {la: "none" for la in range(1, 15)}
+        self.mode: Dict[int, Optional[str]] = {la: None for la in range(1, 15)}
+        self.level: Dict[int, Optional[int]] = {la: None for la in range(1, 15)}
         self.pull_on = {la: False for la in range(1, 9)}
         self.inputs = 0  # levels driven by the "DUT" on input pins
         self.uart_starts: List[tuple] = []
@@ -55,7 +55,7 @@ class PinPod:
         self.commands.append(req)
         cmd = req["cmd"]
         if cmd == "la_pins":
-            return {"pins": [self._entry(la) for la in range(1, 13)], "levels": self._levels()}
+            return {"pins": [self._entry(la) for la in range(1, 15)], "levels": self._levels()}
         if cmd == "gpio":
             return self._gpio(req)
         if cmd == "la":
@@ -78,16 +78,16 @@ class PinPod:
 
     def _levels(self) -> int:
         mask = self.inputs
-        for la in range(1, 13):
+        for la in range(1, 15):
             if self.mode[la] in ("output", "open_drain") and self.level[la] is not None:
                 mask = (mask & ~(1 << (la - 1))) | (self.level[la] << (la - 1))
         return mask
 
     def _gpio(self, req: dict) -> Any:
         if "mode" not in req and "level" not in req:
-            return {"levels": self._levels(), "pins": [self._entry(la) for la in range(1, 13)]}
+            return {"levels": self._levels(), "pins": [self._entry(la) for la in range(1, 15)]}
         raw = req["la"]
-        las = list(range(1, 13)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
+        las = list(range(1, 15)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
         mode = req.get("mode")
         if mode == "off":
             for la in las:
@@ -147,8 +147,8 @@ def test_arguments_are_checked_before_sending():
         bp.gpio(9, "input", level=1)
     with pytest.raises(ValueError, match="level must be 0 or 1"):
         bp.set_gpio(9, 2)
-    with pytest.raises(ValueError, match="LA pin 1-12"):
-        bp.gpio(13)
+    with pytest.raises(ValueError, match="LA pin 1-14"):
+        bp.gpio(15)
     assert pod.commands == []
 
 

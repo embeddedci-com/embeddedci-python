@@ -92,5 +92,5 @@ def test_constant_coercion():
     with pytest.raises(ValueError):
         constants.coerce_efuse(3)
     with pytest.raises(ValueError):
-        constants.coerce_pin(13, "swdio")
+        constants.coerce_pin(15, "swdio")
     assert not issubclass(ValueError, BenchPodError)

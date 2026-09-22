@@ -51,7 +51,7 @@ BMP280_ADDR_SECONDARY = 0x77
 
 
 class Pin(IntEnum):
-    """Logic-analyzer channel (LA1..LA12) on the iCE40 FPGA bank."""
+    """Logic-analyzer channel (LA1..LA14) on the iCE40 FPGA bank."""
 
     PIN1 = 1
     PIN2 = 2
@@ -65,6 +65,8 @@ class Pin(IntEnum):
     PIN10 = 10
     PIN11 = 11
     PIN12 = 12
+    PIN13 = 13
+    PIN14 = 14
 
 
 # Module-level aliases, re-exported from ``benchpod`` so callers can write
@@ -84,6 +86,8 @@ PIN9 = Pin.PIN9
 PIN10 = Pin.PIN10
 PIN11 = Pin.PIN11
 PIN12 = Pin.PIN12
+PIN13 = Pin.PIN13
+PIN14 = Pin.PIN14
 
 
 # -- string option types -------------------------------------------------------
@@ -135,7 +139,7 @@ ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "c
 LA_VOLTAGES: Tuple[float, ...] = (1.8, 3.3)
 
 #: Fixed bias network per LA channel (LA1..LA8). LA1-LA6 pull UP to +3V3, LA7/LA8 pull
-#: DOWN; LA9-LA12 have none. Source of truth: firmware ``i2c_bus.c``.
+#: DOWN; LA9-LA14 have none. Source of truth: firmware ``i2c_bus.c``.
 PULL_OHMS: Dict[int, str] = {
     1: "4.7k", 2: "4.7k", 3: "2.2k", 4: "2.2k",
     5: "10k", 6: "10k", 7: "10k", 8: "10k",
@@ -163,11 +167,11 @@ def coerce_efuse(value: Union[Efuse, int]) -> int:
 
 
 def coerce_pin(value: Union[Pin, int], name: str = "pin") -> int:
-    """Validate and normalize an LA pin selector to ``1``..``12`` (:class:`ValueError` otherwise)."""
+    """Validate and normalize an LA pin selector to ``1``..``14`` (:class:`ValueError` otherwise)."""
     try:
         ivalue = int(value)
     except (TypeError, ValueError):
-        raise ValueError(f"{name} must be an LA pin 1-12 (e.g. benchpod.PIN1), got {value!r}") from None
-    if not 1 <= ivalue <= 12:
-        raise ValueError(f"{name} must be an LA pin 1-12 (e.g. benchpod.PIN1), got {value!r}")
+        raise ValueError(f"{name} must be an LA pin 1-14 (e.g. benchpod.PIN1), got {value!r}") from None
+    if not 1 <= ivalue <= 14:
+        raise ValueError(f"{name} must be an LA pin 1-14 (e.g. benchpod.PIN1), got {value!r}")
     return ivalue

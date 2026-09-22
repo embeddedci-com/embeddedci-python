@@ -153,7 +153,7 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
 def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,
                stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
                trigger_timeout: float = 10.0) -> LaCapture:
-    """Capture ``samples`` raw 12-channel LA words and return a :class:`LaCapture`.
+    """Capture ``samples`` raw 14-channel LA words and return a :class:`LaCapture`.
 
     ``stop_dac_after`` (seconds) auto-stops a concurrently-running DAC that far into the capture —
     the iCE40 cuts the DAC at exactly that offset from the capture's hardware t0 (sample-precise),

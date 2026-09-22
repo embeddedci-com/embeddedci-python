@@ -55,7 +55,7 @@ def test_triggers_need_the_firmware_capability(connected):
 
 def test_the_schema_bounds_the_trigger_arguments(connected):
     with pytest.raises(ToolError):
-        call("capture_la", samples=100, trigger_la=13)
+        call("capture_la", samples=100, trigger_la=15)
     with pytest.raises(ToolError):
         call("capture_la", samples=100, trigger_la=9, trigger_edge="sideways")
     with pytest.raises(ToolError):

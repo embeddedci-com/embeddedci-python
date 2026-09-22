@@ -254,7 +254,7 @@ class Wiring:
         """A readable pin table: channel, what is wired to it, and its bias resistor."""
         pins = self.pins()
         lines = [f"LA I/O {self.la_voltage:g} V, target power eFuse {self.efuse}"]
-        for la in range(1, 13):
+        for la in range(1, 15):
             pull = PULL_OHMS.get(la)
             bias = (f"{pull} pull-{'down' if la in PULLDOWN_CHANNELS else 'up'}" if pull else "no pull")
             lines.append(f"LA{la:<3} {pins.get(la, '-'):<12} {bias}")
@@ -274,8 +274,8 @@ class Wiring:
             errs.append(f"uart_baud must be 300..4000000, got {self.uart_baud!r}")
         for key in ROLE_KEYS:
             la = getattr(self, key)
-            if la is not None and not (_is_int(la) and 1 <= la <= 12):
-                errs.append(f"{key} must be an LA channel 1..12 or None, got {la!r}")
+            if la is not None and not (_is_int(la) and 1 <= la <= 14):
+                errs.append(f"{key} must be an LA channel 1..14 or None, got {la!r}")
         addr = _i2c_address(self.i2c_addr)
         if addr is None or not 0x03 <= addr <= 0x77:
             errs.append(f"i2c_addr must be a 7-bit address 0x03..0x77, got {self.i2c_addr!r}")
@@ -283,8 +283,8 @@ class Wiring:
             errs.append(f"swd_nreset must be true or false, got {self.swd_nreset!r}")
         if not isinstance(self.swd_target, str) or len(self.swd_target) > 128:
             errs.append("swd_target must be a string of at most 128 characters")
-        if len(self.signals) > 12:
-            errs.append(f"at most 12 signals, got {len(self.signals)}")
+        if len(self.signals) > 14:
+            errs.append(f"at most 14 signals, got {len(self.signals)}")
         seen: Dict[str, int] = {}
         for i, s in enumerate(self.signals):
             if not isinstance(s, Signal):
@@ -299,8 +299,8 @@ class Wiring:
                 errs.append(f"signals[{i}].name {s.name!r} is already used by signals[{seen[s.name.lower()]}]")
             else:
                 seen[s.name.lower()] = i
-            if not (_is_int(s.la) and 1 <= s.la <= 12):
-                errs.append(f"signals[{i}].la must be an LA channel 1..12, got {s.la!r}")
+            if not (_is_int(s.la) and 1 <= s.la <= 14):
+                errs.append(f"signals[{i}].la must be an LA channel 1..14, got {s.la!r}")
             if s.direction not in SIGNAL_DIRECTIONS:
                 errs.append(f"signals[{i}].direction must be one of {', '.join(SIGNAL_DIRECTIONS)}, "
                             f"got {s.direction!r}")
@@ -310,7 +310,7 @@ class Wiring:
                 errs.append(f"signals[{i}].description must be a string of at most 120 characters")
         users: Dict[int, str] = {}
         for name, la in self.assignments():
-            if not 1 <= la <= 12:
+            if not 1 <= la <= 14:
                 continue
             if la in users:
                 errs.append(f"LA{la} is used by both {users[la]} and {name} (move one to a free channel, "

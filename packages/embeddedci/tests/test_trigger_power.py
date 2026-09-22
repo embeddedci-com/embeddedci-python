@@ -63,8 +63,8 @@ def _bp(pod: Optional[StreamPod] = None, **kwargs: Any):
 def test_trigger_validates_itself():
     with pytest.raises(ValueError, match="edge"):
         Trigger(9, "sideways")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="1-12"):
-        Trigger(13)
+    with pytest.raises(ValueError, match="1-14"):
+        Trigger(15)
     assert Trigger("READY", "high").la == "READY"
 
 

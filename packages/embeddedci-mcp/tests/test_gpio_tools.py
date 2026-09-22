@@ -18,10 +18,11 @@ def _pin(result, la):
 def test_la_pins_reports_every_channel_with_levels(connected):
     connected.inputs = 1 << 10  # the DUT drives LA11 high
     result = call("la_pins")
-    assert [p["la"] for p in result["pins"]] == list(range(1, 13))
+    assert [p["la"] for p in result["pins"]] == list(range(1, 15))
     assert _pin(result, 1) == {"la": 1, "function": "none", "gpio": None, "level": None,
                                "pull": "up", "pull_ohms": "4.7k", "pull_on": False, "in_use": False}
     assert _pin(result, 7)["pull"] == "down" and _pin(result, 12)["pull"] is None
+    assert _pin(result, 14)["pull"] is None
     assert {lv["la"]: lv["level"] for lv in result["levels"]}[11] == 1
 
 
@@ -69,8 +70,8 @@ def test_gpio_write_and_read_round_trip(connected):
     levels = {lv["la"]: lv["level"] for lv in call("gpio_read", la=[3, 4])["levels"]}
     assert levels == {3: 1, 4: 1}
     call("gpio_write", la=[3], level=0)
-    assert call("gpio_read")["levels"][2] == {"la": 3, "level": 0}  # all 12 channels, in order
-    assert len(call("gpio_read")["levels"]) == 12
+    assert call("gpio_read")["levels"][2] == {"la": 3, "level": 0}  # all 14 channels, in order
+    assert len(call("gpio_read")["levels"]) == 14
 
 
 def test_gpio_write_on_an_unconfigured_channel_is_refused(connected):

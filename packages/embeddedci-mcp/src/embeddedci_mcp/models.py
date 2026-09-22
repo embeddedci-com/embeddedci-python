@@ -102,7 +102,7 @@ class WiringPin(BaseModel):
     la: int
     wired_to: Optional[str] = Field(None, description=(
         "The role (uart_rx, i2c_sda, swd_swclk, …) or signal name on this channel; null = unused."))
-    pull: Optional[str] = Field(None, description="Fixed bias resistor, e.g. '4.7k up'; null on LA9-LA12.")
+    pull: Optional[str] = Field(None, description="Fixed bias resistor, e.g. '4.7k up'; null on LA9-LA14.")
 
 
 class WiringResult(BaseModel):
@@ -116,7 +116,7 @@ class WiringResult(BaseModel):
     i2c_address: int = Field(description="Emulated-sensor address as a 7-bit integer.")
     swd_nreset: bool
     swd_target: str
-    pins: List[WiringPin] = Field(description="LA1-LA12 with what is wired to each and its bias resistor.")
+    pins: List[WiringPin] = Field(description="LA1-LA14 with what is wired to each and its bias resistor.")
     signals: List[WiringSignal] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list,
                                 description="Wiring that works but is risky (e.g. an I2C bus with no pull-up).")
@@ -133,7 +133,7 @@ class LaPinResult(BaseModel):
         "swd_dio, i2c_sda, i2c_scl, step or step_dir."))
     gpio: Optional[str] = Field(None, description="GPIO mode when function is gpio: input, output or open_drain.")
     level: Optional[int] = Field(None, description="Commanded level of a GPIO output / open-drain channel.")
-    pull: Optional[str] = Field(None, description="Bias direction: up, down, or null on LA9-LA12.")
+    pull: Optional[str] = Field(None, description="Bias direction: up, down, or null on LA9-LA14.")
     pull_ohms: Optional[str] = None
     pull_on: bool = False
     in_use: bool = Field(description="A function other than none owns the channel.")

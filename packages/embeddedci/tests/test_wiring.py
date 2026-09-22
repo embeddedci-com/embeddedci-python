@@ -33,7 +33,7 @@ def test_lookups_by_role_and_signal():
 
 def test_every_problem_is_reported_at_once():
     with pytest.raises(ValueError) as ei:
-        Wiring(la_mv=5000, efuse=3, uart_baud=10, uart_rx=13, i2c_addr="0x80",
+        Wiring(la_mv=5000, efuse=3, uart_baud=10, uart_rx=15, i2c_addr="0x80",
                signals=[Signal("1bad", 20), Signal("uart_tx", 6, "sideways")])
     msg = str(ei.value)
     for part in ("la_mv", "efuse", "uart_baud", "uart_rx", "i2c_addr", "signals[0].name",

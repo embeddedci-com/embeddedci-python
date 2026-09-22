@@ -68,9 +68,9 @@ class FakeTransport(Transport):
         self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
                      "la_pins", "gpio_read", "capture_trigger", "power_profile"]
         # -- LA pin ownership (the firmware's table): function, gpio mode and commanded level.
-        self.function: Dict[int, str] = {la: "none" for la in range(1, 13)}
-        self.mode: Dict[int, Any] = {la: None for la in range(1, 13)}
-        self.level: Dict[int, Any] = {la: None for la in range(1, 13)}
+        self.function: Dict[int, str] = {la: "none" for la in range(1, 15)}
+        self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
+        self.level: Dict[int, Any] = {la: None for la in range(1, 15)}
         self.pull_on: Dict[int, bool] = {la: False for la in range(1, 9)}
         #: Levels the "DUT" drives on channels the pod is not driving (bitmask, bit la-1).
         self.inputs = 0
@@ -195,19 +195,19 @@ class FakeTransport(Transport):
 
     def _levels(self) -> int:
         mask = self.inputs
-        for la in range(1, 13):
+        for la in range(1, 15):
             if self.mode[la] in ("output", "open_drain") and self.level[la] is not None:
                 mask = (mask & ~(1 << (la - 1))) | (self.level[la] << (la - 1))
         return mask
 
     def _cmd_la_pins(self, req):
-        return {"pins": [self._pin(la) for la in range(1, 13)], "levels": self._levels()}
+        return {"pins": [self._pin(la) for la in range(1, 15)], "levels": self._levels()}
 
     def _cmd_gpio(self, req):
         if "mode" not in req and "level" not in req:  # read live levels
-            return {"levels": self._levels(), "pins": [self._pin(la) for la in range(1, 13)]}
+            return {"levels": self._levels(), "pins": [self._pin(la) for la in range(1, 15)]}
         raw = req["la"]
-        las = list(range(1, 13)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
+        las = list(range(1, 15)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
         mode = req.get("mode")
         if mode == "off":
             for la in las:

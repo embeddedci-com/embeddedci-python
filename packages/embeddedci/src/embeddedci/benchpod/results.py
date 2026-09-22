@@ -40,8 +40,8 @@ class Trigger:
         if self.edge not in TRIGGER_EDGES:
             raise ValueError(f"trigger edge must be one of {', '.join(TRIGGER_EDGES)}, got {self.edge!r}")
         if isinstance(self.la, bool) or not (
-                isinstance(self.la, str) or (isinstance(self.la, int) and 1 <= self.la <= 12)):
-            raise ValueError(f"trigger la must be an LA channel 1-12 or a wiring name, got {self.la!r}")
+                isinstance(self.la, str) or (isinstance(self.la, int) and 1 <= self.la <= 14)):
+            raise ValueError(f"trigger la must be an LA channel 1-14 or a wiring name, got {self.la!r}")
 
 
 def _check_edge(edge: str, name: str = "edge") -> None:
@@ -199,7 +199,7 @@ class Capture:
 
 @dataclass
 class LaCapture:
-    """A raw multi-channel logic-analyzer capture (12-bit words, LA1..LA12).
+    """A raw multi-channel logic-analyzer capture (14-bit words, LA1..LA14).
 
     ``words[i]`` packs all channels for sample ``i`` (bit ``n`` = channel ``LA{n+1}``). Use
     :meth:`channel` to pull one channel out as 0/1s, or :meth:`decode` for protocol decoding.
@@ -207,7 +207,7 @@ class LaCapture:
 
     words: List[int] = field(default_factory=list)
     sample_rate_hz: float = 0.0
-    channels: int = 12
+    channels: int = 14
     #: The trigger that started the capture (t = 0 is its moment), or ``None``.
     trigger: Optional[Trigger] = None
 

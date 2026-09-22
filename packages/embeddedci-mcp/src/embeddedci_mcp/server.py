@@ -60,10 +60,10 @@ T = TypeVar("T")
 #: Longest text (UART output, decode traces) returned in one result.
 MAX_TEXT = 16_000
 
-LaPin = Annotated[int, Field(ge=1, le=12, description="LA channel (1-12) the signal is wired to.")]
+LaPin = Annotated[int, Field(ge=1, le=14, description="LA channel (1-14) the signal is wired to.")]
 #: An LA channel given as a number or by the name the wiring profile gives it.
-LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=12)], str], Field(description=(
-    "LA channel 1-12, or a name from the wiring profile — a signal ('READY') or a role "
+LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(description=(
+    "LA channel 1-14, or a name from the wiring profile — a signal ('READY') or a role "
     "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."))]
 BiasPin = Annotated[int, Field(ge=1, le=8)]
 EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power eFuse: 1 = internal 5 V, 2 = external supply.")]
@@ -72,7 +72,7 @@ WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
 BaudRate = Annotated[int, Field(ge=300, le=4_000_000)]
 WiredBaud = Annotated[Optional[int], Field(ge=300, le=4_000_000, description=(
     "UART baud rate; omit for the wiring profile's uart_baud."))]
-TriggerLa = Annotated[Optional[Union[Annotated[int, Field(ge=1, le=12)], str]], Field(description=(
+TriggerLa = Annotated[Optional[Union[Annotated[int, Field(ge=1, le=14)], str]], Field(description=(
     "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before "
     "sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the "
     "capture_trigger capability."))]
@@ -168,7 +168,7 @@ def _fault(spec: Optional[m.FaultSpec]) -> Optional[Fault]:
 
 
 def _la(pod: Any, value: Any) -> int:
-    """An LA channel from a number 1-12 or a wiring-profile name."""
+    """An LA channel from a number 1-14 or a wiring-profile name."""
     return pod.wiring.la(value) if isinstance(value, str) else int(value)
 
 
@@ -274,7 +274,7 @@ async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
 async def wiring() -> m.WiringResult:
     """Which DUT signal is on which LA channel — call this first, before any channel argument.
 
-    Returns the bench's effective profile: a 12-row pin table (what is wired to each channel and
+    Returns the bench's effective profile: a 14-row pin table (what is wired to each channel and
     its bias resistor), the named signals, the target-power rail, the UART baud and the SWD target,
     plus warnings about risky wiring. Every tool whose channel, baud, rail or SWD arguments are
     omitted takes them from this profile, and channel arguments accept these names.
@@ -714,15 +714,15 @@ async def pull_status() -> m.PullStatusResult:
 
 # -- LA pin ownership + GPIO ---------------------------------------------------------------
 
-GpioChannels = Annotated[List[LaRef], Field(min_length=1, max_length=12, description=(
-    "LA channels as numbers 1-12 or wiring-profile names."))]
-OptionalGpioChannels = Annotated[Optional[List[LaRef]], Field(max_length=12, description=(
-    "LA channels as numbers 1-12 or wiring-profile names."))]
+GpioChannels = Annotated[List[LaRef], Field(min_length=1, max_length=14, description=(
+    "LA channels as numbers 1-14 or wiring-profile names."))]
+OptionalGpioChannels = Annotated[Optional[List[LaRef]], Field(max_length=14, description=(
+    "LA channels as numbers 1-14 or wiring-profile names."))]
 
 
 @mcp.tool(annotations=_ann("LA pin functions", read_only=True))
 async def la_pins() -> m.LaPinsResult:
-    """What owns each of the 12 LA channels — none (free), gpio, uart_rx/uart_tx, swd_clk/swd_dio,
+    """What owns each of the 14 LA channels — none (free), gpio, uart_rx/uart_tx, swd_clk/swd_dio,
     i2c_sda/i2c_scl or step — plus each channel's GPIO mode, commanded level and bias resistor.
 
     Read this when a tool is refused with a pin conflict: it names the owner to stop. Live pin
@@ -783,7 +783,7 @@ async def gpio_write(la: GpioChannels, level: GpioLevel) -> m.GpioWriteResult:
 
 @mcp.tool(annotations=_ann("Read pin levels", read_only=True))
 async def gpio_read(la: OptionalGpioChannels = None) -> m.GpioReadResult:
-    """The live level (0/1) of LA channels — omit `la` for all 12.
+    """The live level (0/1) of LA channels — omit `la` for all 14.
 
     Works whatever owns a channel; a GPIO input is the usual way to watch a DUT output.
     """
@@ -927,7 +927,7 @@ async def capture_la(
     trigger_timeout: TriggerTimeoutS = 10.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.LaCaptureResult:
-    """Capture all 12 LA channels and summarise each: levels, edge count, first edge, estimated frequency.
+    """Capture all 14 LA channels and summarise each: levels, edge count, first edge, estimated frequency.
 
     With trigger_la the capture starts on that edge or level instead of immediately, so a short
     event can be caught at a high sample rate. The capture is kept for decode_la and la_timing.

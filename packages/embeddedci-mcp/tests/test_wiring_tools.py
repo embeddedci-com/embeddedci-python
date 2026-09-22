@@ -32,7 +32,7 @@ def test_wiring_reports_the_effective_profile_and_pin_table(connected):
     result = call("wiring")
     assert result["efuse"] == 2 and result["uart_baud"] == 9600 and result["i2c_address"] == 0x77
     assert result["swd_nreset"] is True and result["swd_target"] == "target/stm32f4x.cfg"
-    assert [p["la"] for p in result["pins"]] == list(range(1, 13))
+    assert [p["la"] for p in result["pins"]] == list(range(1, 15))
     by_la = {p["la"]: p for p in result["pins"]}
     assert by_la[7]["wired_to"] == "uart_rx" and by_la[7]["pull"] == "10k down"
     assert by_la[6]["wired_to"] == "READY" and by_la[12]["wired_to"] is None

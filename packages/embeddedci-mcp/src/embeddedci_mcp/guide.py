@@ -12,9 +12,9 @@ Start every session with:
 2. set_la_voltage (1.8 or 3.3, the DUT's I/O voltage) unless status already reports one. The pod refuses flash, UART, LA capture, pull resistors and I2C-sensor emulation until it is set.
 3. status shows firmware, capabilities, the LA voltage and open sessions.
 
-Wiring: the pod has 12 generic LA channels (LA1-LA12) and nothing is fixed. Call `wiring` first: it is the bench's profile — which DUT signal is on which channel, the target-power rail, the UART baud, the SWD target. Every channel, baud, rail or SWD argument you omit comes from it, and channel arguments also accept its names ("READY", "uart_rx"). Confirm it with the user if it looks wrong; `set_wiring` replaces it (save=true stores it on embeddedci.com). Target power is eFuse 1 (internal 5 V) or 2 (external). The DUT's reset line goes to the pod's own reset pin: flash(nreset=true), reset_target.
+Wiring: the pod has 14 generic LA channels (LA1-LA14) and nothing is fixed. Call `wiring` first: it is the bench's profile — which DUT signal is on which channel, the target-power rail, the UART baud, the SWD target. Every channel, baud, rail or SWD argument you omit comes from it, and channel arguments also accept its names ("READY", "uart_rx"). Confirm it with the user if it looks wrong; `set_wiring` replaces it (save=true stores it on embeddedci.com). Target power is eFuse 1 (internal 5 V) or 2 (external). The DUT's reset line goes to the pod's own reset pin: flash(nreset=true), reset_target.
 
-GPIO: each LA channel has one owner at a time. gpio_mode claims channels (input/output/open_drain), gpio_write drives them, gpio_read reads any channel's live level, gpio_wait polls for one, gpio_pulse emits FPGA-timed pulses, gpio_release frees them. Release a GPIO channel before uart_open, flash or enable_i2c_sensor uses it — otherwise the pod refuses with "pin conflict: LA4 is in use by gpio" and says how to free it; la_pins shows every channel's owner. Captures observe all 12 channels whatever owns them.
+GPIO: each LA channel has one owner at a time. gpio_mode claims channels (input/output/open_drain), gpio_write drives them, gpio_read reads any channel's live level, gpio_wait polls for one, gpio_pulse emits FPGA-timed pulses, gpio_release frees them. Release a GPIO channel before uart_open, flash or enable_i2c_sensor uses it — otherwise the pod refuses with "pin conflict: LA4 is in use by gpio" and says how to free it; la_pins shows every channel's owner. Captures observe all 14 channels whatever owns them.
 
 Typical flows:
 - Flash and boot: flash(file) then power_cycle_and_capture(until_regex) — with a wiring profile that is all; otherwise pass swclk, swdio, target, nreset and rx, tx.
@@ -35,7 +35,7 @@ flash runs OpenOCD on the machine hosting this server and reads `file` from that
 WIRING = """\
 BenchPod wiring reference
 
-The pod has no fixed pin roles: 12 generic logic-analyzer channels (LA1-LA12) on the DUT
+The pod has no fixed pin roles: 14 generic logic-analyzer channels (LA1-LA14) on the DUT
 header, and any DUT signal can be on any of them. Always confirm the real wiring with the
 user. The example bench (the BMP280 HIL demo) is wired like this:
 
@@ -51,7 +51,7 @@ user. The example bench (the BMP280 HIL demo) is wired like this:
 
 Bias resistors (3V3-referenced, so unavailable while the LA bank is at 1.8 V):
   LA1, LA2   4.7k pull-up        LA3, LA4   2.2k pull-up        LA5, LA6   10k pull-up
-  LA7, LA8   10k pull-DOWN       LA9-LA12   none
+  LA7, LA8   10k pull-DOWN       LA9-LA14   none
 
 LA I/O bank: 1.8 V or 3.3 V (set_la_voltage), matching the DUT's I/O voltage.
 

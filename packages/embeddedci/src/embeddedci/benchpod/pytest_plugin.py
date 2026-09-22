@@ -64,8 +64,8 @@ class BenchPodPins:
     }
 
     def __init__(self, efuse: int = 1) -> None:
-        # LA1..LA12 are identity-numbered: pin_<n> is simply channel <n>.
-        for channel in range(1, 13):
+        # LA1..LA14 are identity-numbered: pin_<n> is simply channel <n>.
+        for channel in range(1, 15):
             setattr(self, f"pin_{channel}", channel)
         #: target-power eFuse rail (1 = internal 5V, 2 = external).
         self.efuse = efuse

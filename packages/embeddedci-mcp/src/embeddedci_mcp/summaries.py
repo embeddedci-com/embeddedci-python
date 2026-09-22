@@ -3,7 +3,7 @@
 An ADC capture becomes statistics, the dominant frequency and a min/max envelope (a faithful
 thumbnail of the waveform in a few hundred numbers); an LA capture becomes per-channel activity; a
 power profile becomes its statistics plus a short current/voltage trace. A wiring profile becomes a
-12-row pin table.
+14-row pin table.
 """
 
 from typing import Any, List, Optional, Sequence, Tuple
@@ -70,7 +70,7 @@ def adc_summary(cap: Capture, points: int) -> m.AdcCaptureResult:
 def la_summary(la: LaCapture) -> m.LaCaptureResult:
     channels: List[m.LaChannelSummary] = []
     rate = la.sample_rate_hz
-    for ch in range(1, 13):
+    for ch in range(1, 15):
         bits = la.channel(ch)
         if not bits:
             continue
@@ -99,13 +99,13 @@ def _bias(la: int) -> Optional[str]:
 
 
 def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
-    """The effective profile, its 12-row pin table and anything risky about it."""
+    """The effective profile, its 14-row pin table and anything risky about it."""
     pins = wiring.pins()
     return m.WiringResult(
         source=wiring.source, version=wiring.version, la_voltage=wiring.la_voltage,
         efuse=wiring.efuse, uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
         swd_nreset=wiring.swd_nreset, swd_target=wiring.swd_target,
-        pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la)) for la in range(1, 13)],
+        pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la)) for la in range(1, 15)],
         signals=[m.WiringSignal(name=s.name, la=s.la, direction=s.direction,
                                 active_low=s.active_low, description=s.description)
                  for s in wiring.signals],

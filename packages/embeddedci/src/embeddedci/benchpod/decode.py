@@ -1,4 +1,4 @@
-"""Off-device protocol decoding over a raw 12-channel LA capture.
+"""Off-device protocol decoding over a raw 14-channel LA capture.
 
 The FPGA captures raw logic only; protocol interpretation runs on the host over the sampled
 ``words`` plus a channel assignment — the same model the server uses (``POST /analyzer/decode``).
@@ -7,7 +7,7 @@ This module is the Python mirror of the server's decoders (``benchpod_uart_decod
 decode the same capture identically whether it goes through the server or stays client-side.
 
 ``words[i]`` packs all channels for sample ``i`` (bit ``n`` = channel ``LA{n+1}``); channel
-numbers are 1-based (1..12).
+numbers are 1-based (1..14).
 """
 
 from __future__ import annotations
@@ -53,8 +53,8 @@ def decode_uart(words: Sequence[int], *, rx: int, baud: float, sample_rate_hz: f
     clock line). The line idles high; each frame is a start bit (low), ``data_bits`` LSB-first
     data bits, an optional ``parity`` bit (``none``/``even``/``odd``), then stop bit(s).
     """
-    if not 1 <= rx <= 12:
-        raise ValueError("uart decode needs an rx channel in 1..12")
+    if not 1 <= rx <= 14:
+        raise ValueError("uart decode needs an rx channel in 1..14")
     if sample_rate_hz <= 0:
         raise ValueError("uart decode needs a positive sample rate")
     if baud <= 0:
@@ -178,12 +178,12 @@ def decode_spi(words: Sequence[int], *, sclk: int, mosi: int = 0, miso: int = 0,
                sample_rate_hz: float = 0.0) -> List[SpiFrame]:
     """Decode an SPI bus. Mirrors the server's ``decodeSPIFromLA``.
 
-    ``sclk`` is required (1..12); ``mosi``/``miso``/``cs`` are optional (0 = not wired). ``mode``
+    ``sclk`` is required (1..14); ``mosi``/``miso``/``cs`` are optional (0 = not wired). ``mode``
     is 0..3 (CPOL/CPHA). Bits are read on the mode-selected clock edge, MSB-first by convention;
     an active-low ``cs`` gates and delimits words.
     """
-    if not 1 <= sclk <= 12:
-        raise ValueError("spi decode needs a sclk channel in 1..12")
+    if not 1 <= sclk <= 14:
+        raise ValueError("spi decode needs a sclk channel in 1..14")
     if not 0 <= mode <= 3:
         raise ValueError("spi mode must be 0..3")
     if not 1 <= bits <= 32:
@@ -193,9 +193,9 @@ def decode_spi(words: Sequence[int], *, sclk: int, mosi: int = 0, miso: int = 0,
     sample_rising = (cpha == 0 and cpol == 0) or (cpha == 1 and cpol == 1)
 
     sclk_bits = _channel_bits(words, sclk)
-    mosi_bits = _channel_bits(words, mosi) if 1 <= mosi <= 12 else None
-    miso_bits = _channel_bits(words, miso) if 1 <= miso <= 12 else None
-    cs_bits = _channel_bits(words, cs) if 1 <= cs <= 12 else None
+    mosi_bits = _channel_bits(words, mosi) if 1 <= mosi <= 14 else None
+    miso_bits = _channel_bits(words, miso) if 1 <= miso <= 14 else None
+    cs_bits = _channel_bits(words, cs) if 1 <= cs <= 14 else None
     n = len(sclk_bits)
     us_per_sample = (1e6 / sample_rate_hz) if sample_rate_hz > 0 else 0.0
 
