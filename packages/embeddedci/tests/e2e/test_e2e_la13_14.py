@@ -104,15 +104,16 @@ def test_level_trigger_on_la13(pod, top):
 
 
 def test_step_train_on_la14_is_captured(pod, top):
+    """An exact count: the 40 ms train starts 0.5 s into a 2 s capture, so none of it is missed."""
     _, la14 = top
     result = {}
 
     def run():
-        result["capture"] = pod.capture_la(200_000, sample_rate_hz=1_000_000)
+        result["capture"] = pod.capture_la(2_000_000, sample_rate_hz=1_000_000)
 
     thread = threading.Thread(target=run)
     thread.start()
-    time.sleep(0.05)
+    time.sleep(0.5)                                   # let the capture arm (a LAN round-trip or two)
     pod.la_step(la14, steps=20, delay=0.001)
     thread.join()
     rising = len(result["capture"].edge_times(la14, "rising"))
