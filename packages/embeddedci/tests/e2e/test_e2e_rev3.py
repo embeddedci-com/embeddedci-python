@@ -81,6 +81,12 @@ def test_firmware_and_gateware_are_current(v3):
                if not getattr(caps, name)]
     assert not missing, (f"missing {missing}: reflash the gateware (USB console: flash-ice40) and "
                          f"check the running image")
+    # firmware that embeds a known gateware version updates the iCE40 at boot when they differ
+    status = v3.status()
+    if "gateware" in status and "gateware_embedded" in status and status["gateware_embedded"]:
+        assert status["gateware"] == status["gateware_embedded"], (
+            f"gateware v{status['gateware']} but the firmware embeds v{status['gateware_embedded']}: "
+            f"the boot-time update did not run or failed (see the USB console boot log)")
 
 
 # -- 1.8 V LA bank -------------------------------------------------------------------------
