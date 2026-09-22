@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 2.1.0
+
+- BenchPod v3 pods now expose LA13/LA14 (14 LA channels instead of 12): every LA-channel
+  argument and `Pin` constant accepts 1-14. `Pin.PIN13`/`Pin.PIN14` added; `LaCapture.channels`
+  now defaults to 14. Older firmware reporting only 12 channels is unaffected.
 - Cloud commands retry twice (0.5 s, then 1.5 s) when Cloudflare answers 502/503/504/52x
   instead of the server, and when the server says the pod is on another instance. One edge blip
   used to fail a CI job. A pod that is offline or timed out still fails at once, and a CAN

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.1.0
+
+- BenchPod v3 pods now expose LA13/LA14: `la_pins`, `gpio_mode`/`gpio_read`/`gpio_write`,
+  `capture_la` and trigger channels accept 1-14 (was 1-12). Built on `embeddedci` 2.1.
 - `capabilities` in `connect`/`status` gains `board_rev`, `nrst_pin` and `usb_cc`.
 - Fix: `reset_target` accepts `pulse` up to 1 s (was 10). The pod never held it longer.
 
