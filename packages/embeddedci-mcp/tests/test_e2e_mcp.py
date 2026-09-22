@@ -72,6 +72,22 @@ def test_logic_capture_and_decode(connected):
     assert call("decode_la", protocol="uart", rx=5, baud=115200)["protocol"] == "uart"
 
 
+def test_top_la_channels(connected):
+    """LA13/LA14 (firmware 3.1+) through the MCP tools: pin table, GPIO, capture summary."""
+    if len(call("la_pins")["pins"]) < 14:
+        pytest.skip("the pod firmware has 12 LA channels; LA13/LA14 need 3.1+")
+    try:
+        call("gpio_mode", la=[13, 14], mode="output", level=0)
+        call("gpio_write", la=[13], level=1)
+        levels = {lv["la"]: lv["level"] for lv in call("gpio_read", la=[13, 14])["levels"]}
+        assert levels == {13: 1, 14: 0}
+        la = call("capture_la", samples=4096, sample_rate_hz=1_000_000)
+        by_la = {ch["la"]: ch for ch in la["channels"]}
+        assert by_la[13]["high_fraction"] == 1.0 and by_la[14]["high_fraction"] == 0.0
+    finally:
+        call("gpio_release", la=[13, 14])
+
+
 def test_i2c_sensor_and_can(connected):
     call("enable_i2c_sensor", sda=_pin("I2C_SDA", 2), scl=_pin("I2C_SCL", 1))
     assert call("i2c_sensor_regs", start=0xD0, length=1)["bytes"] == [0x58]

@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-openhtf`
 
+## 2.0.1
+
+- Docs: LA channels are 1-14 on BenchPod v3 pods with firmware 3.1+ (LA13/LA14), which
+  `embeddedci` 2.1 accepts. Now requires `embeddedci>=2.1`, which is where those channels
+  became valid.
+
 ## 2.0.0 — ported to the frozen `embeddedci` 2.0 API
 
 The version jumps from 0.1.0 to 2.0.0 to track `embeddedci` 2.x, which this release requires

@@ -52,7 +52,7 @@ def test_captures_over_the_tunnel(cloud):
     la = cloud.capture_la(8192, sample_rate_hz=1_000_000)
     assert len(la) == 8192
     assert la.sample_rate_hz == pytest.approx(1_000_000, rel=0.05), la.sample_rate_hz
-    assert all(0 <= w < 4096 for w in la.words), "LA words must be 12-bit"
+    assert all(0 <= w < 1 << la.channels for w in la.words), f"LA words must fit {la.channels} bits"
 
 
 def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud):
@@ -78,3 +78,18 @@ def test_waveform_library_save_and_replay(cloud):
     finally:
         cloud.waveforms.delete(wf.id)
         cloud.dac_stop()
+
+
+def test_top_la_channels_over_the_cloud(cloud):
+    """LA13/LA14 (firmware 3.1+) through the command channel and the tunnel: drive, read, capture."""
+    if len(cloud.la_pins()) < 14:
+        pytest.skip("the pod firmware has 12 LA channels; LA13/LA14 need 3.1+")
+    try:
+        cloud.gpio(13, "output", level=1)
+        cloud.gpio(14, "output", level=0)
+        levels = cloud.pin_levels()
+        assert (levels[13], levels[14]) == (1, 0)
+        la = cloud.capture_la(4096, sample_rate_hz=1_000_000)
+        assert la.duty_cycle(13) == 1.0 and la.duty_cycle(14) == 0.0
+    finally:
+        cloud.release_gpio(13, 14)

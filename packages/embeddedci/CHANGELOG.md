@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.1.1
+
+- The README, docstrings and examples say 14 LA channels (LA1-LA14); 2.1.0 still said 12.
+  No code changes.
+- New e2e tier `tests/e2e/test_e2e_la13_14.py`: LA13/LA14 in the pin table, GPIO drive and
+  read-back, captures, triggers, step trains and a UART session. The cloud tier also checks
+  LA13/LA14, and it no longer requires every LA word to fit 12 bits.
+
 ## 2.1.0
 
 - BenchPod v3 pods now expose LA13/LA14 (14 LA channels instead of 12): every LA-channel

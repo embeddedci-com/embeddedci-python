@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 2.1.1
+
+- The README says LA channels 1-14; 2.1.0 still said 12.
+- Requires `embeddedci>=2.1`: with 2.0 installed, LA13/LA14 were refused before reaching the pod.
+
 ## 2.1.0
 
 - BenchPod v3 pods now expose LA13/LA14: `la_pins`, `gpio_mode`/`gpio_read`/`gpio_write`,

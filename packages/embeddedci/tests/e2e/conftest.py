@@ -44,6 +44,7 @@ class Bench:
     efuse: int            # target-power rail the DUT is on
     target_cfg: str       # OpenOCD target config
     free_la: Tuple[int, int]   # two LA channels nothing is wired to
+    top_la: Tuple[int, int]    # LA13/LA14 (firmware 3.1+), nothing wired to them either
     free_pull_la: int     # a biased channel (LA1-LA8) nothing depends on
     dac_max_v: float      # the highest voltage the tests drive on a DAC output
     allow_12v: bool       # whether the bipolar 12v output may be driven (±1 V)
@@ -65,6 +66,7 @@ def bench() -> Bench:
         efuse=int(_env("EFUSE", "1")),
         target_cfg=_env("TARGET_CFG", "target/stm32f4x.cfg"),
         free_la=(free[0], free[1]),
+        top_la=tuple(int(x) for x in _env("TOP_LA", "13,14").split(",")),  # type: ignore[arg-type]
         free_pull_la=int(_env("FREE_PULL_LA", "6")),
         dac_max_v=float(_env("DAC_MAX_V", "3.3")),
         allow_12v=_env("ALLOW_12V", "0") == "1",

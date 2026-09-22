@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci"
-version = "2.1.0"
+version = "2.1.1"
 description = "BenchPod SDK and pytest plugin for EmbeddedCI hardware-in-the-loop testing"
 readme = "README.md"
 requires-python = ">=3.10"
