@@ -77,7 +77,7 @@ def test_timing_validates_arguments():
     with pytest.raises(ValueError, match="to_edge"):
         la.delay(1, 2, to_edge="down")
     with pytest.raises(ValueError, match="LA channel"):
-        la.edge_times(13)
+        la.edge_times(15)
     with pytest.raises(ValueError, match="timebase"):
         LaCapture(words=[0, 1], sample_rate_hz=0).edge_times(1)
 

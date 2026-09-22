@@ -1,6 +1,6 @@
-"""Wiring profiles — which DUT signal is on which of the pod's 12 LA channels.
+"""Wiring profiles — which DUT signal is on which of the pod's 14 LA channels.
 
-The pod has no role-named pins: any DUT signal can be on any of LA1..LA12. A wiring profile writes that
+The pod has no role-named pins: any DUT signal can be on any of LA1..LA14. A wiring profile writes that
 mapping down once — the UART, I2C, SWD and SPI roles, the target-power rail, the LA I/O voltage and
 named signals such as ``TRIGGER`` — so tests use names and defaults instead of channel numbers::
 

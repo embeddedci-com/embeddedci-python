@@ -14,8 +14,8 @@ Run against hardware:
 Skipped automatically without a connection and a firmware image.
 
 ============================ WIRING / PIN MAP =============================
-The pod has no dedicated SWD/UART/I2C pins — it exposes 12 generic LA channels
-(``pins.pin_1`` .. ``pins.pin_12``) and any DUT signal can be on any of them.
+The pod has no dedicated SWD/UART/I2C pins — it exposes 14 generic LA channels
+(``pins.pin_1`` .. ``pins.pin_14``) and any DUT signal can be on any of them.
 The ``wiring`` fixture below is THIS bench's map; edit it for your board.
 
   DUT (STM32F446, scenario-sensors-stm32)      Pod LA channel (wiring fixture)

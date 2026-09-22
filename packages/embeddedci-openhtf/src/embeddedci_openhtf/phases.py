@@ -62,7 +62,7 @@ def flash_phase(plug: type, *, file: str, target: str,
                 **flash_kwargs) -> object:
     """A phase that flashes the DUT over SWD and records the result.
 
-    ``swclk``/``swdio`` are LA channels (1-12); ``nreset`` is a flag saying the
+    ``swclk``/``swdio`` are LA channels (1-14); ``nreset`` is a flag saying the
     target's reset is wired to the pod's reset pin (DUT header J1 pin 22).
     Records a ``flash_ok``
     measurement and attaches the OpenOCD log. By default a failed flash stops the

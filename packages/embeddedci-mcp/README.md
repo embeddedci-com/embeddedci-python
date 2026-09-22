@@ -151,7 +151,7 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   flows, units, error contract — so the agent knows to `connect` and `set_la_voltage` before
   anything else.
 - **Typed, structured results.** Every tool has an input schema with enums and ranges (paths,
-  sources, LA channels 1-12, eFuse 1/2, …) and an output schema; results come back as structured
+  sources, LA channels 1-14, eFuse 1/2, …) and an output schema; results come back as structured
   content. Units are volts, seconds and hertz.
 - **Errors.** A tool that cannot do what was asked fails with an MCP tool error whose message names
   the cause, e.g. `FirmwareError: la voltage not set` or `NotConnectedError: …`. A completed
@@ -176,7 +176,7 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   `gpio_read` / `gpio_wait` / `gpio_pulse` drive and watch channels, `gpio_release` frees them. A
   second claim fails with `PinConflictError: pin conflict: LA5 is in use by uart_rx; …` naming the
   owner and how to free it — so the agent releases GPIO before opening a UART session on that
-  channel. Captures observe all 12 channels whatever owns them.
+  channel. Captures observe all 14 channels whatever owns them.
 - **Power profiles.** `measure_power(duration)` reports average, minimum and peak current, voltage,
   energy and charge. Every sample is timestamped and the integrals run over those timestamps, so
   energy is integrated rather than estimated. `rate_hz` (100-500, default 500) tracks the request to

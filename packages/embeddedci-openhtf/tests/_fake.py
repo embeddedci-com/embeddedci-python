@@ -67,16 +67,16 @@ class FakeTransport(Transport):
         self.commands: List[dict] = []   # raw `command` + `samples` requests seen
         self.adc_samples = (adc_samples if adc_samples is not None
                             else [0, 64, 128, 192, 255, 192, 128, 64])
-        #: Raw 12-channel LA words a `la_capture` returns (bit n = LA{n+1}).
+        #: Raw 14-channel LA words a `la_capture` returns (bit n = LA{n+1}).
         self.la_words = la_words if la_words is not None else []
         self.fail_capture = fail_capture
         self.closed = False
         #: Capabilities the fake pod reports (the SDK gates GPIO, triggers and power profiles).
         self.caps = ["la", "la_pins", "gpio_read", "capture_trigger", "power_profile"]
         # LA pin ownership, as the firmware keeps it.
-        self.function = {la: "none" for la in range(1, 13)}
-        self.mode: Dict[int, Any] = {la: None for la in range(1, 13)}
-        self.level: Dict[int, Any] = {la: None for la in range(1, 13)}
+        self.function = {la: "none" for la in range(1, 15)}
+        self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
+        self.level: Dict[int, Any] = {la: None for la in range(1, 15)}
         #: Levels the "DUT" drives on channels the pod is not driving (bitmask, bit la-1).
         self.inputs = 0
         #: The statistics a power_profile reply carries (µA / mV / µJ / µC, as the firmware sends).
@@ -138,7 +138,7 @@ class FakeTransport(Transport):
                 return {"image": self.image, "version": 27, "features": 1 if self.image == 0 else 2}
             return {"image": req.get("image"), "version": 27, "features": 1}
         if cmd == "la_pins":
-            return {"pins": [self._pin(la) for la in range(1, 13)], "levels": self._levels()}
+            return {"pins": [self._pin(la) for la in range(1, 15)], "levels": self._levels()}
         if cmd == "gpio":
             return self._gpio(req)
         if cmd == "power_profile":
@@ -152,16 +152,16 @@ class FakeTransport(Transport):
 
     def _levels(self) -> int:
         mask = self.inputs
-        for la in range(1, 13):
+        for la in range(1, 15):
             if self.mode[la] in ("output", "open_drain") and self.level[la] is not None:
                 mask = (mask & ~(1 << (la - 1))) | (self.level[la] << (la - 1))
         return mask
 
     def _gpio(self, req: dict):
         if "mode" not in req and "level" not in req:
-            return {"levels": self._levels(), "pins": [self._pin(la) for la in range(1, 13)]}
+            return {"levels": self._levels(), "pins": [self._pin(la) for la in range(1, 15)]}
         raw = req["la"]
-        las = list(range(1, 13)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
+        las = list(range(1, 15)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
         mode = req.get("mode")
         if mode == "off":
             for la in las:

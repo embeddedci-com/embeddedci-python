@@ -161,7 +161,7 @@ def decode(packed: Iterable[int]) -> List[I2CTransaction]:
 
 
 def decode_from_la(words: Iterable[int], sda_ch: int, scl_ch: int) -> List[I2CTransaction]:
-    """Decode I2C from a raw 12-channel LA capture (the unified-capture path).
+    """Decode I2C from a raw 14-channel LA capture (the unified-capture path).
 
     ``words`` are 12-bit LA samples (bit ``n`` = channel ``LA{n+1}``); ``sda_ch`` /
     ``scl_ch`` are 1-based channel numbers.  This is how I2C is decoded now that the

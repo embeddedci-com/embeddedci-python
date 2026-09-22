@@ -45,7 +45,7 @@ def _cmds(tx):
 
 
 def la_words(pattern):
-    """Turn ``{la: [0, 1, ...]}`` into packed 12-channel LA words."""
+    """Turn ``{la: [0, 1, ...]}`` into packed 14-channel LA words."""
     length = max(len(bits) for bits in pattern.values())
     return [sum(bits[i] << (la - 1) for la, bits in pattern.items() if i < len(bits))
             for i in range(length)]

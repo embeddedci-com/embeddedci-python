@@ -28,7 +28,7 @@ from embeddedci import benchpod
 from embeddedci_openhtf import benchpod_plug, record_uart
 
 LA_VOLTAGE = 3.3                 # DUT I/O voltage — change to 1.8 for a 1V8 board
-UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-12)
+UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-14)
 BOOT_BANNER = "APP_OK"
 
 

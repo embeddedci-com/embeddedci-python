@@ -160,7 +160,7 @@ def flash(
 ) -> FlashResult:
     """Arm the CMSIS-DAP probe and run OpenOCD. Returns a :class:`FlashResult`.
 
-    ``swclk``/``swdio`` are LA channels 1-12 (already coerced by the caller).
+    ``swclk``/``swdio`` are LA channels 1-14 (already coerced by the caller).
     ``target_power`` of 1/2 enables that eFuse first; ``None`` leaves power
     untouched.
 

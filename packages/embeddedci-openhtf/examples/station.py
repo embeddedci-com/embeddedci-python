@@ -31,7 +31,7 @@ from embeddedci_openhtf import (
 )
 
 LA_VOLTAGE = 3.3                 # DUT I/O voltage in volts (1.8 or 3.3)
-UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-12)
+UART_RX, UART_TX = 1, 2          # edit for your wiring (LA channels 1-14)
 BOOT_BANNER = "APP_OK"
 
 

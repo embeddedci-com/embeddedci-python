@@ -1,6 +1,6 @@
 """LA-pin helpers for OpenHTF phases: GPIO, and timing between two channels.
 
-The pod's 12 logic-analyzer channels (LA1-LA12) are its only pins, and each has exactly one
+The pod's 14 logic-analyzer channels (LA1-LA14) are its only pins, and each has exactly one
 function at a time — high-Z "LA mode" by default, or claimed by GPIO, a UART proxy, SWD, the
 emulated I2C sensor or a step train. :func:`gpio` claims a channel so the pod can drive or read it;
 :func:`release_gpio` gives it back. Claiming a channel another function owns raises
@@ -8,7 +8,7 @@ emulated I2C sensor or a step train. :func:`gpio` claims a channel so the pod ca
 GPIO channel before a UART session, a flash or sensor emulation uses it. Captures observe every
 channel whatever owns it, which is what :func:`la_delay` measures with.
 
-``la`` arguments are an LA channel (1-12 or a :class:`~embeddedci.benchpod.Pin`) or a name from the
+``la`` arguments are an LA channel (1-14 or a :class:`~embeddedci.benchpod.Pin`) or a name from the
 bench's wiring profile — ``benchpod_plug("192.168.1.50", wiring="bench.json")`` then
 ``gpio(bench, "TRIGGER")``.
 
@@ -37,7 +37,7 @@ __all__ = [
     "la_delay_phase",
 ]
 
-#: An LA channel: 1-12, a :class:`Pin`, or a wiring-profile name.
+#: An LA channel: 1-14, a :class:`Pin`, or a wiring-profile name.
 _LaT = Union[Pin, int, str]
 
 

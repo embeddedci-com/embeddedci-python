@@ -68,7 +68,7 @@ def test_generate_capture_summary_and_replay(connected):
 
 def test_logic_capture_and_decode(connected):
     la = call("capture_la", samples=8192, sample_rate_hz=1_000_000)
-    assert la["samples"] == 8192 and len(la["channels"]) == 12
+    assert la["samples"] == 8192 and len(la["channels"]) == 14
     assert call("decode_la", protocol="uart", rx=5, baud=115200)["protocol"] == "uart"
 
 

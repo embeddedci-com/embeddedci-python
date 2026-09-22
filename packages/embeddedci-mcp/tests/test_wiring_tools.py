@@ -36,7 +36,7 @@ def test_wiring_reports_the_effective_profile_and_pin_table(connected):
     by_la = {p["la"]: p for p in result["pins"]}
     assert by_la[7]["wired_to"] == "uart_rx" and by_la[7]["pull"] == "10k down"
     assert by_la[6]["wired_to"] == "READY" and by_la[12]["wired_to"] is None
-    assert by_la[12]["pull"] is None  # LA9-LA12 have no bias resistor
+    assert by_la[12]["pull"] is None  # LA9-LA14 have no bias resistor
     assert result["signals"][0]["name"] == "READY" and result["signals"][0]["active_low"] is True
     assert result["profile"]["uart_rx"] == 7 and result["saved"] is False
 

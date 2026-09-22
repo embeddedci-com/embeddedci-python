@@ -21,7 +21,7 @@
 # (--benchpod-connection also takes "usb", a serial device path, "discover", or
 # "embeddedci:<device-name>" for a pod reached through embeddedci.com.)
 #
-# Wiring — the pod has no dedicated SWD/UART/I2C pins. It exposes 12 generic LA
+# Wiring — the pod has no dedicated SWD/UART/I2C pins. It exposes 14 generic LA
 # channels (pins.pin_1 .. pins.pin_12) and any DUT signal can be on any of them.
 # The `wiring` fixture below is THIS bench's map; edit it to match your board:
 #
@@ -37,7 +37,7 @@
 #   Target 5V power                 eFuse 1 (internal)     --benchpod-efuse
 #
 # Switchable pull-ups exist only on LA1-LA6 (LA1/2 = 4.7k, LA3/4 = 2.2k,
-# LA5/6 = 10k). LA7/LA8 carry 10k pull-DOWNs and LA9-LA12 nothing, so the
+# LA5/6 = 10k). LA7/LA8 carry 10k pull-DOWNs and LA9-LA14 nothing, so the
 # open-drain I2C lines must sit on LA1-LA6. The resistors are referenced to 3V3,
 # which is why this example runs the LA bank at 3.3 V.
 #

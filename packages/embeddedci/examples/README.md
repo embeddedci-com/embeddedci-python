@@ -41,8 +41,8 @@ Without a connection or a firmware image the test **skips** (so it's safe in CI)
 
 ### Wiring
 
-The pod has **no dedicated SWD/UART/I2C pins** — it exposes 12 generic LA channels
-(`pins.pin_1` … `pins.pin_12`) and any DUT signal can be on any of them. The example
+The pod has **no dedicated SWD/UART/I2C pins** — it exposes 14 generic LA channels
+(`pins.pin_1` … `pins.pin_14`) and any DUT signal can be on any of them. The example
 maps its own wiring in a `wiring` fixture at the top of `test_bmp280.py`; the table
 below is what that fixture uses — edit it to match your board.
 

@@ -1,6 +1,6 @@
 """GPIO on the LA pins, and which function owns each pin.
 
-Each of the pod's 12 LA channels has exactly one function at a time:
+Each of the pod's 14 LA channels has exactly one function at a time:
 
 * ``none`` — the default "LA mode": high-Z, watched by captures;
 * ``gpio`` — an input, a push-pull output or an open-drain output you control;
@@ -38,7 +38,7 @@ class LaPinState:
     gpio: Optional[str] = None
     #: The commanded level of a GPIO output or open-drain pin.
     level: Optional[int] = None
-    #: ``"up"``, ``"down"`` or ``None`` (LA9-LA12 have no bias resistor).
+    #: ``"up"``, ``"down"`` or ``None`` (LA9-LA14 have no bias resistor).
     pull: Optional[str] = None
     pull_ohms: Optional[str] = None
     pull_on: bool = False

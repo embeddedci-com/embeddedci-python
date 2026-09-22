@@ -27,7 +27,7 @@ _EDGES = ("rising", "falling", "both")
 class Trigger:
     """Start a capture when LA ``la`` sees ``edge``: ``rising`` or ``falling``, or is ``high``/``low``.
 
-    ``la`` is 1-12 or a wiring-profile name (``Trigger("READY")``). With a trigger, t = 0 of the capture
+    ``la`` is 1-14 or a wiring-profile name (``Trigger("READY")``). With a trigger, t = 0 of the capture
     is the trigger moment, and a DAC co-trigger or ``stop_dac_after`` counts from it::
 
         la = bp.capture_la(100_000, sample_rate_hz=1_000_000, trigger=Trigger(9, "rising"))

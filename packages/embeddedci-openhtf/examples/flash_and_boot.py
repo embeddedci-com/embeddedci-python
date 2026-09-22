@@ -24,7 +24,7 @@ from openhtf.output.callbacks import console_summary, json_factory
 
 from embeddedci_openhtf import benchpod_plug, boot_banner_phase, flash_phase
 
-# --- bench wiring (edit for your setup): LA channels 1-12 -------------------
+# --- bench wiring (edit for your setup): LA channels 1-14 -------------------
 LA_VOLTAGE = 3.3                      # DUT I/O voltage in volts (1.8 or 3.3)
 SWCLK, SWDIO = 11, 12                 # SWD probe -> DUT (LA channels)
 NRESET = True                         # DUT reset wired to the pod's pin, J1 pin 22

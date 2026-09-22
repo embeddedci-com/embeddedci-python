@@ -26,11 +26,11 @@ _PULLDOWN_CHANNELS = frozenset(PULLDOWN_CHANNELS)
 
 
 class BenchPodPins:
-    """The pod's 12 generic logic-analyzer channels (``pin_1`` .. ``pin_12``)
+    """The pod's 14 generic logic-analyzer channels (``pin_1`` .. ``pin_14``)
     plus the target-power ``efuse``.
 
-    The pod has **no dedicated SWD/UART/I2C pins** — it exposes 12 identical LA
-    channels (LA1..LA12) and any DUT signal can be wired to any of them. So this
+    The pod has **no dedicated SWD/UART/I2C pins** — it exposes 14 identical LA
+    channels (LA1..LA14) and any DUT signal can be wired to any of them. So this
     fixture names the channels by number, not by role: ``pins.pin_11`` is LA
     channel 11, nothing more. A test maps its own bench wiring at the top of the
     file, e.g. ``swclk = pins.pin_11`` — that mapping is bench-specific and lives
@@ -387,7 +387,7 @@ def benchpod_target(benchpod: BenchPod, pytestconfig: "pytest.Config") -> Iterat
 
 @pytest.fixture(scope="session")
 def benchpod_pins(pytestconfig: "pytest.Config") -> BenchPodPins:
-    """The pod's generic LA channels (``pin_1`` .. ``pin_12``) and the eFuse rail.
+    """The pod's generic LA channels (``pin_1`` .. ``pin_14``) and the eFuse rail.
 
     Channels are not roles — map your bench wiring (which signal is on which LA
     channel) in the test itself. The eFuse rail comes from ``--benchpod-efuse`` (default 1).

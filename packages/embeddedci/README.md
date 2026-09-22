@@ -9,7 +9,7 @@ can:
 * **flash** firmware over SWD and assert it worked
 * capture the DUT's **UART**, or hold an interactive UART session
 * **emulate an I2C sensor** (BMP280) and decode the bus traffic
-* capture **ADC** (calibrated volts), a 12-channel **logic analyzer**, or both from one trigger
+* capture **ADC** (calibrated volts), a 14-channel **logic analyzer**, or both from one trigger
 * drive the **DAC**: DC levels, generated waveforms, arbitrary replay, fault injection, and an
   in-fabric **control loop**
 * talk **CAN**, including an autonomous ECU simulator
@@ -215,7 +215,7 @@ automatically.)
   | Concept | Constants | Wire value |
   |---|---|---|
   | Target-power eFuse | `INTERNAL`, `EXTERNAL` (`Efuse`) | 1, 2 |
-  | LA channels | `PIN1` … `PIN12` (`Pin`) | 1 … 12 |
+  | LA channels | `PIN1` … `PIN14` (`Pin`) | 1 … 14 |
   | Emulated sensor | `Sensor.BMP280` | `"bmp280"` |
   | BMP280 addresses | `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | 0x76, 0x77 |
   | Gateware image | `FpgaImage.LOOP`, `FpgaImage.DEEP_REPLAY` | 0, 1 |
@@ -333,7 +333,7 @@ benchpod_connection = 192.168.1.213
 | `benchpod_dac` | function | `benchpod`; stops any DAC output (generate, replay, control loop) at teardown |
 | `benchpod_capabilities` | session | `benchpod.capabilities` |
 | `benchpod_waveforms` | function | the cloud `WaveformLibrary`; deletes waveforms saved through it during the test; skips without server access |
-| `benchpod_pins` / `pins` | session | `pin_1` … `pin_12`, `efuse`, and `has_pullup()`, `has_pulldown()`, `pull_ohms()`, `pullup_ohms()`, `pull_direction()` |
+| `benchpod_pins` / `pins` | session | `pin_1` … `pin_14`, `efuse`, and `has_pullup()`, `has_pulldown()`, `pull_ohms()`, `pullup_ohms()`, `pull_direction()` |
 | `firmware` | function | the `--benchpod-firmware` path (skips when unset) |
 | `build_report` | function | a build reporter — see [Build reporting](#build-reporting) |
 

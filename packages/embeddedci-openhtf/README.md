@@ -131,7 +131,7 @@ test = htf.Test(
 test.execute(test_start=lambda: "SN-0001")
 ```
 
-LA channels are 1-12 (the pod has 12 generic logic-analyzer channels and no
+LA channels are 1-14 (the pod has 14 generic logic-analyzer channels and no
 fixed-role pins — wire any DUT signal to any channel and name it here).
 
 `flash_phase` needs `openocd` on PATH (the pod is the CMSIS-DAP probe; OpenOCD
