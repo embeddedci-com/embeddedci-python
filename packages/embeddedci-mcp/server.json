@@ -3,7 +3,7 @@
   "name": "io.github.embeddedci-com/embeddedci-mcp",
   "title": "EmbeddedCI BenchPod",
   "description": "Drive a BenchPod hardware-in-the-loop bench: power, flash, UART, I2C, CAN, analog and logic.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "websiteUrl": "https://www.embeddedci.com/docs/benchpod-mcp",
   "repository": {
     "url": "https://github.com/embeddedci-com/embeddedci-python",
@@ -15,7 +15,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "embeddedci-mcp",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
