@@ -14,6 +14,7 @@ TCP transport's one-connection-per-command model.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -22,6 +23,36 @@ from urllib.parse import quote
 from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, get_session_token
 from ..errors import FirmwareError, TransportError
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
+
+_RETRY_DELAYS = (0.5, 1.5)
+_EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
+
+
+def _transient(code: int, detail: str) -> bool:
+    # The server answers offline/timeout with a JSON error, which a retry would only repeat.
+    # A non-JSON body is the Cloudflare edge failing to reach the server.
+    if code == 503 and "retry shortly" in detail:
+        return True
+    if code not in _EDGE_ERRORS:
+        return False
+    try:
+        json.loads(detail)
+    except ValueError:
+        return True
+    return False
+
+
+def _repeatable(req: dict) -> bool:
+    # An edge error does not prove the pod never ran the command, so never repeat one that
+    # acts on the target: a CAN frame, a reset pulse or a step-pulse train would happen twice.
+    cmd = req.get("cmd")
+    if cmd == "can_write":
+        return False
+    if cmd == "nrst" and "pulse_ms" in req:
+        return False
+    if cmd == "la" and "steps" in req:
+        return False
+    return True
 
 
 class _WsTunnelSocket:
@@ -175,16 +206,24 @@ class CloudTransport(TcpTransport):
         if self.lease_id:
             request.add_header("X-Benchpod-Lease", self.lease_id)
         cmd = req.get("cmd")
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:300]
-            raise TransportError(
-                f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise TransportError(f"cloud command {cmd!r} failed: {exc}") from exc
+        attempt = 0
+        while True:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "replace")[:300]
+                if (attempt < len(_RETRY_DELAYS) and _transient(exc.code, detail)
+                        and _repeatable(req)):
+                    time.sleep(_RETRY_DELAYS[attempt])
+                    attempt += 1
+                    continue
+                raise TransportError(
+                    f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
+                ) from exc
+            except urllib.error.URLError as exc:
+                raise TransportError(f"cloud command {cmd!r} failed: {exc}") from exc
         if payload.get("status") == "error":
             raise FirmwareError(payload.get("error") or "device returned an error", cmd=cmd)
         return payload.get("data")

@@ -205,3 +205,90 @@ def test_ws_tunnel_socket_buffers_and_eofs():
     assert sock.recv(100) == b"lo"  # rest of first frame
     assert sock.recv(5) == b"world"
     assert sock.recv(5) == b""  # EOF
+
+
+def _edge_error(code, body):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError("https://example.test", code, "err", {}, io.BytesIO(body))
+
+
+def _scripted_urlopen(monkeypatch, outcomes):
+    import urllib.request
+
+    from embeddedci.benchpod.transport import cloud
+
+    calls = []
+
+    class _Resp:
+        def read(self):
+            return b'{"status":"ok","data":"pong"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(request, timeout=None):
+        calls.append(request)
+        outcome = outcomes.pop(0)
+        if outcome is not None:
+            raise outcome
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(cloud.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_cloud_command_retries_cloudflare_502(monkeypatch):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html>Bad gateway</html>"), None])
+    assert t.command({"cmd": "dac_stop"}) == "pong"
+    assert len(calls) == 2
+
+
+def test_cloud_command_does_not_retry_server_timeout(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(
+        monkeypatch, [_edge_error(504, b'{"error":"device did not respond in time"}')])
+    with pytest.raises(TransportError, match="HTTP 504"):
+        t.command({"cmd": "status"})
+    assert len(calls) == 1
+
+
+def test_cloud_command_retries_other_instance(monkeypatch):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    body = b'{"error":"device is connected to another server instance; retry shortly"}'
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(503, body), None])
+    assert t.command({"cmd": "status"}) == "pong"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("req", [
+    {"cmd": "can_write", "id": 1, "data": "00"},
+    {"cmd": "nrst", "pulse_ms": 10},
+    {"cmd": "la", "la": 1, "steps": 5, "delay_us": 100},
+])
+def test_cloud_command_never_repeats_target_actions(monkeypatch, req):
+    from embeddedci.benchpod.errors import TransportError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html></html>")])
+    with pytest.raises(TransportError):
+        t.command(req)
+    assert len(calls) == 1
+
+
+def test_cloud_command_gives_up_after_two_retries(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html></html>")] * 3)
+    with pytest.raises(TransportError, match="HTTP 502"):
+        t.command({"cmd": "status"})
+    assert len(calls) == 3
