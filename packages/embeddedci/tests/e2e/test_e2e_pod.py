@@ -337,8 +337,8 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
             pod.dac_stop()
 
     # Every event must land inside the 5 s acquisition (the fire loop starts ~0.4 s in): a command
-    # sent after it ends queues behind the read-back, ~12 MB of decimal text over the same
-    # connection (~30 s), and times out.  18 events end at ~4.7 s; the fit needs 8.
+    # sent after it ends queues behind the read-back (~4 s as base64, ~30 s as decimal text on
+    # firmware without capture_b64) and can time out.  18 events end at ~4.7 s; the fit needs 8.
     cap, stamps = events_during(lambda: pod.capture_adc(2_000_000, sample_rate_hz=400_000),
                                 toggle_dac, count=18, interval=0.25)
     block = 100

@@ -185,6 +185,7 @@
       "gpio_read",
       "capture_trigger",
       "power_profile",
+      "capture_b64",
       "nrst_pin",
       "usb_cc",
       "la_vccio_mv",

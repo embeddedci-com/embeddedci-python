@@ -61,6 +61,60 @@ def test_capture_adc_above_the_shallow_buffer_streams_from_psram():
     assert len(cap) == n and cap.source == "ext"
 
 
+def _b64(words):
+    """Encode like the firmware: unpadded base64url of little-endian uint16."""
+    import base64
+    import struct
+    return base64.urlsafe_b64encode(struct.pack(f"<{len(words)}H", *words)).rstrip(b"=").decode()
+
+
+B64_CAPS = Capabilities.from_status({"adc_bits": 8, "adc_fullscale_mv": 2550,
+                                     "caps": ["signal", "capture_b64"]})
+
+
+def test_capture_b64_is_requested_only_when_the_pod_offers_it():
+    assert B64_CAPS.capture_b64 and not NAIVE.capture_b64
+    t = FakeCaptureTransport({})
+    cap_mod.capture_adc(t, NAIVE, samples=4)
+    assert "enc" not in t.sent[0]  # an older pod never sees the key
+    cap_mod.capture_adc(t, B64_CAPS, samples=4)
+    assert t.sent[1]["enc"] == "b64"
+    # An LA-only capture has no dense ADC region to encode.
+    cap_mod.capture_correlated(t, B64_CAPS, adc_samples=0, la_samples=8)
+    assert "enc" not in t.sent[2]
+
+
+def test_capture_adc_decodes_b64_chunks():
+    # Chunk lengths that leave every base64 remainder (1, 2, 0 bytes mod 3) and the extremes.
+    words = [0, 1, 255, 256, 0x1234, 32767, 32768, 65534, 65535]
+    t = FakeCaptureTransport({"capture": [
+        {"status": "ok", "bits": 16, "b64": _b64(words[:1]), "adc_rate_hz": 400000.0, "more": True},
+        {"status": "chunk", "b64": _b64(words[1:4]), "more": True},
+        {"status": "chunk", "b64": _b64(words[4:]), "more": False},
+    ]})
+    cap = cap_mod.capture_adc(t, B64_CAPS, samples=len(words))
+    assert cap.counts == words
+    assert cap.sample_rate_hz == 400000.0
+
+
+def test_capture_correlated_decodes_b64_adc_alongside_rle_la():
+    t = FakeCaptureTransport({"capture_dual": [
+        {"status": "ok", "bits": 16, "adc_rate_hz": 400000, "la_rate_hz": 1000000,
+         "b64": _b64([10, 20, 30]), "more": True},
+        {"status": "chunk", "la": True, "la_edges": [[0, 5], [2, 6]], "la_upto": 4, "more": False},
+    ]})
+    cc = cap_mod.capture_correlated(t, B64_CAPS, adc_samples=3, la_samples=4)
+    assert t.sent[0]["enc"] == "b64"
+    assert cc.adc.counts == [10, 20, 30]
+    assert cc.la.words == [5, 5, 6, 6]
+
+
+def test_capture_adc_accepts_decimal_chunks_from_older_firmware():
+    # A pod that ignores "enc" answers with "data": the SDK must take either.
+    t = FakeCaptureTransport({"capture": [{"status": "ok", "data": [1, 2, 3], "more": False}]})
+    assert cap_mod.capture_adc(t, B64_CAPS, samples=3).counts == [1, 2, 3]
+
+
 def test_capture_adc_deep_needs_streaming():
     class SamplesOnly:
         def samples(self, req):

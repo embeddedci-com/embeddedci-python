@@ -6,7 +6,10 @@
   instead of the server, and when the server says the pod is on another instance. One edge blip
   used to fail a CI job. A pod that is offline or timed out still fails at once, and a CAN
   write, reset pulse or step-pulse train is never repeated.
-
+- ADC captures read back about 6.7x faster on firmware that offers base64 samples
+  (`capture_b64` in `status.caps`): `capture_adc(2_000_000)` at 400 kS/s now takes 5 s + 4.5 s
+  instead of 5 s + 31 s over the LAN. The SDK asks for it on its own; older firmware still gets
+  the decimal request. New `Capabilities.capture_b64`.
 - `Capabilities` gains `board_rev`, `nrst_pin` and `usb_cc`: the firmware reported them, the SDK
   dropped them.
 - Fix: `benchpod_target` powered eFuse 1 whatever the wiring profile said, while

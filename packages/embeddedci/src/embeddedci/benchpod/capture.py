@@ -12,6 +12,9 @@ produced only here.
 
 from __future__ import annotations
 
+import base64
+import sys
+from array import array
 from typing import Any, List, Optional
 
 from .capabilities import Capabilities
@@ -76,6 +79,33 @@ def _stream_or_samples(transport: Any, req: dict):
     yield {"status": "ok", "data": fn(req), "more": False}
 
 
+def _want_b64(transport: Any, caps: Capabilities, req: dict) -> None:
+    """Ask for base64 ADC chunks when the pod offers them and the transport yields whole chunks.
+
+    A pod without ``capture_b64`` never sees the key, and the ``samples`` fallback flattens only
+    ``data``, so it is left out there too.
+    """
+    if caps.capture_b64 and getattr(transport, "stream_chunks", None) is not None:
+        req["enc"] = "b64"
+
+
+def _dense(chunk: dict) -> List[int]:
+    """The dense samples of one chunk: ``"b64"`` (unpadded base64url of little-endian uint16)
+    or the decimal ``"data"`` list. Empty when the chunk carries neither."""
+    b64 = chunk.get("b64")
+    if isinstance(b64, str):
+        raw = base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
+        words = array("H")
+        words.frombytes(raw[: len(raw) // 2 * 2])
+        if sys.byteorder == "big":
+            words.byteswap()
+        return words.tolist()
+    data = chunk.get("data")
+    if isinstance(data, list):
+        return [int(x) for x in data]
+    return []
+
+
 def _check_samples(samples: int, name: str = "samples") -> int:
     n = int(samples)
     if n <= 0:
@@ -108,14 +138,13 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
     mhz = rate_mhz(sample_rate_hz)
     if mhz is not None:
         req["sample_rate_mhz"] = mhz
+    _want_b64(transport, caps, req)
     counts: List[int] = []
     rate = 0.0
     for chunk in _stream_or_samples(transport, req):
         if chunk.get("adc_rate_hz"):
             rate = float(chunk["adc_rate_hz"])
-        data = chunk.get("data")
-        if isinstance(data, list):
-            counts.extend(int(x) for x in data)
+        counts.extend(_dense(chunk))
     volts = [caps.counts_to_volts(c) for c in counts]
     return Capture(counts=counts, volts=volts, sample_rate_hz=_rate_hz(rate, sample_rate_hz),
                    source=source)
@@ -216,6 +245,8 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
     _apply_trigger(req, trigger, trigger_timeout)
+    if adc_samples:
+        _want_b64(transport, caps, req)
 
     adc_counts: List[int] = []
     la_edges: List[List[int]] = []
@@ -233,15 +264,14 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
             if int(chunk.get("la_upto", 0)) > la_upto:
                 la_upto = int(chunk["la_upto"])
         else:
-            data = chunk.get("data")
-            if isinstance(data, list):
-                # ADC dense region first, then (older firmware) any dense LA overflow.
-                if len(adc_counts) < adc_samples:
-                    take = adc_samples - len(adc_counts)
-                    adc_counts.extend(int(x) for x in data[:take])
-                    la_dense.extend(int(x) for x in data[take:])
-                else:
-                    la_dense.extend(int(x) for x in data)
+            data = _dense(chunk)
+            # ADC dense region first, then (older firmware) any dense LA overflow.
+            if len(adc_counts) < adc_samples:
+                take = adc_samples - len(adc_counts)
+                adc_counts.extend(data[:take])
+                la_dense.extend(data[take:])
+            else:
+                la_dense.extend(data)
 
     if la_edges or la_upto:
         la_words = _expand_la_edges(la_edges, la_upto or la_samples)

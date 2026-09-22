@@ -150,6 +150,9 @@ class Capabilities:
     capture_trigger: bool = False
     #: Gap-free power profiles of a target rail (:meth:`BenchPod.measure_power`).
     power_profile: bool = False
+    #: The firmware can send ADC samples as base64 (``"enc":"b64"``) instead of decimal text,
+    #: which makes a deep capture's read-back several times faster. Used automatically.
+    capture_b64: bool = False
     #: The dedicated target-reset pin (rev3 pods): :meth:`BenchPod.reset_target` and
     #: ``flash(nreset=True)``.
     nrst_pin: bool = False
@@ -227,6 +230,7 @@ class Capabilities:
                 ("gpio_read", "gpio_read"),
                 ("capture_trigger", "capture_trigger"),
                 ("power_profile", "power_profile"),
+                ("capture_b64", "capture_b64"),
                 ("nrst_pin", "nrst_pin"),
                 ("usb_cc", "usb_cc"),
             ):
@@ -276,6 +280,7 @@ class Capabilities:
             ("command", "cap.command"), ("ota", "cap.ota"),
             ("la_pins", "cap.la_pins"), ("gpio_read", "cap.gpio_read"),
             ("capture_trigger", "cap.capture_trigger"), ("power_profile", "cap.power_profile"),
+            ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
         ):
             b = _as_bool(params, key)
