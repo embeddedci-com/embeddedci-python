@@ -269,6 +269,47 @@ def test_generated_frequency_matches_the_adc_clock(pod):
         f"gateware disagree")
 
 
+def _measure(pod, waveform: str, samples: int):
+    """Volts of one firmware ``measure``: one DAC period of ``samples`` points, captured by the ADC
+    phase-locked to it. The SDK does not wrap it, so this goes through the raw command."""
+    np = pytest.importorskip("numpy")
+    counts = pod.command({"cmd": "measure", "waveform": waveform, "freq": 1000,
+                          "samples": samples})
+    assert len(counts) == samples, (waveform, samples, len(counts))
+    return np.array([pod.capabilities.counts_to_volts(c) for c in counts])
+
+
+def test_measure_captures_one_period_of_the_played_waveform(pod):
+    # measure ties the DAC period to the capture count (gateware MEASURE), so the capture holds
+    # exactly one period. It does not route the analog path: without cal1 it reads the idle SMA.
+    # The second square uses a different length, so a stale period from the first run shows up.
+    np = pytest.importorskip("numpy")
+    lat = 2                                   # DAC + analog latency, in samples
+    pod.analog_path("cal1")
+    try:
+        runs = [(w, n, _measure(pod, w, n))
+                for w, n in (("square", 256), ("sine", 256), ("square", 128))]
+    finally:
+        pod.analog_path("off")
+    for wave, n, v in runs:
+        assert v.max() - v.min() > 2.0, (wave, n, v.round(2).tolist())
+        if wave == "square":
+            mid = (np.median(v[lat:n // 2]) + np.median(v[n // 2 + lat:])) / 2
+            high = v[lat:] > mid
+            edges = np.flatnonzero(high[1:] != high[:-1]) + 1 + lat
+            assert high[0] and edges.size == 1, (n, edges.tolist(), v.round(2).tolist())
+            # half a period high, then half low, shifted by the latency
+            assert abs(edges[0] - (n // 2 + lat)) <= 1, (n, edges.tolist())
+            assert abs(int(high.sum()) - n // 2) <= 1, (n, int(high.sum()))
+        else:
+            ac = v[lat:] - v[lat:].mean()
+            phase = 2 * np.pi * np.arange(lat, n) / n
+            fit = np.hypot(ac @ np.sin(phase), ac @ np.cos(phase)) * 2 / len(ac)
+            rms_fit, rms = fit / np.sqrt(2), np.sqrt((ac ** 2).mean())
+            assert rms_fit > 0.97 * rms, f"not one sine period: fit {rms_fit:.3f} V of {rms:.3f} V rms"
+            assert abs(abs(int(np.argmax(v)) - int(np.argmin(v[lat:]) + lat)) - n // 2) <= 8
+
+
 # -- captures ----------------------------------------------------------------------------
 
 def test_capture_adc_shallow_and_deep(pod):
