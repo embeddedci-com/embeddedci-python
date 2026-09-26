@@ -372,7 +372,8 @@
       "i",
       "v",
       "input_code",
-      "source"
+      "source",
+      "tripped"
     ],
     "loop_input": "property"
   },

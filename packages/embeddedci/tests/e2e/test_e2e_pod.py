@@ -25,11 +25,13 @@ from embeddedci.benchpod import (
     ResetState,
     TargetStatus,
     UsbCcStatus,
+    build_constant_curve,
     build_linear_curve,
     curve_output_at,
     dsp,
 )
 from embeddedci.benchpod.constants import ANALOG_PATHS
+from embeddedci.benchpod.control_loop import CURVE_POINTS
 
 from e2e_helpers import SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
 
@@ -467,6 +469,46 @@ def test_control_loop_input_map(loop_image):
     with pod.control_loop(curve=build_linear_curve(30000),
                           input_map=LoopInputMap(mv_per_unit=2.0, range_min=0, range_max=500)) as loop:
         assert loop.armed
+
+
+def _regulator_curve(setpoint_v, lo, hi, n=CURVE_POINTS):
+    """out = 2*setpoint - in over a 0-5 V input axis: slope -1 through the setpoint, so through a
+    unity wire the only fixed point is in == setpoint."""
+    return [int(round((min(max(2 * setpoint_v - 5.0 * i / (n - 1), 0.0), 4.8) - lo) / (hi - lo) * 65535))
+            for i in range(n)]
+
+
+def test_control_loop_regulates_through_the_external_wire(loop_image, bench):
+    # The loop closed through real wiring: DAC 0-5 V output -> ADC front SMA.  The input map puts
+    # the curve on a 0-5 V axis, so the loop must hold the SMA at the setpoint; then again at a
+    # second setpoint (a re-arm must use the new curve).  Then the over-range trip: a curve that
+    # drives past 3.5 V must latch the trip, park the output at vmin, and say so.
+    if not bench.ext_loop:
+        pytest.skip("set BENCHPOD_E2E_EXT_LOOP=1 when the DAC 0-5 V output is wired to the ADC SMA")
+    pod = loop_image
+    if not pod.capabilities.dac_loop_input_map:
+        pytest.skip("the running gateware has no loop input map")
+    lo, hi = dsp.dac_path_range_v("5v")
+    volts = pod.capabilities.counts_to_volts
+    vmap = LoopInputMap(mv_per_unit=1000.0, range_min=0.0, range_max=5.0)
+    pod.dac_output("5v")
+    pod.adc_read("ext")                                   # route the ADC to the SMA
+    for setpoint in (2.0, 3.0):
+        with pod.control_loop(curve=_regulator_curve(setpoint, lo, hi), k=8192, source="adc",
+                              input_map=vmap) as loop:
+            time.sleep(0.5)
+            got = [volts(loop.probe().i) for _ in range(10)]
+            assert all(abs(v - setpoint) < 0.1 for v in got), (setpoint, [round(v, 3) for v in got])
+
+    trip_map = LoopInputMap(mv_per_unit=1000.0, range_min=0.0, range_max=5.0, trip=3.5)
+    with pod.control_loop(curve=build_constant_curve(int(4.5 / hi * 65535)), k=8192, source="adc",
+                          input_map=trip_map) as loop:
+        time.sleep(0.5)
+        pt = loop.probe()
+        assert volts(pt.i) < 0.5, f"a tripped loop must park at vmin, the SMA reads {volts(pt.i):.2f} V"
+        if pt.tripped is not None:                        # firmware that reports the trip
+            assert pt.tripped, pt
+            assert pod.status().get("loop_tripped") is True
 
 
 def test_deep_replay_plays_while_capturing(deep_image):

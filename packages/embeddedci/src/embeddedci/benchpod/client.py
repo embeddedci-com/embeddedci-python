@@ -1105,7 +1105,8 @@ class BenchPod:
         return _control_loop.IVPoint(
             i=int(d.get("i", 0)), v=int(d.get("v", 0)),
             input_code=None if raw_in is None else int(raw_in),
-            source=d.get("source"))
+            source=d.get("source"),
+            tripped=None if d.get("tripped") is None else bool(d.get("tripped")))
 
     # -- gateware image -------------------------------------------------------
 

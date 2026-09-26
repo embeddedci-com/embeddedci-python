@@ -50,6 +50,7 @@ class Bench:
     allow_12v: bool       # whether the bipolar 12v output may be driven (±1 V)
     board_rev: str        # the PCB revision this bench's pod must report ("" = accept any)
     nrst_la: Optional[int]  # LA channel jumpered to the pod's reset pin (J1 pin 22), if any
+    ext_loop: bool = False  # the DAC 0-5 V output is wired to the ADC's front SMA
 
 
 @pytest.fixture(scope="session")
@@ -72,6 +73,7 @@ def bench() -> Bench:
         allow_12v=_env("ALLOW_12V", "0") == "1",
         board_rev=_env("BOARD_REV", ""),
         nrst_la=int(_env("NRST_LA", "0")) or None,
+        ext_loop=_env("EXT_LOOP", "0") == "1",
     )
 
 

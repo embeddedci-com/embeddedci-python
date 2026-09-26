@@ -230,12 +230,15 @@ class IVPoint:
     in a closed-loop run, but in a fixed/sweep run the ADC is not in the path at all and ``i`` is
     a reading of something nothing is using, so plot and assert against ``input_code``.
     ``source`` names the input source the device reports (``None`` on firmware without it).
+    ``tripped`` is True once the loop's over-range trip has latched: the output is parked at vmin
+    until the loop is re-armed (``None`` on firmware that does not report it).
     """
 
     i: int
     v: int
     input_code: Optional[int] = None
     source: Optional[str] = None
+    tripped: Optional[bool] = None
 
     @property
     def loop_input(self) -> int:

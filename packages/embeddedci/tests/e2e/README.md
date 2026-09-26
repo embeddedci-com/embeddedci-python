@@ -44,6 +44,7 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 | DUT reset on the pod's reset pin (J1 pin 22) | no | `BENCHPOD_E2E_NRESET=1` |
 | LA channel jumpered to the reset pin | none | `BENCHPOD_E2E_NRST_LA` (e.g. 8) |
 | Pod's USB-C port plugged into a host | no | `BENCHPOD_E2E_USB_CC=1` |
+| DAC 0-5 V output wired to the ADC's front SMA | no | `BENCHPOD_E2E_EXT_LOOP=1` |
 | DUT power rail | eFuse 1 | `BENCHPOD_E2E_EFUSE` |
 | OpenOCD target | `target/stm32f4x.cfg` | `BENCHPOD_E2E_TARGET_CFG` |
 | Unwired LA channels | 9, 10 | `BENCHPOD_E2E_FREE_LA=9,10` |
