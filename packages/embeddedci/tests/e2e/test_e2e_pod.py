@@ -310,15 +310,20 @@ def test_measure_captures_one_period_of_the_played_waveform(pod):
             fall = int(edges[0])
             if lead:   # the lead-in was visible: the fall is exactly half a period after it
                 assert abs(fall - (lead + n // 2)) <= 1, (n, lead, fall)
-            else:      # the DAC already sat high: the fall is half a period plus the latency
-                assert n // 2 + 1 <= fall <= n // 2 + 4, (n, fall)
+            else:      # the DAC already sat high: no lead-in to measure, so the fall lands half a
+                # period in, give or take the latency and where the edge crosses the midpoint
+                # (seen at 128-131 for n=256).  A stale period would put it tens of samples off.
+                assert n // 2 - 1 <= fall <= n // 2 + 4, (n, fall)
         else:
             ac = v[lat:] - v[lat:].mean()
             phase = 2 * np.pi * np.arange(lat, n) / n
             fit = np.hypot(ac @ np.sin(phase), ac @ np.cos(phase)) * 2 / len(ac)
             rms_fit, rms = fit / np.sqrt(2), np.sqrt((ac ** 2).mean())
             assert rms_fit > 0.97 * rms, f"not one sine period: fit {rms_fit:.3f} V of {rms:.3f} V rms"
-            assert abs(abs(int(np.argmax(v)) - int(np.argmin(v[lat:]) + lat)) - n // 2) <= 8
+            # peak and trough half a period apart, both past the lead-in (the capture can open on
+            # the previous test's DAC level, e.g. 5 V from a square, which would outrank the peak)
+            peak, trough = int(np.argmax(v[lat:])) + lat, int(np.argmin(v[lat:])) + lat
+            assert abs(abs(peak - trough) - n // 2) <= 8, (peak, trough)
 
 
 # -- captures ----------------------------------------------------------------------------
