@@ -286,7 +286,7 @@ def test_measure_captures_one_period_of_the_played_waveform(pod):
     # exactly one period. It does not route the analog path: without cal1 it reads the idle SMA.
     # The second square uses a different length, so a stale period from the first run shows up.
     np = pytest.importorskip("numpy")
-    lat = 2                                   # DAC + analog latency, in samples
+    lat = 4                                   # lead-in: the previous DAC level + 2-3 samples of latency
     pod.analog_path("cal1")
     try:
         runs = [(w, n, _measure(pod, w, n))
@@ -296,13 +296,22 @@ def test_measure_captures_one_period_of_the_played_waveform(pod):
     for wave, n, v in runs:
         assert v.max() - v.min() > 2.0, (wave, n, v.round(2).tolist())
         if wave == "square":
-            mid = (np.median(v[lat:n // 2]) + np.median(v[n // 2 + lat:])) / 2
-            high = v[lat:] > mid
-            edges = np.flatnonzero(high[1:] != high[:-1]) + 1 + lat
-            assert high[0] and edges.size == 1, (n, edges.tolist(), v.round(2).tolist())
-            # half a period high, then half low, shifted by the latency
-            assert abs(edges[0] - (n // 2 + lat)) <= 1, (n, edges.tolist())
-            assert abs(int(high.sum()) - n // 2) <= 1, (n, int(high.sum()))
+            # The capture opens on whatever level the DAC held before (a previous test's), and the
+            # first played sample reaches the ADC 2-3 samples in (where the DAC update falls against
+            # the ADC's sample clock varies by one).  So measure that lead-in: a rise within the
+            # first few samples, then exactly one fall half a period after it.
+            mid = (np.median(v[4:n // 2]) + np.median(v[n // 2 + 4:])) / 2
+            high = v > mid
+            edges = np.flatnonzero(high[1:] != high[:-1]) + 1
+            lead = 0
+            if edges.size and edges[0] <= 4 and high[edges[0]]:
+                lead, edges = int(edges[0]), edges[1:]
+            assert edges.size == 1, (n, lead, edges.tolist(), v.round(2).tolist())
+            fall = int(edges[0])
+            if lead:   # the lead-in was visible: the fall is exactly half a period after it
+                assert abs(fall - (lead + n // 2)) <= 1, (n, lead, fall)
+            else:      # the DAC already sat high: the fall is half a period plus the latency
+                assert n // 2 + 1 <= fall <= n // 2 + 4, (n, fall)
         else:
             ac = v[lat:] - v[lat:].mean()
             phase = 2 * np.pi * np.arange(lat, n) / n
