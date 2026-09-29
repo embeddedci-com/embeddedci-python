@@ -47,5 +47,6 @@ e2e: check-sdk
 
 e2e-cloud:
 	@test -n "$(CLOUD_DEVICE)" || { echo "usage: BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=<name>"; exit 2; }
-	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" $(PYTHON) -m pytest -v -rs \
-		packages/embeddedci/tests/e2e/test_e2e_cloud.py
+	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" BENCHPOD_LIFT_DAC_LIMITS=$(LIFT_DAC_LIMITS) \
+		$(PYTHON) -m pytest -v -rs packages/embeddedci/tests/e2e/test_e2e_cloud.py \
+		--benchpod-connection=embeddedci:$(CLOUD_DEVICE)
