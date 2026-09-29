@@ -7,6 +7,8 @@ from a resolved :class:`~embeddedci.benchpod.connection.ConnSpec`.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from ..connection import ConnSpec
 from ..errors import ConnectionConfigError
 from .base import RawLink, Transport
@@ -29,10 +31,11 @@ def open_transport(
     token: "str | None" = None,
     audience: "str | None" = None,
     api_key: "str | None" = None,
+    user_token: "Callable[[], str] | None" = None,
 ) -> Transport:
     """Construct a transport for ``spec``. Imports backends lazily.
 
-    ``api_base``/``token``/``audience``/``api_key`` apply only to the cloud (``embeddedci``)
+    ``api_base``/``token``/``audience``/``api_key``/``user_token`` apply only to the cloud (``embeddedci``)
     destination.
     """
     if spec.is_wifi():
@@ -54,6 +57,7 @@ def open_transport(
             audience=audience or DEFAULT_AUDIENCE,
             timeout=timeout,
             api_key=api_key,
+            user_token=user_token,
         )
     raise ConnectionConfigError(f"unknown connection kind {spec.kind!r}")
 

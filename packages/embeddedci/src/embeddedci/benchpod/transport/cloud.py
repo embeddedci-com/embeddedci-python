@@ -14,18 +14,43 @@ TCP transport's one-connection-per-command model.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Callable, Optional
 from urllib.parse import quote
 
-from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, get_session_token
-from ..errors import FirmwareError, TransportError
+from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, mint_session_token
+from ..errors import ConnectionConfigError, FirmwareError, TransportError
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
 _RETRY_DELAYS = (0.5, 1.5)
 _EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
+#: Renew a minted session token this many seconds before it expires.
+_RENEW_MARGIN = 120.0
+
+
+def _server_error(detail: str) -> str:
+    """The ``error`` field of a server JSON error body, else the raw text."""
+    try:
+        return str(json.loads(detail).get("error") or detail)
+    except (ValueError, AttributeError):
+        return detail
+
+
+def _device_problem(device: str, code: int, detail: str) -> Optional[Exception]:
+    """A clear error for the device-level failures the server reports, or None."""
+    msg = _server_error(detail)
+    if code == 503 and "offline" in msg:
+        return TransportError(
+            f"BenchPod {device!r} is offline: it is not connected to embeddedci.com right now. "
+            "Check that it is powered and on the network (its 'online' flag in the device list).")
+    if code == 404 and "not found" in msg:
+        return ConnectionConfigError(
+            f"no cloud BenchPod named {device!r} in this organization ({msg}); list the devices "
+            "to see the names")
+    return None
 
 
 def _transient(code: int, detail: str) -> bool:
@@ -78,7 +103,11 @@ class _WsTunnelSocket:
                 header=[f"User-Agent: {USER_AGENT}"],
             )
         except Exception as exc:
-            raise TransportError(f"could not open cloud tunnel: {exc}") from exc
+            err = TransportError(f"could not open cloud tunnel: {exc}")
+            # websocket-client's WebSocketBadStatusException carries the HTTP status of the upgrade.
+            err.status = getattr(exc, "status_code", None)  # type: ignore[attr-defined]
+            err.body = getattr(exc, "resp_body", None)  # type: ignore[attr-defined]
+            raise err from exc
         self._buf = bytearray()
         self._closed = False
 
@@ -135,6 +164,7 @@ class CloudTransport(TcpTransport):
         audience: str = DEFAULT_AUDIENCE,
         timeout: float = 30.0,
         api_key: "str | None" = None,
+        user_token: "Callable[[], str] | None" = None,
     ) -> None:
         if not device_name:
             raise TransportError("the embeddedci destination requires a device name")
@@ -147,17 +177,39 @@ class CloudTransport(TcpTransport):
         self.addr = ""  # unused; the inherited _split_addr is never called
         self.dial_timeout = DEFAULT_DIAL_TIMEOUT
         self._token = token
-        # Credential for minting a session token outside GitHub Actions. Without it the cloud
-        # destination can only authenticate via Actions OIDC, i.e. only inside CI.
+        # A token given by the caller cannot be renewed; one this transport minted can.
+        self._renewable = token is None
+        self._expires_at: Optional[float] = None
+        self._token_lock = threading.Lock()  # the lease heartbeat thread reads the token too
+        # Credentials for minting a session token outside GitHub Actions: an API key, or a callable
+        # returning a logged-in user's access token (e.g. the `benchpod login` session). Without
+        # either, the cloud destination can only authenticate via Actions OIDC, i.e. only inside CI.
         self.api_key = api_key
+        self.user_token = user_token
         # Set by BenchPod once it holds a device lease; sent on tunnel/command requests so the server
         # confirms this client is the lease holder (and lets concurrent runs serialize). None = none.
         self.lease_id: "str | None" = None
 
     def _session_token(self) -> str:
-        if not self._token:
-            self._token = get_session_token(self.api_base, self.audience, self.api_key)
-        return self._token
+        """The cloud session token, minted on first use and renewed shortly before it expires, so
+        a connection held for longer than the token's lifetime keeps working."""
+        with self._token_lock:
+            due = (self._renewable and self._expires_at is not None
+                   and time.time() >= self._expires_at - _RENEW_MARGIN)
+            if not self._token or due:
+                self._token, self._expires_at = mint_session_token(
+                    self.api_base, self.audience, self.api_key, self.user_token)
+            return self._token
+
+    def _invalidate_token(self) -> bool:
+        """Drop a token the server rejected so the next request mints a fresh one. Returns False
+        when the token came from the caller and cannot be renewed."""
+        if not self._renewable:
+            return False
+        with self._token_lock:
+            self._token = None
+            self._expires_at = None
+        return True
 
     def _ws_url(self) -> str:
         base = self.api_base
@@ -177,7 +229,20 @@ class CloudTransport(TcpTransport):
         return url
 
     def _dial(self) -> _WsTunnelSocket:  # type: ignore[override]
-        sock = _WsTunnelSocket(self._ws_url(), self.timeout)
+        try:
+            sock = _WsTunnelSocket(self._ws_url(), self.timeout)
+        except TransportError as exc:
+            status = getattr(exc, "status", None)
+            if status == 401 and self._invalidate_token():
+                sock = _WsTunnelSocket(self._ws_url(), self.timeout)
+            else:
+                body = getattr(exc, "body", None) or b""
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8", "replace")
+                problem = _device_problem(self.device_name, status or 0, body)
+                if problem is not None:
+                    raise problem from exc
+                raise
         sock.settimeout(self.timeout)
         return sock
 
@@ -198,27 +263,35 @@ class CloudTransport(TcpTransport):
         body = json.dumps(
             {"command": req, "timeout_ms": int(self.timeout * 1000)}
         ).encode("utf-8")
-        request = urllib.request.Request(url, data=body, method="POST")
-        request.add_header("Content-Type", "application/json")
-        request.add_header("Authorization", f"Bearer {self._session_token()}")
-        request.add_header("Accept", "application/json")
-        request.add_header("User-Agent", USER_AGENT)
-        if self.lease_id:
-            request.add_header("X-Benchpod-Lease", self.lease_id)
         cmd = req.get("cmd")
         attempt = 0
+        renewed = False
         while True:
+            request = urllib.request.Request(url, data=body, method="POST")
+            request.add_header("Content-Type", "application/json")
+            request.add_header("Authorization", f"Bearer {self._session_token()}")
+            request.add_header("Accept", "application/json")
+            request.add_header("User-Agent", USER_AGENT)
+            if self.lease_id:
+                request.add_header("X-Benchpod-Lease", self.lease_id)
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
                     payload = json.loads(resp.read().decode("utf-8"))
                 break
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300]
+                # The server rejects the token before running anything, so a retry is safe.
+                if exc.code == 401 and not renewed and self._invalidate_token():
+                    renewed = True
+                    continue
                 if (attempt < len(_RETRY_DELAYS) and _transient(exc.code, detail)
                         and _repeatable(req)):
                     time.sleep(_RETRY_DELAYS[attempt])
                     attempt += 1
                     continue
+                problem = _device_problem(self.device_name, exc.code, detail)
+                if problem is not None:
+                    raise problem from exc
                 raise TransportError(
                     f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
                 ) from exc

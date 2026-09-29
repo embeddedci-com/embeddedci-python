@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Cloud: the session token the SDK mints is renewed shortly before it expires, and once more if the
+  server rejects it (tunnel, command channel and lease heartbeat). A connection held longer than
+  the token's hour used to start failing mid-session. A `cloud_token` you pass is not renewed.
+- Cloud: new `BenchPod(cloud_user_token=callable)` authenticates with a logged-in user's access
+  token (exchanged via `POST /api/auth/token`), between an API key and GitHub Actions OIDC.
+  `cloud_auth.mint_session_token()` returns the token with its expiry; `exchange_user_token()` added.
+  The server API (wiring profile, waveform library) uses that user token too: the device and
+  waveform routes refuse the cloud session token minted from it.
+- Cloud: an offline pod fails with "BenchPod '…' is offline" and an unknown name with
+  `ConnectionConfigError: no cloud BenchPod named '…'`, instead of the raw HTTP error. The lease used
+  to read the server's 404 for an unknown name as "no lease support" and carry on unlocked.
+- Cloud: `DeviceBusyError` says until when the holder's lease runs, and how to wait longer outside
+  pytest (`lease_wait`).
+
 ## 2.1.1
 
 - The README, docstrings and examples say 14 LA channels (LA1-LA14); 2.1.0 still said 12.

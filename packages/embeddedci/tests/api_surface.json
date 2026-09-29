@@ -23,7 +23,7 @@
   "BMP280_ADDR_PRIMARY": 118,
   "BMP280_ADDR_SECONDARY": 119,
   "BenchPod": {
-    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
+    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
     "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
@@ -266,7 +266,7 @@
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
   "DeviceBusyError": {},
   "DeviceLease": {
-    "__init__": "(self, *, api_base: 'str', token_provider: 'Callable[[], str]', device_name: 'str', ttl_seconds: 'int' = 120, run_label: 'Optional[str]' = None) -> 'None'",
+    "__init__": "(self, *, api_base: 'str', token_provider: 'Callable[[], str]', device_name: 'str', ttl_seconds: 'int' = 120, run_label: 'Optional[str]' = None, invalidate_token: 'Optional[Callable[[], bool]]' = None) -> 'None'",
     "acquire": "(self, *, wait_timeout: 'float' = 600.0, poll_interval: 'float' = 5.0) -> 'None'",
     "held": "property",
     "lease_id": "property",

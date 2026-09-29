@@ -11,17 +11,21 @@ not run the pytest suite over the cloud at all, so the cloud transport went effe
 outside CI while the identical tests ran fine over a direct LAN connection. A **user API key**
 (``BENCHPOD_API_KEY``/``api_key=``) is therefore accepted as an alternative credential and
 exchanged via ``POST /api/auth/token`` — the same endpoint and the same ``ApiKey`` scheme the Go
-hwe2e cloud suite authenticates with. The API key is preferred when present; OIDC remains the
-zero-secret path for GitHub Actions.
+hwe2e cloud suite authenticates with. The API key is preferred when present; a logged-in user's
+access token (``Bearer``, e.g. the ``benchpod login`` session) is exchanged at the same endpoint;
+OIDC remains the zero-secret path for GitHub Actions.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
+from typing import Callable, Tuple
 
 from .errors import CloudAuthError
 
@@ -30,6 +34,8 @@ from .errors import CloudAuthError
 # embeddedci.com 301-redirects to www, which urllib would mishandle on a POST).
 DEFAULT_AUDIENCE = "https://embeddedci.com"
 DEFAULT_API_BASE = "https://www.embeddedci.com"
+#: Lifetime asked for when exchanging an API key or user token; the cloud transport renews it.
+DEFAULT_SESSION_TTL = 3600
 
 # A real User-Agent is required: the apex/edge (Cloudflare) bans the default "Python-urllib/x.y"
 # signature (HTTP 403, error 1010). Identify the SDK explicitly instead.
@@ -119,19 +125,16 @@ def exchange_token(api_base: str, oidc_token: str) -> dict:
         raise CloudAuthError(f"embeddedci token exchange failed: {exc}") from exc
 
 
-def exchange_api_key(api_base: str, api_key: str, ttl_seconds: int = 3600) -> dict:
-    """Exchange a user API key for a short-lived ``cloud_session`` token via POST /api/auth/token.
-
-    Mirrors the Go hwe2e cloud suite's ``/auth/token`` call: the key authenticates the request
-    (``Authorization: ApiKey eci_…``) and the reply carries a bearer token scoped to the devices
-    that key may drive.
-    """
+def _exchange_for_cloud_session(api_base: str, authorization: str, what: str,
+                                ttl_seconds: int) -> dict:
+    """POST /api/auth/token with ``authorization``: the reply carries a short-lived ``cloud_session``
+    bearer token scoped to the devices that credential may drive."""
     url = api_base.rstrip("/") + "/api/auth/token"
     data = json.dumps({"ttl_seconds": int(ttl_seconds)}).encode("utf-8")
     request = urllib.request.Request(
         url, data=data, method="POST",
         headers={
-            "Authorization": f"ApiKey {api_key}",
+            "Authorization": authorization,
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": USER_AGENT,
@@ -146,30 +149,70 @@ def exchange_api_key(api_base: str, api_key: str, ttl_seconds: int = 3600) -> di
             msg = json.loads(msg).get("error", msg)
         except Exception:
             pass
-        raise CloudAuthError(f"embeddedci API-key token exchange failed (HTTP {exc.code}): {msg}") from exc
+        raise CloudAuthError(f"embeddedci {what} token exchange failed (HTTP {exc.code}): {msg}") from exc
     except Exception as exc:
-        raise CloudAuthError(f"embeddedci API-key token exchange failed: {exc}") from exc
+        raise CloudAuthError(f"embeddedci {what} token exchange failed: {exc}") from exc
 
 
-def get_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE,
-                      api_key: "str | None" = None) -> str:
-    """Mint an embeddedci session token for the cloud destination.
+def exchange_api_key(api_base: str, api_key: str, ttl_seconds: int = DEFAULT_SESSION_TTL) -> dict:
+    """Exchange a user API key for a short-lived ``cloud_session`` token via POST /api/auth/token.
 
-    Prefers an explicit ``api_key`` (or ``BENCHPOD_API_KEY``), which works anywhere; falls back to
-    GitHub Actions OIDC, which works only inside a workflow with ``id-token: write``.
+    Mirrors the Go hwe2e cloud suite's ``/auth/token`` call: the key authenticates the request
+    (``Authorization: ApiKey eci_…``) and the reply carries a bearer token scoped to the devices
+    that key may drive.
+    """
+    return _exchange_for_cloud_session(api_base, f"ApiKey {api_key}", "API-key", ttl_seconds)
+
+
+def exchange_user_token(api_base: str, access_token: str, ttl_seconds: int = DEFAULT_SESSION_TTL) -> dict:
+    """Exchange a logged-in user's access token (e.g. from ``benchpod login``) for a
+    ``cloud_session`` token via the same POST /api/auth/token, authenticated as ``Bearer``."""
+    return _exchange_for_cloud_session(api_base, f"Bearer {access_token}", "user", ttl_seconds)
+
+
+def _expires_at(resp: dict) -> "float | None":
+    """The token's expiry as a ``time.time()`` value, from ``expires_at`` or ``expires_in``."""
+    raw = resp.get("expires_at")
+    if isinstance(raw, str) and raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    try:
+        return time.time() + float(resp["expires_in"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def mint_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE,
+                       api_key: "str | None" = None,
+                       user_token: "Callable[[], str] | None" = None) -> "Tuple[str, float | None]":
+    """Mint an embeddedci session token for the cloud destination, and when it expires.
+
+    Credentials, in order: an explicit ``api_key`` (or ``BENCHPOD_API_KEY``), which works anywhere;
+    ``user_token``, a callable returning a logged-in user's access token; GitHub Actions OIDC, which
+    works only inside a workflow with ``id-token: write``. Returns ``(token, expires_at)`` with
+    ``expires_at`` a ``time.time()`` value, or None when the server did not say.
     """
     key = api_key or os.environ.get("BENCHPOD_API_KEY")
-    if key:
-        resp = exchange_api_key(api_base, key.strip())
+    if key or user_token is not None:
+        resp = (exchange_api_key(api_base, key.strip()) if key
+                else exchange_user_token(api_base, user_token()))  # type: ignore[misc]
         # /auth/token replies {"token": …}; accept access_token too so either shape works.
         token = resp.get("token") or resp.get("access_token")
         if not token:
-            raise CloudAuthError("embeddedci API-key token exchange returned no token")
-        return token
+            raise CloudAuthError("embeddedci token exchange returned no token")
+        return token, _expires_at(resp)
 
     oidc = mint_oidc_token(audience)
     resp = exchange_token(api_base, oidc)
     token = resp.get("access_token")
     if not token:
         raise CloudAuthError("embeddedci token exchange returned no access_token")
-    return token
+    return token, _expires_at(resp)
+
+
+def get_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE,
+                      api_key: "str | None" = None) -> str:
+    """Mint an embeddedci session token for the cloud destination (see :func:`mint_session_token`)."""
+    return mint_session_token(api_base, audience, api_key)[0]

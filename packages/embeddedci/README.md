@@ -158,7 +158,7 @@ is selected. You can also call `bp.set_la_voltage(3.3)` later; `bp.get_la_voltag
 `LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod.
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
-`cloud_token`, `cloud_audience`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name))
+`cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name))
 and `transport` (inject a custom backend).
 
 ### Connection strings
@@ -169,7 +169,7 @@ and `transport` (inject a custom backend).
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
 | `usb` | USB console, auto-detected by probing the serial ports (`serial` also accepted) |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
-| `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key anywhere, or GitHub Actions OIDC) |
+| `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key or a user token anywhere, or GitHub Actions OIDC) |
 
 **Use the network (or the cloud) for testing.** The STM32 pod's USB console is a text shell for
 setup and diagnostics with no JSON mode, so over USB the SDK can only read `status()`, `ping()`,
@@ -1008,8 +1008,15 @@ devices you may drive:
 
 1. **An API key** (`eci_…`) via `api_key=`, `--benchpod-api-key` or `BENCHPOD_API_KEY`. Works
    anywhere: your desk, any CI system.
-2. **GitHub Actions OIDC** when no API key is set. No secret is stored — the workflow proves which
+2. **A logged-in user's token** via `cloud_user_token=`, a callable returning the access token (the
+   MCP server passes the `benchpod login` session this way).
+3. **GitHub Actions OIDC** when neither is set. No secret is stored — the workflow proves which
    repo it is, like PyPI Trusted Publishing. Only works inside a GitHub Actions job.
+
+The SDK renews that session token shortly before it expires (and once more if the server rejects
+it), so a connection held for hours keeps working. A token you pass yourself as `cloud_token=` is
+used as is. An offline pod fails with "BenchPod '…' is offline", a wrong name with "no cloud
+BenchPod named '…'", and a busy pod names who holds it and until when.
 
 ```python
 from embeddedci.benchpod import BenchPod

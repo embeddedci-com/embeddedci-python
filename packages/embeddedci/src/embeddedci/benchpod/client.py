@@ -30,7 +30,7 @@ import logging
 import os
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 from . import can as _can
 from . import capture as _capture
@@ -176,6 +176,7 @@ class BenchPod:
         api_key: Optional[str] = None,
         cloud_token: Optional[str] = None,
         cloud_audience: Optional[str] = None,
+        cloud_user_token: Optional[Callable[[], str]] = None,
         lease: bool = True,
         lease_wait: float = DEFAULT_LEASE_WAIT,
         lease_ttl: int = DEFAULT_LEASE_TTL,
@@ -192,9 +193,12 @@ class BenchPod:
         I/O-bank voltage right after connecting. The pod refuses every LA-bank operation —
         flashing, UART, LA capture, pull resistors, I2C-sensor emulation — until one is selected.
 
-        Cloud options: ``api_key`` (or ``BENCHPOD_API_KEY``) authenticates anywhere; without it the
-        cloud destination uses GitHub Actions OIDC (``cloud_token``/``cloud_audience`` override
-        that). ``api_base`` (or ``BENCHPOD_API_BASE``) points at another embeddedci server. An API
+        Cloud options: ``api_key`` (or ``BENCHPOD_API_KEY``) authenticates anywhere; else
+        ``cloud_user_token``, a callable returning a logged-in user's access token (such as the
+        ``benchpod login`` session), is exchanged for a device session; without either the cloud
+        destination uses GitHub Actions OIDC (``cloud_token``/``cloud_audience`` override that).
+        A session token the SDK mints is renewed before it expires, so a long session keeps
+        working; a ``cloud_token`` you pass is used as is. ``api_base`` (or ``BENCHPOD_API_BASE``) points at another embeddedci server. An API
         key also unlocks the cloud waveform library on a LAN/serial connection.
 
         The cloud device is *shared*, so the client takes an exclusive **lease** on it for the life
@@ -210,6 +214,7 @@ class BenchPod:
         self._lease: Optional[DeviceLease] = None
         self._api_base = api_base or os.environ.get(API_BASE_ENV)
         self._api_key = api_key or os.environ.get(API_KEY_ENV)
+        self._cloud_user_token = cloud_user_token
         self._caps: Optional[Capabilities] = None
         self._server_api: Optional["ServerApi"] = None
         self._waveforms: Optional["WaveformLibrary"] = None
@@ -228,12 +233,14 @@ class BenchPod:
                 token=cloud_token,
                 audience=cloud_audience,
                 api_key=self._api_key,
+                user_token=cloud_user_token,
             )
         try:
             if lease and isinstance(self._transport, CloudTransport):
                 self._lease = DeviceLease(
                     api_base=self._transport.api_base,
                     token_provider=self._transport._session_token,
+                    invalidate_token=self._transport._invalidate_token,
                     device_name=self._transport.device_name,
                     ttl_seconds=lease_ttl,
                 )
@@ -1390,10 +1397,12 @@ class BenchPod:
     # -- cloud waveform library + server API ----------------------------------
 
     def _try_server_api(self) -> Optional["ServerApi"]:
-        """Build a :class:`ServerApi` if possible (API key or a cloud session token), else None."""
+        """Build a :class:`ServerApi` if possible, else None. Credentials, in order: the API key; the
+        logged-in user's token (the server's device and waveform routes take a user, not a cloud
+        session token minted from one); the cloud transport's session token (API key or OIDC)."""
         if self._server_api is not None:
             return self._server_api
-        token_provider = getattr(self._transport, "_session_token", None)
+        token_provider = self._cloud_user_token or getattr(self._transport, "_session_token", None)
         if not self._api_key and token_provider is None:
             return None
         from .server_api import ServerApi

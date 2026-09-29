@@ -21,7 +21,7 @@ from typing import Callable, Optional, Tuple
 from urllib.parse import quote
 
 from .cloud_auth import USER_AGENT
-from .errors import CloudAuthError, DeviceBusyError
+from .errors import CloudAuthError, ConnectionConfigError, DeviceBusyError
 
 # Server defaults: lease TTL 120s. Heartbeat at ~TTL/3 keeps it alive through long flashes.
 DEFAULT_LEASE_TTL = 120
@@ -65,9 +65,12 @@ class DeviceLease:
         device_name: str,
         ttl_seconds: int = DEFAULT_LEASE_TTL,
         run_label: Optional[str] = None,
+        invalidate_token: Optional[Callable[[], bool]] = None,
     ) -> None:
         self._api_base = api_base.rstrip("/")
         self._token_provider = token_provider
+        # Drops a token the server rejected (HTTP 401) so the provider mints a fresh one.
+        self._invalidate_token = invalidate_token
         self._device = device_name
         self._ttl = max(15, int(ttl_seconds))
         self._run_label = run_label or _default_run_label()
@@ -108,7 +111,8 @@ class DeviceLease:
             if time.monotonic() >= deadline:
                 raise DeviceBusyError(
                     f"BenchPod {self._device!r} is in use by {holder}; waited {wait_timeout:.0f}s "
-                    "for it to free. Increase the wait (--benchpod-lease-wait) or stagger your runs."
+                    "for it to free. Wait longer (lease_wait, or --benchpod-lease-wait under "
+                    "pytest), try again later, or stagger your runs."
                 )
             if not warned:
                 warnings.warn(
@@ -127,7 +131,7 @@ class DeviceLease:
         if self._held:
             try:
                 self._post("lease/release")
-            except CloudAuthError:
+            except (CloudAuthError, ConnectionConfigError):
                 pass  # best-effort; the lease will expire on its own
             self._held = False
 
@@ -140,7 +144,7 @@ class DeviceLease:
             while not self._stop.wait(interval):
                 try:
                     holder, _ = self._post("lease/renew")
-                except CloudAuthError:
+                except (CloudAuthError, ConnectionConfigError):
                     continue  # transient; try again next tick
                 if holder is not None:
                     warnings.warn(
@@ -154,9 +158,10 @@ class DeviceLease:
         self._thread = threading.Thread(target=loop, name="benchpod-lease", daemon=True)
         self._thread.start()
 
-    def _post(self, path: str) -> Tuple[Optional[str], Optional[dict]]:
+    def _post(self, path: str, *, renewed: bool = False) -> Tuple[Optional[str], Optional[dict]]:
         """POST to /api/cloud/devices/<path>. Returns (None, payload) on success, or
-        (holder, None) when the device is busy (HTTP 409). Raises CloudAuthError on other failures."""
+        (holder, None) when the device is busy (HTTP 409). Raises ConnectionConfigError when the
+        server has no such device, CloudAuthError on other failures."""
         url = f"{self._api_base}/api/cloud/devices/{path}?device={quote(self._device, safe='')}"
         body = json.dumps(
             {"lease_id": self._lease_id, "run_label": self._run_label, "ttl_seconds": self._ttl}
@@ -170,16 +175,33 @@ class DeviceLease:
             with urllib.request.urlopen(request, timeout=_LEASE_HTTP_TIMEOUT) as resp:
                 return None, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
             if exc.code == 409:
                 holder = "another run"
                 try:
-                    holder = json.loads(exc.read().decode("utf-8")).get("holder", holder)
+                    busy = json.loads(detail)
+                    holder = busy.get("holder") or holder
+                    if busy.get("expires_at"):
+                        holder += f" (its lease runs until {busy['expires_at']} unless renewed)"
                 except Exception:
                     pass
                 return holder, None
-            if exc.code in (404, 405, 501):
+            if exc.code == 401 and not renewed and self._invalidate_token and self._invalidate_token():
+                return self._post(path, renewed=True)
+            if exc.code == 404:
+                # A JSON error is the server answering for the device; a bare 404 is an older
+                # server without the lease route.
+                try:
+                    msg = json.loads(detail).get("error")
+                except Exception:
+                    msg = None
+                if msg:
+                    raise ConnectionConfigError(
+                        f"no cloud BenchPod named {self._device!r} in this organization ({msg}); "
+                        "list the devices to see the names") from exc
                 raise _LeaseUnsupported() from exc
-            detail = exc.read().decode("utf-8", "replace")[:300]
+            if exc.code in (405, 501):
+                raise _LeaseUnsupported() from exc
             raise CloudAuthError(f"device lease {path} failed (HTTP {exc.code}): {detail}") from exc
         except Exception as exc:
             raise CloudAuthError(f"device lease {path} failed: {exc}") from exc

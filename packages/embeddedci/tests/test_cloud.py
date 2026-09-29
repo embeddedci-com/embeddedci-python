@@ -292,3 +292,132 @@ def test_cloud_command_gives_up_after_two_retries(monkeypatch):
     with pytest.raises(TransportError, match="HTTP 502"):
         t.command({"cmd": "status"})
     assert len(calls) == 3
+
+
+# -- session-token renewal and device errors -------------------------------------------------
+
+def _minting(monkeypatch, expires_in=3600.0):
+    """Replace mint_session_token with a counter that hands out tok1, tok2, …"""
+    import time as _time
+
+    from embeddedci.benchpod.transport import cloud
+
+    minted = []
+
+    def fake_mint(api_base, audience, api_key, user_token):
+        minted.append(user_token() if user_token else api_key)
+        return f"tok{len(minted)}", _time.time() + expires_in
+
+    monkeypatch.setattr(cloud, "mint_session_token", fake_mint)
+    return minted
+
+
+def test_user_token_is_exchanged_as_bearer(monkeypatch):
+    import io
+    import json
+    import urllib.request
+
+    seen = {}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(request, timeout=None):
+        seen["auth"] = request.get_header("Authorization")
+        seen["url"] = request.full_url
+        return _Resp(json.dumps({"token": "cloud", "expires_at": "2030-01-01T00:00:00Z"}).encode())
+
+    monkeypatch.delenv("BENCHPOD_API_KEY", raising=False)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    token, expires_at = cloud_auth.mint_session_token("https://example.test", user_token=lambda: "user-jwt")
+    assert token == "cloud" and seen == {"auth": "Bearer user-jwt", "url": "https://example.test/api/auth/token"}
+    assert expires_at == pytest.approx(1893456000.0)
+
+
+def test_session_token_is_renewed_before_it_expires(monkeypatch):
+    minted = _minting(monkeypatch, expires_in=60.0)  # already inside the renewal margin
+    t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
+    assert t._session_token() == "tok1"
+    assert t._session_token() == "tok2"
+    assert minted == ["u", "u"]
+
+
+def test_session_token_is_cached_while_valid(monkeypatch):
+    _minting(monkeypatch)
+    t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
+    assert t._session_token() == t._session_token() == "tok1"
+
+
+def test_cloud_command_renews_a_rejected_token_once(monkeypatch):
+    _minting(monkeypatch)
+    t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(401, b'{"error":"invalid session token"}'), None])
+    assert t.command({"cmd": "status"}) == "pong"
+    assert [c.get_header("Authorization") for c in calls] == ["Bearer tok1", "Bearer tok2"]
+
+
+def test_cloud_command_does_not_renew_a_caller_token(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="given")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(401, b'{"error":"invalid session token"}')])
+    with pytest.raises(TransportError, match="HTTP 401"):
+        t.command({"cmd": "status"})
+    assert len(calls) == 1
+
+
+def test_cloud_command_reports_an_offline_pod(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    _scripted_urlopen(monkeypatch, [_edge_error(503, b'{"error":"device is not reachable (offline)"}')])
+    with pytest.raises(TransportError, match="'dev-a' is offline"):
+        t.command({"cmd": "status"})
+
+
+def test_cloud_command_reports_an_unknown_pod(monkeypatch):
+    t = CloudTransport("nope", api_base="https://example.test", token="x")
+    _scripted_urlopen(monkeypatch, [_edge_error(404, b'{"error":"device not found: nope"}')])
+    with pytest.raises(ConnectionConfigError, match="no cloud BenchPod named 'nope'"):
+        t.command({"cmd": "status"})
+
+
+def test_tunnel_renews_a_rejected_token(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+    from embeddedci.benchpod.transport import cloud
+
+    _minting(monkeypatch)
+    urls = []
+
+    class _Sock:
+        def settimeout(self, t):
+            pass
+
+    def fake_socket(url, timeout):
+        urls.append(url)
+        if len(urls) == 1:
+            err = TransportError("could not open cloud tunnel: Handshake status 401")
+            err.status = 401
+            raise err
+        return _Sock()
+
+    monkeypatch.setattr(cloud, "_WsTunnelSocket", fake_socket)
+    t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
+    t._dial()
+    assert "token=tok1" in urls[0] and "token=tok2" in urls[1]
+
+
+@pytest.mark.parametrize("user_token, expected", [(lambda: "user-jwt", "Bearer user-jwt"), (None, "Bearer sess")])
+def test_server_api_prefers_the_user_token(monkeypatch, user_token, expected):
+    # The device and waveform routes take a user; a cloud session token is only for driving the pod.
+    from embeddedci.benchpod import BenchPod
+
+    monkeypatch.delenv("BENCHPOD_API_KEY", raising=False)
+    monkeypatch.delenv("BENCHPOD_LA_VOLTAGE", raising=False)
+    t = CloudTransport("dev-a", api_base="https://example.test", token="sess")
+    bp = BenchPod(transport=t, cloud_user_token=user_token, lease=False)
+    assert bp._try_server_api()._auth_header() == expected
