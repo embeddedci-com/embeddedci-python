@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.2.0
+
 - Cloud: the session token the SDK mints is renewed shortly before it expires, and once more if the
   server rejects it (tunnel, command channel and lease heartbeat). A connection held longer than
   the token's hour used to start failing mid-session. A `cloud_token` you pass is not renewed.

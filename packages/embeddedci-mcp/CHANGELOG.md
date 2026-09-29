@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.2.0
+
 - New `cloud_list_devices`: the pods on your embeddedci.com account and whether each is online,
   without connecting to one. It authenticates with `BENCHPOD_API_KEY`, else the `benchpod login`
   session in `~/.config/benchpod-cli/token.json` (refreshed and saved back when expired). Tools
