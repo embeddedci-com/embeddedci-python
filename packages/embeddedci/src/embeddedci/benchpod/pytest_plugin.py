@@ -280,6 +280,41 @@ def benchpod_connection(pytestconfig: "pytest.Config") -> str:
     return conn
 
 
+LIFT_DAC_LIMITS_ENV = "BENCHPOD_LIFT_DAC_LIMITS"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _benchpod_lift_dac_limits(pytestconfig: "pytest.Config") -> Iterator[None]:
+    """With ``BENCHPOD_LIFT_DAC_LIMITS=1``: clear the pod's DAC output limits for the session and
+    put the SAME limits back at the end, even when tests fail.
+
+    The limits protect an external output stage (a solar simulator module on the 5 V path, say).
+    With the stage switched off a hardware test run may drive the DAC freely; without the variable
+    nothing changes and the pod refuses what the limits forbid. Opens its own short connection, so
+    it applies whichever fixture a suite then uses to talk to the pod."""
+    conn = _resolve_connection(pytestconfig)
+    if os.environ.get(LIFT_DAC_LIMITS_ENV) != "1" or not conn:
+        yield
+        return
+    saved = None
+    try:
+        with BenchPod(conn) as pod:
+            limits = pod.command({"cmd": "dac_limits"})
+            if isinstance(limits, dict) and limits.get("enabled"):
+                pod.command({"cmd": "dac_limits", "enabled": False})
+                saved = limits
+    except Exception as exc:                      # older firmware has no dac_limits: nothing to do
+        print(f"[benchpod] {LIFT_DAC_LIMITS_ENV}: could not read/clear DAC limits: {exc}")
+    try:
+        yield
+    finally:
+        if saved is not None:
+            restore = {"cmd": "dac_limits", "path": saved["path"], "inverted": saved["inverted"],
+                       "min_mv": saved["min_mv"], "max_mv": saved["max_mv"]}
+            with BenchPod(conn) as pod:
+                pod.command(restore)
+
+
 @pytest.fixture(scope="session")
 def benchpod_la_voltage() -> Optional[float]:
     """The I/O voltage of the board under test, selected on the pod when the session connects.

@@ -2,7 +2,7 @@
 
     pytest packages/embeddedci/tests/e2e/test_e2e_la13_14.py --benchpod-connection=<pod host>
 
-Nothing may be wired to LA13/LA14 (override with BENCHPOD_E2E_TOP_LA). Each path that used to stop
+LA13/LA14 must be free of drivers (device INPUTS are fine; override with BENCHPOD_E2E_TOP_LA). Each path that used to stop
 at 12 gets one check: the pin table, GPIO drive + read-back, a capture, a trigger, a UART session.
 Firmware older than 3.1 only has 12 channels, so these skip there; on 3.1+ a missing channel fails.
 """
@@ -104,8 +104,13 @@ def test_level_trigger_on_la13(pod, top):
 
 
 def test_step_train_on_la14_is_captured(pod, top):
-    """An exact count: the 40 ms train starts 0.5 s into a 2 s capture, so none of it is missed."""
+    """An exact count: the 40 ms train starts 0.5 s into a 2 s capture, so none of it is missed.
+
+    LA14 is held low as a GPIO output first (the train then pulses the GPIO pin), so an undriven
+    line cannot add an edge: with something wired to LA14 (a device input) it otherwise floats
+    and picked up a stray edge now and then."""
     _, la14 = top
+    pod.gpio(la14, "output", level=0)
     result = {}
 
     def run():

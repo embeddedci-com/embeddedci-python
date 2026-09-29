@@ -13,10 +13,13 @@ FIRMWARE ?=
 USB ?=
 CLOUD_DEVICE ?=
 REV ?=
+# 1 (default): clear the pod's DAC output limits for the run and restore them afterwards
+# (pytest_plugin._benchpod_lift_dac_limits).  LIFT_DAC_LIMITS=0 when an output stage is live.
+LIFT_DAC_LIMITS ?= 1
 
 FIRMWARE_OPT = $(if $(FIRMWARE),--benchpod-firmware=$(abspath $(FIRMWARE)),)
 # REV=v3 makes a pod that reports another board revision fail instead of taking the v2 branches.
-REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),)
+REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),) BENCHPOD_LIFT_DAC_LIMITS=$(LIFT_DAC_LIMITS)
 
 .PHONY: test e2e e2e-cloud check-sdk
 
@@ -39,7 +42,7 @@ e2e: check-sdk
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
 	$(REV_ENV) $(PYTHON) -m pytest -v -rs packages/embeddedci-mcp/tests/test_e2e_mcp.py \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
-	$(PYTHON) -m pytest -v -rs packages/embeddedci-openhtf/tests/test_e2e_openhtf.py \
+	$(REV_ENV) $(PYTHON) -m pytest -v -rs packages/embeddedci-openhtf/tests/test_e2e_openhtf.py \
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
 
 e2e-cloud:
