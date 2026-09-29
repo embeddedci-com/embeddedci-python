@@ -39,6 +39,7 @@ from . import dsp as _dsp
 from . import flash as _flash
 from . import i2c as _i2c
 from . import sensor as _sensor
+from . import spi as _spi
 from . import uart as _uart
 from .capabilities import Capabilities
 from .constants import (
@@ -848,6 +849,72 @@ class BenchPod:
         """
         link = self._uart_link(rx, tx, baud)
         return _uart.UartSession(link, max_buffer=max_buffer)
+
+    # -- SPI master / SPI flash ------------------------------------------------
+
+    def open_spi(
+        self,
+        *,
+        sck: Union[Pin, int, str, None] = None,
+        mosi: Union[Pin, int, str, None] = None,
+        miso: Union[Pin, int, str, None] = None,
+        cs: Union[Pin, int, str, None] = None,
+        hz: int = 1_000_000,
+        mode: int = 0,
+    ) -> _spi.SpiSession:
+        """Arm the SPI master on four LA pins and return a :class:`~embeddedci.benchpod.spi.SpiSession`
+        (a context manager; closing it releases the pins)::
+
+            with bp.open_spi(sck=13, mosi=14, miso=6, cs=5, hz=6_000_000) as spi:
+                print(spi.flash_id())
+                spi.flash_program(open("fw.bin", "rb").read())
+
+        Omitted pins come from the wiring profile (``spi_sclk``, ``spi_mosi``, ``spi_miso``,
+        ``spi_cs``). ``hz`` is rounded down to 24 MHz / (2 * n), n = 2..63 (6 MHz .. 190 kHz); the
+        session's ``hz`` is the rate used. ``mode`` is 0 or 3. Needs gateware v45+
+        (capability ``spi_master``); an SWD flash cannot run while a session is open.
+        """
+        self._require_capability("spi_master", "the SPI master")
+        if mode not in (0, 3):
+            raise ValueError("mode must be 0 or 3")
+        req = {"cmd": "spi_start", "sck": self._wired(sck, "spi_sclk"), "mosi": self._wired(mosi, "spi_mosi"),
+               "miso": self._wired(miso, "spi_miso"), "cs": self._wired(cs, "spi_cs"),
+               "hz": int(hz), "mode": int(mode)}
+        return _spi.SpiSession(self.command, _dict(self.command(req)))
+
+    def spi_flash(
+        self,
+        image: Union[bytes, str, "os.PathLike[str]"],
+        addr: int = 0,
+        *,
+        erase: bool = True,
+        verify: bool = True,
+        hold_reset: bool = False,
+        sck: Union[Pin, int, str, None] = None,
+        mosi: Union[Pin, int, str, None] = None,
+        miso: Union[Pin, int, str, None] = None,
+        cs: Union[Pin, int, str, None] = None,
+        hz: int = 6_000_000,
+        mode: int = 0,
+        progress: Optional[_spi.Progress] = None,
+    ) -> _spi.SpiFlashResult:
+        """Program an image (bytes or a file path) into the SPI NOR flash on the SPI pins.
+
+        Erases the sectors the image covers (unless ``erase=False``), writes it 768 bytes per
+        command and verifies every chunk (unless ``verify=False``). ``hold_reset`` holds the DUT
+        in reset for the whole job (rev3 pods), so its own controller does not drive the same
+        bus; it is released again afterwards, also on failure. Pins come from the wiring
+        profile unless given. ``progress(done, total)`` is called as it goes.
+        """
+        data = bytes(image) if isinstance(image, (bytes, bytearray, memoryview)) else open(image, "rb").read()
+        if hold_reset:
+            self.set_reset(True)
+        try:
+            with self.open_spi(sck=sck, mosi=mosi, miso=miso, cs=cs, hz=hz, mode=mode) as spi:
+                return spi.flash_program(data, addr, erase=erase, verify=verify, progress=progress)
+        finally:
+            if hold_reset:
+                self.set_reset(False)
 
     # -- ADC / logic-analyzer capture -----------------------------------------
 

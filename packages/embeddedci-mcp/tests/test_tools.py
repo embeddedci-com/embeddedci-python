@@ -19,7 +19,7 @@ EXPECTED_TOOLS = {
     "power_on", "power_off", "power_status", "reset_target",
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
-    "flash",
+    "flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
     "i2c_sensor_regs", "i2c_sensor_capture",

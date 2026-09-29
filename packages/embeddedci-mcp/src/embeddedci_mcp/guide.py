@@ -20,6 +20,7 @@ GPIO: each LA channel has one owner at a time. gpio_mode claims channels (input/
 
 Typical flows:
 - Flash and boot: flash(file) then power_cycle_and_capture(until_regex) — with a wiring profile that is all; otherwise pass swclk, swdio, target, nreset and rx, tx.
+- SPI flash (a 25-series chip on four LA pins, wiring spi_sclk/spi_mosi/spi_miso/spi_cs): spi_flash_info to see it answers, then spi_flash_program(file, addr); hold_reset=true keeps the DUT off the bus. spi_transfer talks to any other SPI device.
 - Interactive console: uart_open, power_on, uart_read(until_regex), uart_write, uart_close.
 - Emulate an I2C sensor: set_pull([sda, scl], true) on LA1-LA6 (LA7/LA8 pull DOWN), enable_i2c_sensor, power_cycle_and_capture, i2c_sensor_capture(address, register).
 - Analog: dac_output (DC), generate (sine/square/sawtooth) and replay drive the DAC and route its path; adc_read gives one calibrated value, capture_adc a waveform summary; dac_stop ends any DAC output.

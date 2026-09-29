@@ -3148,6 +3148,561 @@
       "type": "object"
     }
   },
+  "spi_flash_info": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read the SPI flash's ID"
+    },
+    "input": {
+      "properties": {
+        "cs": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for CS; omit for the profile's spi_cs.",
+          "title": "Cs"
+        },
+        "hz": {
+          "default": 1000000,
+          "description": "SCK rate; rounded down to what the pod can do.",
+          "maximum": 6000000,
+          "minimum": 190000,
+          "title": "Hz",
+          "type": "integer"
+        },
+        "miso": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MISO (the chip's DO); omit for the profile's spi_miso.",
+          "title": "Miso"
+        },
+        "mode": {
+          "default": 0,
+          "enum": [
+            0,
+            3
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "mosi": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MOSI (the chip's DI); omit for the profile's spi_mosi.",
+          "title": "Mosi"
+        },
+        "sck": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for SCK; omit for the profile's spi_sclk.",
+          "title": "Sck"
+        }
+      },
+      "title": "spi_flash_infoArguments",
+      "type": "object"
+    }
+  },
+  "spi_flash_program": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Program an SPI flash"
+    },
+    "input": {
+      "properties": {
+        "addr": {
+          "default": 0,
+          "description": "Flash address to write the image at.",
+          "exclusiveMaximum": 16777216,
+          "minimum": 0,
+          "title": "Addr",
+          "type": "integer"
+        },
+        "cs": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for CS; omit for the profile's spi_cs.",
+          "title": "Cs"
+        },
+        "erase": {
+          "default": true,
+          "description": "Erase the 4 KB sectors the image covers first.",
+          "title": "Erase",
+          "type": "boolean"
+        },
+        "file": {
+          "description": "Image path on the machine running this server (raw binary).",
+          "title": "File",
+          "type": "string"
+        },
+        "hold_reset": {
+          "default": false,
+          "description": "Hold the DUT in reset for the job (its controller then cannot drive the same bus); released after.",
+          "title": "Hold Reset",
+          "type": "boolean"
+        },
+        "hz": {
+          "default": 6000000,
+          "maximum": 6000000,
+          "minimum": 190000,
+          "title": "Hz",
+          "type": "integer"
+        },
+        "miso": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MISO (the chip's DO); omit for the profile's spi_miso.",
+          "title": "Miso"
+        },
+        "mode": {
+          "default": 0,
+          "enum": [
+            0,
+            3
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "mosi": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MOSI (the chip's DI); omit for the profile's spi_mosi.",
+          "title": "Mosi"
+        },
+        "sck": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for SCK; omit for the profile's spi_sclk.",
+          "title": "Sck"
+        },
+        "verify": {
+          "default": true,
+          "description": "The pod reads every chunk back and fails on a difference.",
+          "title": "Verify",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "spi_flash_programArguments",
+      "type": "object"
+    }
+  },
+  "spi_flash_read": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read an SPI flash range"
+    },
+    "input": {
+      "properties": {
+        "addr": {
+          "exclusiveMaximum": 16777216,
+          "minimum": 0,
+          "title": "Addr",
+          "type": "integer"
+        },
+        "cs": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for CS; omit for the profile's spi_cs.",
+          "title": "Cs"
+        },
+        "file": {
+          "default": "",
+          "description": "Write the bytes to this path on the server's machine; omit to get up to 4096 bytes back as hex.",
+          "title": "File",
+          "type": "string"
+        },
+        "hz": {
+          "default": 6000000,
+          "maximum": 6000000,
+          "minimum": 190000,
+          "title": "Hz",
+          "type": "integer"
+        },
+        "length": {
+          "exclusiveMinimum": 0,
+          "maximum": 16777216,
+          "title": "Length",
+          "type": "integer"
+        },
+        "miso": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MISO (the chip's DO); omit for the profile's spi_miso.",
+          "title": "Miso"
+        },
+        "mode": {
+          "default": 0,
+          "enum": [
+            0,
+            3
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "mosi": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MOSI (the chip's DI); omit for the profile's spi_mosi.",
+          "title": "Mosi"
+        },
+        "sck": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for SCK; omit for the profile's spi_sclk.",
+          "title": "Sck"
+        }
+      },
+      "required": [
+        "addr",
+        "length"
+      ],
+      "title": "spi_flash_readArguments",
+      "type": "object"
+    }
+  },
+  "spi_transfer": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "SPI transfer"
+    },
+    "input": {
+      "properties": {
+        "cs": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for CS; omit for the profile's spi_cs.",
+          "title": "Cs"
+        },
+        "hz": {
+          "default": 1000000,
+          "maximum": 6000000,
+          "minimum": 190000,
+          "title": "Hz",
+          "type": "integer"
+        },
+        "miso": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MISO; omit for the profile's spi_miso.",
+          "title": "Miso"
+        },
+        "mode": {
+          "default": 0,
+          "enum": [
+            0,
+            3
+          ],
+          "title": "Mode",
+          "type": "integer"
+        },
+        "mosi": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for MOSI; omit for the profile's spi_mosi.",
+          "title": "Mosi"
+        },
+        "sck": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LA channel (or wiring name) for SCK; omit for the profile's spi_sclk.",
+          "title": "Sck"
+        },
+        "tx_hex": {
+          "description": "Bytes to send, as hex (e.g. 9f000000 reads a JEDEC ID). Up to 4096 bytes.",
+          "title": "Tx Hex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_hex"
+      ],
+      "title": "spi_transferArguments",
+      "type": "object"
+    }
+  },
   "status": {
     "annotations": {
       "idempotentHint": false,

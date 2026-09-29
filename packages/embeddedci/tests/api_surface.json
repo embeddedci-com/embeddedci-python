@@ -69,6 +69,7 @@
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> '_can.CanBus'",
+    "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
     "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576) -> '_uart.UartSession'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
     "ping": "(self) -> 'Any'",
@@ -94,6 +95,7 @@
     "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
+    "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
     "status": "(self) -> 'Dict[str, Any]'",
     "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
@@ -188,6 +190,7 @@
       "capture_b64",
       "nrst_pin",
       "usb_cc",
+      "spi_master",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -603,6 +606,24 @@
     ],
     "to_dict": "(self) -> 'Dict[str, Any]'"
   },
+  "SpiFlashInfo": {
+    "__fields__": [
+      "jedec_id",
+      "present",
+      "size",
+      "status"
+    ]
+  },
+  "SpiFlashResult": {
+    "__fields__": [
+      "jedec_id",
+      "addr",
+      "length",
+      "erased",
+      "verified",
+      "seconds"
+    ]
+  },
   "SpiFrame": {
     "__fields__": [
       "index",
@@ -613,6 +634,17 @@
       "mosi_hex",
       "miso_hex"
     ]
+  },
+  "SpiSession": {
+    "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]') -> 'None'",
+    "close": "(self) -> 'None'",
+    "flash_chip_erase": "(self) -> 'float'",
+    "flash_erase": "(self, addr: 'int', length: 'int', *, progress: 'Optional[Progress]' = None) -> 'Tuple[int, int]'",
+    "flash_id": "(self) -> 'SpiFlashInfo'",
+    "flash_program": "(self, data: 'bytes', addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, progress: 'Optional[Progress]' = None) -> 'SpiFlashResult'",
+    "flash_read": "(self, addr: 'int', length: 'int', *, progress: 'Optional[Progress]' = None) -> 'bytes'",
+    "flash_write": "(self, addr: 'int', data: 'bytes', *, verify: 'bool' = True, progress: 'Optional[Progress]' = None) -> 'None'",
+    "transfer": "(self, data: 'bytes', *, hold_cs: 'bool' = False) -> 'bytes'"
   },
   "TargetStatus": {
     "__fields__": [
@@ -838,7 +870,10 @@
     "ServerApi",
     "ServerApiError",
     "Signal",
+    "SpiFlashInfo",
+    "SpiFlashResult",
     "SpiFrame",
+    "SpiSession",
     "TargetStatus",
     "TargetUnreachableError",
     "TransportError",

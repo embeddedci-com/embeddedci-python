@@ -118,6 +118,7 @@ from .state import (
     UsbCcStatus,
 )
 from .uart import UartCapture, UartSession
+from .spi import SpiFlashInfo, SpiFlashResult, SpiSession
 from .waveforms import Waveform, WaveformLibrary
 from .wiring import Signal, Wiring
 
@@ -150,6 +151,9 @@ __all__ = [
     "FlashResult",
     "UartCapture",
     "UartSession",
+    "SpiSession",
+    "SpiFlashInfo",
+    "SpiFlashResult",
     # CAN
     "can",
     "CanBus",

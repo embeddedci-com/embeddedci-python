@@ -437,6 +437,128 @@ async def reset_target(
     return await _call(op)
 
 
+# -- SPI flash --------------------------------------------------------------------------
+
+_SPI_PIN = ("LA channel (or wiring name) for {}; omit for the profile's {}.")
+
+
+def _spi_kwargs(sck: Any, mosi: Any, miso: Any, cs: Any, hz: int, mode: int) -> Dict[str, Any]:
+    return dict(sck=sck, mosi=mosi, miso=miso, cs=cs, hz=hz, mode=mode)
+
+
+@mcp.tool(annotations=_ann("Read the SPI flash's ID", read_only=True))
+async def spi_flash_info(
+    sck: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("SCK", "spi_sclk"))] = None,
+    mosi: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MOSI (the chip's DI)", "spi_mosi"))] = None,
+    miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
+    cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
+    hz: Annotated[int, Field(ge=190_000, le=6_000_000, description="SCK rate; rounded down to what the pod can do.")] = 1_000_000,
+    mode: Literal[0, 3] = 0,
+) -> m.SpiFlashInfoResult:
+    """Read the JEDEC ID of the SPI NOR flash on the SPI pins (gateware v45+, capability spi_master).
+
+    present=false means the ID read all 00 or all FF: nothing is answering (wiring, power, or /WP
+    and /HOLD not tied high). The pins are released again afterwards.
+    """
+    def op() -> m.SpiFlashInfoResult:
+        pod = SESSION.require()
+        with pod.open_spi(**_spi_kwargs(sck, mosi, miso, cs, hz, mode)) as spi:
+            i = spi.flash_id()
+            return m.SpiFlashInfoResult(jedec_id=i.jedec_id, present=i.present, size=i.size,
+                                        status=i.status, hz=spi.hz)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Program an SPI flash", destructive=True))
+async def spi_flash_program(
+    file: Annotated[str, Field(description="Image path on the machine running this server (raw binary).")],
+    addr: Annotated[int, Field(ge=0, lt=1 << 24, description="Flash address to write the image at.")] = 0,
+    erase: Annotated[bool, Field(description="Erase the 4 KB sectors the image covers first.")] = True,
+    verify: Annotated[bool, Field(description="The pod reads every chunk back and fails on a difference.")] = True,
+    hold_reset: Annotated[bool, Field(description=(
+        "Hold the DUT in reset for the job (its controller then cannot drive the same bus); released after."))] = False,
+    sck: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("SCK", "spi_sclk"))] = None,
+    mosi: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MOSI (the chip's DI)", "spi_mosi"))] = None,
+    miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
+    cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
+    hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 6_000_000,
+    mode: Literal[0, 3] = 0,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.SpiFlashProgramResult:
+    """Erase, write and verify an image into the SPI NOR flash wired to the SPI pins.
+
+    25-series parts, first 16 MB. Throughput is roughly 30 KB/s over the LAN (erase is extra) and
+    slower over the cloud. Fails with the pod's message when nothing answers, the part is
+    write-protected, or a chunk does not verify.
+    """
+    def op() -> m.SpiFlashProgramResult:
+        pod = SESSION.require()
+        r = pod.spi_flash(file, addr, erase=erase, verify=verify, hold_reset=hold_reset,
+                          **_spi_kwargs(sck, mosi, miso, cs, hz, mode))
+        return m.SpiFlashProgramResult(jedec_id=r.jedec_id, addr=r.addr, length=r.length,
+                                       erased=r.erased, verified=r.verified, seconds=round(r.seconds, 2))
+
+    return await _call_reporting(ctx, "programming the SPI flash", op)
+
+
+@mcp.tool(annotations=_ann("Read an SPI flash range", read_only=True))
+async def spi_flash_read(
+    addr: Annotated[int, Field(ge=0, lt=1 << 24)],
+    length: Annotated[int, Field(gt=0, le=16 << 20)],
+    file: Annotated[str, Field(description=(
+        "Write the bytes to this path on the server's machine; omit to get up to 4096 bytes back as hex."))] = "",
+    sck: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("SCK", "spi_sclk"))] = None,
+    mosi: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MOSI (the chip's DI)", "spi_mosi"))] = None,
+    miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
+    cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
+    hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 6_000_000,
+    mode: Literal[0, 3] = 0,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.SpiFlashReadResult:
+    """Read bytes back from the SPI NOR flash, to a file or (up to 4096 bytes) as hex."""
+    if not file and length > 4096:
+        raise ValueError("more than 4096 bytes needs a file path")
+
+    def op() -> m.SpiFlashReadResult:
+        pod = SESSION.require()
+        with pod.open_spi(**_spi_kwargs(sck, mosi, miso, cs, hz, mode)) as spi:
+            data = spi.flash_read(addr, length)
+        if file:
+            with open(file, "wb") as f:
+                f.write(data)
+            return m.SpiFlashReadResult(addr=addr, length=len(data), file=file)
+        return m.SpiFlashReadResult(addr=addr, length=len(data), hex=data.hex())
+
+    return await _call_reporting(ctx, "reading the SPI flash", op)
+
+
+@mcp.tool(annotations=_ann("SPI transfer", destructive=True))
+async def spi_transfer(
+    tx_hex: Annotated[str, Field(description="Bytes to send, as hex (e.g. 9f000000 reads a JEDEC ID). Up to 4096 bytes.")],
+    sck: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("SCK", "spi_sclk"))] = None,
+    mosi: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MOSI", "spi_mosi"))] = None,
+    miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO", "spi_miso"))] = None,
+    cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
+    hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 1_000_000,
+    mode: Literal[0, 3] = 0,
+) -> m.SpiTransferResult:
+    """One full-duplex SPI transaction (CS asserted for all of tx) with any SPI device on the SPI pins.
+
+    Returns what came back on MISO. The SPI master is armed for the call and released after it.
+    """
+    data = bytes.fromhex(tx_hex.replace(" ", ""))
+    if not data or len(data) > 4096:
+        raise ValueError("tx_hex must be 1..4096 bytes")
+
+    def op() -> m.SpiTransferResult:
+        pod = SESSION.require()
+        with pod.open_spi(**_spi_kwargs(sck, mosi, miso, cs, hz, mode)) as spi:
+            return m.SpiTransferResult(rx_hex=spi.transfer(data).hex(), hz=spi.hz)
+
+    return await _call(op)
+
+
 # -- flash ------------------------------------------------------------------------------
 
 @mcp.tool(annotations=_ann("Flash firmware over SWD", destructive=True))

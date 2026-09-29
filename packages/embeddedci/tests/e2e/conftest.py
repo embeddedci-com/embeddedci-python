@@ -51,6 +51,7 @@ class Bench:
     board_rev: str        # the PCB revision this bench's pod must report ("" = accept any)
     nrst_la: Optional[int]  # LA channel jumpered to the pod's reset pin (J1 pin 22), if any
     ext_loop: bool = False  # the DAC 0-5 V output is wired to the ADC's front SMA
+    spi: Optional[Tuple[int, int, int, int]] = None   # SPI flash on (sck, mosi, miso, cs), or none
 
 
 @pytest.fixture(scope="session")
@@ -74,6 +75,7 @@ def bench() -> Bench:
         board_rev=_env("BOARD_REV", ""),
         nrst_la=int(_env("NRST_LA", "0")) or None,
         ext_loop=_env("EXT_LOOP", "0") == "1",
+        spi=tuple(int(x) for x in _env("SPI", "").split(",")) if _env("SPI", "") else None,  # type: ignore[arg-type]
     )
 
 

@@ -503,6 +503,33 @@ assert result.ok, result.stderr     # also: returncode, stdout, target_unreachab
   empties the target config's clock-boost reset events, which otherwise race the SWD link.
 * OpenOCD runs on the machine running the test, on every transport including the cloud.
 
+## SPI flash and SPI devices
+
+Pods with gateware v45+ (`bp.capabilities.spi_master`) run an SPI master on any four LA pins, up
+to 6 MHz, modes 0 and 3. Wire a 25-series SPI NOR flash (W25Q, MX25, GD25, ...) with its SCK, DI,
+DO and CS on LA channels (power it at the LA voltage, tie /WP and /HOLD high) and program it:
+
+```python
+res = bp.spi_flash("fw.bin", 0x0, sck=13, mosi=14, miso=6, cs=5, hold_reset=True)
+print(res.jedec_id, res.length, res.seconds)       # erased, written and verified
+```
+
+Or work with a session (pins from the wiring profile's `spi_sclk`, `spi_mosi`, `spi_miso`,
+`spi_cs` when omitted):
+
+```python
+with bp.open_spi(hz=6_000_000) as spi:
+    print(spi.flash_id())                          # SpiFlashInfo(jedec_id='ef4017', present=True, ...)
+    data = spi.flash_read(0x0, 4096)
+    spi.flash_erase(0x10000, 65536)
+    spi.flash_write(0x10000, payload)              # 768 B per command, each verified
+    rx = spi.transfer(b"\x9f\x00\x00\x00")        # raw full-duplex, for any SPI device
+```
+
+`hold_reset=True` holds the DUT in reset for the job (rev3 pods), so its own controller does not
+drive the same bus. The SPI master shares the SWD engine: an SWD flash cannot run while a session
+is open. Expect about 30 KB/s written (verified) over the LAN, less over the cloud.
+
 ## UART
 
 `rx` is the LA channel the pod **samples** (wire the DUT's TX here); `tx` is the channel the pod

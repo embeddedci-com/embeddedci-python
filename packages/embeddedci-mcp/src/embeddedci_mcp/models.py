@@ -250,6 +250,35 @@ class FlashResult(BaseModel):
     stderr_tail: str
 
 
+class SpiFlashInfoResult(BaseModel):
+    jedec_id: str
+    present: bool
+    size: int
+    status: int
+    hz: int
+
+
+class SpiFlashProgramResult(BaseModel):
+    jedec_id: str
+    addr: int
+    length: int
+    erased: int
+    verified: bool
+    seconds: float
+
+
+class SpiFlashReadResult(BaseModel):
+    addr: int
+    length: int
+    file: str = ""
+    hex: str = ""
+
+
+class SpiTransferResult(BaseModel):
+    rx_hex: str
+    hz: int
+
+
 class UartCaptureResult(BaseModel):
     text: str
     matched: bool
