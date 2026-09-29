@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 2.3.0
+
+- SPI master on the LA pins: `BenchPod.open_spi()` returns an `SpiSession` for raw full-duplex
+  transfers (`transfer`, CS held across calls with `hold_cs`) and SPI NOR flash work
+  (`flash_id`, `flash_read`, `flash_erase`, `flash_write`, `flash_program`).
+  `BenchPod.spi_flash(image, addr)` erases, writes and verifies a whole image in one call, and can
+  hold the DUT in reset while it runs (`hold_reset=True`). Pins come from the wiring profile
+  (`spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs`) or as arguments; up to 6 MHz, modes 0 and 3.
+  Needs firmware 3.3+ with gateware v45 (capability `spi_master`, new `Capabilities.spi_master`).
+  Works over the LAN, USB and the cloud.
+- pytest plugin: with `BENCHPOD_LIFT_DAC_LIMITS=1` a session fixture clears the pod's DAC output
+  limits for the run and writes the same limits back at the end, even when tests fail.
+
 ## 2.2.0
 
 - Cloud: the session token the SDK mints is renewed shortly before it expires, and once more if the

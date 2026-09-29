@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.0
+
+- New SPI tools: `spi_flash_info` (JEDEC ID and size), `spi_flash_program` (erase, write and
+  verify an image), `spi_flash_read` and `spi_transfer` (raw full-duplex bytes). They use the
+  pod's SPI master on the LA pins (firmware 3.3+). Requires `embeddedci>=2.3`.
+
 ## 2.2.0
 
 - New `cloud_list_devices`: the pods on your embeddedci.com account and whether each is online,
