@@ -261,8 +261,13 @@ class TcpTransport(Transport):
             raise
         return _SocketRawLink(sock)
 
-    def dap_start(self, swclk: int, swdio: int) -> RawLink:
+    def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
+                  packet_count: Optional[int] = None) -> RawLink:
         req: dict = {"cmd": "dap_start", "swclk": swclk, "swdio": swdio}
+        if packet_size:
+            req["packet_size"] = packet_size
+        if packet_count:
+            req["packet_count"] = packet_count
         return self._raw_handshake(req, "dap_start")
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:

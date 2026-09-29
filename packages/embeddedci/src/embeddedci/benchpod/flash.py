@@ -37,7 +37,11 @@ _SWD_CONNECT_MARKERS = (b"cannot read IDR", b"Error connecting DP")
 _DAP_TCP_SIG = b"\x44\x41\x50\x00"  # "DAP\0" little-endian u32 packet signature
 _DAP_TCP_HDR = 8                    # signature(4) + len(2) + type(1) + reserved(1)
 _DAP_PKT_RESPONSE = 0x02            # packet_type OpenOCD expects on device->host frames
-_DAP_MAX_PACKET = 256               # mirrors DAP_PACKET_SIZE in the firmware (dap.h)
+# CMSIS-DAP packets the pod is asked to advertise (dap.h DAP_PACKET_SIZE / DAP_PACKET_COUNT_MAX).
+# Each packet is a host + network round trip, so bigger packets and several in flight cut the
+# waiting between them; firmware that predates the fields keeps 256 x 1.
+_DAP_MAX_PACKET = 1024
+_DAP_PACKET_COUNT = 4
 
 # Empty the target cfg's clock-boost reset events. The just-after-reset PLL/clock
 # writes (`adapter speed`, reset-init) race the still-coming-up core over the SWD
@@ -207,7 +211,8 @@ def flash(
     attempts = max(1, connect_attempts)
     result: Optional[FlashResult] = None
     for attempt in range(attempts):
-        pod_link = transport.dap_start(swclk, swdio)
+        pod_link = transport.dap_start(swclk, swdio, packet_size=_DAP_MAX_PACKET,
+                                       packet_count=_DAP_PACKET_COUNT)
         try:
             result = _run_bridge(bin_path, args, pod_link, timeout=timeout)
         finally:
