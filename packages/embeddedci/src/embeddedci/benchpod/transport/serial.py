@@ -585,7 +585,7 @@ class SerialTransport(Transport):
         )
 
     def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
-                  packet_count: Optional[int] = None) -> RawLink:
+                  packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
         # The USB console's dap-start keeps the default 256 x 1 packets.
         cmd = f"dap-start {swclk} {swdio}"
         return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)

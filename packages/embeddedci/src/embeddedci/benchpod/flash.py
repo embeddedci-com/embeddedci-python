@@ -28,6 +28,10 @@ from .errors import FlashError, TargetUnreachableError
 from .transport.base import RawLink, Transport
 
 TARGET_POWER_SETTLE = 0.25  # seconds for the target to boot after power-on
+# After switching the target's rail on, the pod also waits (up to this long) for the target to
+# answer SWD before handing over: an STM32 NUCLEO needs ~2.1 s (its ST-LINK boots first), which a
+# fixed settle cannot cover for every board.  Firmware that predates it ignores the field.
+TARGET_ANSWER_WAIT_MS = 5000
 
 # OpenOCD stderr substrings that mean the probe worked but no target answered.
 _SWD_CONNECT_MARKERS = (b"cannot read IDR", b"Error connecting DP")
@@ -211,8 +215,9 @@ def flash(
     attempts = max(1, connect_attempts)
     result: Optional[FlashResult] = None
     for attempt in range(attempts):
-        pod_link = transport.dap_start(swclk, swdio, packet_size=_DAP_MAX_PACKET,
-                                       packet_count=_DAP_PACKET_COUNT)
+        pod_link = transport.dap_start(
+            swclk, swdio, packet_size=_DAP_MAX_PACKET, packet_count=_DAP_PACKET_COUNT,
+            wait_ms=TARGET_ANSWER_WAIT_MS if (target_power is not None and attempt == 0) else None)
         try:
             result = _run_bridge(bin_path, args, pod_link, timeout=timeout)
         finally:
