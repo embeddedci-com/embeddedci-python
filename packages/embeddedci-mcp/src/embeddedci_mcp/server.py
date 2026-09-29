@@ -14,9 +14,10 @@ Results are pydantic models, so every tool publishes an output schema and return
 content. No protocol, flash or decode logic lives here — it all comes from the SDK.
 """
 
+import os
 import re
 import time
-from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, TypeVar, Union
+from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar, Union
 
 import anyio
 from mcp.server.fastmcp import Context, FastMCP
@@ -46,8 +47,13 @@ from embeddedci.benchpod import (
 )
 from embeddedci.benchpod import decode as sdk_decode
 from embeddedci.benchpod.capabilities import Capabilities
+from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
+from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
+from embeddedci.benchpod.connection import CLOUD_PREFIX
 from embeddedci.benchpod.errors import BenchPodError
+from embeddedci.benchpod.server_api import ServerApi
 
+from . import cli_login
 from . import models as m
 from .guide import INSTRUCTIONS, WIRING
 from .session import SESSION, SessionStateError
@@ -1152,6 +1158,37 @@ async def list_waveforms() -> m.WaveformList:
     return m.WaveformList(waveforms=[m.WaveformInfo(id=w.id, name=w.name, kind=w.kind,
                                                     sample_count=w.sample_count,
                                                     sample_rate_hz=w.sample_rate_hz) for w in wfs])
+
+
+# -- cloud (embeddedci.com, no pod connection needed) -------------------------------------
+
+def _cloud_api() -> Tuple[ServerApi, str]:
+    """A server client from BENCHPOD_API_KEY, else from the `benchpod login` session."""
+    base = os.environ.get(API_BASE_ENV) or DEFAULT_API_BASE
+    key = os.environ.get(API_KEY_ENV)
+    if key:
+        return ServerApi(api_base=base, api_key=key.strip()), "api_key"
+    return ServerApi(api_base=base, token_provider=lambda: cli_login.access_token(base)), "benchpod_login"
+
+
+@mcp.tool(annotations=_ann("List cloud BenchPods", read_only=True, cloud=True))
+async def cloud_list_devices() -> m.CloudDeviceList:
+    """The BenchPods registered to your embeddedci.com organisation, and whether each is online.
+    Drive one with connect(connection) using the returned `connection` ('embeddedci:<name>').
+
+    Needs no pod connection. Authenticates with BENCHPOD_API_KEY, else the session saved by
+    `benchpod login` (~/.config/benchpod-cli/token.json), refreshing it when it has expired.
+    """
+    def op() -> m.CloudDeviceList:
+        api, auth = _cloud_api()
+        devices = [m.CloudDevice(
+            id=str(d.get("id", "")), name=str(d.get("name", "")), online=bool(d.get("online")),
+            connection=f"{CLOUD_PREFIX}{d.get('name', '')}", last_active_at=d.get("last_active_at"),
+            parameters={str(k): str(v) for k, v in (d.get("parameters") or {}).items()},
+        ) for d in api.list_devices()]
+        return m.CloudDeviceList(auth=auth, devices=devices)
+
+    return await _call(op, lock=False)
 
 
 @mcp.tool(annotations=_ann("Replay a library waveform", destructive=True, cloud=True))

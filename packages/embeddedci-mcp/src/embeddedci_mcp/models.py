@@ -434,6 +434,22 @@ class WaveformList(BaseModel):
     waveforms: List[WaveformInfo]
 
 
+class CloudDevice(BaseModel):
+    id: str
+    name: str
+    online: bool = Field(description="The pod is connected to embeddedci.com right now.")
+    connection: str = Field(description="Pass this to connect to drive the pod over the cloud.")
+    last_active_at: Optional[str] = None
+    parameters: Dict[str, str] = Field(default_factory=dict,
+                                       description="What the pod last reported (firmware, board, ...).")
+
+
+class CloudDeviceList(BaseModel):
+    auth: Literal["api_key", "benchpod_login"] = Field(description=(
+        "The credential used: BENCHPOD_API_KEY, or the `benchpod login` session."))
+    devices: List[CloudDevice]
+
+
 class RecordingResult(BaseModel):
     id: str
     name: str

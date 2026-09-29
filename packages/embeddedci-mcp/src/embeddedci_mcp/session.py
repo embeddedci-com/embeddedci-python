@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from embeddedci.benchpod import (
     BenchPod,
@@ -28,9 +28,12 @@ from embeddedci.benchpod import (
     PowerProfileSession,
     UartSession,
 )
+from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
+from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX, DISCOVER_KEYWORDS, ENV_VAR, _is_device_path
 from embeddedci.benchpod.errors import BenchPodError, ConnectionConfigError
 
+from . import cli_login
 from . import models as m
 
 
@@ -52,6 +55,17 @@ def connection_kind(connection: str) -> str:
     if s.lower() in DISCOVER_KEYWORDS:
         return "discover"
     return "tcp"
+
+
+def cloud_user_token(connection: str) -> Optional[Callable[[], str]]:
+    """For a cloud connection without BENCHPOD_API_KEY, outside GitHub Actions (which uses OIDC):
+    the `benchpod login` session, exchanged by the SDK for a device session token."""
+    if connection_kind(connection) != "embeddedci" or os.environ.get(API_KEY_ENV):
+        return None
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return None
+    base = os.environ.get(API_BASE_ENV) or DEFAULT_API_BASE
+    return lambda: cli_login.access_token(base)
 
 
 class Session:
@@ -97,7 +111,8 @@ class Session:
         return self._pod is None and self._idle_closed and self._reconnect is not None
 
     def _open(self, connection: str, la_voltage: Optional[float], lease_wait: float) -> BenchPod:
-        return BenchPod(connection, la_voltage=la_voltage, timeout=self.timeout, lease_wait=lease_wait)
+        return BenchPod(connection, la_voltage=la_voltage, timeout=self.timeout, lease_wait=lease_wait,
+                        cloud_user_token=cloud_user_token(connection))
 
     def connect(self, connection: Optional[str] = None, *, la_voltage: Optional[float] = None,
                 lease_wait: Optional[float] = None) -> BenchPod:

@@ -84,6 +84,15 @@ transport is included:
 }
 ```
 
+Or skip the API key: after `benchpod login`, the server reuses that session
+(`~/.config/benchpod-cli/token.json`, refreshed and written back when it has expired) for both
+`cloud_list_devices` and `connect("embeddedci:<name>")`. `BENCHPOD_API_KEY` wins when set, and
+inside GitHub Actions the SDK uses OIDC instead.
+
+`cloud_list_devices` lists the pods on your account and which are online, without connecting to
+one; pass a result's `connection` to `connect`. The session token behind a cloud connection is
+renewed before it expires, so a long session keeps working.
+
 A cloud pod is shared, so `connect` takes an exclusive lease (waiting up to `--lease-wait`
 seconds if another run holds it). The lease is released by `disconnect`, or after
 `--idle-timeout` seconds without a tool call — the next call reconnects transparently, so an idle
@@ -95,7 +104,7 @@ chat never blocks CI on that pod.
 | --- | --- | --- | --- |
 | `--connection` | `BENCHPOD_CONNECTION` | — | host[:port], serial device, `usb`, `discover`, or `embeddedci:<device>` |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
-| — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library |
+| — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
 | `--lease-wait` | — | `30` | cloud: seconds to wait for a busy pod |
 | `--idle-timeout` | — | `600` | cloud: release the lease after this many idle seconds (0 = never) |
@@ -128,6 +137,7 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 | Group | Tools |
 | --- | --- |
 | Connection | `connect`, `disconnect`, `status`, `set_la_voltage` |
+| Cloud (embeddedci.com) | `cloud_list_devices` |
 | Wiring profile | `wiring`, `set_wiring` |
 | Power | `power_on`, `power_off`, `power_status`, `reset_target`, `measure_power`, `power_profile_start`, `power_profile_stop` |
 | Flash | `flash` |

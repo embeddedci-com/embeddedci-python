@@ -31,6 +31,7 @@ EXPECTED_TOOLS = {
     "control_loop", "loop_input", "loop_probe", "fpga_image",
     "can_open", "can_write", "can_read", "can_respond", "can_status", "can_close",
     "la_step", "command",
+    "cloud_list_devices",
 }
 
 

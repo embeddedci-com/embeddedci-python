@@ -690,6 +690,19 @@
       "type": "object"
     }
   },
+  "cloud_list_devices": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List cloud BenchPods"
+    },
+    "input": {
+      "properties": {},
+      "title": "cloud_list_devicesArguments",
+      "type": "object"
+    }
+  },
   "command": {
     "annotations": {
       "destructiveHint": true,

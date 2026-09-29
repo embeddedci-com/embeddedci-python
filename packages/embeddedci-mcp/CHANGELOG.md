@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- New `cloud_list_devices`: the pods on your embeddedci.com account and whether each is online,
+  without connecting to one. It authenticates with `BENCHPOD_API_KEY`, else the `benchpod login`
+  session in `~/.config/benchpod-cli/token.json` (refreshed and saved back when expired). Tools
+  that talk to embeddedci.com rather than a pod are named `cloud_*`.
+- `connect("embeddedci:<name>")` also works with just `benchpod login`: without `BENCHPOD_API_KEY`
+  (and outside GitHub Actions) it authenticates with that session. Requires `embeddedci>=2.2`,
+  which also renews the cloud session token during long sessions and reports offline, unknown and
+  busy pods clearly.
+- Fix: `connect("discover")` failed with "needs the 'zeroconf' package". The server now installs
+  `embeddedci[discovery]`.
+
 ## 2.1.1
 
 - The README says LA channels 1-14; 2.1.0 still said 12.
