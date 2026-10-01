@@ -530,6 +530,38 @@ with bp.open_spi(hz=6_000_000) as spi:
 drive the same bus. The SPI master shares the SWD engine: an SWD flash cannot run while a session
 is open. Expect about 30 KB/s written (verified) over the LAN, less over the cloud.
 
+`spi.stream(data, head=b"...")` sends data of any size in one CS frame, write-only: it is uploaded
+into the pod's PSRAM first, then clocked out 512 bytes at a time (an FPGA bitstream into a
+slave-SPI configuration port). It needs a LAN or cloud connection and firmware with the
+`spi_stream` command (`bp.capabilities.spi_stream`).
+
+## Motor & battery emulator
+
+The BenchPod motor emulator boards (ECP5, up to four on one SPI link) are driven with
+`bp.open_motor_emulator()`. The SPI pins come from the wiring profile, as do `PROGRAMN` (open
+drain) and `DONE` (input) when it names them:
+
+```python
+from embeddedci.benchpod import BatteryModel
+
+with bp.open_motor_emulator() as emu:
+    emu.configure("emu.bit")                       # every board at once; waits for DONE
+    print(emu.probe(0))                            # BoardInfo(version=7, ...)
+    emu.set_protection(0, overcurrent_a=8, overvoltage_on_v=30, overvoltage_off_v=29)
+    emu.set_battery(BatteryModel(capacity_ah=2.0, ocv=[25.2, 23.4, 22.2, 18.0], r0_ohm=0.02))
+    emu.set_pwm(200_000)
+    emu.arm(0)
+    emu.set_control(0, pwm=True)
+    print(emu.sample(0).phase_currents, emu.battery_state(0).soc)
+    emu.start_log(["a", "bus"])
+    log = emu.read_log()                           # whole sample sets, sequence-checked
+```
+
+Every register of the link protocol is reachable by name with `emu.read("SPEED")` and
+`emu.write("KE", 1200, board=1)` (`motor_emulator.REGISTERS`); `broadcast=True` writes every
+board. Units use `EmulatorCalibration` (the design values unless you pass a bench calibration).
+Needs emulator gateware 0x0007 or later.
+
 ## UART
 
 `rx` is the LA channel the pod **samples** (wire the DUT's TX here); `tx` is the channel the pod

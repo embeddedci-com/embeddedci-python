@@ -118,7 +118,9 @@ from .state import (
     UsbCcStatus,
 )
 from .uart import UartCapture, UartSession
-from .spi import SpiFlashInfo, SpiFlashResult, SpiSession
+from .spi import SpiFlashInfo, SpiFlashResult, SpiSession, SpiStreamResult
+from . import motor_emulator
+from .motor_emulator import BatteryModel, EmulatorCalibration, MotorEmulator
 from .waveforms import Waveform, WaveformLibrary
 from .wiring import Signal, Wiring
 
@@ -154,6 +156,12 @@ __all__ = [
     "SpiSession",
     "SpiFlashInfo",
     "SpiFlashResult",
+    "SpiStreamResult",
+    # motor & battery emulator
+    "motor_emulator",
+    "MotorEmulator",
+    "EmulatorCalibration",
+    "BatteryModel",
     # CAN
     "can",
     "CanBus",

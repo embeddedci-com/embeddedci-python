@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Motor & battery emulator: `BenchPod.open_motor_emulator()` returns a `MotorEmulator` for the
+  ECP5 emulator boards on the SPI link. It configures every board at once (`configure`, slave
+  SPI with PROGRAMN and DONE), reads and writes the link registers by name (`read`, `write`,
+  `broadcast=True`), and converts the common ones to units with an `EmulatorCalibration`: bridge
+  PWM and duties, sinc samples, protection and trips, the battery model (`BatteryModel`, OCV curve,
+  R0 / RC branch, state of charge), the back-EMF shape, the logging stream (`read_log` returns
+  whole sample sets) and the board EEPROM. Needs emulator gateware 0x0007+.
+- `SpiSession.stream(data, head=...)` sends data of any size in one CS frame through the pod's
+  PSRAM (`load_bin` staging, then the `spi_stream` command). New `SpiStreamResult` and
+  `Capabilities.spi_stream`.
+
 ## 2.3.0
 
 - SPI master on the LA pins: `BenchPod.open_spi()` returns an `SpiSession` for raw full-duplex

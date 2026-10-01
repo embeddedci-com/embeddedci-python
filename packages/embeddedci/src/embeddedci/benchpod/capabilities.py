@@ -161,6 +161,9 @@ class Capabilities:
     #: SPI master on four LA pins and SPI NOR flash programming (gateware >= v45):
     #: :meth:`BenchPod.open_spi`, :meth:`BenchPod.spi_flash`.
     spi_master: bool = False
+    #: ``spi_stream``: send an upload staged in PSRAM through the SPI master in one CS frame
+    #: (an FPGA bitstream): :meth:`SpiSession.stream <embeddedci.benchpod.spi.SpiSession.stream>`.
+    spi_stream: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -237,6 +240,7 @@ class Capabilities:
                 ("nrst_pin", "nrst_pin"),
                 ("usb_cc", "usb_cc"),
                 ("spi_master", "spi_master"),
+                ("spi_stream", "spi_stream"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -286,7 +290,7 @@ class Capabilities:
             ("capture_trigger", "cap.capture_trigger"), ("power_profile", "cap.power_profile"),
             ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
-            ("spi_master", "cap.spi_master"),
+            ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
         ):
             b = _as_bool(params, key)
             if b is not None:

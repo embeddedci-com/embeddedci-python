@@ -38,6 +38,7 @@ from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import flash as _flash
 from . import i2c as _i2c
+from . import motor_emulator as _motor_emulator
 from . import sensor as _sensor
 from . import spi as _spi
 from . import uart as _uart
@@ -880,7 +881,8 @@ class BenchPod:
         req = {"cmd": "spi_start", "sck": self._wired(sck, "spi_sclk"), "mosi": self._wired(mosi, "spi_mosi"),
                "miso": self._wired(miso, "spi_miso"), "cs": self._wired(cs, "spi_cs"),
                "hz": int(hz), "mode": int(mode)}
-        return _spi.SpiSession(self.command, _dict(self.command(req)))
+        stage = getattr(self._transport, "stage_psram", None)
+        return _spi.SpiSession(self.command, _dict(self.command(req)), stage=stage)
 
     def spi_flash(
         self,
@@ -915,6 +917,52 @@ class BenchPod:
         finally:
             if hold_reset:
                 self.set_reset(False)
+
+    # -- motor & battery emulator ----------------------------------------------
+
+    def open_motor_emulator(
+        self,
+        *,
+        sck: Union[Pin, int, str, None] = None,
+        mosi: Union[Pin, int, str, None] = None,
+        miso: Union[Pin, int, str, None] = None,
+        cs: Union[Pin, int, str, None] = None,
+        programn: Union[Pin, int, str, None] = None,
+        done: Union[Pin, int, str, None] = None,
+        hz: int = 6_000_000,
+        calibration: Optional[_motor_emulator.EmulatorCalibration] = None,
+    ) -> _motor_emulator.MotorEmulator:
+        """Open the motor & battery emulator stack on its SPI link and return a
+        :class:`~embeddedci.benchpod.motor_emulator.MotorEmulator` (a context manager)::
+
+            with bp.open_motor_emulator() as emu:
+                emu.configure("emu.bit")
+                print(emu.probe(0))
+
+        The SPI pins come from the wiring profile unless given. ``programn`` (open drain) and
+        ``done`` (input) default to the profile's ``PROGRAMN`` and ``DONE`` signals when it has
+        them; without them the stack can be used but not configured. The link runs at up to
+        6 MHz, mode 0. Configuring needs the pod's ``spi_stream`` command.
+        """
+        pins: Dict[str, Optional[int]] = {}
+        for key, value, default in (("programn", programn, "PROGRAMN"), ("done", done, "DONE")):
+            if value is not None:
+                pins[key] = self._resolve_la(value, key)[0]
+            else:
+                try:
+                    pins[key] = self.wiring.la(default)
+                except ValueError:
+                    pins[key] = None
+        if hz > 6_000_000:
+            raise ValueError("the emulator link runs at up to 6 MHz")
+        spi = self.open_spi(sck=sck, mosi=mosi, miso=miso, cs=cs, hz=hz, mode=0)
+        try:
+            pin_pn = self.gpio(pins["programn"], "open_drain") if pins["programn"] else None
+            pin_done = self.gpio(pins["done"], "input") if pins["done"] else None
+        except Exception:
+            spi.close()
+            raise
+        return _motor_emulator.MotorEmulator(spi, programn=pin_pn, done=pin_done, calibration=calibration)
 
     # -- ADC / logic-analyzer capture -----------------------------------------
 

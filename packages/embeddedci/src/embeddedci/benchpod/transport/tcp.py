@@ -226,6 +226,26 @@ class TcpTransport(Transport):
             except OSError:
                 pass
 
+    def stage_psram(self, data: bytes) -> int:
+        """Upload raw bytes into the pod's PSRAM staging area (``load_bin`` with ``"psram":true``)
+        without arming anything: ``spi_stream`` sends them on. Returns the bytes the pod stored."""
+        sock = self._dial()
+        sock.settimeout(max(self.timeout, 60.0))
+        buf = bytearray()
+        try:
+            sock.sendall(encode_request({"cmd": "load_bin", "total": len(data), "psram": True}))
+            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
+            sock.sendall(bytes(data))
+            reply = parse_reply(self._recv_line(sock, buf))
+            raise_for_status(reply, cmd="load_bin")
+            total = reply.data.get("total") if isinstance(reply.data, dict) else None
+            return int(total) if total is not None else len(data)
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
     def status(self) -> Any:
         return self.command({"cmd": "status"})
 

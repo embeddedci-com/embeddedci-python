@@ -22,6 +22,19 @@
   },
   "BMP280_ADDR_PRIMARY": 118,
   "BMP280_ADDR_SECONDARY": 119,
+  "BatteryModel": {
+    "__fields__": [
+      "capacity_ah",
+      "ocv",
+      "r0_ohm",
+      "r1_ohm",
+      "tau_s",
+      "soc",
+      "v_min",
+      "v_max",
+      "invert_current"
+    ]
+  },
   "BenchPod": {
     "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
@@ -69,6 +82,7 @@
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> '_can.CanBus'",
+    "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
     "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576) -> '_uart.UartSession'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
@@ -191,6 +205,7 @@
       "nrst_pin",
       "usb_cc",
       "spi_master",
+      "spi_stream",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -289,6 +304,19 @@
       "fault",
       "valid"
     ]
+  },
+  "EmulatorCalibration": {
+    "__fields__": [
+      "codes_per_amp",
+      "codes_per_volt",
+      "offsets",
+      "sample_rate_hz"
+    ],
+    "amps": "(self, code: 'int', channel: 'int' = 0) -> 'float'",
+    "bus_code": "(self, volts: 'float') -> 'int'",
+    "current_code": "(self, amps: 'float') -> 'int'",
+    "resistance_code": "(self, ohm: 'float') -> 'int'",
+    "volts": "(self, code: 'int') -> 'float'"
   },
   "Fault": {
     "__fields__": [
@@ -450,6 +478,35 @@
     "dac_mux": "(self, *, ctrl1: 'Optional[str]' = None, ctrl2: 'Optional[str]' = None) -> 'Dict[str, Any]'",
     "dac_mux_status": "(self) -> 'Dict[str, Any]'",
     "dac_set": "(self, code: 'int', *, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
+  },
+  "MotorEmulator": {
+    "__init__": "(self, spi: \"'SpiSession'\", *, programn: \"'Optional[GpioPin]'\" = None, done: \"'Optional[GpioPin]'\" = None, calibration: 'Optional[EmulatorCalibration]' = None) -> 'None'",
+    "arm": "(self, board: 'int' = 0, *, timeout: 'float' = 0.1) -> 'EmulatorStatus'",
+    "battery_state": "(self, board: 'int' = 0) -> 'BatteryState'",
+    "boards": "(self) -> 'List[int]'",
+    "clear_trips": "(self, board: 'int' = 0) -> 'None'",
+    "close": "(self) -> 'None'",
+    "configure": "(self, bitstream: \"Union[bytes, str, 'os.PathLike[str]']\", *, timeout: 'float' = 2.0) -> 'ConfigResult'",
+    "eeprom_read": "(self, addr: 'int', length: 'int', *, board: 'int' = 0, timeout: 'float' = 0.5) -> 'bytes'",
+    "eeprom_write": "(self, addr: 'int', data: 'bytes', *, board: 'int' = 0, timeout: 'float' = 0.5) -> 'None'",
+    "probe": "(self, board: 'int' = 0) -> 'BoardInfo'",
+    "read": "(self, reg: 'Register', count: 'Optional[int]' = None, *, board: 'int' = 0) -> 'Union[int, List[int]]'",
+    "read_log": "(self, board: 'int' = 0, *, max_words: 'int' = 65536) -> 'LogData'",
+    "read_signed": "(self, reg: 'Register', *, board: 'int' = 0) -> 'int'",
+    "sample": "(self, board: 'int' = 0) -> 'Sample'",
+    "set_battery": "(self, model: 'BatteryModel', *, board: 'int' = 0, run: 'bool' = True, pv_set: 'bool' = False) -> 'None'",
+    "set_control": "(self, board: 'int' = 0, *, pwm: 'bool' = False, hot_swap: 'bool' = False, brake: 'bool' = False, sync_master: 'bool' = False, sync_required: 'bool' = False) -> 'None'",
+    "set_duties": "(self, a: 'float', b: 'float', c: 'float', *, board: 'int' = 0) -> 'None'",
+    "set_protection": "(self, board: 'int' = 0, *, overcurrent_a: 'Optional[float]' = None, overcurrent_samples: 'int' = 2, overvoltage_on_v: 'Optional[float]' = None, overvoltage_off_v: 'Optional[float]' = None, hot_swap_limit_v: 'Optional[float]' = None, brake_ohm: 'Optional[float]' = None, brake_avg_w: 'float' = 0.0, brake_budget_j: 'float' = 0.0) -> 'None'",
+    "set_pv_calibration": "(self, offset: 'int', gain: 'int', *, board: 'int' = 0) -> 'None'",
+    "set_pwm": "(self, frequency_hz: 'float', *, deadtime_s: 'float' = 0.0, min_on_s: 'Optional[float]' = None, board: 'int' = 0, broadcast: 'bool' = False) -> 'float'",
+    "set_shape": "(self, shape: 'Sequence[float]', *, board: 'int' = 0, broadcast: 'bool' = False) -> 'None'",
+    "start_log": "(self, channels: 'Sequence[str]' = ('a', 'b', 'c', 'battery', 'bus'), *, osr256: 'bool' = False, sequence: 'bool' = True, board: 'int' = 0) -> 'None'",
+    "status": "(self, board: 'int' = 0) -> 'EmulatorStatus'",
+    "stop_log": "(self, board: 'int' = 0) -> 'None'",
+    "time": "(self, board: 'int' = 0) -> 'float'",
+    "trips": "(self, board: 'int' = 0) -> 'TripState'",
+    "write": "(self, reg: 'Register', values: 'Union[int, Sequence[int]]', *, board: 'int' = 0, broadcast: 'bool' = False) -> 'None'"
   },
   "NoopBuildReporter": {
     "finalize": "(self) -> 'None'",
@@ -636,7 +693,7 @@
     ]
   },
   "SpiSession": {
-    "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]') -> 'None'",
+    "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]', *, stage: 'Optional[Callable[[bytes], int]]' = None) -> 'None'",
     "close": "(self) -> 'None'",
     "flash_chip_erase": "(self) -> 'float'",
     "flash_erase": "(self, addr: 'int', length: 'int', *, progress: 'Optional[Progress]' = None) -> 'Tuple[int, int]'",
@@ -644,7 +701,14 @@
     "flash_program": "(self, data: 'bytes', addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, progress: 'Optional[Progress]' = None) -> 'SpiFlashResult'",
     "flash_read": "(self, addr: 'int', length: 'int', *, progress: 'Optional[Progress]' = None) -> 'bytes'",
     "flash_write": "(self, addr: 'int', data: 'bytes', *, verify: 'bool' = True, progress: 'Optional[Progress]' = None) -> 'None'",
+    "stream": "(self, data: 'bytes', *, head: 'bytes' = b'', hold_cs: 'bool' = False) -> 'SpiStreamResult'",
     "transfer": "(self, data: 'bytes', *, hold_cs: 'bool' = False) -> 'bytes'"
+  },
+  "SpiStreamResult": {
+    "__fields__": [
+      "sent",
+      "seconds"
+    ]
   },
   "TargetStatus": {
     "__fields__": [
@@ -792,6 +856,7 @@
     "AnalogPathState",
     "BMP280_ADDR_PRIMARY",
     "BMP280_ADDR_SECONDARY",
+    "BatteryModel",
     "BenchPod",
     "BenchPodError",
     "BuildReporter",
@@ -818,6 +883,7 @@
     "Edge",
     "Efuse",
     "EfuseState",
+    "EmulatorCalibration",
     "Fault",
     "FaultType",
     "FirmwareError",
@@ -839,6 +905,7 @@
     "LoopSource",
     "LoopState",
     "LowLevel",
+    "MotorEmulator",
     "NoopBuildReporter",
     "PIN1",
     "PIN10",
@@ -874,6 +941,7 @@
     "SpiFlashResult",
     "SpiFrame",
     "SpiSession",
+    "SpiStreamResult",
     "TargetStatus",
     "TargetUnreachableError",
     "TransportError",
@@ -901,6 +969,7 @@
     "i2c",
     "input_percent_to_code",
     "make_build_reporter",
+    "motor_emulator",
     "parse_connection",
     "resolve_connection"
   ],
@@ -916,6 +985,7 @@
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
   "make_build_reporter": "(*, api_base: 'Optional[str]' = None, audience: 'Optional[str]' = None, target: 'str' = '', name: 'str' = '') -> 'Any'",
+  "motor_emulator": "module",
   "parse_connection": "(raw: 'str') -> 'ConnSpec'",
   "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'"
 }

@@ -8,6 +8,8 @@ session and an SWD flash exclude each other. The flash operations are the pod's 
 the LAN, the USB console and the cloud alike.
 
 Open a session with :meth:`BenchPod.open_spi`; program a whole image with :meth:`BenchPod.spi_flash`.
+:meth:`SpiSession.stream` sends data too big for one command (an FPGA bitstream) in a single CS
+frame: it is staged in the pod's PSRAM first (TCP or cloud connection, capability ``spi_stream``).
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 #: Bytes per ``spi_xfer`` / ``spi_flash write`` command, and per ``spi_flash read``.
 XFER_MAX = 768
 READ_MAX = 1024
+#: Bytes ``spi_stream`` sends ahead of the staged data in the same frame (``head``).
+STREAM_HEAD_MAX = 64
 #: Bytes per ``spi_flash erase`` command: at most 16 block erases, a few seconds.
 ERASE_STEP = 1 << 20
 
@@ -61,12 +65,24 @@ class SpiFlashResult:
     seconds: float
 
 
+@dataclass(frozen=True)
+class SpiStreamResult:
+    """The outcome of :meth:`SpiSession.stream`."""
+
+    #: Bytes of the staged data clocked out (``head`` not counted).
+    sent: int
+    #: Seconds the pod took to clock them out (the upload not included).
+    seconds: float
+
+
 class SpiSession:
     """An armed SPI master (from :meth:`BenchPod.open_spi`). Use it as a context manager, or call
     :meth:`close` to release the four pins."""
 
-    def __init__(self, command: Callable[[Dict[str, Any]], Any], info: Dict[str, Any]) -> None:
+    def __init__(self, command: Callable[[Dict[str, Any]], Any], info: Dict[str, Any], *,
+                 stage: Optional[Callable[[bytes], int]] = None) -> None:
         self._command = command
+        self._stage = stage
         self.sck = int(info.get("sck", 0))
         self.mosi = int(info.get("mosi", 0))
         self.miso = int(info.get("miso", 0))
@@ -106,6 +122,35 @@ class SpiSession:
                                    "cs": "release" if last and not hold_cs else "hold"})
             out += _unb64(str(reply["rx"]))
         return bytes(out)
+
+    def stream(self, data: bytes, *, head: bytes = b"", hold_cs: bool = False) -> SpiStreamResult:
+        """Send ``head`` (up to 64 bytes, e.g. a command opcode) and then ``data``, of any size, in
+        one CS frame, without reading anything back.
+
+        ``data`` is uploaded into the pod's PSRAM first (``load_bin``), then the pod clocks it out
+        512 bytes at a time with CS asserted throughout (SCK pauses between chunks). This is how
+        an FPGA's slave-SPI configuration port takes a whole bitstream. Needs a TCP or cloud
+        connection and firmware with the ``spi_stream`` command. ``hold_cs`` keeps CS asserted
+        afterwards, for a following :meth:`transfer`."""
+        head = bytes(head)
+        data = bytes(data)
+        if len(head) > STREAM_HEAD_MAX:
+            raise ValueError(f"head is at most {STREAM_HEAD_MAX} bytes")
+        if not head and not data:
+            raise ValueError("stream needs at least one byte")
+        if data:
+            if self._stage is None:
+                raise NotImplementedError("streaming needs a TCP or cloud connection (the data is "
+                                          "uploaded into the pod's PSRAM first)")
+            self._stage(data)
+        req: Dict[str, Any] = {"cmd": "spi_stream", "len": len(data),
+                               "cs": "hold" if hold_cs else "release"}
+        if head:
+            req["head"] = _b64(head)
+        r = self._command(req)
+        r = r if isinstance(r, dict) else {}
+        return SpiStreamResult(sent=int(r.get("sent", len(data))),
+                               seconds=int(r.get("ms", 0)) / 1000.0)
 
     # -- SPI NOR flash -----------------------------------------------------------------------
     def flash_id(self) -> SpiFlashInfo:
