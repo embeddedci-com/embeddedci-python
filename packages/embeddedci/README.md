@@ -205,7 +205,7 @@ automatically.)
 * **Invalid arguments raise `ValueError`**. A `BenchPodError` subclass always means a device,
   transport or server failure — see [Errors](#errors).
 * **Device state is typed.** Methods return frozen dataclasses (`LaVoltage`, `TargetStatus`,
-  `PowerStatus`, `PullState`, `DacOutput`, `AdcReading`, …) from `embeddedci.benchpod.state`; each
+  `PowerStatus`, `PullState`, `DacOutput`, `CurrentOutput`, `AdcReading`, …) from `embeddedci.benchpod.state`; each
   keeps the untouched firmware reply in `.raw`.
 * **String options are `Literal` types** and are validated: `DacPath`, `DacOutputPath`,
   `AnalogPath`, `AdcSource`, `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`,
@@ -735,6 +735,7 @@ one step:
 | `"adc_ext"` | connect the ADC to the front SMA |
 | `"cal1"`, `"cal2"` | loop the 5 V / 12 V DAC output back into the ADC |
 | `"current_in"` | read the 4-20 mA measurement terminal |
+| `"current_out"` | the 4-20 mA output: switch the DAC voltage outputs off |
 | `"off"` | park everything |
 
 ```python
@@ -772,6 +773,35 @@ Calibrate once per pod: it survives a reboot and a firmware update. The pod refu
 are the fit the pod now uses for `current_in` (`volts = a + b * count`). Only the offset of `current_in` is
 calibrated; the other sources use the built-in fits. Needs firmware after 3.3.0 (capability
 `calibrate`, `Capabilities.calibrate`).
+
+### The 4-20 mA output
+
+Terminal J9 is a two-wire 4-20 mA transmitter. `current_out` holds a current on it, in amps:
+
+```python
+out = bp.current_out(0.012)                # CurrentOutput(current, code, min_current, max_current)
+print(out.current)                         # 0.012: the current actually held (16-bit, 0.25 µA steps)
+print(out.min_current, out.max_current)    # 0.004016 0.020078: what the output can do
+
+bp.current_out(0.004)                      # back to the live zero
+print(bp.current_out_range().max_current)  # the range only, nothing moves
+```
+
+- **It is loop powered.** J9 pin 1 (plus) goes to the plus of an external loop supply, pin 2
+  (minus) through your receiver to the supply minus. The supply must float: pin 2 is not pod
+  ground. Use 8 V plus 20 mA times the loop resistance, 36 V at most (24 V drives up to 800 Ω).
+- **Do not wire J9 straight into J8.** The output cannot regulate that way.
+- The pod cannot see the loop. `current_out` succeeds with the supply off or the loop open.
+- The output cannot go below its live zero (about 4.016 mA) or above about 20.08 mA: there is no
+  0 mA and no 21 mA level. `0.004` gives the live zero. Anything else outside the range raises
+  `BenchPodError` with the pod's message. A value of 1 or more raises `ValueError` (amps, not mA).
+- **The DAC is shared** with the 3.3 V / 5 V / ±12 V outputs. `current_out` switches those off
+  first. `dac_output`, `generate` and `replay` also move the loop current. `dac_stop` leaves the
+  loop where it was: call `current_out(0.004)` to go back to 4 mA.
+- While DAC limits are set (an output stage), the pod refuses `current_out`.
+
+The values are the board's nominal ones, the same on every pod: the output has no per-pod
+calibration. Needs firmware with the `current_out` capability (`Capabilities.current_out`).
 
 ## Captures
 

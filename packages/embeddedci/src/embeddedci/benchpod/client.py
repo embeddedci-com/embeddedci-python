@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import math
 import os
 import time
 from contextlib import contextmanager
@@ -91,6 +92,7 @@ from .state import (
     AdcReading,
     AnalogPathState,
     Calibration,
+    CurrentOutput,
     DacOutput,
     FpgaImageInfo,
     LaVoltage,
@@ -674,6 +676,8 @@ class BenchPod:
         ``dac_3v3``/``dac_5v``/``dac_12v`` route the DAC to an output (``dac_12v`` is bipolar
         ±12 V); ``adc_ext`` connects the ADC to the front SMA; ``cal1``/``cal2`` loop the 5 V /
         12 V DAC output back into the ADC; ``current_in`` reads the 4-20 mA measurement terminal; ``off`` parks it all.
+        ``current_out`` is the 4-20 mA output (J9): it only switches the DAC voltage outputs off,
+        for a waveform played as a current (:meth:`current_out` does it for a held level).
         """
         check_choice(path, ANALOG_PATHS, "path")
         return AnalogPathState.from_reply(self.command({"cmd": "analog_path", "path": path}))
@@ -691,6 +695,44 @@ class BenchPod:
                 raise ValueError("volts cannot be set on the 'off' path")
             req["volts"] = float(volts)
         return DacOutput.from_reply(self.command(req))
+
+    # -- the 4-20 mA output (J9) ------------------------------------------------
+    # An XTR116 two-wire transmitter. The pod owns the conversion (firmware `current_out`); the
+    # SDK only changes units: amps here, microamps on the wire.
+
+    def current_out(self, current: float) -> CurrentOutput:
+        """Hold ``current`` (amps) on the 4-20 mA output, terminal J9: ``0.012`` is 12 mA.
+
+        The returned :class:`CurrentOutput` carries the current actually held (the nearest
+        16-bit DAC code, 0.25 µA apart) and the range the output can do. It cannot go below its
+        live zero (about 4.016 mA) or above about 20.08 mA, so there is no 0 mA and no 21 mA
+        level. ``0.004`` gives the live zero; the pod refuses anything else outside the range.
+
+        **The output is loop powered.** J9 pin 1 (plus) goes to the plus of an external,
+        floating loop supply (8 V plus 20 mA times the loop resistance, 36 V at most); pin 2
+        (minus) is the loop return through the receiver and is not pod ground. Do not wire J9
+        straight into J8. The pod cannot see the loop: the call succeeds with the supply off.
+
+        **The DAC is shared** with the 3.3 V / 5 V / ±12 V outputs. This call switches those
+        outputs off first. :meth:`dac_output`, :meth:`generate` and :meth:`replay` also move the
+        loop current, and :meth:`dac_stop` leaves it where it was: call ``current_out(0.004)`` to
+        go back to 4 mA.
+
+        Raises :class:`ValueError` for a value that is not a current in amps, and
+        :class:`BenchPodError` when the pod refuses (out of range, or DAC limits are set).
+        """
+        amps = float(current)
+        if not math.isfinite(amps) or amps <= 0:
+            raise ValueError(f"current must be a positive current in amps, got {current!r}")
+        if amps >= 1.0:
+            raise ValueError(f"current is in amps: use {amps / 1000:g} for {amps:g} mA")
+        self._require_capability("current_out", "4-20 mA output commands")
+        return CurrentOutput.from_reply(self.command({"cmd": "current_out", "ua": round(amps * 1e6)}))
+
+    def current_out_range(self) -> CurrentOutput:
+        """What the 4-20 mA output can do (``min_current`` / ``max_current``, amps). Moves nothing."""
+        self._require_capability("current_out", "4-20 mA output commands")
+        return CurrentOutput.from_reply(self.command({"cmd": "current_out"}))
 
     def adc_read(self, source: AdcSource = "ext") -> AdcReading:
         """Route an ADC ``source`` and return one CALIBRATED reading (a short averaged burst).

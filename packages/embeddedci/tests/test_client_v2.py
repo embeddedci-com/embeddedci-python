@@ -12,6 +12,7 @@ from embeddedci.benchpod.state import (
     AdcReading,
     AnalogPathState,
     Calibration,
+    CurrentOutput,
     DacOutput,
     LaVoltage,
     PowerStatus,
@@ -244,6 +245,61 @@ def test_adc_read_reports_the_calibration_offset():
     # A source without one, and older firmware, report none rather than 0.
     assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).offset is None
     assert AdcReading.from_reply({"source": "current_in", "mv": 4, "count": 65535, "offset_mv": 0}).offset == 0.0
+
+
+class CurrentPod(FakeTransport):
+    """A pod that announces ``current_out`` (the 4-20 mA output, J9)."""
+
+    def status(self) -> Any:
+        return {**super().status(), "version": "3.5.0", "caps": ["current_out"]}
+
+
+def _current_out(req):
+    rng = {"min_ua": 4016, "max_ua": 20078}
+    if "ua" not in req:
+        return rng
+    code = max(0, round((req["ua"] - 4015.686) / 0.245098))      # as firmware current_out.c
+    return {"ua": round(4015.686 + 0.245098 * code), "code": code, **rng}
+
+
+def test_current_out_takes_amps_and_sends_microamps():
+    t = CurrentPod({"current_out": _current_out})
+    bp = BenchPod(transport=t, lease=False)
+
+    out = bp.current_out(0.012)
+    assert t.commands[-1] == {"cmd": "current_out", "ua": 12000}
+    assert isinstance(out, CurrentOutput)
+    assert out.current == pytest.approx(0.012) and out.code == 32576
+    assert out.min_current == pytest.approx(0.004016) and out.max_current == pytest.approx(0.020078)
+
+    # 4 mA is under the live zero: the pod gives its lowest current and says so.
+    low = bp.current_out(0.004)
+    assert t.commands[-1] == {"cmd": "current_out", "ua": 4000}
+    assert low.current == pytest.approx(0.004016) and low.code == 0
+
+    rng = bp.current_out_range()
+    assert t.commands[-1] == {"cmd": "current_out"}
+    assert rng.current is None and rng.code is None and rng.max_current == pytest.approx(0.020078)
+
+
+def test_current_out_refuses_what_is_not_amps():
+    t = CurrentPod({"current_out": _current_out})
+    bp = BenchPod(transport=t, lease=False)
+    with pytest.raises(ValueError, match="use 0.012 for 12 mA"):
+        bp.current_out(12)                          # milliamps by mistake
+    for bad in (0, -0.004, float("nan")):
+        with pytest.raises(ValueError):
+            bp.current_out(bad)
+    assert t.commands == []
+
+
+def test_current_out_needs_the_capability():
+    bp, t = _bp()                                   # older firmware: no `current_out`
+    for call in (lambda: bp.current_out(0.012), bp.current_out_range):
+        with pytest.raises(BenchPodError, match="current_out"):
+            call()
+    assert t.commands == []
+    assert BenchPod(transport=CurrentPod(), lease=False).capabilities.current_out
 
 
 class CalPod(FakeTransport):

@@ -107,6 +107,7 @@ from .state import (
     AdcReading,
     AnalogPathState,
     Calibration,
+    CurrentOutput,
     DacOutput,
     EfuseState,
     FpgaImageInfo,
@@ -150,6 +151,7 @@ __all__ = [
     "DacOutput",
     "AdcReading",
     "Calibration",
+    "CurrentOutput",
     "FpgaImageInfo",
     "LoopState",
     # flash + UART

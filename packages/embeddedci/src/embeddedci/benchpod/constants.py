@@ -97,7 +97,8 @@ DacPath = Literal["3v3", "5v", "12v"]
 #: A DAC output path, or ``off`` to park the output (``BenchPod.dac_output``).
 DacOutputPath = Literal["3v3", "5v", "12v", "off"]
 #: A named analog path: one fully specified mux + relay state (``BenchPod.analog_path``).
-AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "cal2", "current_in"]
+AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "cal2", "current_in",
+                     "current_out"]
 #: Where the ADC reads from: front SMA (``ext``), the two internal DAC loopbacks, or the 4-20 mA
 #: measurement terminal J8 (``current_in``).
 AdcSource = Literal["ext", "cal1", "cal2", "current_in"]

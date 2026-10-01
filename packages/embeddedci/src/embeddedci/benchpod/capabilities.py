@@ -166,6 +166,8 @@ class Capabilities:
     spi_stream: bool = False
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
     calibrate: bool = False
+    #: The pod can hold a current on its 4-20 mA output (J9): :meth:`BenchPod.current_out`.
+    current_out: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -244,6 +246,7 @@ class Capabilities:
                 ("spi_master", "spi_master"),
                 ("spi_stream", "spi_stream"),
                 ("calibrate", "calibrate"),
+                ("current_out", "current_out"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -294,7 +297,7 @@ class Capabilities:
             ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
-            ("calibrate", "cap.calibrate"),
+            ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
         ):
             b = _as_bool(params, key)
             if b is not None:

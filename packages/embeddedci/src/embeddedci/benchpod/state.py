@@ -242,6 +242,33 @@ class DacOutput:
 
 
 @dataclass(frozen=True)
+class CurrentOutput:
+    """The 4-20 mA output, terminal J9 (``BenchPod.current_out`` / ``current_out_range``).
+
+    All currents are in amps: 0.004 to 0.020.
+    """
+
+    #: The current the pod now holds: the nearest DAC code to what was asked. ``None`` when the
+    #: call only read the range.
+    current: Optional[float]
+    #: The 16-bit DAC code holding it, or ``None`` when only the range was read.
+    code: Optional[int]
+    #: What the output can do: the current at DAC code 0 (the live zero, a little above 4 mA)
+    #: and at the top code (a little above 20 mA).
+    min_current: float = 0.0
+    max_current: float = 0.0
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "CurrentOutput":
+        d = _d(reply)
+        ua = _opt_int(d, "ua")
+        return cls(current=None if ua is None else ua / 1e6, code=_opt_int(d, "code"),
+                   min_current=(_opt_int(d, "min_ua") or 0) / 1e6,
+                   max_current=(_opt_int(d, "max_ua") or 0) / 1e6, raw=d)
+
+
+@dataclass(frozen=True)
 class AdcReading:
     """A calibrated single ADC reading (``BenchPod.adc_read``)."""
 

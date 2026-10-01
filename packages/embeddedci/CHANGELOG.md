@@ -13,6 +13,12 @@
   volts, the fit `a` / `b`). `adc_read("current_in")` has the offset taken out and reports it as
   `AdcReading.offset`. New `CalibrateSource` and `Capabilities.calibrate`. Needs firmware after
   3.3.0.
+- 4-20 mA output: `BenchPod.current_out(amps)` holds a current on terminal J9 and returns a
+  `CurrentOutput` with the current actually held, the 16-bit DAC code and the range the output
+  can do; `current_out_range()` reads the range only. The pod converts and refuses a current
+  outside its range. The output is loop powered and shares the DAC with the voltage outputs,
+  which `current_out` switches off. New analog path `"current_out"` and
+  `Capabilities.current_out`. Needs firmware with the `current_out` command.
 - Motor & battery emulator: `BenchPod.open_motor_emulator()` returns a `MotorEmulator` for the
   ECP5 emulator boards on the SPI link. It configures every board at once (`configure`, slave
   SPI with PROGRAMN and DONE), reads and writes the link registers by name (`read`, `write`,

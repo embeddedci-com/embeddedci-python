@@ -12,7 +12,7 @@
     "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
   },
   "AdcSource": "Literal['ext', 'cal1', 'cal2', 'current_in']",
-  "AnalogPath": "Literal['off', 'dac_3v3', 'dac_5v', 'dac_12v', 'adc_ext', 'cal1', 'cal2', 'current_in']",
+  "AnalogPath": "Literal['off', 'dac_3v3', 'dac_5v', 'dac_12v', 'adc_ext', 'cal1', 'cal2', 'current_in', 'current_out']",
   "AnalogPathState": {
     "__fields__": [
       "path",
@@ -61,6 +61,8 @@
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
     "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[LaPinState]'",
     "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None, switch_image: 'bool' = True) -> '_control_loop.ControlLoopHandle'",
+    "current_out": "(self, current: 'float') -> 'CurrentOutput'",
+    "current_out_range": "(self) -> 'CurrentOutput'",
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
@@ -227,6 +229,7 @@
       "spi_master",
       "spi_stream",
       "calibrate",
+      "current_out",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -286,6 +289,16 @@
       "adc",
       "la"
     ]
+  },
+  "CurrentOutput": {
+    "__fields__": [
+      "current",
+      "code",
+      "min_current",
+      "max_current",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'CurrentOutput'\""
   },
   "DacHandle": {
     "__init__": "(self, *, stop: 'Callable[[], Any]', dac_path: 'str' = '', cotrig: 'bool' = False, data: 'Optional[dict]' = None) -> 'None'",
@@ -895,6 +908,7 @@
     "ConnectionConfigError",
     "ControlLoopHandle",
     "CorrelatedCapture",
+    "CurrentOutput",
     "DacHandle",
     "DacOutput",
     "DacOutputPath",
