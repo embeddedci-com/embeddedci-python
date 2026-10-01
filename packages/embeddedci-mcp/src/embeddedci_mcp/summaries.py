@@ -6,6 +6,7 @@ power profile becomes its statistics plus a short current/voltage trace. A wirin
 14-row pin table.
 """
 
+import dataclasses
 from typing import Any, List, Optional, Sequence, Tuple
 
 from embeddedci.benchpod import Capture, LaCapture, PowerProfile, Trigger, Wiring
@@ -25,7 +26,8 @@ def clip(text: str, limit: int) -> str:
     return text[:head] + "\n…(truncated)…\n" + text[-(limit - head):]
 
 
-def envelope(values: Sequence[float], points: int) -> Tuple[List[float], List[float], int]:
+def envelope(values: Sequence[float], points: int,
+             digits: int = _V_DIGITS) -> Tuple[List[float], List[float], int]:
     """Min/max per bucket over at most ``points`` buckets; returns (mins, maxs, bucket_size)."""
     n = len(values)
     if n == 0:
@@ -35,8 +37,8 @@ def envelope(values: Sequence[float], points: int) -> Tuple[List[float], List[fl
     maxs: List[float] = []
     for i in range(0, n, size):
         chunk = values[i:i + size]
-        mins.append(round(min(chunk), _V_DIGITS))
-        maxs.append(round(max(chunk), _V_DIGITS))
+        mins.append(round(min(chunk), digits))
+        maxs.append(round(max(chunk), digits))
     return mins, maxs, size
 
 
@@ -55,12 +57,18 @@ def adc_summary(cap: Capture, points: int) -> m.AdcCaptureResult:
             dominant = round(cap.dominant_frequency(), 3)
         except RuntimeError:  # numpy missing
             dominant = None
-    mins, maxs, size = envelope(cap.volts, points)
+    # A capture of the 4-20 mA input is summarised as the loop current (amps), not the voltage
+    # across the sense resistor. Same reductions, on the currents; microamp resolution.
+    unit = "A" if cap.currents else "V"
+    if cap.currents:
+        cap = dataclasses.replace(cap, volts=list(cap.currents))
+    digits = _V_DIGITS + 3 if unit == "A" else _V_DIGITS
+    mins, maxs, size = envelope(cap.volts, points, digits)
     step = size / cap.sample_rate_hz if cap.sample_rate_hz > 0 else 0.0
-    r = lambda v: round(v, _V_DIGITS)  # noqa: E731
+    r = lambda v: round(v, digits)  # noqa: E731
     return m.AdcCaptureResult(
         samples=len(cap), sample_rate_hz=cap.sample_rate_hz, duration=cap.duration,
-        source=cap.source or None, mean=r(cap.mean()), min=r(cap.min()), max=r(cap.max()),
+        source=cap.source or None, unit=unit, mean=r(cap.mean()), min=r(cap.min()), max=r(cap.max()),
         peak_to_peak=r(cap.peak_to_peak()), rms=r(cap.rms()), rms_ac=r(cap.rms_ac()),
         dominant_frequency_hz=dominant, envelope_step=step, envelope_min=mins, envelope_max=maxs,
         trigger=trigger_text(cap.trigger),

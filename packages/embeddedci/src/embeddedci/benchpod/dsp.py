@@ -240,6 +240,7 @@ def recording_to_replay_codes(
     deep: bool = False,
     max_samples: int = REPLAY_MAX_SAMPLES,
     fault: "dict | None" = None,
+    path_range: "tuple | None" = None,
 ) -> "ReplayCodes":
     """Run the full record→replay DSP and return the device-ready code bytes + effective rate.
 
@@ -247,7 +248,9 @@ def recording_to_replay_codes(
     the device PSRAM depth), matching the server's ``applyRecordingForReplayDeep``; otherwise it
     downsamples to ``min(target_samples, REPLAY_MAX_SAMPLES)`` like ``applyRecordingForReplay``.
     """
-    path_min, path_max = dac_path_range_v(dac_path)
+    # path_range overrides the named path's volts: the 4-20 mA output's range is the pod's own,
+    # in the recording's unit (mA).
+    path_min, path_max = path_range if path_range is not None else dac_path_range_v(dac_path)
     volts = decode_recording_volts(raw, src_full_scale_v)
     win = window_volts(volts, window_start, window_len)
     if deep:

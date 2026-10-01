@@ -37,7 +37,11 @@ class Waveform:
     recording_size_bytes: int = 0
     created_at: str = ""
     dac_path: str = ""
+    #: Segments as the server stores them. On ``dac_path == "current_out"`` the levels are mA.
     segments: List[Dict[str, Any]] = field(default_factory=list)
+    #: Unit of the values: ``"V"``, or ``"mA"`` for a recording of the 4-20 mA input and for
+    #: segments on the ``current_out`` path. ``full_scale_v`` is in this unit.
+    unit: str = "V"
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -54,6 +58,7 @@ class Waveform:
             created_at=str(m.get("created_at", "")),
             dac_path=str(m.get("dac_path", "") or ""),
             segments=list(m.get("segments") or []),
+            unit="mA" if m.get("unit") == "mA" else "V",
             raw=dict(m),
         )
 
@@ -127,12 +132,16 @@ class WaveformLibrary:
         return Waveform.from_json(data or {})
 
     def save_recording(self, name: str, samples16: bytes, *, sample_rate_hz: float,
-                       full_scale_v: float) -> Waveform:
+                       full_scale_v: float, unit: str = "V") -> Waveform:
         """Save a raw 16-bit-LE ADC recording to S3 (metadata in the query string).
 
         ``samples16`` is the raw little-endian 16-bit blob; ``full_scale_v`` is the volts the
-        top code (65535) represents (used later to map back to volts at replay).
+        top code (65535) represents (used later to map back to volts at replay). ``unit="mA"``
+        marks a recording of the 4-20 mA input: the samples and ``full_scale_v`` are then
+        milliamps, and it replays as the same current on the ``current_out`` path.
         """
+        if unit not in ("V", "mA"):
+            raise ValueError(f"unit must be 'V' or 'mA', got {unit!r}")
         if not samples16 or len(samples16) % 2 != 0:
             raise ValueError("samples16 must be a non-empty whole number of 16-bit samples")
         query = {
@@ -141,6 +150,8 @@ class WaveformLibrary:
             "full_scale_v": full_scale_v,
             "sample_count": len(samples16) // 2,
         }
+        if unit == "mA":
+            query["unit"] = "mA"
         qs = urllib.parse.urlencode(query)
         _, data = self._api.request(
             "POST", "/benchpod/waveforms/recording?" + qs,
@@ -149,9 +160,17 @@ class WaveformLibrary:
         return Waveform.from_json(data or {})
 
     def save_segments(self, name: str, *, dac_path: str, segments: Sequence) -> Waveform:
-        """Save a piecewise (``ramp``/``hold``/``step``) waveform spec."""
+        """Save a piecewise (``ramp``/``hold``/``step``) waveform spec.
+
+        On ``dac_path="current_out"`` (the 4-20 mA output) the segment levels are amps, like
+        every current in the SDK. The server stores them in mA.
+        """
+        segs = normalize_segments(segments)
+        if dac_path == "current_out":
+            segs = [{**s, "v_start": float(s.get("v_start", 0.0)) * 1000.0,
+                     "v_end": float(s.get("v_end", s.get("v_start", 0.0))) * 1000.0} for s in segs]
         _, data = self._api.request("POST", "/benchpod/waveforms/segments", json_body={
-            "name": name, "dac_path": dac_path, "segments": normalize_segments(segments),
+            "name": name, "dac_path": dac_path, "segments": segs,
         })
         return Waveform.from_json(data or {})
 

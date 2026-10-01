@@ -273,6 +273,29 @@ def test_current_out_refusals_are_tool_errors(connected):
     assert len(connected.requests) == n
 
 
+def test_waveforms_on_the_current_output_are_in_amps(connected):
+    out = call("generate", waveform="sine", freq_hz=2, amplitude=0.006, offset=0.012, dac_path="current_out")
+    assert out["dac_path"] == "current_out"
+    gen = connected.requests[-1]
+    assert gen["cmd"] == "generate" and (gen["amplitude"], gen["offset"]) == (96, 127)
+    # The voltage outputs are switched off first; no voltage path is routed.
+    assert {"cmd": "analog_path", "path": "current_out"} in connected.requests
+    assert not any(r.get("cmd") == "dac_out" for r in connected.requests)
+
+    played = call("replay", volts=[0.004, 0.012, 0.020], dac_path="current_out", sample_rate_hz=1000)
+    assert played["dac_path"] == "current_out" and played["samples"] == 3
+    with pytest.raises(Exception, match="at most"):
+        call("generate", waveform="sine", freq_hz=2, amplitude=12, dac_path="current_out")   # mA by mistake
+
+
+def test_capture_of_the_current_input_is_summarised_in_amps(connected):
+    call("calibrate")
+    cap = call("capture_adc", samples=64, source="current_in")
+    assert cap["unit"] == "A" and cap["source"] == "current_in"
+    assert 0 <= cap["mean"] < 0.03                    # a current, not the volts across 249 ohm
+    assert call("capture_adc", samples=64, source="ext")["unit"] == "V"
+
+
 def test_current_out_needs_newer_firmware(connected):
     without_caps(connected, "current_out")
     with pytest.raises(Exception, match="current_out"):

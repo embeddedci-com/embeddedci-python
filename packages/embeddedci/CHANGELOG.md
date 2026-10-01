@@ -16,9 +16,17 @@
 - 4-20 mA output: `BenchPod.current_out(amps)` holds a current on terminal J9 and returns a
   `CurrentOutput` with the current actually held, the 16-bit DAC code and the range the output
   can do; `current_out_range()` reads the range only. The pod converts and refuses a current
-  outside its range. The output is loop powered and shares the DAC with the voltage outputs,
+  outside its range. The output is loop powered (it needs an external floating supply) and shares the DAC with the voltage outputs,
   which `current_out` switches off. New analog path `"current_out"` and
-  `Capabilities.current_out`. Needs firmware with the `current_out` command.
+  `Capabilities.current_out`. Needs firmware 3.4.0.
+- Waveforms on the 4-20 mA output: `generate`, `replay` and `replay_waveform` take
+  `dac_path="current_out"` (`DacPath` gains it), with levels in amps and the range the pod
+  reports. Stopping the returned handle returns the loop to 4 mA.
+- Captures of the 4-20 mA input in amps: `capture_adc(source="current_in")` scales with the pod's
+  own fit and fills the new `Capture.currents`. Such a capture replays as the same current on
+  `current_out`, and `save_capture_as_recording` stores it as a current. `Waveform.unit` says
+  whether a library entry is in `"V"` or `"mA"`; `WaveformLibrary.save_recording` takes `unit`,
+  and `save_segments` takes amps on the `current_out` path. Needs server support for the unit.
 - Motor & battery emulator: `BenchPod.open_motor_emulator()` returns a `MotorEmulator` for the
   ECP5 emulator boards on the SPI link. It configures every board at once (`configure`, slave
   SPI with PROGRAMN and DONE), reads and writes the link registers by name (`read`, `write`,

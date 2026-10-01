@@ -195,6 +195,53 @@ def test_current_out_holds_a_current_and_the_dac_follows(pod):
         pod.analog_path("off")
 
 
+def test_waveforms_on_the_current_output_reach_the_dac(pod):
+    """generate and replay on ``current_out`` with nothing wired: the levels asked for in amps are
+    what the DAC holds, read back through the internal 5 V loopback (up to 2.5 V on the 5 V
+    output while it is read). Stopping returns the DAC to the live zero."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    rng = pod.current_out_range()
+
+    def dac_volts(amps: float) -> float:
+        code = (amps - rng.min_current) / (rng.max_current - rng.min_current) * 65535
+        return code / 65536 * 4.99
+
+    def check(readings) -> None:
+        hi, lo = split_levels(readings, dac_volts(0.009))
+        assert hi is not None and lo is not None, readings
+        assert abs(hi - dac_volts(0.012)) < 0.15 and abs(lo - dac_volts(0.006)) < 0.15, (hi, lo)
+
+    try:
+        with pod.generate("square", freq_hz=2, amplitude=0.003, offset=0.009, dac_path="current_out"):
+            check(adc_levels(pod, "cal1", 1.3))
+        time.sleep(0.1)
+        assert pod.adc_read("cal1").voltage < 0.1          # the handle went back to the live zero
+
+        wave = [0.006] * 1000 + [0.012] * 1000             # 1 s at each level, shallow replay
+        with pod.replay(wave, dac_path="current_out", sample_rate_hz=1000) as h:
+            assert h.samples == 2000 and not h.deep
+            check(adc_levels(pod, "cal1", 2.6))
+        time.sleep(0.1)
+        assert pod.adc_read("cal1").voltage < 0.1
+    finally:
+        pod.current_out(0.004)
+        pod.analog_path("off")
+
+
+def test_capture_of_the_current_input_is_in_amps(pod):
+    """A capture of J8 with nothing wired: amps, about zero, from the pod's own fit."""
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    if not pod.capabilities.calibrate:
+        pytest.skip("this pod's firmware does not report its current_in fit")
+    cap = pod.capture_adc(2048, sample_rate_hz=400_000, source="current_in")
+    pod.analog_path("off")
+    assert len(cap.currents) == len(cap.volts) == 2048
+    mean = sum(cap.currents) / len(cap.currents)
+    assert abs(mean) < 100e-6, f"J8 open captures {mean * 1e6:.0f} uA: is something connected?"
+
+
 def test_current_in_reads_zero_with_j8_open(pod):
     """The 4-20 mA input (J8) with nothing wired: about 0 mA, and the current matches the voltage."""
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":

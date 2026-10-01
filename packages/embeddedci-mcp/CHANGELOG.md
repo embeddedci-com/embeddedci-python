@@ -10,8 +10,13 @@
   the matching `embeddedci` release.
 - New `current_out` tool: hold a current on the 4-20 mA output (terminal J9), in amps, or read the
   range the output can do. The pod converts and refuses a current outside its range. The output is
-  loop powered and shares the DAC with the voltage outputs. Needs firmware with the `current_out`
-  command and the matching `embeddedci` release.
+  loop powered (it needs an external floating supply) and shares the DAC with the voltage outputs. Needs firmware 3.4.0 and
+  `embeddedci` 2.4.0.
+- `generate`, `replay` and `replay_waveform` take `dac_path="current_out"` to play a waveform as a
+  current on the 4-20 mA output, with levels in amps.
+- `capture_adc(source="current_in")` summarises the loop current in amps (new `unit` field in the
+  result), and that capture replays as a current or saves as a recording in mA. `list_waveforms`
+  reports each entry's `unit` and `dac_path`.
 
 ## 2.3.0
 

@@ -380,6 +380,9 @@ class AdcCaptureResult(BaseModel):
     sample_rate_hz: float
     duration: float
     source: Optional[str] = None
+    unit: Literal["V", "A"] = Field("V", description=(
+        "Unit of mean, min, max, peak_to_peak, rms, rms_ac and the envelope: volts, or amps for a "
+        "capture of the 4-20 mA input (source current_in): 0.004 to 0.020 for a live loop."))
     mean: float
     min: float
     max: float
@@ -480,6 +483,10 @@ class WaveformInfo(BaseModel):
     kind: str
     sample_count: int
     sample_rate_hz: float
+    unit: str = Field("V", description=(
+        "Unit of the stored values: V, or mA for a recording of the 4-20 mA input and for segments "
+        "made for the current_out path. A mA recording replays faithfully only on current_out."))
+    dac_path: Optional[str] = Field(None, description="The output path stored with it, if any.")
 
 
 class WaveformList(BaseModel):

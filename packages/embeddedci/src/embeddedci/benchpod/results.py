@@ -84,6 +84,9 @@ class Capture:
     volts: List[float] = field(default_factory=list)
     sample_rate_hz: float = 0.0
     source: str = ""
+    #: Loop current per sample in amps, for a capture of ``current_in`` (the 4-20 mA input, J8):
+    #: ``volts`` across the pod's 249 Ω sense resistor. Empty for every other source.
+    currents: List[float] = field(default_factory=list)
     #: The trigger that started the capture (t = 0 is its moment), or ``None``.
     trigger: Optional[Trigger] = None
 

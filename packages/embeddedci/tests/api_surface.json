@@ -250,6 +250,7 @@
       "volts",
       "sample_rate_hz",
       "source",
+      "currents",
       "trigger"
     ],
     "crossing_times": "(self, threshold: 'float', edge: 'Edge' = 'rising', *, hysteresis: 'float' = 0.0) -> 'List[float]'",
@@ -314,7 +315,7 @@
     "from_reply": "(cls, reply: 'Any') -> \"'DacOutput'\""
   },
   "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
-  "DacPath": "Literal['3v3', '5v', '12v']",
+  "DacPath": "Literal['3v3', '5v', '12v', 'current_out']",
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
   "DeviceBusyError": {},
   "DeviceLease": {
@@ -825,6 +826,7 @@
       "created_at",
       "dac_path",
       "segments",
+      "unit",
       "raw"
     ],
     "from_json": "(cls, m: 'Dict[str, Any]') -> \"'Waveform'\"",
@@ -840,7 +842,7 @@
     "preview": "(self, waveform_id: 'str', *, mapping: 'str' = 'faithful', dac_path: 'str' = '5v', points: 'int' = 4096) -> 'Dict[str, Any]'",
     "rename": "(self, waveform_id: 'str', name: 'str') -> 'Waveform'",
     "samples_b64": "(self, waveform_id: 'str') -> 'str'",
-    "save_recording": "(self, name: 'str', samples16: 'bytes', *, sample_rate_hz: 'float', full_scale_v: 'float') -> 'Waveform'",
+    "save_recording": "(self, name: 'str', samples16: 'bytes', *, sample_rate_hz: 'float', full_scale_v: 'float', unit: 'str' = 'V') -> 'Waveform'",
     "save_segments": "(self, name: 'str', *, dac_path: 'str', segments: 'Sequence') -> 'Waveform'",
     "save_waveform": "(self, name: 'str', samples: 'Sequence[int]', *, sample_rate_hz: 'float', bits: 'int' = 8, full_scale_v: 'Optional[float]' = None) -> 'Waveform'"
   },

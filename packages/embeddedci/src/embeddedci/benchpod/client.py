@@ -43,7 +43,7 @@ from . import motor_emulator as _motor_emulator
 from . import sensor as _sensor
 from . import spi as _spi
 from . import uart as _uart
-from .capabilities import Capabilities
+from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .constants import (
     ADC_SOURCE_PATHS,
     ADC_SOURCES,
@@ -118,6 +118,12 @@ WIRING_ENV = "BENCHPOD_WIRING"
 
 #: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
 _GENERATOR_MAX_CODE = 255
+#: The 4-20 mA output (J9) as a waveform output path. Levels on it are amps.
+_CURRENT_OUT = "current_out"
+#: The sense resistor on the 4-20 mA input (J8): ``current_in`` reads the voltage across it.
+_CURRENT_IN_SENSE_OHMS = 249.0
+#: The live zero a stopped current waveform returns to (microamps).
+_CURRENT_OUT_ZERO_UA = 4000
 
 _log = logging.getLogger("embeddedci.benchpod")
 
@@ -224,6 +230,8 @@ class BenchPod:
         self._cloud_user_token = cloud_user_token
         self._caps: Optional[Capabilities] = None
         self._server_api: Optional["ServerApi"] = None
+        #: The 4-20 mA output's range in amps (min, max), as the pod reported it. Read once.
+        self._current_out_span: Optional[Tuple[float, float]] = None
         self._waveforms: Optional["WaveformLibrary"] = None
         self._device_name = ""
         #: Hardware controls below the named-path API (raw mux/relay/DAC-code access). Not covered
@@ -1060,6 +1068,12 @@ class BenchPod:
         ``cal2``/``current_in``) — omitted, the current routing is left alone. ``volts`` use the front-SMA
         calibration; for the other sources compare ``counts`` or use :meth:`adc_read`.
 
+        ``source="current_in"`` (the 4-20 mA input, J8) is the exception: on a pod that reports its
+        own fit for it (:attr:`Capabilities.calibrate`) ``volts`` are scaled with that fit, and
+        ``currents`` holds the loop current per sample in amps. Below 400 kS/s a capture reads
+        about 10 to 20 µA higher than :meth:`adc_read`: the input stage shifts slightly at slow
+        sample rates, and that is not corrected.
+
         ``trigger`` (a :class:`Trigger`, gateware >= v35) waits for an edge or level on an LA channel
         before sampling, so t = 0 is that moment; a :class:`~embeddedci.benchpod.errors.TriggerTimeout`
         is raised after ``trigger_timeout`` seconds without it.
@@ -1071,10 +1085,17 @@ class BenchPod:
             time.sleep(0.02)  # relays (~4 ms) + front-end RC settle, as the firmware's adc_read does
             label = source
         trig = self._resolve_trigger(trigger)
+        # The pod's own fit for the 4-20 mA input, read before the capture starts.
+        fit = self.calibration() if source == "current_in" and self.capabilities.calibrate else None
         with _classified_errors():
-            return _capture.capture_adc(self._transport, self.capabilities, samples=samples,
-                                        sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
-                                        trigger_timeout=trigger_timeout)
+            cap = _capture.capture_adc(self._transport, self.capabilities, samples=samples,
+                                       sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
+                                       trigger_timeout=trigger_timeout)
+        if fit is not None and fit.b:
+            unwrapped = (c + ADC_WRAP_SPAN if c < ADC_WRAP_THRESHOLD else c for c in cap.counts)
+            cap.volts = [fit.a + fit.b * c for c in unwrapped]
+            cap.currents = [v / _CURRENT_IN_SENSE_OHMS for v in cap.volts]
+        return cap
 
     def capture_la(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
                    stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
@@ -1143,6 +1164,42 @@ class BenchPod:
             words = list(source)
         return _decode.decode(words, protocol, sample_rate_hz=sample_rate_hz or 0.0, **channels)
 
+    # -- output paths: volts, or amps on the 4-20 mA output ------------------------
+
+    def _output_range(self, dac_path: str, *, generator: bool = False) -> tuple:
+        """``(min, max)`` an output path spans, in its own unit: volts, or AMPS on ``current_out``.
+
+        The 4-20 mA output's range is the pod's own (``current_out_range``), read once. The
+        8-bit generator (``generator=True``) tops out a little under it: a level is the high
+        byte of the 16-bit DAC code, so level 255 is code 65280.
+        """
+        if dac_path != _CURRENT_OUT:
+            return _dsp.dac_path_range_v(dac_path)
+        if self._current_out_span is None:
+            rng = self.current_out_range()
+            self._current_out_span = (rng.min_current, rng.max_current)
+        lo, hi = self._current_out_span
+        if generator:
+            hi = lo + (hi - lo) * 65280.0 / 65535.0
+        return lo, hi
+
+    def _route_output(self, dac_path: str) -> None:
+        """Route an output before a waveform plays on it. The 4-20 mA output only switches the DAC
+        voltage outputs off: they share the DAC and would follow the current."""
+        if dac_path == _CURRENT_OUT:
+            self.command({"cmd": "analog_path", "path": _CURRENT_OUT})
+        else:
+            self.command({"cmd": "dac_out", "path": dac_path})
+
+    def _stop_current_out(self) -> None:
+        """Stop a waveform on the 4-20 mA output and return the loop to its live zero. ``dac_stop``
+        alone leaves the DAC, and so the loop, where the waveform stopped."""
+        self.dac_stop()
+        self.command({"cmd": "current_out", "ua": _CURRENT_OUT_ZERO_UA})
+
+    def _stop_for(self, dac_path: str) -> Callable[[], None]:
+        return self._stop_current_out if dac_path == _CURRENT_OUT else self.dac_stop
+
     # -- DAC generate / stop ----------------------------------------------------
 
     def generate(self, waveform: Waveshape = "sine", *, freq_hz: float, amplitude: float,
@@ -1155,6 +1212,11 @@ class BenchPod:
         of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). The firmware builds the
         waveform from 8-bit levels, so volts are
         quantised to ``full_scale / 255`` using the same volts→code mapping as :meth:`replay`.
+
+        ``dac_path="current_out"`` plays it as a current on the 4-20 mA output (J9):
+        ``amplitude`` and ``offset`` are then AMPS (``amplitude=0.006, offset=0.012`` swings 6 to
+        18 mA, in steps of about 63 µA). The DAC voltage outputs are switched off, and stopping
+        the handle returns the loop to 4 mA. See :meth:`current_out` for the wiring.
         ``duration`` (seconds) stops it by itself; omitted, it runs until :meth:`dac_stop` or the
         returned handle's ``stop()``. ``on_capture=True`` defers the start to the next capture's
         hardware t0 (phase-locked co-trigger, gateware >= v27); ``handle.cotrig`` reports whether
@@ -1168,19 +1230,20 @@ class BenchPod:
         check_choice(dac_path, DAC_PATHS, "dac_path")
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
-        vmin, vmax = _dsp.dac_path_range_v(dac_path)
+        vmin, vmax = self._output_range(dac_path, generator=True)
+        unit = "A" if dac_path == _CURRENT_OUT else "V"
         span = vmax - vmin
         step = span / _GENERATOR_MAX_CODE
         amp_code = int(round(float(amplitude) / step))
         if amplitude <= 0 or amp_code < 1:
-            raise ValueError(f"amplitude must be at least {step:.4f} V on the {dac_path} path, "
+            raise ValueError(f"amplitude must be at least {step:.4g} {unit} on the {dac_path} path, "
                              f"got {amplitude!r}")
         if amp_code > _GENERATOR_MAX_CODE:
-            raise ValueError(f"amplitude must be at most {span:g} V on the {dac_path} path, got {amplitude!r}")
+            raise ValueError(f"amplitude must be at most {span:.4g} {unit} on the {dac_path} path, got {amplitude!r}")
         off_v = (vmin + vmax) / 2.0 if offset is None else float(offset)
         off_code = int(round((off_v - vmin) / step))
         if not 0 <= off_code <= _GENERATOR_MAX_CODE:
-            raise ValueError(f"offset must be within {vmin:g}..{vmax:g} V on the {dac_path} path, "
+            raise ValueError(f"offset must be within {vmin:.4g}..{vmax:.4g} {unit} on the {dac_path} path, "
                              f"got {offset!r}")
         req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq": float(freq_hz),
                                "amplitude": amp_code, "offset": off_code}
@@ -1195,10 +1258,10 @@ class BenchPod:
         if on_capture:
             req["on_capture"] = True
         if route:
-            self.command({"cmd": "dac_out", "path": dac_path})
+            self._route_output(dac_path)
         d = _dict(self.command(req))
-        return DacHandle(stop=self.dac_stop, dac_path=dac_path, cotrig=bool(d.get("cotrig", False)),
-                         data=d)
+        return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
+                         cotrig=bool(d.get("cotrig", False)), data=d)
 
     def dac_stop(self) -> None:
         """Stop any DAC output: generator, replay or control loop. Idempotent."""
@@ -1423,7 +1486,7 @@ class BenchPod:
                 FpgaImage.DEEP_REPLAY, switch=switch_image,
                 needed_for=f"a {n_samples}-sample replay (it streams from PSRAM)")
         if dac_path and route:
-            self.command({"cmd": "dac_out", "path": dac_path})
+            self._route_output(dac_path)
         replay_req: Dict[str, Any] = {"cmd": "replay", "samples": n_samples}
         mhz = _capture.rate_mhz(sample_rate_hz)
         if mhz is not None:
@@ -1431,7 +1494,7 @@ class BenchPod:
         if on_capture:
             replay_req["on_capture"] = True
         d = _dict(fn(data=code_bytes, replay=replay_req, psram=deep))
-        return ReplayHandle(stop=self.dac_stop, samples=n_samples,
+        return ReplayHandle(stop=self._stop_for(dac_path), samples=n_samples,
                             sample_rate_hz=float(sample_rate_hz or 0.0), dac_path=dac_path,
                             deep=deep, data=d, cotrig=bool(d.get("cotrig", False)),
                             switched_image=switched)
@@ -1460,13 +1523,27 @@ class BenchPod:
 
         ``on_capture=True`` arms the DAC to start on the NEXT capture's hardware t0 (gateware
         >= v27, :attr:`Capabilities.dac_cotrig`).
+
+        ``dac_path="current_out"`` replays on the 4-20 mA output (J9): a sequence is then AMPS,
+        and a :class:`Capture` of ``current_in`` replays the current it measured (its
+        ``currents``), so a loop captured on J8 can be played back on J9. A capture of a voltage
+        source has no current to reproduce: it needs ``mapping="fit"``, which stretches its shape
+        over the output's range. Stopping the handle returns the loop to 4 mA. See
+        :meth:`current_out` for the wiring.
         """
         check_choice(dac_path, DAC_PATHS, "dac_path")
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         bits = self._replay_bits()
-        vmin, vmax = _dsp.dac_path_range_v(dac_path)
+        vmin, vmax = self._output_range(dac_path)
         if isinstance(source, Capture):
-            codes = _dsp.volts_to_codes(source.volts, mapping, vmax, bits=bits, path_min_v=vmin)
+            values = source.volts
+            if dac_path == _CURRENT_OUT:
+                if source.currents:
+                    values = source.currents
+                elif mapping != "fit":
+                    raise ValueError("this capture is in volts, not a current: replay it on the "
+                                     "current_out path with mapping='fit', or capture current_in")
+            codes = _dsp.volts_to_codes(values, mapping, vmax, bits=bits, path_min_v=vmin)
             if sample_rate_hz is None and source.sample_rate_hz > 0:
                 sample_rate_hz = source.sample_rate_hz
         elif are_codes:
@@ -1502,6 +1579,10 @@ class BenchPod:
         switches the pod to it first: client-side, one deeper than 2048 samples; server-side, a
         recording longer than the shallow replay depth when no ``target_samples`` asks for a
         downsampled one (``switch_image=False`` then leaves the server to downsample).
+
+        ``dac_path="current_out"`` replays on the 4-20 mA output (J9). A recording of the 4-20 mA
+        input (``Waveform.unit == "mA"``) replays as the same current; a voltage recording there,
+        or a current recording on a voltage output, needs ``mapping="fit"``.
         """
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         wid = waveform.id if hasattr(waveform, "id") else waveform
@@ -1512,6 +1593,13 @@ class BenchPod:
         if dac_path is None:
             dac_path = wf.dac_path if wf.dac_path in DAC_PATHS else "5v"  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")  # type: ignore[arg-type]
+        path_unit = "mA" if dac_path == _CURRENT_OUT else "V"
+        wf_unit = getattr(wf, "unit", "V") or "V"
+        if getattr(wf, "kind", "") == "recording" and wf_unit != path_unit and mapping != "fit":
+            raise ValueError(f"this recording is in {wf_unit} and the {dac_path} output is in "
+                             f"{path_unit}: use mapping='fit' to replay its shape there")
+        if dac_path == _CURRENT_OUT:
+            self._output_range(dac_path)  # needs the capability; refuse before anything moves
 
         use_server = server_side
         if use_server is None:
@@ -1545,10 +1633,13 @@ class BenchPod:
             f = normalize_fault(fault)
             if f:
                 payload["fault"] = f
+            if dac_path == _CURRENT_OUT:
+                self._route_output(dac_path)  # the DAC voltage outputs must not follow the current
             data = api.replay_start(payload)
             # The server replay is async: the armed/playing outcome arrives as a later dac.event
             # frame, so infer cotrig from the request + the device capability.
-            return ReplayHandle(stop=self.dac_stop, samples=int(data.get("samples", 0) or 0),
+            return ReplayHandle(stop=self._stop_for(dac_path),  # type: ignore[arg-type]
+                                samples=int(data.get("samples", 0) or 0),
                                 sample_rate_hz=float(sample_rate_hz or 0.0), dac_path=dac_path,
                                 deep=bool(self.capabilities.dac_deep_replay), data=data,
                                 cotrig=bool(on_capture and self.capabilities.dac_cotrig),
@@ -1556,10 +1647,16 @@ class BenchPod:
 
         # Client-side: fetch + DSP + stream over the transport.
         bits = self._replay_bits()
+        # The library stores currents in mA, so the 4-20 mA output's range is taken in mA here.
+        path_range = None
+        if dac_path == _CURRENT_OUT:
+            lo_a, hi_a = self._output_range(dac_path)  # type: ignore[arg-type]
+            path_range = (lo_a * 1000.0, hi_a * 1000.0)
         if wf.is_recording:
             raw = lib.download_recording(wid)  # type: ignore[arg-type]
             rc = _dsp.recording_to_replay_codes(
-                raw, src_full_scale_v=wf.full_scale_v or _dsp.dac_path_fullscale_v(dac_path),
+                raw, path_range=path_range,
+                src_full_scale_v=wf.full_scale_v or _dsp.dac_path_fullscale_v(dac_path),
                 dac_path=dac_path, mapping=mapping, window_start=window_start,
                 window_len=window_len, target_samples=target_samples, bits=bits,
                 deep=bool(deep) if deep is not None else (wf.sample_count > 2048),
@@ -1568,7 +1665,7 @@ class BenchPod:
             code_bytes = rc.to_bytes()
         elif wf.segments:
             volts = _dsp.segments_to_volts(wf.segments, wf.sample_rate_hz or 1.0)
-            seg_min, seg_max = _dsp.dac_path_range_v(dac_path)  # type: ignore[arg-type]
+            seg_min, seg_max = path_range or _dsp.dac_path_range_v(dac_path)  # type: ignore[arg-type]
             codes = _dsp.volts_to_codes(volts, mapping, seg_max, bits=bits, path_min_v=seg_min)
             f = normalize_fault(fault)
             if f:
@@ -1582,15 +1679,20 @@ class BenchPod:
 
     def save_capture_as_recording(self, capture: Capture, name: str, *,
                                   full_scale_v: Optional[float] = None) -> "Waveform":
-        """Save an ADC :class:`Capture` to the cloud library as a replayable ``recording``."""
-        volts = capture.volts
+        """Save an ADC :class:`Capture` to the cloud library as a replayable ``recording``.
+
+        A capture of ``current_in`` (the 4-20 mA input) is stored as a current, in mA, so it
+        replays as the same current on the ``current_out`` path; ``full_scale_v`` is then mA too.
+        """
+        unit = "mA" if capture.currents else "V"
+        volts = [a * 1000.0 for a in capture.currents] if capture.currents else capture.volts
         fs = full_scale_v
         if fs is None:
             peak = max((abs(v) for v in volts), default=1.0)
             fs = peak if peak > 0 else 1.0
         blob = _dsp.encode_recording_volts(volts, fs)
         return self.waveforms.save_recording(name, blob, sample_rate_hz=capture.sample_rate_hz or 0.0,
-                                             full_scale_v=fs)
+                                             full_scale_v=fs, unit=unit)
 
     # -- cloud waveform library + server API ----------------------------------
 

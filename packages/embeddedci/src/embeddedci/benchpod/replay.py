@@ -52,7 +52,7 @@ class Fault:
 class Segment:
     """One piece of a segmented waveform: ``ramp`` (``v_start`` → ``v_end``), ``hold`` or ``step``.
 
-    ``duration`` is in seconds; voltages in volts.
+    ``duration`` is in seconds; levels in volts (amps on the ``current_out`` path).
     """
 
     shape: str

@@ -1622,7 +1622,7 @@
     "input": {
       "properties": {
         "amplitude": {
-          "description": "Peak volts.",
+          "description": "Peak volts. On dac_path current_out: peak AMPS (0.006 = 6 mA).",
           "exclusiveMinimum": 0,
           "title": "Amplitude",
           "type": "number"
@@ -1632,7 +1632,8 @@
           "enum": [
             "3v3",
             "5v",
-            "12v"
+            "12v",
+            "current_out"
           ],
           "title": "Dac Path",
           "type": "string"
@@ -1665,7 +1666,7 @@
             }
           ],
           "default": null,
-          "description": "Centre volts; default mid-range of dac_path.",
+          "description": "Centre volts; default mid-range of dac_path. On current_out: centre AMPS (0.012 = 12 mA).",
           "title": "Offset"
         },
         "on_capture": {
@@ -2779,7 +2780,8 @@
           "enum": [
             "3v3",
             "5v",
-            "12v"
+            "12v",
+            "current_out"
           ],
           "title": "Dac Path",
           "type": "string"
@@ -2854,7 +2856,7 @@
             }
           ],
           "default": null,
-          "description": "Waveform in volts, one value per sample.",
+          "description": "Waveform in volts, one value per sample. On dac_path current_out the values are AMPS (0.004 to 0.020).",
           "title": "Volts"
         }
       },
@@ -2928,7 +2930,8 @@
               "enum": [
                 "3v3",
                 "5v",
-                "12v"
+                "12v",
+                "current_out"
               ],
               "type": "string"
             },

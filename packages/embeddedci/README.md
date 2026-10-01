@@ -787,7 +787,7 @@ bp.current_out(0.004)                      # back to the live zero
 print(bp.current_out_range().max_current)  # the range only, nothing moves
 ```
 
-- **It is loop powered.** J9 pin 1 (plus) goes to the plus of an external loop supply, pin 2
+- **It is loop powered.** J9 pin 1 (plus) goes to the plus of an external floating loop supply, pin 2
   (minus) through your receiver to the supply minus. Use 8 V plus 20 mA times the loop
   resistance, 30 V at most (24 V drives up to 800 Ω).
 - **The loop must float.** Pin 2 is not pod ground, and nothing in the loop may touch pod
@@ -803,8 +803,32 @@ print(bp.current_out_range().max_current)  # the range only, nothing moves
   loop where it was: call `current_out(0.004)` to go back to 4 mA.
 - While DAC limits are set (an output stage), the pod refuses `current_out`.
 
+Waveforms work on it too. `generate`, `replay` and `replay_waveform` take
+`dac_path="current_out"`, and their levels are then amps:
+
+```python
+with bp.generate("sine", freq_hz=2, amplitude=0.006, offset=0.012, dac_path="current_out"):
+    ...                                    # 6 to 18 mA; leaving the block returns the loop to 4 mA
+
+ramp = [0.004 + 0.016 * i / 999 for i in range(1000)]
+bp.replay(ramp, dac_path="current_out", sample_rate_hz=1000)   # 4 to 20 mA in 1 s, looping
+
+loop = bp.capture_adc(4096, sample_rate_hz=100_000, source="current_in")
+print(max(loop.currents))                  # a capture of J8 carries the loop current in amps
+bp.replay(loop, dac_path="current_out")    # play the captured loop back on J9
+```
+
+- `generate` builds 8-bit levels: steps of about 63 µA. `replay` is 16-bit.
+- Stopping the returned handle returns the loop to 4 mA. A bare `dac_stop()` does not.
+- A capture or recording of a voltage has no current to reproduce: on `current_out` it needs
+  `mapping="fit"`, which stretches its shape over the output's range. The same holds for a
+  current recording (`Waveform.unit == "mA"`) on a voltage output.
+- In the cloud library, `save_capture_as_recording` stores a capture of `current_in` as a current
+  (`unit="mA"`), and `waveforms.save_segments(..., dac_path="current_out")` takes amps.
+- Below 400 kS/s a capture of `current_in` reads about 10 to 20 µA higher than `adc_read`.
+
 The values are the board's nominal ones, the same on every pod: the output has no per-pod
-calibration. Needs firmware with the `current_out` capability (`Capabilities.current_out`).
+calibration. Needs firmware 3.4.0 or later (capability `current_out`, `Capabilities.current_out`).
 
 ## Captures
 

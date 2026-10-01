@@ -1091,6 +1091,9 @@ async def capture_adc(
 ) -> m.AdcCaptureResult:
     """Capture the ADC and summarise it: calibrated stats, dominant frequency and a min/max envelope.
 
+    source current_in captures the 4-20 mA input (J8): the stats are then the loop current in amps
+    (unit "A"), and replay(from_last_capture=true, dac_path="current_out") plays it back as a current.
+
     Above 32768 samples the capture streams from PSRAM (multi-second captures work). With
     trigger_la the capture waits for that edge or level, so t = 0 is the trigger moment. The
     capture is kept for replay and save_capture_as_recording.
@@ -1262,8 +1265,9 @@ async def la_timing(
 async def generate(
     waveform: Waveshape,
     freq_hz: Annotated[float, Field(gt=0)],
-    amplitude: Annotated[float, Field(gt=0, description="Peak volts.")],
-    offset: Annotated[Optional[float], Field(description="Centre volts; default mid-range of dac_path.")] = None,
+    amplitude: Annotated[float, Field(gt=0, description="Peak volts. On dac_path current_out: peak AMPS (0.006 = 6 mA).")],
+    offset: Annotated[Optional[float], Field(description=(
+        "Centre volts; default mid-range of dac_path. On current_out: centre AMPS (0.012 = 12 mA)."))] = None,
     dac_path: DacPath = "5v",
     duration: Annotated[Optional[float], Field(description="Seconds; omit to run until dac_stop.")] = None,
     sample_rate_hz: RateHz = None,
@@ -1272,7 +1276,13 @@ async def generate(
         "Route dac_path first. false = keep the current analog path (e.g. after analog_path('cal1') "
         "for a DAC-to-ADC loopback); dac_path then only sets the volts scaling."))] = True,
 ) -> m.GenerateResult:
-    """Drive a sine, square or sawtooth on a DAC output (built from 8-bit levels)."""
+    """Drive a sine, square or sawtooth on a DAC output (built from 8-bit levels).
+
+    dac_path current_out plays it as a current on the 4-20 mA output (J9), with amplitude and offset
+    in amps and steps of about 63 uA. See current_out for the wiring it needs. The DAC voltage
+    outputs are switched off for it. dac_stop then leaves the loop where the waveform stopped: call
+    current_out(0.004) to go back to 4 mA.
+    """
     handle = await _call(lambda: SESSION.require().generate(
         waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, dac_path=dac_path,
         duration=duration, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
@@ -1281,7 +1291,11 @@ async def generate(
 
 @mcp.tool(annotations=_ann("Stop the DAC", idempotent=True))
 async def dac_stop() -> m.StopResult:
-    """Stop any DAC output: generator, replay or control loop."""
+    """Stop any DAC output: generator, replay or control loop.
+
+    The 4-20 mA output follows the DAC, so after a waveform on current_out the loop stays where it
+    stopped: call current_out(0.004) to return it to 4 mA.
+    """
     await _call(lambda: SESSION.require().dac_stop())
     return m.StopResult()
 
@@ -1301,7 +1315,8 @@ def _replay_result(handle: Any) -> m.ReplayResult:
 
 @mcp.tool(annotations=_ann("Replay a waveform", destructive=True))
 async def replay(
-    volts: Annotated[Optional[List[float]], Field(description="Waveform in volts, one value per sample.")] = None,
+    volts: Annotated[Optional[List[float]], Field(description=(
+        "Waveform in volts, one value per sample. On dac_path current_out the values are AMPS (0.004 to 0.020)."))] = None,
     from_last_capture: Annotated[bool, Field(description="Replay the last capture_adc instead of volts.")] = False,
     dac_path: DacPath = "5v",
     mapping: Annotated[ReplayMapping, Field(description="faithful = reproduce volts (clip); fit = auto-scale.")] = "faithful",
@@ -1315,6 +1330,9 @@ async def replay(
     """Loop a waveform out of the DAC until dac_stop — agent-provided volts or the last ADC capture.
 
     More than 2048 samples need the deep_replay gateware image, switched to automatically.
+    dac_path current_out replays on the 4-20 mA output (J9) in amps. A last capture of current_in
+    replays as the same current; a capture of a voltage source there needs mapping fit. See
+    current_out for the wiring. After dac_stop, call current_out(0.004) to go back to 4 mA.
     """
     if (volts is None) == (not from_last_capture):
         raise ToolError("invalid argument: pass exactly one of volts or from_last_capture=true")
@@ -1340,7 +1358,10 @@ async def list_waveforms() -> m.WaveformList:
     wfs = await _call(lambda: SESSION.require().waveforms.list())
     return m.WaveformList(waveforms=[m.WaveformInfo(id=w.id, name=w.name, kind=w.kind,
                                                     sample_count=w.sample_count,
-                                                    sample_rate_hz=w.sample_rate_hz) for w in wfs])
+                                                    sample_rate_hz=w.sample_rate_hz,
+                                                    unit=getattr(w, "unit", "V") or "V",
+                                                    dac_path=getattr(w, "dac_path", "") or None)
+                                     for w in wfs])
 
 
 # -- cloud (embeddedci.com, no pod connection needed) -------------------------------------
@@ -1392,6 +1413,9 @@ async def replay_waveform(
 
     A recording too long for a shallow replay switches the pod to the deep_replay gateware image
     (unless target_samples asks for a downsampled replay).
+    dac_path current_out replays on the 4-20 mA output (J9). A recording with unit mA replays there
+    as the same current; a recording in V there, or a mA recording on a voltage output, needs
+    mapping fit. After dac_stop, call current_out(0.004) to go back to 4 mA.
     """
     return await _call_reporting(ctx, "arming replay", lambda: _replay_result(
         SESSION.require().replay_waveform(
@@ -1405,7 +1429,11 @@ async def save_capture_as_recording(
     name: Annotated[str, Field(min_length=1)],
     full_scale_v: Annotated[Optional[float], Field(description="Volts the top code represents; default the peak.")] = None,
 ) -> m.RecordingResult:
-    """Save the last capture_adc to the cloud waveform library as a replayable recording."""
+    """Save the last capture_adc to the cloud waveform library as a replayable recording.
+
+    A capture of current_in (the 4-20 mA input) is stored as a current, unit mA; full_scale_v is
+    then in mA too.
+    """
     def op() -> m.RecordingResult:
         pod = SESSION.require()
         if SESSION.last_adc is None:
