@@ -1017,7 +1017,8 @@ async def current_out(
 
     The output is loop powered: it needs an external floating supply on J9 (pin 1 plus to the supply
     plus, pin 2 through the receiver to the supply minus; 8 V plus 20 mA times the loop resistance,
-    36 V at most). Ask the user how J9 is wired before driving it. Never wire J9 straight into J8.
+    30 V at most). Nothing in the loop may touch pod ground, also not through a target that shares
+    a ground with the pod. Ask the user how J9 is wired before driving it. Never wire J9 straight into J8.
     The pod cannot see the loop: the call succeeds with the supply off.
     It cannot go below about 0.004016 A or above about 0.020078 A: there is no 0 mA or 21 mA level.
     0.004 gives the lowest current; anything else outside the range fails with the pod's message.

@@ -788,8 +788,11 @@ print(bp.current_out_range().max_current)  # the range only, nothing moves
 ```
 
 - **It is loop powered.** J9 pin 1 (plus) goes to the plus of an external loop supply, pin 2
-  (minus) through your receiver to the supply minus. The supply must float: pin 2 is not pod
-  ground. Use 8 V plus 20 mA times the loop resistance, 36 V at most (24 V drives up to 800 Ω).
+  (minus) through your receiver to the supply minus. Use 8 V plus 20 mA times the loop
+  resistance, 30 V at most (24 V drives up to 800 Ω).
+- **The loop must float.** Pin 2 is not pod ground, and nothing in the loop may touch pod
+  ground: not the supply minus, and not a receiver that shares a ground with the pod (through
+  SWD or UART wiring to the same target). If it does, the current is no longer regulated.
 - **Do not wire J9 straight into J8.** The output cannot regulate that way.
 - The pod cannot see the loop. `current_out` succeeds with the supply off or the loop open.
 - The output cannot go below its live zero (about 4.016 mA) or above about 20.08 mA: there is no

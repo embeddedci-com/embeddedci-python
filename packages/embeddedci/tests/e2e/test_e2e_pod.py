@@ -9,6 +9,7 @@ BENCHPOD_E2E_ALLOW_12V=1. Each test leaves the pod quiet.
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -155,6 +156,56 @@ def test_dac_output_reads_back_through_the_adc(pod):
         time.sleep(0.1)
         reading = pod.adc_read("cal1")
         assert abs(reading.voltage - volts) < 0.1, (volts, reading)
+
+
+def test_current_out_holds_a_current_and_the_dac_follows(pod):
+    """The 4-20 mA output (J9) with nothing wired: the replies, and the DAC behind them.
+
+    No loop supply is needed. The DAC is read back through the internal 5 V loopback, which is
+    the voltage the transmitter's input gets. That readback routes the 5 V output for a moment,
+    so it is only done at 12 mA (2.5 V there). Whether loop current flows needs the bench fixture
+    in embeddedci-server/hwe2e.
+    """
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    try:
+        rng = pod.current_out_range()
+        assert rng.current is None and rng.code is None
+        assert 0.0039 < rng.min_current < 0.0042 and 0.0199 < rng.max_current < 0.0202, rng
+
+        low = pod.current_out(0.004)                      # under the live zero: the lowest it does
+        assert low.code == 0 and low.current == pytest.approx(rng.min_current)
+
+        mid = pod.current_out(0.012)
+        assert mid.current == pytest.approx(0.012, abs=2e-6) and abs(mid.code - 32576) <= 1, mid
+        time.sleep(0.1)
+        readback = pod.adc_read("cal1").voltage           # routes the 5 V output: about 2.49 V
+        assert abs(readback - mid.code / 65536 * 4.99) < 0.06, (mid, readback)
+
+        top = pod.current_out(0.020)                      # switches the 5 V output off again
+        assert top.current == pytest.approx(0.020, abs=2e-6)
+        assert pod.analog_path("current_out").dac_mux_register & 0x09 == 0   # both mux enables off
+
+        with pytest.raises(BenchPodError, match="out of range"):
+            pod.current_out(0.002)                        # there is no level below the live zero
+        with pytest.raises(ValueError, match="amps"):
+            pod.current_out(12)                           # milliamps by mistake
+    finally:
+        pod.current_out(0.004)                            # dac_stop would leave the loop where it was
+        pod.analog_path("off")
+
+
+def test_current_in_reads_zero_with_j8_open(pod):
+    """The 4-20 mA input (J8) with nothing wired: about 0 mA, and the current matches the voltage."""
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    reading = pod.adc_read("current_in")
+    pod.analog_path("off")
+    if reading.current is None:
+        pytest.skip("this pod's firmware does not report the loop current")
+    assert reading.current == pytest.approx(reading.voltage / 249, abs=4e-6)
+    limit = 30e-6 if pod.capabilities.calibrate and pod.calibration().calibrated else 100e-6
+    assert abs(reading.current) < limit, f"J8 open reads {reading.current * 1e6:.0f} uA: is something connected?"
 
 
 def test_generate_levels_are_volts(pod):

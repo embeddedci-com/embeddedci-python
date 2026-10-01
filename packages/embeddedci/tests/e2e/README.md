@@ -51,6 +51,7 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 | Biased channel nothing uses | LA6 | `BENCHPOD_E2E_FREE_PULL_LA` |
 | Highest DAC output voltage | 3.3 V | `BENCHPOD_E2E_DAC_MAX_V` |
 | Drive the bipolar 12v output (±1 V) | no | `BENCHPOD_E2E_ALLOW_12V=1` |
+| Something connected to the 4-20 mA input (J8) | no, J8 is open | `BENCHPOD_E2E_J8_WIRED=1` |
 
 ## Not covered here
 

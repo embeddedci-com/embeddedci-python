@@ -709,9 +709,11 @@ class BenchPod:
         level. ``0.004`` gives the live zero; the pod refuses anything else outside the range.
 
         **The output is loop powered.** J9 pin 1 (plus) goes to the plus of an external,
-        floating loop supply (8 V plus 20 mA times the loop resistance, 36 V at most); pin 2
-        (minus) is the loop return through the receiver and is not pod ground. Do not wire J9
-        straight into J8. The pod cannot see the loop: the call succeeds with the supply off.
+        floating loop supply (8 V plus 20 mA times the loop resistance, 30 V at most); pin 2
+        (minus) is the loop return through the receiver and is not pod ground. Nothing in the
+        loop may touch pod ground, also not through a target that shares a ground with the pod.
+        Do not wire J9 straight into J8. The pod cannot see the loop: the call succeeds with
+        the supply off.
 
         **The DAC is shared** with the 3.3 V / 5 V / ±12 V outputs. This call switches those
         outputs off first. :meth:`dac_output`, :meth:`generate` and :meth:`replay` also move the
