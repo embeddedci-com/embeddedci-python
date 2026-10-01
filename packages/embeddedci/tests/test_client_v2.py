@@ -235,12 +235,17 @@ def test_adc_read_is_typed():
 
 
 def test_adc_read_reports_the_calibration_offset():
-    bp, _ = _bp({"adc_read": {"source": "amp", "mv": 3985, "count": 61562, "span": 6, "offset_mv": 10}})
-    reading = bp.adc_read("amp")
+    bp, _ = _bp({"adc_read": {"source": "current_in", "mv": 3985, "count": 61562, "span": 6,
+                              "offset_mv": 10, "ua": 16004}})
+    reading = bp.adc_read("current_in")
     assert reading.voltage == pytest.approx(3.985) and reading.offset == pytest.approx(0.010)
+    assert reading.current == pytest.approx(0.016004)
+    assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).current is None
+    with pytest.raises(ValueError):
+        bp.adc_read("amp")  # type: ignore[arg-type]   # the old name of current_in
     # A source without one, and older firmware, report none rather than 0.
     assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).offset is None
-    assert AdcReading.from_reply({"source": "amp", "mv": 4, "count": 65535, "offset_mv": 0}).offset == 0.0
+    assert AdcReading.from_reply({"source": "current_in", "mv": 4, "count": 65535, "offset_mv": 0}).offset == 0.0
 
 
 class CalPod(FakeTransport):
@@ -250,7 +255,7 @@ class CalPod(FakeTransport):
         return {**super().status(), "version": "3.4.0", "caps": ["calibrate"]}
 
 
-_CAL = {"source": "amp", "calibrated": True, "offset_mv": 4, "offset_uv": 4356,
+_CAL = {"source": "current_in", "calibrated": True, "offset_mv": 4, "offset_uv": 4356,
         "a_uv": 65828041, "b_nv": -1004471}
 
 
@@ -261,8 +266,8 @@ def test_calibrate_runs_reads_and_clears():
     bp = BenchPod(transport=t, lease=False)
 
     done = bp.calibrate()
-    assert t.commands[-1] == {"cmd": "calibrate", "source": "amp"}
-    assert isinstance(done, Calibration) and done.calibrated and done.source == "amp"
+    assert t.commands[-1] == {"cmd": "calibrate", "source": "current_in"}
+    assert isinstance(done, Calibration) and done.calibrated and done.source == "current_in"
     assert done.offset == pytest.approx(4.356e-3)
     assert done.a == pytest.approx(65.828041) and done.b == pytest.approx(-1.004471e-3)
     assert (done.count, done.span, done.samples) == (65535, 6, 512)

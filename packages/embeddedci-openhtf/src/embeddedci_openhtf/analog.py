@@ -1,7 +1,7 @@
 """Analog stimulus/acquisition helpers for OpenHTF phases.
 
 The BenchPod's analog front end is a DAC output (routed to the 3V3/5V/12V SMA paths) and a
-16-bit ADC input (front SMA, internal DAC loopbacks, amps terminal). These helpers and phase
+16-bit ADC input (front SMA, internal DAC loopbacks, 4-20 mA measurement terminal). These helpers and phase
 factories wrap the :class:`~embeddedci.benchpod.BenchPod` analog API and turn its results into
 OpenHTF measurements.
 
@@ -81,7 +81,7 @@ __all__ = [
 _Range = Optional[Tuple[float, float]]
 
 #: ADC source -> the named analog path that routes it.
-_ADC_SOURCE_PATH: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "cal2", "amp": "amp"}
+_ADC_SOURCE_PATH: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "cal2", "current_in": "current_in"}
 
 
 # -- low-level helpers (operate on a BenchPod or BenchPodPlug) ---------------
@@ -120,7 +120,7 @@ def dac_output(bench: Any, path: DacOutputPath, *, volts: Optional[float] = None
 
 
 def adc_read(bench: Any, source: AdcSource = "ext") -> AdcReading:
-    """Route an ADC ``source`` (``ext``/``cal1``/``cal2``/``amp``) and return one calibrated
+    """Route an ADC ``source`` (``ext``/``cal1``/``cal2``/``current_in``) and return one calibrated
     :class:`~embeddedci.benchpod.AdcReading` (``voltage`` in volts, ``count``). ``ext`` applies
     the front-SMA divider, so ``voltage`` is the true SMA voltage."""
     return bench.adc_read(source)

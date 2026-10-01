@@ -67,7 +67,7 @@ class LowLevel:
         """Set ALL calibration relays (U58 → U53) at once — every relay not named is switched off.
 
         ``cal1``/``cal2`` route the 5V/12V DAC path to the ADC (mutually exclusive);
-        ``amp_measure`` switches the ADC to the amps terminal; ``cal_path`` switches the ADC from
+        ``amp_measure`` switches the ADC to the 4-20 mA measurement terminal; ``cal_path`` switches the ADC from
         the front SMA to the calibration path. Use :meth:`cal_switch_status` to read them.
         """
         if cal1 and cal2:

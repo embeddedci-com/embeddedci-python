@@ -67,9 +67,9 @@ class FakeTransport(Transport):
         #: Capabilities the pod reports; drop entries to test a pod without a feature.
         self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
                      "la_pins", "gpio_read", "capture_trigger", "power_profile", "calibrate"]
-        #: The pod's stored `amp` calibration (the `calibrate` command).
-        self.amp_calibrated = False
-        self.amp_offset_uv = 0
+        #: The pod's stored `current_in` calibration (the `calibrate` command).
+        self.current_in_calibrated = False
+        self.current_in_offset_uv = 0
         # -- LA pin ownership (the firmware's table): function, gpio mode and commanded level.
         self.function: Dict[int, str] = {la: "none" for la in range(1, 15)}
         self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
@@ -260,22 +260,23 @@ class FakeTransport(Transport):
 
     def _cmd_adc_read(self, req):
         reply = {"source": req.get("source", "ext"), "mv": 3301, "count": 63049, "span": 2}
-        if reply["source"] == "amp":
-            reply["offset_mv"] = round(self.amp_offset_uv / 1000)
+        if reply["source"] == "current_in":
+            reply["offset_mv"] = round(self.current_in_offset_uv / 1000)
+            reply["ua"] = round(reply["mv"] * 1000 / 249)
         return reply
 
     def _cmd_calibrate(self, req):
         if req.get("clear"):
-            self.amp_offset_uv = 0
-            self.amp_calibrated = False
+            self.current_in_offset_uv = 0
+            self.current_in_calibrated = False
         elif "source" in req:
             if self.error:
                 raise FirmwareError(self.error, cmd="calibrate")
-            self.amp_offset_uv = 4356
-            self.amp_calibrated = True
-        reply = {"source": "amp", "calibrated": self.amp_calibrated,
-                 "offset_mv": round(self.amp_offset_uv / 1000), "offset_uv": self.amp_offset_uv,
-                 "a_uv": 65832397 - self.amp_offset_uv, "b_nv": -1004471}
+            self.current_in_offset_uv = 4356
+            self.current_in_calibrated = True
+        reply = {"source": "current_in", "calibrated": self.current_in_calibrated,
+                 "offset_mv": round(self.current_in_offset_uv / 1000), "offset_uv": self.current_in_offset_uv,
+                 "a_uv": 65832397 - self.current_in_offset_uv, "b_nv": -1004471}
         if "source" in req:
             reply.update(count=65535, span=6, samples=512)
         return reply

@@ -254,17 +254,22 @@ class AdcReading:
     span: int = 0
     #: This pod's own calibration offset in volts, already taken out of ``voltage``
     #: (:meth:`BenchPod.calibrate`). ``None`` when the pod reports none: every source but
-    #: ``amp``, and older firmware.
+    #: ``current_in``, and older firmware.
     offset: Optional[float] = None
+    #: Loop current in amps on ``current_in``, the 4-20 mA input: ``voltage`` across the pod's
+    #: 249 Ω sense resistor. ``None`` on every other source and on older firmware.
+    current: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "AdcReading":
         d = _d(reply)
         offset_mv = _opt_int(d, "offset_mv")
+        ua = _opt_int(d, "ua")
         return cls(source=str(d.get("source", "")), voltage=(_opt_int(d, "mv") or 0) / 1000.0,
                    count=_opt_int(d, "count") or 0, span=_opt_int(d, "span") or 0,
-                   offset=None if offset_mv is None else offset_mv / 1000.0, raw=d)
+                   offset=None if offset_mv is None else offset_mv / 1000.0,
+                   current=None if ua is None else ua / 1e6, raw=d)
 
 
 @dataclass(frozen=True)
@@ -273,7 +278,7 @@ class Calibration:
 
     Every ADC source is scaled with a fit, ``volts = a + b * count``, that is built into the
     firmware and the same on every pod. A pod that calibrated itself keeps its own value on top
-    of that, in flash. Today that is the offset of ``amp``, the 4-20 mA input (J8).
+    of that, in flash. Today that is the offset of ``current_in``, the 4-20 mA input (J8).
     """
 
     source: str

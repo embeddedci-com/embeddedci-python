@@ -97,11 +97,12 @@ DacPath = Literal["3v3", "5v", "12v"]
 #: A DAC output path, or ``off`` to park the output (``BenchPod.dac_output``).
 DacOutputPath = Literal["3v3", "5v", "12v", "off"]
 #: A named analog path: one fully specified mux + relay state (``BenchPod.analog_path``).
-AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "cal2", "amp"]
-#: Where the ADC reads from: front SMA (``ext``), the two internal DAC loopbacks, or the amps terminal.
-AdcSource = Literal["ext", "cal1", "cal2", "amp"]
+AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "cal2", "current_in"]
+#: Where the ADC reads from: front SMA (``ext``), the two internal DAC loopbacks, or the 4-20 mA
+#: measurement terminal J8 (``current_in``; firmware up to 3.3.0 called it ``amp``).
+AdcSource = Literal["ext", "cal1", "cal2", "current_in"]
 #: ADC sources a pod can calibrate on its own (:meth:`BenchPod.calibrate`): the 4-20 mA input.
-CalibrateSource = Literal["amp"]
+CalibrateSource = Literal["current_in"]
 #: Parametric DAC waveforms the firmware generator produces.
 Waveshape = Literal["sine", "square", "sawtooth"]
 #: How replayed volts map onto DAC codes: reproduce them (``faithful``) or auto-scale (``fit``).
@@ -136,7 +137,7 @@ GPIO_MODES: Tuple[str, ...] = get_args(GpioMode)
 TRIGGER_EDGES: Tuple[str, ...] = get_args(TriggerEdge)
 
 #: The analog path each ADC source routes (``capture_adc(source=...)``).
-ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "cal2", "amp": "amp"}
+ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "cal2", "current_in": "current_in"}
 
 #: LA I/O-bank voltages the pod supports (volts). 1.8 V needs a rev3 pod.
 LA_VOLTAGES: Tuple[float, ...] = (1.8, 3.3)

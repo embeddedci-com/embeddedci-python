@@ -673,7 +673,7 @@ class BenchPod:
 
         ``dac_3v3``/``dac_5v``/``dac_12v`` route the DAC to an output (``dac_12v`` is bipolar
         ±12 V); ``adc_ext`` connects the ADC to the front SMA; ``cal1``/``cal2`` loop the 5 V /
-        12 V DAC output back into the ADC; ``amp`` reads the amps terminal; ``off`` parks it all.
+        12 V DAC output back into the ADC; ``current_in`` reads the 4-20 mA measurement terminal; ``off`` parks it all.
         """
         check_choice(path, ANALOG_PATHS, "path")
         return AnalogPathState.from_reply(self.command({"cmd": "analog_path", "path": path}))
@@ -696,25 +696,26 @@ class BenchPod:
         """Route an ADC ``source`` and return one CALIBRATED reading (a short averaged burst).
 
         ``ext`` is the front SMA (the ÷12 divider is applied, so ``voltage`` is the true SMA
-        voltage); ``cal1``/``cal2`` the internal DAC loopbacks; ``amp`` the amps terminal. The
+        voltage); ``cal1``/``cal2`` the internal DAC loopbacks; ``current_in`` the 4-20 mA measurement terminal. The
         pod refuses the reading when the input is still moving (e.g. a DAC left running).
 
-        On ``amp`` the reading already has this pod's calibration offset taken out
-        (:meth:`calibrate`); ``offset`` says how much that was.
+        On ``current_in`` the reading also carries ``current``, the loop current in amps, and
+        already has this pod's calibration offset taken out (:meth:`calibrate`); ``offset`` says
+        how much that was.
         """
         check_choice(source, ADC_SOURCES, "source")
         return AdcReading.from_reply(self.command({"cmd": "adc_read", "source": source}))
 
     # -- the pod's own calibration ---------------------------------------------
     # The ADC fits are built into the firmware and the same on every pod. `calibrate` lets a pod
-    # measure what it can on itself and keep it in flash: today the offset of `amp`.
+    # measure what it can on itself and keep it in flash: today the offset of `current_in`.
 
-    def calibrate(self, source: CalibrateSource = "amp") -> Calibration:
+    def calibrate(self, source: CalibrateSource = "current_in") -> Calibration:
         """Calibrate ``source`` on the pod and store the result in its flash.
 
-        ``amp`` is the 4-20 mA input (J8) and the only source a pod can calibrate on its own.
+        ``current_in`` is the 4-20 mA input (J8) and the only source a pod can calibrate on its own.
         **Disconnect J8 first**: with nothing connected the terminal is at 0 V, so what the pod
-        reads is its offset. It takes about 0.3 s. Every later ``adc_read("amp")`` has that
+        reads is its offset. It takes about 0.3 s. Every later ``adc_read("current_in")`` has that
         offset taken out. It survives a reboot and a firmware update.
 
         Raises :class:`BenchPodError` when the pod refuses: something is driving J8 (more than
@@ -1012,7 +1013,7 @@ class BenchPod:
         Works over any transport. ``sample_rate_hz`` omitted = the device's maximum rate; the
         achieved rate is on the result. Above 32768 samples the capture streams from PSRAM, so
         multi-second captures work. ``source`` first routes that ADC source (``ext``/``cal1``/
-        ``cal2``/``amp``) — omitted, the current routing is left alone. ``volts`` use the front-SMA
+        ``cal2``/``current_in``) — omitted, the current routing is left alone. ``volts`` use the front-SMA
         calibration; for the other sources compare ``counts`` or use :meth:`adc_read`.
 
         ``trigger`` (a :class:`Trigger`, gateware >= v35) waits for an edge or level on an LA channel

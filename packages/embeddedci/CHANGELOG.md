@@ -2,10 +2,15 @@
 
 ## Unreleased
 
+- **Breaking:** the ADC source and analog path `"amp"` is now `"current_in"` (the 4-20 mA
+  measurement terminal, J8). `amp` read as "amplifier", and the value is volts, not amps. The
+  firmware after 3.3.0 no longer accepts `amp`, so `AdcSource` and `AnalogPath` drop it without a
+  major version. `adc_read("current_in")` also returns the loop current in amps as
+  `AdcReading.current`.
 - Calibration: `BenchPod.calibrate()` makes the pod measure the offset of its 4-20 mA input
-  (`amp`, J8 disconnected) and store it in flash; `calibration()` reads it back and
+  (`current_in`, J8 disconnected) and store it in flash; `calibration()` reads it back and
   `clear_calibration()` removes it. All three return a `Calibration` (`calibrated`, `offset` in
-  volts, the fit `a` / `b`). `adc_read("amp")` has the offset taken out and reports it as
+  volts, the fit `a` / `b`). `adc_read("current_in")` has the offset taken out and reports it as
   `AdcReading.offset`. New `CalibrateSource` and `Capabilities.calibrate`. Needs firmware after
   3.3.0.
 - Motor & battery emulator: `BenchPod.open_motor_emulator()` returns a `MotorEmulator` for the

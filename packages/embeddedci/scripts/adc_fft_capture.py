@@ -100,7 +100,7 @@ def parse_args(argv=None):
     ap.add_argument("--offset", type=int, default=128, help="DAC 8-bit offset 0..255 (default 128)")
     ap.add_argument("--waveform", default="sine", choices=["sine", "square", "sawtooth"])
     ap.add_argument("--source", default="cal1",
-                    help="ADC analog path: cal1 (DAC loopback, default) | ext/sma (SMA input) | amp | cal2")
+                    help="ADC analog path: cal1 (DAC loopback, default) | ext/sma (SMA input) | current_in | cal2")
     ap.add_argument("--no-generate", action="store_true",
                     help="do NOT drive the DAC; capture whatever is present on --source")
     ap.add_argument("--out", default=None, help="CSV output path (default: adc_capture_<freq>hz.csv)")

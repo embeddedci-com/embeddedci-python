@@ -254,20 +254,23 @@ def test_analog_tools(connected):
 def test_calibrate_tools(connected):
     assert call("calibration")["calibrated"] is False
     done = call("calibrate")
-    assert done["calibrated"] is True and done["source"] == "amp"
+    assert done["calibrated"] is True and done["source"] == "current_in"
     assert done["offset"] == pytest.approx(4.356e-3) and done["samples"] == 512
     assert done["b"] == pytest.approx(-1.004471e-3)
-    assert connected.amp_calibrated and connected.amp_offset_uv == 4356
-    assert call("adc_read", source="amp")["offset"] == pytest.approx(0.004)
+    assert connected.current_in_calibrated and connected.current_in_offset_uv == 4356
+    reading = call("adc_read", source="current_in")
+    assert reading["offset"] == pytest.approx(0.004)
+    assert reading["current"] == pytest.approx(3.301 / 249, abs=1e-6)
+    assert call("adc_read", source="ext")["current"] is None
     stored = call("calibration")
     assert stored["calibrated"] is True and stored["count"] is None
     cleared = call("calibrate", clear=True)
-    assert not connected.amp_calibrated
+    assert not connected.current_in_calibrated
     assert cleared["calibrated"] is False and cleared["offset"] == 0.0
 
 
 def test_calibrate_refusal_is_a_tool_error(connected):
-    connected.error = "calibrate: amp reads 996 mV, it must be within +/-50 mV of zero. Something is driving J8. Disconnect it and try again"
+    connected.error = "calibrate: current_in reads 996 mV, it must be within +/-50 mV of zero. Something is driving J8. Disconnect it and try again"
     with pytest.raises(Exception, match="996 mV"):
         call("calibrate")
     assert call("calibration")["calibrated"] is False

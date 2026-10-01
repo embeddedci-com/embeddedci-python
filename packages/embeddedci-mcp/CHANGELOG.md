@@ -2,9 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** the ADC source and analog path `amp` is now `current_in` (the 4-20 mA input, J8),
+  following the firmware after 3.3.0. `adc_read` on it also returns `current` in amps.
 - New `calibrate` and `calibration` tools: the pod measures the offset of its 4-20 mA input
-  (`amp`, J8 disconnected) and stores it; `calibration` reads it back and `calibrate(clear=true)`
-  removes it. `adc_read` on `amp` reports the offset it took out. Needs firmware after 3.3.0 and
+  (`current_in`, J8 disconnected) and stores it; `calibration` reads it back and `calibrate(clear=true)`
+  removes it. `adc_read` on `current_in` reports the offset it took out. Needs firmware after 3.3.0 and
   the matching `embeddedci` release.
 
 ## 2.3.0

@@ -14,7 +14,7 @@
             "ext",
             "cal1",
             "cal2",
-            "amp"
+            "current_in"
           ],
           "title": "Source",
           "type": "string"
@@ -43,7 +43,7 @@
             "adc_ext",
             "cal1",
             "cal2",
-            "amp"
+            "current_in"
           ],
           "title": "Path",
           "type": "string"
@@ -73,9 +73,9 @@
           "type": "boolean"
         },
         "source": {
-          "const": "amp",
-          "default": "amp",
-          "description": "What to calibrate. Only amp, the 4-20 mA input.",
+          "const": "current_in",
+          "default": "current_in",
+          "description": "What to calibrate. Only current_in, the 4-20 mA input.",
           "title": "Source",
           "type": "string"
         }
@@ -377,7 +377,7 @@
                 "ext",
                 "cal1",
                 "cal2",
-                "amp"
+                "current_in"
               ],
               "type": "string"
             },

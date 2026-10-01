@@ -466,7 +466,7 @@ how finely a transient was resolved. Measured on a v2 pod:
 | eFuse 2 (external) | 5-20 V on the external terminal | ≈ 3.0 A | ≈ 21.8 V | 167 µA |
 
 An overload is held at the limit for about 2.8 ms, then the eFuse trips (`TargetStatus` `fault`) and
-retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `amp`
+retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `current_in`
 input is a 4-20 mA loop terminal (249 Ω), not a way to measure the target's supply.
 
 ## Flashing
@@ -734,7 +734,7 @@ one step:
 | `"dac_3v3"`, `"dac_5v"`, `"dac_12v"` | route the DAC to that output (`dac_12v` is the bipolar ±12 V output) |
 | `"adc_ext"` | connect the ADC to the front SMA |
 | `"cal1"`, `"cal2"` | loop the 5 V / 12 V DAC output back into the ADC |
-| `"amp"` | read the amps terminal |
+| `"current_in"` | read the 4-20 mA measurement terminal |
 | `"off"` | park everything |
 
 ```python
@@ -748,20 +748,20 @@ print(bp.adc_read("ext").voltage)          # the true front-SMA voltage (the ÷1
 ```
 
 `dac_output` takes calibrated volts (`"3v3"`, `"5v"`, `"12v"`, or `"off"`); without `volts` it only
-routes. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"amp"`) and returns one averaged,
+routes. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"current_in"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).
 
 ### Calibrating the 4-20 mA input
 
-`"amp"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
+`"current_in"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
 4.98 V. Each pod is off by a few mV there. The pod can measure that offset itself and keep it in
 its flash:
 
 ```python
 cal = bp.calibrate()                       # disconnect J8 first. Calibration(source, calibrated, offset, a, b, ...)
 print(cal.offset)                          # 0.004356: what the open input read, now taken out
-print(bp.adc_read("amp").voltage)          # 0.0 with J8 still open
-print(bp.adc_read("amp").voltage / 249)    # loop current in amps
+print(bp.adc_read("current_in").voltage)   # 0.0 with J8 still open
+print(bp.adc_read("current_in").current)   # loop current in amps: 0.004 to 0.020 for a live loop
 
 bp.calibration()                           # what the pod has stored
 bp.clear_calibration()                     # back to the built-in fit
@@ -769,7 +769,7 @@ bp.clear_calibration()                     # back to the built-in fit
 
 Calibrate once per pod: it survives a reboot and a firmware update. The pod refuses
 (`BenchPodError`) when something is driving J8 (more than 50 mV) and keeps what it had. `a` and `b`
-are the fit the pod now uses for `amp` (`volts = a + b * count`). Only the offset of `amp` is
+are the fit the pod now uses for `current_in` (`volts = a + b * count`). Only the offset of `current_in` is
 calibrated; the other sources use the built-in fits. Needs firmware after 3.3.0 (capability
 `calibrate`, `Capabilities.calibrate`).
 

@@ -6,12 +6,13 @@
       "count",
       "span",
       "offset",
+      "current",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
   },
-  "AdcSource": "Literal['ext', 'cal1', 'cal2', 'amp']",
-  "AnalogPath": "Literal['off', 'dac_3v3', 'dac_5v', 'dac_12v', 'adc_ext', 'cal1', 'cal2', 'amp']",
+  "AdcSource": "Literal['ext', 'cal1', 'cal2', 'current_in']",
+  "AnalogPath": "Literal['off', 'dac_3v3', 'dac_5v', 'dac_12v', 'adc_ext', 'cal1', 'cal2', 'current_in']",
   "AnalogPathState": {
     "__fields__": [
       "path",
@@ -40,7 +41,7 @@
     "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
-    "calibrate": "(self, source: 'CalibrateSource' = 'amp') -> 'Calibration'",
+    "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",
     "calibration": "(self) -> 'Calibration'",
     "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
     "can_disable": "(self) -> 'Dict[str, Any]'",
@@ -135,7 +136,7 @@
     "upload_artifacts": "(self, paths: 'Iterable[str]') -> 'None'",
     "upload_logs": "(self, name: 'str', text: 'str') -> 'None'"
   },
-  "CalibrateSource": "Literal['amp']",
+  "CalibrateSource": "Literal['current_in']",
   "Calibration": {
     "__fields__": [
       "source",

@@ -351,7 +351,9 @@ class AdcReadResult(BaseModel):
     count: int
     span: int
     offset: Optional[float] = Field(None, description=(
-        "The pod's own calibration offset in volts, already taken out of voltage (amp only)."))
+        "The pod's own calibration offset in volts, already taken out of voltage (current_in only)."))
+    current: Optional[float] = Field(None, description=(
+        "Loop current in amps on the 4-20 mA input (current_in only): 0.004 to 0.020 for a live loop."))
 
 
 class CalibrationResult(BaseModel):

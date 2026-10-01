@@ -197,7 +197,7 @@ Notes:
 
 - `source` routes the ADC: `"ext"` (front SMA — the default, and the input the
   capture volts are calibrated for), `"cal1"` / `"cal2"` (the 5 V / 12 V DAC looped back
-  internally), `"amp"`; `source=None` leaves the routing alone.
+  internally), `"current_in"`; `source=None` leaves the routing alone.
 - Starting a waveform or a DC output re-applies that DAC path, which opens the internal
   `cal1`/`cal2` loopback relays. Route the ADC **after** starting the DAC —
   `loopback_measure_phase` does this for you.
