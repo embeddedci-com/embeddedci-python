@@ -7,10 +7,11 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci import benchpod
-from embeddedci.benchpod import BenchPod
+from embeddedci.benchpod import BenchPod, BenchPodError
 from embeddedci.benchpod.state import (
     AdcReading,
     AnalogPathState,
+    Calibration,
     DacOutput,
     LaVoltage,
     PowerStatus,
@@ -231,6 +232,60 @@ def test_adc_read_is_typed():
     assert reading.voltage == pytest.approx(1.234) and reading.span == 3
     with pytest.raises(ValueError):
         bp.adc_read("sma")  # type: ignore[arg-type]
+
+
+def test_adc_read_reports_the_calibration_offset():
+    bp, _ = _bp({"adc_read": {"source": "amp", "mv": 3985, "count": 61562, "span": 6, "offset_mv": 10}})
+    reading = bp.adc_read("amp")
+    assert reading.voltage == pytest.approx(3.985) and reading.offset == pytest.approx(0.010)
+    # A source without one, and older firmware, report none rather than 0.
+    assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).offset is None
+    assert AdcReading.from_reply({"source": "amp", "mv": 4, "count": 65535, "offset_mv": 0}).offset == 0.0
+
+
+class CalPod(FakeTransport):
+    """A pod that announces ``calibrate`` (firmware after 3.3.0)."""
+
+    def status(self) -> Any:
+        return {**super().status(), "version": "3.4.0", "caps": ["calibrate"]}
+
+
+_CAL = {"source": "amp", "calibrated": True, "offset_mv": 4, "offset_uv": 4356,
+        "a_uv": 65828041, "b_nv": -1004471}
+
+
+def test_calibrate_runs_reads_and_clears():
+    t = CalPod({"calibrate": lambda req: {**_CAL, "count": 65535, "span": 6, "samples": 512}
+                if "source" in req else ({**_CAL, "calibrated": False, "offset_mv": 0, "offset_uv": 0,
+                                          "a_uv": 65832397} if req.get("clear") else _CAL)})
+    bp = BenchPod(transport=t, lease=False)
+
+    done = bp.calibrate()
+    assert t.commands[-1] == {"cmd": "calibrate", "source": "amp"}
+    assert isinstance(done, Calibration) and done.calibrated and done.source == "amp"
+    assert done.offset == pytest.approx(4.356e-3)
+    assert done.a == pytest.approx(65.828041) and done.b == pytest.approx(-1.004471e-3)
+    assert (done.count, done.span, done.samples) == (65535, 6, 512)
+
+    stored = bp.calibration()
+    assert t.commands[-1] == {"cmd": "calibrate"}
+    assert stored.calibrated and stored.count is None and stored.samples is None
+
+    cleared = bp.clear_calibration()
+    assert t.commands[-1] == {"cmd": "calibrate", "clear": True}
+    assert not cleared.calibrated and cleared.offset == 0.0 and cleared.a == pytest.approx(65.832397)
+
+    with pytest.raises(ValueError):
+        bp.calibrate("ext")  # type: ignore[arg-type]
+
+
+def test_calibrate_needs_the_capability():
+    bp, t = _bp()                                   # firmware 3.3.0 and older: no `calibrate`
+    for call in (bp.calibrate, bp.calibration, bp.clear_calibration):
+        with pytest.raises(BenchPodError, match="calibrate"):
+            call()
+    assert t.commands == []
+    assert BenchPod(transport=CalPod(), lease=False).capabilities.calibrate
 
 
 def test_capture_adc_routes_the_source_first():

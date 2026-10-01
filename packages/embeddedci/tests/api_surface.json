@@ -5,6 +5,7 @@
       "voltage",
       "count",
       "span",
+      "offset",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
@@ -39,6 +40,8 @@
     "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
+    "calibrate": "(self, source: 'CalibrateSource' = 'amp') -> 'Calibration'",
+    "calibration": "(self) -> 'Calibration'",
     "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
     "can_disable": "(self) -> 'Dict[str, Any]'",
     "can_read": "(self, *, max_frames: 'int' = 8) -> '_can.CanReadResult'",
@@ -52,6 +55,7 @@
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'CorrelatedCapture'",
     "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'LaCapture'",
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
+    "clear_calibration": "(self) -> 'Calibration'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
     "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[LaPinState]'",
@@ -131,6 +135,21 @@
     "upload_artifacts": "(self, paths: 'Iterable[str]') -> 'None'",
     "upload_logs": "(self, name: 'str', text: 'str') -> 'None'"
   },
+  "CalibrateSource": "Literal['amp']",
+  "Calibration": {
+    "__fields__": [
+      "source",
+      "calibrated",
+      "offset",
+      "a",
+      "b",
+      "count",
+      "span",
+      "samples",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'Calibration'\""
+  },
   "CanBus": {
     "__init__": "(self, bp: \"'BenchPod'\", *, bitrate: 'int', mode: 'str', term: 'bool' = False, fd: 'bool' = False) -> 'None'",
     "add_responder": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'dict'",
@@ -206,6 +225,7 @@
       "usb_cc",
       "spi_master",
       "spi_stream",
+      "calibrate",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -860,6 +880,8 @@
     "BenchPod",
     "BenchPodError",
     "BuildReporter",
+    "CalibrateSource",
+    "Calibration",
     "CanBus",
     "CanFrame",
     "CanMode",

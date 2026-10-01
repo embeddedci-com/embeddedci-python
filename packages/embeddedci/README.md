@@ -751,6 +751,28 @@ print(bp.adc_read("ext").voltage)          # the true front-SMA voltage (the ÷1
 routes. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"amp"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).
 
+### Calibrating the 4-20 mA input
+
+`"amp"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
+4.98 V. Each pod is off by a few mV there. The pod can measure that offset itself and keep it in
+its flash:
+
+```python
+cal = bp.calibrate()                       # disconnect J8 first. Calibration(source, calibrated, offset, a, b, ...)
+print(cal.offset)                          # 0.004356: what the open input read, now taken out
+print(bp.adc_read("amp").voltage)          # 0.0 with J8 still open
+print(bp.adc_read("amp").voltage / 249)    # loop current in amps
+
+bp.calibration()                           # what the pod has stored
+bp.clear_calibration()                     # back to the built-in fit
+```
+
+Calibrate once per pod: it survives a reboot and a firmware update. The pod refuses
+(`BenchPodError`) when something is driving J8 (more than 50 mV) and keeps what it had. `a` and `b`
+are the fit the pod now uses for `amp` (`volts = a + b * count`). Only the offset of `amp` is
+calibrated; the other sources use the built-in fits. Needs firmware after 3.3.0 (capability
+`calibrate`, `Capabilities.calibrate`).
+
 ## Captures
 
 Captures return data with the scaling applied: an ADC `Capture` holds **calibrated volts** (the

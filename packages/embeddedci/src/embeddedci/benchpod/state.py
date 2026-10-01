@@ -252,13 +252,55 @@ class AdcReading:
     count: int
     #: Peak-to-peak spread (counts) of the averaged burst — how still the input was.
     span: int = 0
+    #: This pod's own calibration offset in volts, already taken out of ``voltage``
+    #: (:meth:`BenchPod.calibrate`). ``None`` when the pod reports none: every source but
+    #: ``amp``, and older firmware.
+    offset: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "AdcReading":
         d = _d(reply)
+        offset_mv = _opt_int(d, "offset_mv")
         return cls(source=str(d.get("source", "")), voltage=(_opt_int(d, "mv") or 0) / 1000.0,
-                   count=_opt_int(d, "count") or 0, span=_opt_int(d, "span") or 0, raw=d)
+                   count=_opt_int(d, "count") or 0, span=_opt_int(d, "span") or 0,
+                   offset=None if offset_mv is None else offset_mv / 1000.0, raw=d)
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """The pod's own ADC calibration for one source (``BenchPod.calibrate`` / ``calibration``).
+
+    Every ADC source is scaled with a fit, ``volts = a + b * count``, that is built into the
+    firmware and the same on every pod. A pod that calibrated itself keeps its own value on top
+    of that, in flash. Today that is the offset of ``amp``, the 4-20 mA input (J8).
+    """
+
+    source: str
+    #: ``True`` when the pod has its own calibration stored for this source.
+    calibrated: bool
+    #: What the input read with nothing connected, in volts. It is taken out of every later
+    #: reading. 0.0 when not calibrated.
+    offset: float
+    #: The fit the pod now uses for this source: volts at count 0, and volts per count.
+    #: Unwrap the count first (``count + 65536`` when ``count < 32768``).
+    a: float = 0.0
+    b: float = 0.0
+    #: The measurement behind a calibration just run: mean raw count, its peak-to-peak spread
+    #: in counts and how many samples were averaged. ``None`` on a read or a clear.
+    count: Optional[int] = None
+    span: Optional[int] = None
+    samples: Optional[int] = None
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "Calibration":
+        d = _d(reply)
+        return cls(source=str(d.get("source", "")), calibrated=d.get("calibrated") is True,
+                   offset=(_opt_int(d, "offset_uv") or 0) / 1e6,
+                   a=(_opt_int(d, "a_uv") or 0) / 1e6, b=(_opt_int(d, "b_nv") or 0) / 1e9,
+                   count=_opt_int(d, "count"), span=_opt_int(d, "span"),
+                   samples=_opt_int(d, "samples"), raw=d)
 
 
 @dataclass(frozen=True)
@@ -299,6 +341,6 @@ class LoopState:
 
 __all__: List[str] = [
     "LaVoltage", "EfuseState", "TargetStatus", "RailPower", "PowerStatus", "ResetState",
-    "UsbCcStatus", "PullState", "AnalogPathState", "DacOutput", "AdcReading", "FpgaImageInfo",
+    "UsbCcStatus", "PullState", "AnalogPathState", "DacOutput", "AdcReading", "Calibration", "FpgaImageInfo",
     "LoopState",
 ]

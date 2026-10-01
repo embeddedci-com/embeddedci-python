@@ -49,6 +49,7 @@ from .constants import (
     PIN13,
     PIN14,
     AdcSource,
+    CalibrateSource,
     AnalogPath,
     CanMode,
     DacOutputPath,
@@ -105,6 +106,7 @@ from .server_api import ServerApi, ServerApiError
 from .state import (
     AdcReading,
     AnalogPathState,
+    Calibration,
     DacOutput,
     EfuseState,
     FpgaImageInfo,
@@ -147,6 +149,7 @@ __all__ = [
     "AnalogPathState",
     "DacOutput",
     "AdcReading",
+    "Calibration",
     "FpgaImageInfo",
     "LoopState",
     # flash + UART
@@ -234,6 +237,7 @@ __all__ = [
     "DacOutputPath",
     "AnalogPath",
     "AdcSource",
+    "CalibrateSource",
     "Waveshape",
     "ReplayMapping",
     "LoopSource",

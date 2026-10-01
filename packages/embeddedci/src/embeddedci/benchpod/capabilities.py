@@ -164,6 +164,8 @@ class Capabilities:
     #: ``spi_stream``: send an upload staged in PSRAM through the SPI master in one CS frame
     #: (an FPGA bitstream): :meth:`SpiSession.stream <embeddedci.benchpod.spi.SpiSession.stream>`.
     spi_stream: bool = False
+    #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
+    calibrate: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -241,6 +243,7 @@ class Capabilities:
                 ("usb_cc", "usb_cc"),
                 ("spi_master", "spi_master"),
                 ("spi_stream", "spi_stream"),
+                ("calibrate", "calibrate"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -291,6 +294,7 @@ class Capabilities:
             ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
+            ("calibrate", "cap.calibrate"),
         ):
             b = _as_bool(params, key)
             if b is not None:

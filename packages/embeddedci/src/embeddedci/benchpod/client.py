@@ -47,6 +47,7 @@ from .constants import (
     ADC_SOURCE_PATHS,
     ADC_SOURCES,
     ANALOG_PATHS,
+    CALIBRATE_SOURCES,
     CAN_MODES,
     DAC_OUTPUT_PATHS,
     DAC_PATHS,
@@ -59,6 +60,7 @@ from .constants import (
     WAVESHAPES,
     AdcSource,
     AnalogPath,
+    CalibrateSource,
     CanMode,
     DacOutputPath,
     DacPath,
@@ -88,6 +90,7 @@ from .wiring import Signal, Wiring
 from .state import (
     AdcReading,
     AnalogPathState,
+    Calibration,
     DacOutput,
     FpgaImageInfo,
     LaVoltage,
@@ -695,9 +698,41 @@ class BenchPod:
         ``ext`` is the front SMA (the ÷12 divider is applied, so ``voltage`` is the true SMA
         voltage); ``cal1``/``cal2`` the internal DAC loopbacks; ``amp`` the amps terminal. The
         pod refuses the reading when the input is still moving (e.g. a DAC left running).
+
+        On ``amp`` the reading already has this pod's calibration offset taken out
+        (:meth:`calibrate`); ``offset`` says how much that was.
         """
         check_choice(source, ADC_SOURCES, "source")
         return AdcReading.from_reply(self.command({"cmd": "adc_read", "source": source}))
+
+    # -- the pod's own calibration ---------------------------------------------
+    # The ADC fits are built into the firmware and the same on every pod. `calibrate` lets a pod
+    # measure what it can on itself and keep it in flash: today the offset of `amp`.
+
+    def calibrate(self, source: CalibrateSource = "amp") -> Calibration:
+        """Calibrate ``source`` on the pod and store the result in its flash.
+
+        ``amp`` is the 4-20 mA input (J8) and the only source a pod can calibrate on its own.
+        **Disconnect J8 first**: with nothing connected the terminal is at 0 V, so what the pod
+        reads is its offset. It takes about 0.3 s. Every later ``adc_read("amp")`` has that
+        offset taken out. It survives a reboot and a firmware update.
+
+        Raises :class:`BenchPodError` when the pod refuses: something is driving J8 (more than
+        50 mV), or the input is still moving. The stored calibration is then unchanged.
+        """
+        check_choice(source, CALIBRATE_SOURCES, "source")
+        self._require_capability("calibrate", "calibration")
+        return Calibration.from_reply(self.command({"cmd": "calibrate", "source": source}))
+
+    def calibration(self) -> Calibration:
+        """The calibration this pod has stored (``calibrated`` is ``False`` when it has none)."""
+        self._require_capability("calibrate", "calibration")
+        return Calibration.from_reply(self.command({"cmd": "calibrate"}))
+
+    def clear_calibration(self) -> Calibration:
+        """Remove the pod's stored calibration. It goes back to the built-in fit."""
+        self._require_capability("calibrate", "calibration")
+        return Calibration.from_reply(self.command({"cmd": "calibrate", "clear": True}))
 
     # -- CAN (FDCAN1 / TCAN1044 transceiver) -----------------------------------
     # Single-node board: use a loopback ``mode`` to self-test on one pod. :meth:`open_can` and

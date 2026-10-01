@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Calibration: `BenchPod.calibrate()` makes the pod measure the offset of its 4-20 mA input
+  (`amp`, J8 disconnected) and store it in flash; `calibration()` reads it back and
+  `clear_calibration()` removes it. All three return a `Calibration` (`calibrated`, `offset` in
+  volts, the fit `a` / `b`). `adc_read("amp")` has the offset taken out and reports it as
+  `AdcReading.offset`. New `CalibrateSource` and `Capabilities.calibrate`. Needs firmware after
+  3.3.0.
 - Motor & battery emulator: `BenchPod.open_motor_emulator()` returns a `MotorEmulator` for the
   ECP5 emulator boards on the SPI link. It configures every board at once (`configure`, slave
   SPI with PROGRAMN and DONE), reads and writes the link registers by name (`read`, `write`,
