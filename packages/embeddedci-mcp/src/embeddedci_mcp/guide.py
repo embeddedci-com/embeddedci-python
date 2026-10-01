@@ -25,13 +25,14 @@ Typical flows:
 - Emulate an I2C sensor: set_pull([sda, scl], true) on LA1-LA6 (LA7/LA8 pull DOWN), enable_i2c_sensor, power_cycle_and_capture, i2c_sensor_capture(address, register).
 - Analog: dac_output (DC), generate (sine/square/sawtooth) and replay drive the DAC and route its path; adc_read gives one calibrated value, capture_adc a waveform summary; dac_stop ends any DAC output.
 - 4-20 mA input: adc_read(source='current_in') reads terminal J8 and returns current in amps (0.004 to 0.020 for a live loop) next to the voltage across the 249 ohm sense resistor. calibration shows whether the pod has calibrated that input. If not, readings are off by a few mV: ask the user to disconnect J8, then calibrate (once per pod, stored on the pod).
+- 4-20 mA output: current_out(current) holds a loop current on terminal J9, in amps (0.012 is 12 mA), and returns the current actually held and the range. It needs an external floating loop supply on J9 and cannot go below about 4 mA or above about 20 mA. It shares the DAC with the voltage outputs and switches them off; dac_stop does not return the loop to 4 mA, current_out(0.004) does. Ask the user how J9 is wired first, and never suggest wiring J9 straight into J8.
 - Gateware images: the FPGA runs either the 'loop' image (control_loop) or the 'deep_replay' image (replays longer than 2048 samples). control_loop, replay and replay_waveform switch automatically (~3 s; switched_image in the result says so). A switch resets the FPGA and stops any DAC output, UART session or I2C sensor emulation, so start those after it. fpga_image switches explicitly.
 - Logic: capture_la, then decode_la (i2c/uart/spi) re-decodes that capture without re-capturing, and la_timing measures edge times, pulse widths, frequency and the delay between two channels (e.g. trigger pin to result pin).
 - Triggers: capture_adc, capture_la and capture_correlated take trigger_la (+ trigger_edge rising/falling/high/low, trigger_timeout seconds) to start on an event rather than immediately, so t = 0 is that edge. Without the trigger firing the tool fails with "TriggerTimeout: ...".
 - Power profiles: measure_power(duration) reports the DUT's average/minimum/peak current, voltage, energy and charge over a window, with an optional trace (points). To profile across other tool calls, bracket them with power_profile_start and power_profile_stop.
 - CAN: can_open (mode 'internal' self-tests a lone pod), can_write, can_read, can_respond, can_close.
 
-Units are volts, seconds and hertz. A tool that cannot do what was asked fails with an error that names the cause (for example "FirmwareError: la voltage not set" or "NotConnectedError: ..."). A completed operation with a negative outcome is a normal result: flash returns ok=false with its logs, a UART capture returns matched=false.
+Units are volts, amps, seconds and hertz. A tool that cannot do what was asked fails with an error that names the cause (for example "FirmwareError: la voltage not set" or "NotConnectedError: ..."). A completed operation with a negative outcome is a normal result: flash returns ok=false with its logs, a UART capture returns matched=false.
 
 flash runs OpenOCD on the machine hosting this server and reads `file` from that machine's filesystem. Over the cloud the device is shared: connect takes an exclusive lease, released by disconnect or after the server's idle timeout (the next call reconnects).
 """
@@ -63,6 +64,9 @@ Analog:
   DAC outputs  '3v3', '5v', '12v' (bipolar +/-12 V)   — dac_output, generate, replay
   ADC sources  'ext' front SMA (true volts, the /12 divider is applied), 'cal1' (5 V DAC loopback),
                'cal2' (12 V DAC loopback), 'current_in' (4-20 mA input, J8)   — adc_read, capture_adc
+  4-20 mA      output J9 (current_out): loop powered, pin 1 plus to an external floating supply, pin 2 the
+               loop return (not pod ground). Input J8 (current_in): pin 1 plus, 249 ohm to ground, pin 2 ground.
+               Do not wire J9 straight into J8.
 
 CAN: CAN+/CAN- through a TCAN1044 transceiver; the 120 ohm termination is switchable (can_open term).
 """

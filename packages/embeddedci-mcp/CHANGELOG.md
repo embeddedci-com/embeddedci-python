@@ -8,6 +8,10 @@
   (`current_in`, J8 disconnected) and stores it; `calibration` reads it back and `calibrate(clear=true)`
   removes it. `adc_read` on `current_in` reports the offset it took out. Needs firmware after 3.3.0 and
   the matching `embeddedci` release.
+- New `current_out` tool: hold a current on the 4-20 mA output (terminal J9), in amps, or read the
+  range the output can do. The pod converts and refuses a current outside its range. The output is
+  loop powered and shares the DAC with the voltage outputs. Needs firmware with the `current_out`
+  command and the matching `embeddedci` release.
 
 ## 2.3.0
 

@@ -43,7 +43,8 @@
             "adc_ext",
             "cal1",
             "cal2",
-            "current_in"
+            "current_in",
+            "current_out"
           ],
           "title": "Path",
           "type": "string"
@@ -1006,6 +1007,34 @@
         }
       },
       "title": "control_loopArguments",
+      "type": "object"
+    }
+  },
+  "current_out": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set the 4-20 mA output current"
+    },
+    "input": {
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Loop current to hold, in AMPS: 0.004 to 0.020 (0.012 is 12 mA). Omit to only read the range.",
+          "title": "Current"
+        }
+      },
+      "title": "current_outArguments",
       "type": "object"
     }
   },

@@ -345,6 +345,14 @@ class DacOutputResult(BaseModel):
     code: Optional[int]
 
 
+class CurrentOutResult(BaseModel):
+    current: Optional[float] = Field(description=(
+        "Loop current now held on the 4-20 mA output, in amps; null when only the range was read."))
+    code: Optional[int] = Field(description="The 16-bit DAC code holding it; null when only the range was read.")
+    min_current: float = Field(description="Lowest current the output can do, in amps (its live zero, about 0.004016).")
+    max_current: float = Field(description="Highest current the output can do, in amps (about 0.020078).")
+
+
 class AdcReadResult(BaseModel):
     source: str
     voltage: float

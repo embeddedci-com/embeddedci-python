@@ -66,7 +66,8 @@ class FakeTransport(Transport):
         self.image = None
         #: Capabilities the pod reports; drop entries to test a pod without a feature.
         self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
-                     "la_pins", "gpio_read", "capture_trigger", "power_profile", "calibrate"]
+                     "la_pins", "gpio_read", "capture_trigger", "power_profile", "calibrate",
+                     "current_out"]
         #: The pod's stored `current_in` calibration (the `calibrate` command).
         self.current_in_calibrated = False
         self.current_in_offset_uv = 0
@@ -257,6 +258,17 @@ class FakeTransport(Transport):
         has_v = "volts" in req
         return {"path": req["path"], "mv": int(round(req["volts"] * 1000)) if has_v else 0,
                 "code": 128 if has_v else -1}
+
+    def _cmd_current_out(self, req):
+        rng = {"min_ua": 4016, "max_ua": 20078}
+        if "ua" not in req:
+            return rng
+        if not 4000 <= req["ua"] <= 20078:
+            raise FirmwareError(
+                f"current_out: {req['ua']} uA is out of range. The output can do 4016 to 20078 uA: "
+                "it cannot go below the 4 mA live zero or above the top of the DAC", cmd="current_out")
+        code = max(0, round((req["ua"] - 4015.686) / 0.245098))
+        return {"ua": round(4015.686 + 0.245098 * code), "code": code, **rng}
 
     def _cmd_adc_read(self, req):
         reply = {"source": req.get("source", "ext"), "mv": 3301, "count": 63049, "span": 2}

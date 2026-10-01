@@ -992,7 +992,7 @@ async def analog_path(path: AnalogPath) -> m.AnalogPathResult:
 
     dac_3v3/dac_5v/dac_12v route the DAC to an output; adc_ext connects the ADC to the front SMA;
     cal1/cal2 loop the 5 V/12 V DAC output back into the ADC; current_in reads the 4-20 mA input (J8);
-    off parks everything.
+    current_out switches the DAC voltage outputs off for the 4-20 mA output (J9); off parks everything.
     """
     state = await _call(lambda: SESSION.require().analog_path(path))
     return m.AnalogPathResult(path=state.path)
@@ -1006,6 +1006,30 @@ async def dac_output(
     """Route a DAC output (3v3, 5v, 12v = ±12 V, or off) and drive a calibrated DC voltage on it."""
     out = await _call(lambda: SESSION.require().dac_output(path, volts=volts))
     return m.DacOutputResult(path=out.path, voltage=out.voltage, code=out.code)
+
+
+@mcp.tool(annotations=_ann("Set the 4-20 mA output current", destructive=True, idempotent=True))
+async def current_out(
+    current: Annotated[Optional[float], Field(description=(
+        "Loop current to hold, in AMPS: 0.004 to 0.020 (0.012 is 12 mA). Omit to only read the range."))] = None,
+) -> m.CurrentOutResult:
+    """Hold a current on the 4-20 mA output (terminal J9), in amps, or read the range it can do.
+
+    The output is loop powered: it needs an external floating supply on J9 (pin 1 plus to the supply
+    plus, pin 2 through the receiver to the supply minus; 8 V plus 20 mA times the loop resistance,
+    36 V at most). Ask the user how J9 is wired before driving it. Never wire J9 straight into J8.
+    The pod cannot see the loop: the call succeeds with the supply off.
+    It cannot go below about 0.004016 A or above about 0.020078 A: there is no 0 mA or 21 mA level.
+    0.004 gives the lowest current; anything else outside the range fails with the pod's message.
+    The DAC is shared: this switches the 3v3/5v/12v outputs off, and dac_output, generate and replay
+    also move the loop current. dac_stop leaves the loop where it was: set 0.004 to go back to 4 mA.
+    """
+    if current is None:
+        out = await _call(lambda: SESSION.require().current_out_range())
+    else:
+        out = await _call(lambda: SESSION.require().current_out(current))
+    return m.CurrentOutResult(current=out.current, code=out.code,
+                              min_current=out.min_current, max_current=out.max_current)
 
 
 @mcp.tool(annotations=_ann("Read a voltage", read_only=True))

@@ -24,7 +24,7 @@ EXPECTED_TOOLS = {
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
     "i2c_sensor_regs", "i2c_sensor_capture",
     "set_pull", "pull_status",
-    "analog_path", "dac_output", "adc_read", "calibration", "calibrate",
+    "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
     "save_capture_as_recording",
@@ -249,6 +249,34 @@ def test_analog_tools(connected):
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
     assert call("adc_read", source="ext")["offset"] is None
+
+
+def test_current_out_tool(connected):
+    out = call("current_out", current=0.012)
+    assert connected.requests[-1] == {"cmd": "current_out", "ua": 12000}
+    assert out["current"] == pytest.approx(0.012) and out["code"] == 32576
+    assert out["min_current"] == pytest.approx(0.004016) and out["max_current"] == pytest.approx(0.020078)
+    # 4 mA is under the live zero: the pod gives its lowest current.
+    assert call("current_out", current=0.004)["current"] == pytest.approx(0.004016)
+    # No current: the range only, nothing is set.
+    rng = call("current_out")
+    assert connected.requests[-1] == {"cmd": "current_out"}
+    assert rng["current"] is None and rng["code"] is None and rng["max_current"] == pytest.approx(0.020078)
+
+
+def test_current_out_refusals_are_tool_errors(connected):
+    with pytest.raises(Exception, match="out of range"):
+        call("current_out", current=0.002)           # the pod refuses: below the live zero
+    n = len(connected.requests)
+    with pytest.raises(Exception, match="amps"):
+        call("current_out", current=12)              # milliamps by mistake: never reaches the pod
+    assert len(connected.requests) == n
+
+
+def test_current_out_needs_newer_firmware(connected):
+    without_caps(connected, "current_out")
+    with pytest.raises(Exception, match="current_out"):
+        call("current_out", current=0.012)
 
 
 def test_calibrate_tools(connected):

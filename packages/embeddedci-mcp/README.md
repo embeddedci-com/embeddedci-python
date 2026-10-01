@@ -146,7 +146,7 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 | Emulated I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture` |
 | Pins + GPIO | `la_pins`, `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait`, `gpio_pulse`, `gpio_release` |
 | Pull resistors | `set_pull`, `pull_status` |
-| Analog | `analog_path`, `dac_output`, `adc_read`, `calibration`, `calibrate` |
+| Analog | `analog_path`, `dac_output`, `current_out`, `adc_read`, `calibration`, `calibrate` |
 | Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la`, `la_timing` |
 | DAC | `generate`, `dac_stop`, `replay`, `list_waveforms`, `replay_waveform`, `save_capture_as_recording` |
 | Control loop | `control_loop`, `loop_input`, `loop_probe`, `fpga_image` |
