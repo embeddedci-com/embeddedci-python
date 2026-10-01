@@ -137,3 +137,43 @@ def test_client_la_voltage_round_trips_over_tcp():
         assert state.voltage is None
     finally:
         pod.close()
+
+
+def test_stage_psram_uploads_raw_bytes_on_one_connection():
+    import json
+
+    payload = bytes(range(256)) * 300                # 76.8 KB: several TCP segments
+    got = {}
+
+    def handler(conn, line):
+        got["begin"] = json.loads(line)
+        conn.sendall(b'{"status":"ok","data":{"ready":%d}}\n' % len(payload))
+        data = b""
+        while len(data) < len(payload):
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        got["data"] = data
+        conn.sendall(b'{"status":"ok","data":{"total":%d}}\n' % len(data))
+
+    pod = FakePod(handler)
+    try:
+        t = TcpTransport(pod.addr, timeout=2)
+        assert t.stage_psram(payload) == len(payload)
+        assert got["begin"] == {"cmd": "load_bin", "total": len(payload), "psram": True}
+        assert got["data"] == payload
+    finally:
+        pod.close()
+
+
+def test_stage_psram_raises_when_the_pod_refuses():
+    def handler(conn, line):
+        conn.sendall(b'{"status":"error","message":"busy"}\n')
+
+    pod = FakePod(handler)
+    try:
+        with pytest.raises(FirmwareError):
+            TcpTransport(pod.addr, timeout=2).stage_psram(b"abc")
+    finally:
+        pod.close()

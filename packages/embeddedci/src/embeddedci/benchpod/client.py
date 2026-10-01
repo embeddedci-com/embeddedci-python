@@ -956,11 +956,14 @@ class BenchPod:
         if hz > 6_000_000:
             raise ValueError("the emulator link runs at up to 6 MHz")
         spi = self.open_spi(sck=sck, mosi=mosi, miso=miso, cs=cs, hz=hz, mode=0)
+        pin_pn = pin_done = None
         try:
             pin_pn = self.gpio(pins["programn"], "open_drain") if pins["programn"] else None
             pin_done = self.gpio(pins["done"], "input") if pins["done"] else None
         except Exception:
             spi.close()
+            if pin_pn is not None:
+                pin_pn.release()
             raise
         return _motor_emulator.MotorEmulator(spi, programn=pin_pn, done=pin_done, calibration=calibration)
 

@@ -434,3 +434,116 @@ def test_spi_stream_session():
 def test_capability():
     assert Capabilities.from_status({"caps": ["spi_master", "spi_stream"]}).spi_stream
     assert Capabilities.from_parameters({"cap.spi_stream": "true"}).spi_stream
+
+
+def test_configure_from_a_file_and_input_checks(pod, tmp_path):
+    bp, fake = pod
+    path = tmp_path / "emu.bit"
+    path.write_bytes(BITSTREAM)
+    with bp.open_motor_emulator(programn=9, done=10) as emu:
+        assert emu.configure(path).length == len(BITSTREAM)
+        assert fake.staged == BITSTREAM
+        with pytest.raises(ValueError, match="empty"):
+            emu.configure(b"")
+        with pytest.raises(ValueError):
+            emu.read("ID", 0)
+        with pytest.raises(ValueError):
+            emu.read(0x100)
+        with pytest.raises(ValueError):
+            emu.write("SCRATCH", [])
+        with pytest.raises(ValueError):
+            emu.read("ID", board=4)
+    emu.close()                                      # idempotent
+    assert [c for c in fake.commands if c["cmd"] == "spi_stop"] == [{"cmd": "spi_stop"}]
+
+
+def test_reconfiguring_forgets_the_log_and_battery_state(pod):
+    bp, fake = pod
+    with bp.open_motor_emulator() as emu:
+        emu.configure(BITSTREAM)
+        emu.start_log(["a"])
+        emu.set_battery(BatteryModel(capacity_ah=1, ocv=[4.2, 3.0], r0_ohm=0.05))
+        assert emu.battery_state().soc == pytest.approx(1.0)
+        emu.configure(BITSTREAM)
+        assert emu.battery_state().soc is None       # the gateware lost the model
+        with pytest.raises(BenchPodError):
+            emu.read_log()
+
+
+def test_arm_fails_while_a_fault_holds_the_latch(pod, monkeypatch):
+    bp, fake = pod
+    b = configured(fake).boards[0]
+    monkeypatch.setattr(Board, "write", lambda self, addr, v: self.writes.append((addr, v)))
+    with bp.open_motor_emulator() as emu:
+        with pytest.raises(BenchPodError, match="did not arm"):
+            emu.arm(0, timeout=0.02)
+    assert b.writes == [(0x05, 1)]
+
+
+def test_time_min_on_pv_calibration_and_stop_log(pod):
+    bp, fake = pod
+    b = configured(fake).boards[0]
+    with bp.open_motor_emulator() as emu:
+        b.regs[0x71], b.regs[0x72] = 1500, 18000
+        assert emu.time() == pytest.approx(1.5005)
+        assert emu.set_pwm(100_000, min_on_s=250e-9, broadcast=True) == 100_000
+        assert (b.regs[0x08], b.regs[0x0D]) == (360, 9)
+        emu.set_pv_calibration(-100, 30000)
+        assert (b.regs[0x6A], b.regs[0x6B]) == (0xFF9C, 30000)
+        emu.start_log(sequence=False)
+        assert b.regs[0x79] == 0x005F
+        b.fifo += [1, 2, 3, 4, 5]
+        log = emu.read_log(max_words=5)
+        assert log.seq == [] and len(log) == 1 and log.channels["bus"] == [5]
+        emu.stop_log()
+        assert b.regs[0x79] == 0
+        with pytest.raises(ValueError):
+            emu.start_log([])
+
+
+def test_validation_of_units(pod):
+    bp, fake = pod
+    configured(fake)
+    cal = EmulatorCalibration()
+    assert cal.current_code(100) == 32767 and cal.bus_code(24) == 9384
+    with pytest.raises(ValueError, match="ohm"):
+        cal.resistance_code(6.0)
+    with bp.open_motor_emulator() as emu:
+        with pytest.raises(ValueError):
+            emu.set_protection(0, overcurrent_samples=16)
+        with pytest.raises(ValueError):
+            emu.set_shape([0.0] * 10)
+        with pytest.raises(ValueError, match="soc"):
+            emu.set_battery(BatteryModel(capacity_ah=1, ocv=[4.2, 3.0], r0_ohm=0.05, soc=1.5))
+        with pytest.raises(ValueError, match="16 ms"):
+            emu.set_battery(BatteryModel(capacity_ah=1, ocv=[4.2, 3.0], r0_ohm=0.05, r1_ohm=0.01, tau_s=0.001))
+        with pytest.raises(ValueError, match="too large"):
+            emu.set_battery(BatteryModel(capacity_ah=1e6, ocv=[4.2, 3.0], r0_ohm=0.05))
+        emu.set_protection(0)                        # everything off
+        b = fake.boards[0]
+        assert [b.regs[a] for a in (0x51, 0x53, 0x54, 0x55, 0x5C)] == [0, 0, 0, 0, 0]
+
+
+def test_eeprom_stays_busy(pod):
+    bp, fake = pod
+    b = configured(fake).boards[0]
+    b.regs[0x7E] = 0x0001
+    with bp.open_motor_emulator() as emu:
+        with pytest.raises(BenchPodError, match="busy"):
+            emu.eeprom_write(0, b"x", timeout=0.02)
+
+
+def test_open_releases_spi_when_a_config_pin_is_taken(pod):
+    bp, fake = pod
+    original = fake._gpio
+
+    def refuse(req):
+        if req.get("mode") == "input":
+            from embeddedci.benchpod import FirmwareError
+            raise FirmwareError("pin conflict: LA10 is in use by uart_rx", cmd="gpio")
+        return original(req)
+
+    fake._gpio = refuse
+    with pytest.raises(BenchPodError):
+        bp.open_motor_emulator()
+    assert fake.armed is None and fake.gpio_mode == {}   # SPI stopped, PROGRAMN released again
