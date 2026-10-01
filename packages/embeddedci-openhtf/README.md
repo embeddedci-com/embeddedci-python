@@ -160,7 +160,8 @@ def boot_and_rail(test, bench):
 ### Analog steps
 
 The pod's DAC output and ADC input are exposed as phases (and low-level helpers).
-Every analog quantity is in **volts**; limits are `(low, high)` volts.
+Every analog quantity is in **volts**; limits are `(low, high)` volts. The two 4-20 mA
+terminals work in **amps**.
 
 ```python
 import openhtf as htf
@@ -183,6 +184,9 @@ test = htf.Test(
     # a calibrated DC level and a single averaged reading
     dac_output_phase(bench, path="5v", volts=2.5),
     adc_read_phase(bench, source="ext", v_range=(2.4, 2.6)),         # records ext_v
+    # 4-20 mA: hold 12 mA on the output (J9), read a loop on the input (J8)
+    current_out_phase(bench, current=0.012),
+    current_in_phase(bench, current_range=(0.0119, 0.0121)),         # records current_in_a
 )
 ```
 
@@ -190,8 +194,9 @@ test = htf.Test(
 | --- | --- |
 | `adc_capture_phase`, `loopback_measure_phase` | `<prefix>_mean_v`, `_pp_v`, `_rms_v`, `_min_v`, `_max_v` (V); samples attached as `adc.json` (`counts` + `volts`) |
 | `adc_read_phase` | `<source>_v` (V) |
+| `current_in_phase` | `current_in_a` (A): the loop current on the 4-20 mA input (J8) |
 | `control_loop_phase` | `control_loop_v` (DAC code), `control_loop_i` (ADC code) |
-| `signal_generate_phase`, `dac_output_phase`, `dac_replay_phase` | log only |
+| `signal_generate_phase`, `dac_output_phase`, `current_out_phase`, `dac_replay_phase` | log only |
 
 Notes:
 
@@ -207,12 +212,19 @@ Notes:
   `replay_waveform` helpers) switch the pod to the gateware image they need — loop or deep replay —
   automatically (~3 s, logged); pass `switch_image=False` to fail instead. A switch resets the FPGA,
   so start waveforms, UART sessions and I2C sensor emulation after it.
+- The 4-20 mA output (J9) is loop powered: it needs an external **floating** loop supply (8 V
+  plus 20 mA times the loop resistance, 30 V at most), and nothing in the loop may touch pod
+  ground, also not through a DUT that shares a ground with the pod. Do not wire J9 straight to
+  J8. The pod cannot see whether current flows. It shares the DAC with the voltage outputs:
+  `current_out_phase` switches them off, and a voltage waveform also moves the loop.
+  `signal_generate_phase` and `dac_replay_phase` take `dac_path="current_out"` for a waveform in
+  amps. Needs firmware 3.4.0.
 - Use a TCP connection. The STM32 pod's USB serial console is a text shell without a JSON
   mode, so over serial only `power_phase`, status and the LA voltage work; flashing, UART,
   analog and replay phases need TCP (or the cloud).
 
 The low-level helpers take a connected `BenchPod` or the injected plug:
-`signal_generate`, `signal_stop`, `analog_path`, `dac_output`, `adc_read`,
+`signal_generate`, `signal_stop`, `analog_path`, `dac_output`, `current_out`, `adc_read`,
 `adc_capture`, `replay`, `replay_waveform`, `control_loop`, `fpga_image`.
 
 ### Pins, GPIO and timing

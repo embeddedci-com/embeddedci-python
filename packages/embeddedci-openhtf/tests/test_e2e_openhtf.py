@@ -21,6 +21,8 @@ from embeddedci_openhtf import (  # noqa: E402
     adc_read_phase,
     benchpod_plug,
     boot_banner_phase,
+    current_in_phase,
+    current_out_phase,
     dac_output_phase,
     flash_phase,
     power_phase,
@@ -50,6 +52,25 @@ def test_analog_phases_against_the_pod(benchpod_connection):
         adc_read_phase(bench, source="cal1", v_range=(2.4, 2.6)),
         dac_output_phase(bench, path="off", name="dac_off"),
         adc_capture_phase(bench, samples=4096, sample_rate_hz=100_000, source="ext"),
+    )
+    assert record.outcome == Outcome.PASS, failed
+
+
+def test_current_loop_phases_against_the_pod(benchpod_connection):
+    """The 4-20 mA phases with nothing wired: the output takes a level and returns to its live
+    zero (no loop supply is needed for the pod to accept it), and the open input reads 0 mA."""
+    from embeddedci.benchpod import BenchPod
+
+    with BenchPod(benchpod_connection, lease=False) as probe:
+        if not probe.capabilities.current_out:
+            pytest.skip("this pod's firmware has no current_out command")
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    bench = benchpod_plug(benchpod_connection, la_voltage=LA_VOLTAGE)
+    record, failed = _run(
+        current_out_phase(bench, current=0.012),
+        current_out_phase(bench, current=0.004, name="current_out_zero"),
+        current_in_phase(bench, current_range=(-0.0001, 0.0001)),
     )
     assert record.outcome == Outcome.PASS, failed
 

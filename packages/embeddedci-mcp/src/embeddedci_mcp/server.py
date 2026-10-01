@@ -1020,7 +1020,7 @@ async def current_out(
     30 V at most). Nothing in the loop may touch pod ground, also not through a target that shares
     a ground with the pod. Ask the user how J9 is wired before driving it. Never wire J9 straight into J8.
     The pod cannot see the loop: the call succeeds with the supply off.
-    It cannot go below about 0.004016 A or above about 0.020078 A: there is no 0 mA or 21 mA level.
+    It cannot go below its live zero (a little above 0.004 A) or above about 0.0201 A: there is no 0 mA or 21 mA level.
     0.004 gives the lowest current; anything else outside the range fails with the pod's message.
     The DAC is shared: this switches the 3v3/5v/12v outputs off, and dac_output, generate and replay
     also move the loop current. dac_stop leaves the loop where it was: set 0.004 to go back to 4 mA.

@@ -781,7 +781,7 @@ Terminal J9 is a two-wire 4-20 mA transmitter. `current_out` holds a current on 
 ```python
 out = bp.current_out(0.012)                # CurrentOutput(current, code, min_current, max_current)
 print(out.current)                         # 0.012: the current actually held (16-bit, 0.25 µA steps)
-print(out.min_current, out.max_current)    # 0.004016 0.020078: what the output can do
+print(out.min_current, out.max_current)    # 0.004056 0.020094 on a rev3 pod: what the output can do
 
 bp.current_out(0.004)                      # back to the live zero
 print(bp.current_out_range().max_current)  # the range only, nothing moves
@@ -795,7 +795,7 @@ print(bp.current_out_range().max_current)  # the range only, nothing moves
   SWD or UART wiring to the same target). If it does, the current is no longer regulated.
 - **Do not wire J9 straight into J8.** The output cannot regulate that way.
 - The pod cannot see the loop. `current_out` succeeds with the supply off or the loop open.
-- The output cannot go below its live zero (about 4.016 mA) or above about 20.08 mA: there is no
+- The output cannot go below its live zero (a little above 4 mA) or above about 20.1 mA: there is no
   0 mA and no 21 mA level. `0.004` gives the live zero. Anything else outside the range raises
   `BenchPodError` with the pod's message. A value of 1 or more raises `ValueError` (amps, not mA).
 - **The DAC is shared** with the 3.3 V / 5 V / ±12 V outputs. `current_out` switches those off
@@ -827,8 +827,9 @@ bp.replay(loop, dac_path="current_out")    # play the captured loop back on J9
   (`unit="mA"`), and `waveforms.save_segments(..., dac_path="current_out")` takes amps.
 - Below 400 kS/s a capture of `current_in` reads about 10 to 20 µA higher than `adc_read`.
 
-The values are the board's nominal ones, the same on every pod: the output has no per-pod
-calibration. Needs firmware 3.4.0 or later (capability `current_out`, `Capabilities.current_out`).
+The pod converts with a fit for its board revision (measured on one rev3 pod; the nominal part
+values on v2), the same on every pod of that revision: the output has no per-pod calibration.
+Expect a few tens of µA between pods. Needs firmware 3.4.0 or later (capability `current_out`, `Capabilities.current_out`).
 
 ## Captures
 

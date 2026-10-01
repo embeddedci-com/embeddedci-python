@@ -713,7 +713,7 @@ class BenchPod:
 
         The returned :class:`CurrentOutput` carries the current actually held (the nearest
         16-bit DAC code, 0.25 µA apart) and the range the output can do. It cannot go below its
-        live zero (about 4.016 mA) or above about 20.08 mA, so there is no 0 mA and no 21 mA
+        live zero (a little above 4 mA) or above about 20.1 mA, so there is no 0 mA and no 21 mA
         level. ``0.004`` gives the live zero; the pod refuses anything else outside the range.
 
         **The output is loop powered.** J9 pin 1 (plus) goes to the plus of an external,

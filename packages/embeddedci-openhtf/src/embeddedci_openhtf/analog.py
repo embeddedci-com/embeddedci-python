@@ -5,9 +5,10 @@ The BenchPod's analog front end is a DAC output (routed to the 3V3/5V/12V SMA pa
 factories wrap the :class:`~embeddedci.benchpod.BenchPod` analog API and turn its results into
 OpenHTF measurements.
 
-**Units are volts, seconds and hertz**, exactly as in the ``embeddedci`` SDK: ``amplitude`` /
+**Units are volts, amps, seconds and hertz**, exactly as in the ``embeddedci`` SDK: ``amplitude`` /
 ``offset`` / ``volts`` are volts, ``duration`` / ``settle`` are seconds, ``freq_hz`` /
 ``sample_rate_hz`` are hertz, and every recorded analog measurement is in volts (units ``"V"``).
+The two 4-20 mA terminals work in **amps** (``current``, units ``"A"``): 0.012 is 12 mA.
 Invalid arguments raise :class:`ValueError`.
 
 The ``bench`` argument to every helper is a connected :class:`~embeddedci.benchpod.BenchPod`
@@ -38,6 +39,7 @@ from embeddedci.benchpod import (
     AnalogPathState,
     Capture,
     ControlLoopHandle,
+    CurrentOutput,
     DacHandle,
     DacOutput,
     DacOutputPath,
@@ -61,6 +63,7 @@ __all__ = [
     "signal_stop",
     "analog_path",
     "dac_output",
+    "current_out",
     "adc_read",
     "adc_capture",
     "replay",
@@ -70,6 +73,8 @@ __all__ = [
     # phase factories
     "signal_generate_phase",
     "dac_output_phase",
+    "current_out_phase",
+    "current_in_phase",
     "adc_read_phase",
     "adc_capture_phase",
     "loopback_measure_phase",
@@ -117,6 +122,16 @@ def dac_output(bench: Any, path: DacOutputPath, *, volts: Optional[float] = None
     DC ``volts``. Returns a :class:`~embeddedci.benchpod.DacOutput` (``path``, ``voltage``,
     ``code``)."""
     return bench.dac_output(path, volts=volts)
+
+
+def current_out(bench: Any, current: float) -> CurrentOutput:
+    """Hold ``current`` (amps, 0.004 to 0.020) on the 4-20 mA output, terminal J9. Returns a
+    :class:`~embeddedci.benchpod.CurrentOutput` (``current`` actually held, ``code``, the range).
+
+    The output is loop powered: it needs an external **floating** loop supply on J9, and nothing
+    in the loop may touch pod ground. It shares the DAC with the voltage outputs, which this
+    switches off. See :meth:`BenchPod.current_out <embeddedci.benchpod.BenchPod.current_out>`."""
+    return bench.current_out(current)
 
 
 def adc_read(bench: Any, source: AdcSource = "ext") -> AdcReading:
@@ -247,6 +262,48 @@ def dac_output_phase(plug: type, *, path: DacOutputPath, volts: Optional[float] 
             test.logger.info("DAC %s -> %.3f V (code %d)", out.path, out.voltage, out.code)
 
     return _out
+
+
+def current_out_phase(plug: type, *, current: float, name: str = "current_out") -> object:
+    """A setup phase that holds ``current`` (amps) on the 4-20 mA output, terminal J9, e.g. to
+    feed a DUT's loop input a known level. ``current=0.004`` returns the loop to its live zero.
+
+    The output needs an external floating loop supply; the pod cannot see whether current
+    flows, so pair this with a measurement on the DUT. It stays held after the phase."""
+    if not 0 < float(current) < 1:
+        raise ValueError(f"current is in amps (0.004 to 0.020), got {current!r}")
+
+    @htf.PhaseOptions(name=name)
+    @htf.plug(bench=plug)
+    def _out(test, bench):
+        out = current_out(bench, current)
+        test.logger.info("4-20 mA output -> %.3f mA (code %d)", out.current * 1000.0, out.code)
+
+    return _out
+
+
+def current_in_phase(plug: type, *, current_range: _Range = None,
+                     name: str = "current_in") -> object:
+    """A phase that reads the 4-20 mA input, terminal J8, and records the loop current as
+    ``current_in_a`` (amps). Pass ``current_range=(low, high)`` in amps for a pass/fail limit,
+    e.g. ``(0.0119, 0.0121)`` for 12 mA ± 0.1 mA."""
+    _check_range("current_range", current_range)
+    meas = htf.Measurement("current_in_a").with_units("A")
+    if current_range is not None:
+        meas = meas.in_range(current_range[0], current_range[1])
+
+    @htf.PhaseOptions(name=name)
+    @htf.measures(meas)
+    @htf.plug(bench=plug)
+    def _rd(test, bench):
+        r = adc_read(bench, "current_in")
+        if r.current is None:
+            raise RuntimeError("this pod's firmware does not report the loop current on current_in; "
+                               "update the firmware")
+        test.measurements["current_in_a"] = r.current
+        test.logger.info("4-20 mA input = %.3f mA (%.4f V across 249 ohm)", r.current * 1000.0, r.voltage)
+
+    return _rd
 
 
 def adc_read_phase(plug: type, *, source: AdcSource = "ext", v_range: _Range = None,

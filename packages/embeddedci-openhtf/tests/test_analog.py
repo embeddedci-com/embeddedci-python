@@ -18,6 +18,9 @@ from embeddedci_openhtf import (
     benchpod_plug,
     control_loop,
     control_loop_phase,
+    current_in_phase,
+    current_out,
+    current_out_phase,
     dac_output,
     dac_output_phase,
     fpga_image,
@@ -253,6 +256,33 @@ def test_dac_output_helper_returns_typed_result():
     routed = dac_output(plug, "off")
     assert routed.voltage is None and routed.code is None
     assert tx.commands[-1] == {"cmd": "dac_out", "path": "off"}
+
+
+# -- the 4-20 mA terminals -----------------------------------------------------------------
+
+def test_current_out_phase_holds_amps():
+    tx = FakeTransport()
+    tx.caps.append("current_out")
+    rec = _run(current_out_phase(benchpod_plug(transport=tx), current=0.012))
+    assert rec.outcome == tr.Outcome.PASS
+    assert tx.commands[-1] == {"cmd": "current_out", "ua": 12000}
+    out = current_out(benchpod_plug(transport=tx)(), 0.020)
+    assert out.current == pytest.approx(0.020) and out.max_current == pytest.approx(0.020078)
+    with pytest.raises(ValueError, match="amps"):
+        current_out_phase(benchpod_plug(transport=tx), current=12)      # milliamps by mistake
+
+
+def test_current_in_phase_records_amps_and_applies_the_limit():
+    tx = FakeTransport()
+    rec = _run(current_in_phase(benchpod_plug(transport=tx), current_range=(0.0119, 0.0121)))
+    assert rec.outcome == tr.Outcome.PASS
+    assert tx.commands[-1] == {"cmd": "adc_read", "source": "current_in"}
+    assert _value(_phase(rec, "current_in"), "current_in_a") == pytest.approx(0.012)
+    tx.loop_ua = 3200                                                  # a transmitter fault level
+    rec = _run(current_in_phase(benchpod_plug(transport=tx), current_range=(0.0119, 0.0121)))
+    assert rec.outcome == tr.Outcome.FAIL
+    with pytest.raises(ValueError, match="current_range"):
+        current_in_phase(benchpod_plug(transport=tx), current_range=(0.02, 0.004))
 
 
 def test_adc_read_phase_records_volts():

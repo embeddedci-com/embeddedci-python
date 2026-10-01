@@ -73,6 +73,8 @@ class FakeTransport(Transport):
         self.closed = False
         #: Capabilities the fake pod reports (the SDK gates GPIO, triggers and power profiles).
         self.caps = ["la", "la_pins", "gpio_read", "capture_trigger", "power_profile"]
+        #: Loop current the fake 4-20 mA input (current_in) reads, in microamps.
+        self.loop_ua = 12000
         # LA pin ownership, as the firmware keeps it.
         self.function = {la: "none" for la in range(1, 15)}
         self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
@@ -123,10 +125,18 @@ class FakeTransport(Transport):
                     "code": 128 if has_v else -1}
         if cmd == "generate":
             return {"cotrig": bool(req.get("on_capture", False))}
+        if cmd == "current_out":
+            rng = {"min_ua": 4016, "max_ua": 20078}
+            if "ua" not in req:
+                return rng
+            return {"ua": max(4016, req["ua"]), "code": max(0, round((req["ua"] - 4015.686) / 0.245098)), **rng}
         if cmd == "adc_read":
             src = req.get("source", "ext")
-            return {"source": src, "mv": 12034 if src == "ext" else 2502, "count": 63049,
-                    "span": 3}
+            reply = {"source": src, "mv": 12034 if src == "ext" else 2502, "count": 63049,
+                     "span": 3}
+            if src == "current_in":
+                reply.update(mv=2988, offset_mv=4, ua=self.loop_ua)
+            return reply
         if cmd == "dac_control_loop":
             return {"armed": True, "k": req.get("k"), "vmin": req.get("vmin"),
                     "vmax": req.get("vmax"), "tick_div": req.get("tick_div"), "curve_pts": 256}

@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-openhtf`
 
+## Unreleased
+
+- 4-20 mA terminals: `current_out_phase` (and the `current_out` helper) holds a current on the
+  output (J9), and `current_in_phase` reads the loop current on the input (J8) and records it
+  as `current_in_a` with an optional `(low, high)` limit. Both work in amps.
+  `signal_generate_phase` and `dac_replay_phase` accept `dac_path="current_out"`. Needs
+  `embeddedci` 2.4 and firmware 3.4.0.
+
 ## 2.0.1
 
 - Docs: LA channels are 1-14 on BenchPod v3 pods with firmware 3.1+ (LA13/LA14), which
