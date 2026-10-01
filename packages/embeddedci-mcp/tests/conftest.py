@@ -66,7 +66,10 @@ class FakeTransport(Transport):
         self.image = None
         #: Capabilities the pod reports; drop entries to test a pod without a feature.
         self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
-                     "la_pins", "gpio_read", "capture_trigger", "power_profile"]
+                     "la_pins", "gpio_read", "capture_trigger", "power_profile", "calibrate"]
+        #: The pod's stored `amp` calibration (the `calibrate` command).
+        self.amp_calibrated = False
+        self.amp_offset_uv = 0
         # -- LA pin ownership (the firmware's table): function, gpio mode and commanded level.
         self.function: Dict[int, str] = {la: "none" for la in range(1, 15)}
         self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
@@ -256,7 +259,26 @@ class FakeTransport(Transport):
                 "code": 128 if has_v else -1}
 
     def _cmd_adc_read(self, req):
-        return {"source": req.get("source", "ext"), "mv": 3301, "count": 63049, "span": 2}
+        reply = {"source": req.get("source", "ext"), "mv": 3301, "count": 63049, "span": 2}
+        if reply["source"] == "amp":
+            reply["offset_mv"] = round(self.amp_offset_uv / 1000)
+        return reply
+
+    def _cmd_calibrate(self, req):
+        if req.get("clear"):
+            self.amp_offset_uv = 0
+            self.amp_calibrated = False
+        elif "source" in req:
+            if self.error:
+                raise FirmwareError(self.error, cmd="calibrate")
+            self.amp_offset_uv = 4356
+            self.amp_calibrated = True
+        reply = {"source": "amp", "calibrated": self.amp_calibrated,
+                 "offset_mv": round(self.amp_offset_uv / 1000), "offset_uv": self.amp_offset_uv,
+                 "a_uv": 65832397 - self.amp_offset_uv, "b_nv": -1004471}
+        if "source" in req:
+            reply.update(count=65535, span=6, samples=512)
+        return reply
 
     def _cmd_generate(self, req):
         return {"cotrig": bool(req.get("on_capture"))}

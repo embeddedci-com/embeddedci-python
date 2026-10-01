@@ -28,6 +28,7 @@ from pydantic import Field
 from embeddedci.benchpod import (
     AdcSource,
     AnalogPath,
+    CalibrateSource,
     CanMode,
     DacOutputPath,
     DacPath,
@@ -1014,7 +1015,39 @@ async def adc_read(source: AdcSource = "ext") -> m.AdcReadResult:
     Refused while the input is still moving (e.g. a DAC output left running).
     """
     r = await _call(lambda: SESSION.require().adc_read(source))
-    return m.AdcReadResult(source=r.source, voltage=r.voltage, count=r.count, span=r.span)
+    return m.AdcReadResult(source=r.source, voltage=r.voltage, count=r.count, span=r.span, offset=r.offset)
+
+
+def _calibration_result(c: Any) -> m.CalibrationResult:
+    return m.CalibrationResult(source=c.source, calibrated=c.calibrated, offset=c.offset, a=c.a, b=c.b,
+                               count=c.count, span=c.span, samples=c.samples)
+
+
+@mcp.tool(annotations=_ann("Read the pod's calibration", read_only=True))
+async def calibration() -> m.CalibrationResult:
+    """The calibration the pod has stored for its 4-20 mA input (amp, terminal J8), and the fit it uses.
+
+    calibrated=false means the pod was never calibrated: amp readings can be off by a few mV.
+    """
+    return _calibration_result(await _call(lambda: SESSION.require().calibration()))
+
+
+@mcp.tool(annotations=_ann("Calibrate the pod", destructive=True, idempotent=True))
+async def calibrate(
+    source: Annotated[CalibrateSource, Field(description="What to calibrate. Only amp, the 4-20 mA input.")] = "amp",
+    clear: Annotated[bool, Field(description="True removes the stored calibration instead of measuring one.")] = False,
+) -> m.CalibrationResult:
+    """Calibrate the pod's 4-20 mA input (amp, terminal J8) and store the result on the pod.
+
+    Nothing may be connected to J8: ask the user to disconnect it and confirm before calling.
+    The pod reads its open input (0 V) and keeps that offset in flash; every later adc_read on amp
+    has it taken out. Once per pod is enough: it survives reboots and firmware updates.
+    The pod refuses, and keeps what it had, when something is driving J8 (more than 50 mV).
+    clear=true removes the stored calibration.
+    """
+    if clear:
+        return _calibration_result(await _call(lambda: SESSION.require().clear_calibration()))
+    return _calibration_result(await _call(lambda: SESSION.require().calibrate(source)))
 
 
 @mcp.tool(annotations=_ann("Capture an ADC waveform"))

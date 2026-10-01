@@ -11,7 +11,7 @@ from embeddedci_mcp.guide import INSTRUCTIONS
 from embeddedci_mcp.server import mcp
 from embeddedci_mcp.session import SESSION
 
-from conftest import call
+from conftest import call, without_caps
 
 EXPECTED_TOOLS = {
     "connect", "disconnect", "status", "set_la_voltage",
@@ -24,7 +24,7 @@ EXPECTED_TOOLS = {
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
     "i2c_sensor_regs", "i2c_sensor_capture",
     "set_pull", "pull_status",
-    "analog_path", "dac_output", "adc_read",
+    "analog_path", "dac_output", "adc_read", "calibration", "calibrate",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
     "save_capture_as_recording",
@@ -248,6 +248,35 @@ def test_analog_tools(connected):
     assert out == {"path": "5v", "voltage": 2.5, "code": 128}
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
+    assert call("adc_read", source="ext")["offset"] is None
+
+
+def test_calibrate_tools(connected):
+    assert call("calibration")["calibrated"] is False
+    done = call("calibrate")
+    assert done["calibrated"] is True and done["source"] == "amp"
+    assert done["offset"] == pytest.approx(4.356e-3) and done["samples"] == 512
+    assert done["b"] == pytest.approx(-1.004471e-3)
+    assert connected.amp_calibrated and connected.amp_offset_uv == 4356
+    assert call("adc_read", source="amp")["offset"] == pytest.approx(0.004)
+    stored = call("calibration")
+    assert stored["calibrated"] is True and stored["count"] is None
+    cleared = call("calibrate", clear=True)
+    assert not connected.amp_calibrated
+    assert cleared["calibrated"] is False and cleared["offset"] == 0.0
+
+
+def test_calibrate_refusal_is_a_tool_error(connected):
+    connected.error = "calibrate: amp reads 996 mV, it must be within +/-50 mV of zero. Something is driving J8. Disconnect it and try again"
+    with pytest.raises(Exception, match="996 mV"):
+        call("calibrate")
+    assert call("calibration")["calibrated"] is False
+
+
+def test_calibrate_needs_newer_firmware(connected):
+    without_caps(connected, "calibrate")
+    with pytest.raises(Exception, match="calibrate"):
+        call("calibration")
 
 
 def test_capture_adc_summary_is_agent_sized(connected):

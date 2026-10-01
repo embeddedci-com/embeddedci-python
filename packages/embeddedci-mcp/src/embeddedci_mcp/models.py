@@ -350,6 +350,19 @@ class AdcReadResult(BaseModel):
     voltage: float
     count: int
     span: int
+    offset: Optional[float] = Field(None, description=(
+        "The pod's own calibration offset in volts, already taken out of voltage (amp only)."))
+
+
+class CalibrationResult(BaseModel):
+    source: str
+    calibrated: bool = Field(description="True when the pod has its own calibration stored.")
+    offset: float = Field(description="What the input read with nothing connected, in volts. Taken out of every reading.")
+    a: float = Field(description="The fit the pod now uses: volts at count 0 (volts = a + b * count).")
+    b: float = Field(description="Volts per count.")
+    count: Optional[int] = Field(None, description="Mean raw count of the calibration measurement (only right after calibrating).")
+    span: Optional[int] = Field(None, description="Its peak-to-peak spread in counts.")
+    samples: Optional[int] = Field(None, description="Samples averaged.")
 
 
 class AdcCaptureResult(BaseModel):

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- New `calibrate` and `calibration` tools: the pod measures the offset of its 4-20 mA input
+  (`amp`, J8 disconnected) and stores it; `calibration` reads it back and `calibrate(clear=true)`
+  removes it. `adc_read` on `amp` reports the offset it took out. Needs firmware after 3.3.0 and
+  the matching `embeddedci` release.
+
 ## 2.3.0
 
 - New SPI tools: `spi_flash_info` (JEDEC ID and size), `spi_flash_program` (erase, write and

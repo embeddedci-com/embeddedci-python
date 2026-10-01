@@ -56,6 +56,47 @@
       "type": "object"
     }
   },
+  "calibrate": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Calibrate the pod"
+    },
+    "input": {
+      "properties": {
+        "clear": {
+          "default": false,
+          "description": "True removes the stored calibration instead of measuring one.",
+          "title": "Clear",
+          "type": "boolean"
+        },
+        "source": {
+          "const": "amp",
+          "default": "amp",
+          "description": "What to calibrate. Only amp, the 4-20 mA input.",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "title": "calibrateArguments",
+      "type": "object"
+    }
+  },
+  "calibration": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read the pod's calibration"
+    },
+    "input": {
+      "properties": {},
+      "title": "calibrationArguments",
+      "type": "object"
+    }
+  },
   "can_close": {
     "annotations": {
       "destructiveHint": false,
