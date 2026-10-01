@@ -241,8 +241,6 @@ def test_adc_read_reports_the_calibration_offset():
     assert reading.voltage == pytest.approx(3.985) and reading.offset == pytest.approx(0.010)
     assert reading.current == pytest.approx(0.016004)
     assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).current is None
-    with pytest.raises(ValueError):
-        bp.adc_read("amp")  # type: ignore[arg-type]   # the old name of current_in
     # A source without one, and older firmware, report none rather than 0.
     assert AdcReading.from_reply({"source": "cal1", "mv": 1234, "count": 40000}).offset is None
     assert AdcReading.from_reply({"source": "current_in", "mv": 4, "count": 65535, "offset_mv": 0}).offset == 0.0

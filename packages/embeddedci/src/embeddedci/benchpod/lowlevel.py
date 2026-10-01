@@ -63,11 +63,11 @@ class LowLevel:
         return _dict(self._pod.command({"cmd": "dac_mux"}))
 
     def cal_switch(self, *, cal1: bool = False, cal2: bool = False,
-                   amp_measure: bool = False, cal_path: bool = False) -> Dict[str, Any]:
+                   current_in: bool = False, cal_path: bool = False) -> Dict[str, Any]:
         """Set ALL calibration relays (U58 → U53) at once — every relay not named is switched off.
 
         ``cal1``/``cal2`` route the 5V/12V DAC path to the ADC (mutually exclusive);
-        ``amp_measure`` switches the ADC to the 4-20 mA measurement terminal; ``cal_path`` switches the ADC from
+        ``current_in`` switches the ADC to the 4-20 mA measurement terminal; ``cal_path`` switches the ADC from
         the front SMA to the calibration path. Use :meth:`cal_switch_status` to read them.
         """
         if cal1 and cal2:
@@ -75,7 +75,7 @@ class LowLevel:
         return _dict(self._pod.command({
             "cmd": "cal_switch",
             "cal1": int(cal1), "cal2": int(cal2),
-            "amp_measure": int(amp_measure), "cal_path": int(cal_path),
+            "current_in": int(current_in), "cal_path": int(cal_path),
         }))
 
     def cal_switch_status(self) -> Dict[str, Any]:

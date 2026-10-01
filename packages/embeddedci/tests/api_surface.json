@@ -494,7 +494,7 @@
   },
   "LowLevel": {
     "__init__": "(self, pod: \"'BenchPod'\") -> 'None'",
-    "cal_switch": "(self, *, cal1: 'bool' = False, cal2: 'bool' = False, amp_measure: 'bool' = False, cal_path: 'bool' = False) -> 'Dict[str, Any]'",
+    "cal_switch": "(self, *, cal1: 'bool' = False, cal2: 'bool' = False, current_in: 'bool' = False, cal_path: 'bool' = False) -> 'Dict[str, Any]'",
     "cal_switch_status": "(self) -> 'Dict[str, Any]'",
     "dac_mux": "(self, *, ctrl1: 'Optional[str]' = None, ctrl2: 'Optional[str]' = None) -> 'Dict[str, Any]'",
     "dac_mux_status": "(self) -> 'Dict[str, Any]'",

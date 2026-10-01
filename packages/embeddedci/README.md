@@ -1235,7 +1235,7 @@ These sit below the stable API and are **not** covered by the stability promise:
   (raises `FirmwareError` when the pod refuses). Works over TCP, USB and the cloud.
 * `bp.transport` — the underlying transport object.
 * `bp.lowlevel` — individual analog switches and raw DAC codes for bring-up and diagnostics:
-  `dac_mux(ctrl1=, ctrl2=)`, `dac_mux_status()`, `cal_switch(cal1=, cal2=, amp_measure=, cal_path=)`,
+  `dac_mux(ctrl1=, ctrl2=)`, `dac_mux_status()`, `cal_switch(cal1=, cal2=, current_in=, cal_path=)`,
   `cal_switch_status()`, `dac_set(code, divider=)`. Prefer the named paths — these can leave the
   front end in a state no named path describes.
 
