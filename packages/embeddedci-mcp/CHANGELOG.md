@@ -1,12 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.4.0
 
 - **Breaking:** the 4-20 mA input (J8) is now `current_in` as an ADC source and analog path,
-  following the firmware after 3.3.0; the old name is gone. `adc_read` on it also returns `current` in amps.
+  following firmware 3.4.0; the old name is gone. `adc_read` on it also returns `current` in amps.
 - New `calibrate` and `calibration` tools: the pod measures the offset of its 4-20 mA input
   (`current_in`, J8 disconnected) and stores it; `calibration` reads it back and `calibrate(clear=true)`
-  removes it. `adc_read` on `current_in` reports the offset it took out. Needs firmware after 3.3.0 and
+  removes it. `adc_read` on `current_in` reports the offset it took out. Needs firmware 3.4.0 and
   the matching `embeddedci` release.
 - New `current_out` tool: hold a current on the 4-20 mA output (terminal J9), in amps, or read the
   range the output can do. The pod converts and refuses a current outside its range. The output is

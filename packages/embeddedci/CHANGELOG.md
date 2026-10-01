@@ -1,18 +1,17 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.4.0
 
 - **Breaking:** the 4-20 mA measurement terminal (J8) is now `"current_in"` as an ADC source
   and analog path, and `lowlevel.cal_switch(current_in=...)` for its relay. The old name read as
-  "amplifier". Firmware after 3.3.0 no longer accepts the old name, so `AdcSource` and
+  "amplifier". Firmware 3.4.0 no longer accepts the old name, so `AdcSource` and
   `AnalogPath` drop it without a major version. `adc_read("current_in")` also returns the loop
   current in amps as `AdcReading.current`.
 - Calibration: `BenchPod.calibrate()` makes the pod measure the offset of its 4-20 mA input
   (`current_in`, J8 disconnected) and store it in flash; `calibration()` reads it back and
   `clear_calibration()` removes it. All three return a `Calibration` (`calibrated`, `offset` in
   volts, the fit `a` / `b`). `adc_read("current_in")` has the offset taken out and reports it as
-  `AdcReading.offset`. New `CalibrateSource` and `Capabilities.calibrate`. Needs firmware after
-  3.3.0.
+  `AdcReading.offset`. New `CalibrateSource` and `Capabilities.calibrate`. Needs firmware 3.4.0.
 - 4-20 mA output: `BenchPod.current_out(amps)` holds a current on terminal J9 and returns a
   `CurrentOutput` with the current actually held, the 16-bit DAC code and the range the output
   can do; `current_out_range()` reads the range only. The pod converts and refuses a current

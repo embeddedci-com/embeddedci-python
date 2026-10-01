@@ -771,7 +771,7 @@ bp.clear_calibration()                     # back to the built-in fit
 Calibrate once per pod: it survives a reboot and a firmware update. The pod refuses
 (`BenchPodError`) when something is driving J8 (more than 50 mV) and keeps what it had. `a` and `b`
 are the fit the pod now uses for `current_in` (`volts = a + b * count`). Only the offset of `current_in` is
-calibrated; the other sources use the built-in fits. Needs firmware after 3.3.0 (capability
+calibrated; the other sources use the built-in fits. Needs firmware 3.4.0 (capability
 `calibrate`, `Capabilities.calibrate`).
 
 ### The 4-20 mA output

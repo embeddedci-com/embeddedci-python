@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-openhtf`
 
-## Unreleased
+## 2.1.0
 
 - 4-20 mA terminals: `current_out_phase` (and the `current_out` helper) holds a current on the
   output (J9), and `current_in_phase` reads the loop current on the input (J8) and records it
