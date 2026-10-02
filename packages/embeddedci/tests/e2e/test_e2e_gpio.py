@@ -211,6 +211,38 @@ def test_triggered_adc_capture(trigger_pod, bench):
     assert len(result["capture"]) == 8192 and result["capture"].trigger.la == ch
 
 
+def test_triggered_capture_of_the_current_input(trigger_pod, bench):
+    """An LA edge starts a capture of the 4-20 mA input (J8) like any other: amps, t = 0 on the
+    edge, alone and together with the logic channels."""
+    if not trigger_pod.capabilities.calibrate:
+        pytest.skip("this pod's firmware does not report its current_in fit")
+    ch = bench.free_la[0]
+    pin = trigger_pod.gpio(ch, "output", level=0)
+    result = {}
+
+    def run_adc():
+        result["adc"] = trigger_pod.capture_adc(4096, sample_rate_hz=100_000, source="current_in",
+                                                trigger=Trigger(ch, "rising"), trigger_timeout=5.0)
+
+    def run_both():
+        result["both"] = trigger_pod.capture_correlated(
+            adc_samples=2048, adc_sample_rate_hz=100_000, la_samples=2048, la_sample_rate_hz=1_000_000,
+            source="current_in", trigger=Trigger(ch, "rising"), trigger_timeout=5.0)
+
+    for run in (run_adc, run_both):
+        pin.low()
+        thread = threading.Thread(target=run)
+        thread.start()
+        time.sleep(0.5)
+        pin.high()
+        thread.join()
+    trigger_pod.analog_path("off")
+    adc, both = result["adc"], result["both"]
+    assert len(adc.currents) == 4096 and adc.trigger.la == ch and adc.source == "current_in"
+    assert len(both.adc.currents) == 2048 and both.adc.trigger.la == ch
+    assert both.la.channel(ch)[-1] == 1                 # the edge that started it is in the logic half
+
+
 def test_step_train_is_timed_from_the_trigger(trigger_pod, bench):
     ch = bench.free_la[0]
     pin = trigger_pod.gpio(ch, "output", level=0)

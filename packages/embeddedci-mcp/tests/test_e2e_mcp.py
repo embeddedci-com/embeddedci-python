@@ -54,6 +54,43 @@ def test_analog_round_trip(connected):
     assert abs(reading["voltage"] - 2.5) < 0.1, reading
 
 
+def test_current_loop_terminals(connected):
+    """The 4-20 mA tools with nothing wired: a held current and a waveform in amps reach the DAC
+    (read back on the 5 V loopback), and the open input is captured in amps with the logic
+    channels. Loop current itself needs the bench fixture."""
+    if not connected["capabilities"].get("current_out"):
+        pytest.skip("this pod's firmware has no current_out command")
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    try:
+        rng = call("current_out")
+        assert rng["current"] is None and 0.0039 < rng["min_current"] < 0.0042 < 0.0199 < rng["max_current"]
+        held = call("current_out", current=0.012)
+        assert abs(held["current"] - 0.012) < 2e-6
+        want = (0.012 - rng["min_current"]) / (rng["max_current"] - rng["min_current"]) * 65535 / 65536 * 4.99
+        time.sleep(0.1)
+        assert abs(call("adc_read", source="cal1")["voltage"] - want) < 0.1
+
+        gen = call("generate", waveform="square", freq_hz=200, amplitude=0.003, offset=0.009,
+                   dac_path="current_out")
+        assert gen["dac_path"] == "current_out"
+        call("analog_path", path="cal1")
+        time.sleep(0.3)
+        wave = call("capture_adc", samples=2000, sample_rate_hz=20_000, points=50)
+        assert wave["peak_to_peak"] > 1.2, wave          # 6 to 12 mA is about 1.9 V on the loopback
+        call("dac_stop")
+        call("current_out", current=0.004)               # dac_stop alone leaves the loop where it was
+        time.sleep(0.1)
+        assert call("adc_read", source="cal1")["voltage"] < 0.1
+
+        both = call("capture_correlated", adc_samples=1024, adc_sample_rate_hz=400_000,
+                    la_samples=1024, source="current_in")
+        assert both["adc"]["unit"] == "A" and abs(both["adc"]["mean"]) < 100e-6, both["adc"]
+        assert len(both["la"]["channels"]) == 14
+    finally:
+        call("current_out", current=0.004)
+
+
 def test_generate_capture_summary_and_replay(connected):
     pytest.importorskip("numpy")
     call("analog_path", path="cal1")

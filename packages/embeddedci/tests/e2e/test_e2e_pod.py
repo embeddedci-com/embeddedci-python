@@ -245,6 +245,134 @@ def test_capture_of_the_current_input_is_in_amps(pod):
     assert abs(mean) < 100e-6, f"J8 open captures {mean * 1e6:.0f} uA: is something connected?"
 
 
+# The 4-20 mA terminals are the pod's one DAC and one ADC on another analog path, so every FPGA
+# timing feature has to work on them as on the voltage paths. These need nothing wired: the DAC
+# is watched through the internal 5 V loopback (`cal1`), which is the voltage the transmitter's
+# input gets. That routes the 5 V output, so the levels stay at or below 12 mA (2.5 V there).
+
+def _loop_dac_volts(pod, amps: float) -> float:
+    """What the 5 V loopback reads while the 4-20 mA output holds ``amps``."""
+    rng = pod.current_out_range()
+    return (amps - rng.min_current) / (rng.max_current - rng.min_current) * 65535 / 65536 * 4.99
+
+
+def _mean(values) -> float:
+    return sum(values) / len(values)
+
+
+def test_current_input_is_captured_with_the_logic_channels(pod):
+    """ADC + LA off one trigger, with the analog half on J8: amps next to the logic words."""
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    if not pod.capabilities.calibrate:
+        pytest.skip("this pod's firmware does not report its current_in fit")
+    cc = pod.capture_correlated(adc_samples=2048, adc_sample_rate_hz=400_000, la_samples=4096,
+                                la_sample_rate_hz=1_000_000, source="current_in")
+    pod.analog_path("off")
+    assert cc.adc.source == "current_in" and len(cc.adc.currents) == 2048 and len(cc.la) == 4096
+    assert abs(_mean(cc.adc.currents)) < 100e-6, cc.adc.currents[:8]
+    # One ADC: the next capture of the SMA is volts again, with no current.
+    ext = pod.capture_adc(256, source="ext")
+    assert ext.source == "ext" and ext.currents == []
+
+
+def test_slow_captures_of_the_open_input_stay_within_the_documented_shift(pod):
+    """Below 400 kS/s the input stage reads a little higher. The docs say 10 to 20 uA; this pins
+    it under 60 uA at the slowest rate the Capture tab offers."""
+    if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
+        pytest.skip("BENCHPOD_E2E_J8_WIRED=1: something is connected to J8")
+    if not pod.capabilities.calibrate:
+        pytest.skip("this pod's firmware does not report its current_in fit")
+    means = {rate: _mean(pod.capture_adc(4096, sample_rate_hz=rate, source="current_in").currents)
+             for rate in (400_000, 200_000, 80_000)}
+    pod.analog_path("off")
+    assert all(abs(m) < 60e-6 for m in means.values()), means
+    assert -10e-6 < means[80_000] - means[400_000] < 40e-6, means
+
+
+def test_a_current_waveform_starts_on_the_capture_t0(pod):
+    """The DAC co-trigger on the 4-20 mA output: armed, the waveform's first sample lands on the
+    capture's t0, so the capture opens on the first level and steps to the second."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    if not pod.capabilities.dac_cotrig:
+        pytest.skip("the running gateware has no DAC co-trigger")
+    hi, lo = _loop_dac_volts(pod, 0.012), _loop_dac_volts(pod, 0.006)
+    try:
+        pod.current_out(0.004)
+        wave = [0.012] * 200 + [0.006] * 200             # 20 ms at each level
+        with pod.replay(wave, dac_path="current_out", sample_rate_hz=10_000, on_capture=True) as h:
+            assert h.cotrig
+            pod.analog_path("cal1")                      # watch the DAC; the waveform is not running yet
+            time.sleep(SETTLE)
+            cc = pod.capture_correlated(adc_samples=3600, adc_sample_rate_hz=100_000, la_samples=1024)
+        first, second = _mean(cc.adc.volts[200:1700]), _mean(cc.adc.volts[2300:3600])
+        assert abs(first - hi) < 0.15 and abs(second - lo) < 0.15, (first, second, hi, lo)
+    finally:
+        pod.current_out(0.004)
+        pod.analog_path("off")
+
+
+def test_stop_dac_after_freezes_the_loop_current(pod):
+    """The capture-timed DAC cut on the 4-20 mA output: the waveform runs, then the DAC freezes,
+    so the loop HOLDS a current from the waveform. It does not fall back to 4 mA by itself."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    lo, hi = _loop_dac_volts(pod, 0.006), _loop_dac_volts(pod, 0.012)
+    try:
+        handle = pod.generate("square", freq_hz=200, amplitude=0.003, offset=0.009, dac_path="current_out")
+        pod.analog_path("cal1")
+        time.sleep(SETTLE)
+        cc = pod.capture_correlated(adc_samples=8192, adc_sample_rate_hz=20_000, la_samples=1024,
+                                    stop_dac_after=0.1)
+        early, late = cc.adc.volts[200:1800], cc.adc.volts[-1600:]
+        assert max(early) - min(early) > (hi - lo) * 0.7, "the current waveform was not running at the start"
+        assert max(late) - min(late) < 0.15, "the DAC was still toggling after stop_dac_after"
+        held = _mean(late)
+        assert min(abs(held - lo), abs(held - hi)) < 0.15, (held, lo, hi)   # one of the two levels, held
+        handle.stop()                                    # this is what returns the loop to its live zero
+        time.sleep(0.1)
+        assert pod.adc_read("cal1").voltage < 0.1
+    finally:
+        pod.current_out(0.004)
+        pod.analog_path("off")
+
+
+def test_dac_stop_alone_leaves_the_loop_where_it_was(pod):
+    """`dac_stop` stops the DAC engine and nothing else: a held current stays. Going back to
+    4 mA takes `current_out(0.004)`, which is what the handles and the web Stop do."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    try:
+        pod.current_out(0.012)
+        pod.dac_stop()
+        time.sleep(0.1)
+        assert abs(pod.adc_read("cal1").voltage - _loop_dac_volts(pod, 0.012)) < 0.1
+        pod.current_out(0.004)
+        time.sleep(0.1)
+        assert pod.adc_read("cal1").voltage < 0.1
+    finally:
+        pod.current_out(0.004)
+        pod.analog_path("off")
+
+
+def test_a_current_switches_the_voltage_outputs_off(pod):
+    """One DAC: the voltage outputs would follow the current, so setting one switches them off,
+    and it leaves the ADC relays alone (J8 stays routed)."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    try:
+        pod.dac_output("5v", volts=0.0)
+        pod.analog_path("current_in")
+        assert pod.command({"cmd": "dac_mux"})["ctrl1_en"] == 1
+        pod.current_out(0.004)
+        mux = pod.command({"cmd": "dac_mux"})
+        assert mux["ctrl1_en"] == 0 and mux["ctrl2_en"] == 0, mux
+        assert pod.lowlevel.cal_switch_status()["current_in"] == 1
+    finally:
+        pod.analog_path("off")
+
+
 def test_current_in_reads_zero_with_j8_open(pod):
     """The 4-20 mA input (J8) with nothing wired: about 0 mA, and the current matches the voltage."""
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":

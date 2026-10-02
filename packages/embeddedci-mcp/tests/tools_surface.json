@@ -491,6 +491,25 @@
           "title": "Points",
           "type": "integer"
         },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "ext",
+                "cal1",
+                "cal2",
+                "current_in"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Route this ADC source first for the analog half; omit to keep routing. current_in captures the 4-20 mA input (J8) and the analog stats are then amps.",
+          "title": "Source"
+        },
         "stop_dac_after": {
           "anyOf": [
             {

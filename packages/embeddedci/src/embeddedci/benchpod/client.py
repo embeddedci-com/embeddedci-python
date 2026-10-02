@@ -1078,19 +1078,29 @@ class BenchPod:
         before sampling, so t = 0 is that moment; a :class:`~embeddedci.benchpod.errors.TriggerTimeout`
         is raised after ``trigger_timeout`` seconds without it.
         """
-        label = ""
-        if source is not None:
-            check_choice(source, ADC_SOURCES, "source")
-            self.analog_path(ADC_SOURCE_PATHS[source])  # type: ignore[arg-type]
-            time.sleep(0.02)  # relays (~4 ms) + front-end RC settle, as the firmware's adc_read does
-            label = source
+        label, fit = self._route_adc_source(source)
         trig = self._resolve_trigger(trigger)
-        # The pod's own fit for the 4-20 mA input, read before the capture starts.
-        fit = self.calibration() if source == "current_in" and self.capabilities.calibrate else None
         with _classified_errors():
             cap = _capture.capture_adc(self._transport, self.capabilities, samples=samples,
                                        sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
                                        trigger_timeout=trigger_timeout)
+        return self._scale_current_in(cap, fit)
+
+    def _route_adc_source(self, source: Optional[str]) -> Tuple[str, Optional[Calibration]]:
+        """Route an ADC ``source`` for a capture (``None`` leaves the routing alone). Returns the
+        label for the result and, for ``current_in`` on a pod that reports one, the pod's own fit
+        for that input, read before the capture starts."""
+        if source is None:
+            return "", None
+        check_choice(source, ADC_SOURCES, "source")
+        fit = self.calibration() if source == "current_in" and self.capabilities.calibrate else None
+        self.analog_path(ADC_SOURCE_PATHS[source])  # type: ignore[arg-type]
+        time.sleep(0.02)  # relays (~4 ms) + front-end RC settle, as the firmware's adc_read does
+        return source, fit
+
+    @staticmethod
+    def _scale_current_in(cap: Capture, fit: Optional[Calibration]) -> Capture:
+        """Rescale a capture of the 4-20 mA input with the pod's fit and fill ``currents`` (amps)."""
         if fit is not None and fit.b:
             unwrapped = (c + ADC_WRAP_SPAN if c < ADC_WRAP_THRESHOLD else c for c in cap.counts)
             cap.volts = [fit.a + fit.b * c for c in unwrapped]
@@ -1119,7 +1129,8 @@ class BenchPod:
                            la_samples: int = 4096, la_sample_rate_hz: Optional[float] = None,
                            stop_dac_after: Optional[float] = None,
                            trigger: Optional[Trigger] = None,
-                           trigger_timeout: float = 10.0) -> CorrelatedCapture:
+                           trigger_timeout: float = 10.0,
+                           source: Optional[AdcSource] = None) -> CorrelatedCapture:
         """ADC + LA captured from ONE hardware trigger, so the two timebases align.
 
         Set either count to 0 for a single stream. ``stop_dac_after`` (seconds) cuts a running DAC
@@ -1127,14 +1138,24 @@ class BenchPod:
         ``generate(..., on_capture=True)`` for a phase-locked stimulus → capture → cutoff run.
         ``trigger`` starts both streams on an LA edge or level (see :meth:`capture_la`).
         Needs a streaming transport (TCP, serial or cloud).
+
+        ``source`` first routes that ADC source for the analog half, as in :meth:`capture_adc`;
+        omitted, the routing is left alone. ``source="current_in"`` captures the 4-20 mA input
+        (J8) next to the logic channels: ``adc.currents`` is then the loop current in amps. There
+        is one ADC, so a capture is the SMA voltage or the J8 current, never both.
         """
+        label, fit = self._route_adc_source(source if adc_samples else None)
         trig = self._resolve_trigger(trigger)
         with _classified_errors():
-            return _capture.capture_correlated(
+            cc = _capture.capture_correlated(
                 self._transport, self.capabilities, adc_samples=adc_samples,
                 adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
                 la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after,
                 trigger=trig, trigger_timeout=trigger_timeout)
+        if label:
+            cc.adc.source = label
+        self._scale_current_in(cc.adc, fit)
+        return cc
 
     def _resolve_trigger(self, trigger: Optional[Trigger]) -> Optional[Trigger]:
         if trigger is None:

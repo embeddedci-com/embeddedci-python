@@ -1146,17 +1146,21 @@ async def capture_correlated(
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts both streams on trigger_la.")] = "rising",
     trigger_timeout: TriggerTimeoutS = 10.0,
+    source: Annotated[Optional[AdcSource], Field(description=(
+        "Route this ADC source first for the analog half; omit to keep routing. current_in captures "
+        "the 4-20 mA input (J8) and the analog stats are then amps."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.CorrelatedCaptureResult:
     """ADC and LA captured from one hardware trigger, so their timebases align. Both are kept.
 
-    With trigger_la both streams start on that edge or level.
+    With trigger_la both streams start on that edge or level. There is one ADC: the analog half is
+    the SMA voltage or, with source current_in, the loop current on J8 (unit "A"), never both.
     """
     def op() -> m.CorrelatedCaptureResult:
         cc = SESSION.require().capture_correlated(
             adc_samples=adc_samples, adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
             la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after,
-            trigger=_trigger(trigger_la, trigger_edge), trigger_timeout=trigger_timeout)
+            trigger=_trigger(trigger_la, trigger_edge), trigger_timeout=trigger_timeout, source=source)
         if adc_samples:
             SESSION.last_adc = cc.adc
         if la_samples:

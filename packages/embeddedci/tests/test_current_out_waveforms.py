@@ -44,6 +44,11 @@ class _Pod:
         self.commands.append(req)
         return list(self.counts)
 
+    def stream_chunks(self, req: dict):
+        self.commands.append(req)
+        yield {"status": "ok", "data": list(self.counts), "adc_rate_hz": 100000.0, "la_rate_hz": 1e6, "more": True}
+        yield {"status": "ok", "la": True, "la_edges": [[0, 1], [2, 3]], "la_upto": 4, "more": False}
+
     def load_replay(self, *, data, replay, psram=False):
         self.commands.append(replay)
         self.data = data
@@ -103,12 +108,35 @@ def test_replay_takes_amps_and_maps_them_to_the_pods_codes():
 def test_capture_of_the_input_is_in_amps_with_the_pods_own_fit():
     bp, t = _bp()
     cap = bp.capture_adc(3, source="current_in", sample_rate_hz=100_000)
-    assert _cmds(t) == ["analog_path", "calibrate", "capture"]
+    assert _cmds(t) == ["calibrate", "analog_path", "capture"]
     assert cap.source == "current_in"
     assert cap.currents == pytest.approx([0.004, 0.012, 0.020], abs=5e-6)
     assert cap.volts == pytest.approx([0.996, 2.988, 4.98], abs=2e-3)
     # Every other source has no current.
     assert bp.capture_adc(3, source="ext").currents == []
+
+
+def test_the_input_is_captured_in_amps_next_to_the_logic_channels():
+    """ADC + LA off one trigger, with the analog half on the 4-20 mA input."""
+    bp, t = _bp()
+    cc = bp.capture_correlated(adc_samples=3, adc_sample_rate_hz=100_000, la_samples=4,
+                               la_sample_rate_hz=1e6, source="current_in")
+    # The fit is read and the source routed BEFORE the one capture command that takes both.
+    assert _cmds(t) == ["calibrate", "analog_path", "capture_dual"]
+    assert t.commands[1] == {"cmd": "analog_path", "path": "current_in"}
+    assert cc.adc.source == "current_in"
+    assert cc.adc.currents == pytest.approx([0.004, 0.012, 0.020], abs=5e-6)
+    assert cc.la.words == [1, 1, 3, 3]
+    # Without a source the routing is left alone and the analog half is volts only.
+    t.commands.clear()
+    plain = bp.capture_correlated(adc_samples=3, la_samples=4)
+    assert _cmds(t) == ["capture_dual"] and plain.adc.currents == [] and plain.adc.source == ""
+    # An LA-only capture has no analog half to route.
+    t.commands.clear()
+    bp.capture_correlated(adc_samples=0, la_samples=4, source="current_in")
+    assert _cmds(t) == ["capture_dual"]
+    with pytest.raises(ValueError):
+        bp.capture_correlated(adc_samples=3, la_samples=4, source="j8")  # type: ignore[arg-type]
 
 
 def test_a_captured_loop_replays_as_the_same_current():

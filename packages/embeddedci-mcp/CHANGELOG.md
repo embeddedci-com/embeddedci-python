@@ -15,8 +15,9 @@
 - `generate`, `replay` and `replay_waveform` take `dac_path="current_out"` to play a waveform as a
   current on the 4-20 mA output, with levels in amps.
 - `capture_adc(source="current_in")` summarises the loop current in amps (new `unit` field in the
-  result), and that capture replays as a current or saves as a recording in mA. `list_waveforms`
-  reports each entry's `unit` and `dac_path`.
+  result), and `capture_correlated` takes `source` for the same next to the logic channels, and that capture replays as a current or saves as a recording in mA. `list_waveforms`
+  reports each entry's `unit` and `dac_path`. `status` and `connect` report the `calibrate` and
+  `current_out` capabilities.
 
 ## 2.3.0
 

@@ -296,6 +296,14 @@ def test_capture_of_the_current_input_is_summarised_in_amps(connected):
     assert call("capture_adc", samples=64, source="ext")["unit"] == "V"
 
 
+def test_correlated_capture_of_the_current_input_is_in_amps(connected):
+    call("calibrate")
+    cc = call("capture_correlated", adc_samples=64, la_samples=64, source="current_in")
+    assert cc["adc"]["unit"] == "A" and cc["adc"]["source"] == "current_in"
+    assert {"cmd": "analog_path", "path": "current_in"} in connected.requests
+    assert call("capture_correlated", adc_samples=64, la_samples=64)["adc"]["unit"] == "V"
+
+
 def test_current_out_needs_newer_firmware(connected):
     without_caps(connected, "current_out")
     with pytest.raises(Exception, match="current_out"):

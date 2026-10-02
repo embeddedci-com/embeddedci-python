@@ -826,6 +826,12 @@ bp.replay(loop, dac_path="current_out")    # play the captured loop back on J9
 - In the cloud library, `save_capture_as_recording` stores a capture of `current_in` as a current
   (`unit="mA"`), and `waveforms.save_segments(..., dac_path="current_out")` takes amps.
 - Below 400 kS/s a capture of `current_in` reads about 10 to 20 µA higher than `adc_read`.
+- The FPGA timing features work on the 4-20 mA terminals exactly as on the voltage ones, because
+  they are the same DAC and ADC: `capture_correlated(..., source="current_in")` captures the loop
+  current and the logic channels off one trigger, `on_capture=True` starts a current waveform at
+  the capture's t0, `stop_dac_after` freezes it (the loop then holds that current), and
+  `trigger=` starts a capture on an LA edge. There is one ADC and one DAC: a capture is the SMA
+  voltage or the J8 current, and the output is a voltage or a current, never both at once.
 
 The pod converts with a fit for its board revision (measured on one rev3 pod; the nominal part
 values on v2), the same on every pod of that revision: the output has no per-pod calibration.

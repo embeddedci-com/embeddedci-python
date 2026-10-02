@@ -22,7 +22,8 @@
   `dac_path="current_out"` (`DacPath` gains it), with levels in amps and the range the pod
   reports. Stopping the returned handle returns the loop to 4 mA.
 - Captures of the 4-20 mA input in amps: `capture_adc(source="current_in")` scales with the pod's
-  own fit and fills the new `Capture.currents`. Such a capture replays as the same current on
+  own fit and fills the new `Capture.currents`. `capture_correlated` takes `source` too, so the
+  loop current is captured next to the logic channels off one trigger. Such a capture replays as the same current on
   `current_out`, and `save_capture_as_recording` stores it as a current. `Waveform.unit` says
   whether a library entry is in `"V"` or `"mA"`; `WaveformLibrary.save_recording` takes `unit`,
   and `save_segments` takes amps on the `current_out` path. Needs server support for the unit.
