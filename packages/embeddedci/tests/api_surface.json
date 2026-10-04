@@ -230,6 +230,7 @@
       "spi_stream",
       "calibrate",
       "current_out",
+      "can",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",

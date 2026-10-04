@@ -56,6 +56,7 @@ class CapabilitiesInfo(BaseModel):
     calibrate: bool = Field(False, description="The pod calibrates its own 4-20 mA input (calibrate, calibration).")
     current_out: bool = Field(False, description=(
         "4-20 mA output on terminal J9 (current_out, and dac_path current_out on generate and replay)."))
+    can: bool = Field(False, description="Classic CAN on CAN+/CAN- (can_* tools).")
 
     @classmethod
     def from_caps(cls, caps: Any) -> "CapabilitiesInfo":

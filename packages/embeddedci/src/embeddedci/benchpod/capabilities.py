@@ -168,6 +168,9 @@ class Capabilities:
     calibrate: bool = False
     #: The pod can hold a current on its 4-20 mA output (J9): :meth:`BenchPod.current_out`.
     current_out: bool = False
+    #: Classic CAN on the pod's CAN+/CAN- terminals: :meth:`BenchPod.open_can`. Firmware older
+    #: than the flag still has CAN on every v2/v3 pod; it just doesn't say so.
+    can: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -247,6 +250,7 @@ class Capabilities:
                 ("spi_stream", "spi_stream"),
                 ("calibrate", "calibrate"),
                 ("current_out", "current_out"),
+                ("can", "can"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -298,6 +302,7 @@ class Capabilities:
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
             ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
+            ("can", "cap.can"),
         ):
             b = _as_bool(params, key)
             if b is not None:

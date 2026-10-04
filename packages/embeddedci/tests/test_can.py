@@ -298,3 +298,12 @@ def test_assert_periodic_flags_too_few(bp, pod):
         can.write(0x100, [0])
         with pytest.raises(AssertionError):
             can.assert_periodic(0x100, period=0.1, min_count=3, duration=0.05)
+
+
+def test_can_capability_flag_from_status_and_cloud_parameters():
+    from embeddedci.benchpod.capabilities import Capabilities
+
+    assert Capabilities.from_status({"caps": ["la", "can"]}).can
+    assert not Capabilities.from_status({"caps": ["la"]}).can  # older firmware: not announced
+    assert Capabilities.from_parameters({"cap.can": "true"}).can
+    assert not Capabilities.from_parameters({}).can
