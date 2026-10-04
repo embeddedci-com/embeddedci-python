@@ -217,7 +217,9 @@ def flash(
     for attempt in range(attempts):
         pod_link = transport.dap_start(
             swclk, swdio, packet_size=_DAP_MAX_PACKET, packet_count=_DAP_PACKET_COUNT,
-            wait_ms=TARGET_ANSWER_WAIT_MS if (target_power is not None and attempt == 0) else None)
+            # Every attempt, not just the first: a retry after a target that answered too early
+            # (a NUCLEO's ST-LINK still holding it) must wait for it to settle as well.
+            wait_ms=TARGET_ANSWER_WAIT_MS if target_power is not None else None)
         try:
             result = _run_bridge(bin_path, args, pod_link, timeout=timeout)
         finally:
