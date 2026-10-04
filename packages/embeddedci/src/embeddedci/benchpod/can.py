@@ -77,7 +77,8 @@ class CanReadResult:
     """Frames drained from the pod's RX ring by one ``BenchPod.can_read``."""
 
     frames: List[CanFrame] = field(default_factory=list)
-    #: Frames the pod dropped because its RX ring was full since the last read.
+    #: Frames the pod dropped because its RX ring was full, counted since the last
+    #: ``can_config`` (a running total, not reset by reads).
     overflow: int = 0
 
     @classmethod
