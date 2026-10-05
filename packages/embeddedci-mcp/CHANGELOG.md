@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.5.0
+
+- `connect` and `status` report the `can` capability (classic CAN on CAN+/CAN-, the `can_*`
+  tools). Firmware 3.5.1 announces it. Needs `embeddedci` 2.5.0.
+
 ## 2.4.0
 
 - **Breaking:** the 4-20 mA input (J8) is now `current_in` as an ADC source and analog path,

@@ -1,5 +1,16 @@
 # Changelog — `embeddedci`
 
+## 2.5.0
+
+- `Capabilities.can`: the pod has classic CAN on CAN+/CAN- (`open_can`). Parsed from the pod's
+  `status` and the server's `cap.can`. False on firmware before 3.5.1, which has CAN but does not
+  announce it. Firmware 3.5.1 announces it.
+- `flash()` with `target_power` waits for the target to answer on every connect attempt, not only
+  the first, so a retry after a target that answered too early (a NUCLEO's ST-LINK still holding
+  it) waits for it to settle as well.
+- `CanReadResult.overflow` is documented as what the pod reports: frames dropped since the last
+  `can_config` (a running total), not since the last read.
+
 ## 2.4.0
 
 - **Breaking:** the 4-20 mA measurement terminal (J8) is now `"current_in"` as an ADC source
