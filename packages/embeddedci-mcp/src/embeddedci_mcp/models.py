@@ -57,6 +57,7 @@ class CapabilitiesInfo(BaseModel):
     current_out: bool = Field(False, description=(
         "4-20 mA output on terminal J9 (current_out, and dac_path current_out on generate and replay)."))
     can: bool = Field(False, description="Classic CAN on CAN+/CAN- (can_* tools).")
+    pod_current: bool = Field(False, description="The board measures the pod's own 5 V current (power_status pod).")
 
     @classmethod
     def from_caps(cls, caps: Any) -> "CapabilitiesInfo":
@@ -201,9 +202,17 @@ class RailResult(BaseModel):
     current: float = Field(description="Amps.")
 
 
+class PodPowerResult(BaseModel):
+    monitor_ok: bool
+    bus_voltage: float
+    current: float = Field(description="Amps the pod itself draws from 5 V (the DUT's internal rail bypasses it).")
+    total_current: Optional[float] = Field(None, description="Amps: pod + DUT internal rail, what the USB input delivers.")
+
+
 class PowerStatusResult(BaseModel):
     internal: RailResult
     external: RailResult
+    pod: Optional[PodPowerResult] = Field(None, description="The pod's own draw; null on boards that don't measure it.")
 
 
 class ResetResult(BaseModel):

@@ -171,6 +171,8 @@ class Capabilities:
     #: Classic CAN on the pod's CAN+/CAN- terminals: :meth:`BenchPod.open_can`. Firmware older
     #: than the flag still has CAN on every v2/v3 pod; it just doesn't say so.
     can: bool = False
+    #: The board measures the pod's own 5 V current: :attr:`PowerStatus.pod`.
+    pod_current: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -251,6 +253,7 @@ class Capabilities:
                 ("calibrate", "calibrate"),
                 ("current_out", "current_out"),
                 ("can", "can"),
+                ("pod_current", "pod_current"),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
@@ -302,7 +305,7 @@ class Capabilities:
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
             ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
-            ("can", "cap.can"),
+            ("can", "cap.can"), ("pod_current", "cap.pod_current"),
         ):
             b = _as_bool(params, key)
             if b is not None:

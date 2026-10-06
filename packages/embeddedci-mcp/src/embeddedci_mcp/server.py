@@ -413,7 +413,11 @@ async def power_status() -> m.PowerStatusResult:
             return m.RailResult(enabled=e.enabled, fault=e.fault, state_valid=e.valid,
                                 monitor_ok=r.ok, bus_voltage=r.bus_voltage, current=r.current)
 
-        return m.PowerStatusResult(internal=rail(1), external=rail(2))
+        pod = None
+        if ps.pod is not None:
+            pod = m.PodPowerResult(monitor_ok=ps.pod.ok, bus_voltage=ps.pod.bus_voltage,
+                                   current=ps.pod.current, total_current=ps.total_current)
+        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod)
 
     return await _call(op)
 

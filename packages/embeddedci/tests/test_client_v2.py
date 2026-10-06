@@ -8,6 +8,7 @@ import pytest
 
 from embeddedci import benchpod
 from embeddedci.benchpod import BenchPod, BenchPodError
+from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.state import (
     AdcReading,
     AnalogPathState,
@@ -152,6 +153,27 @@ def test_target_status_and_power_status_are_typed():
     assert ps.rail(1).bus_voltage == pytest.approx(5.012)
     assert ps.internal.current == pytest.approx(0.1234)
     assert not ps.external.ok
+    assert ps.pod is None and ps.total_current is None
+
+
+def test_power_status_pod_draw():
+    bp, _ = _bp({
+        "power_status": {"internal": {"ok": True, "bus_mv": 5012, "current_ua": 123400},
+                         "external": {"ok": False, "bus_mv": 0, "current_ua": 0},
+                         "pod": {"ok": True, "bus_mv": 4950, "current_ua": 312000,
+                                 "total_ua": 435400}},
+    })
+    ps = bp.power_status()
+    assert ps.pod is not None and ps.pod.ok
+    assert ps.pod.current == pytest.approx(0.312) and ps.pod.bus_voltage == pytest.approx(4.95)
+    assert ps.total_current == pytest.approx(0.4354)
+
+
+def test_pod_current_capability():
+    assert Capabilities.from_status({"caps": ["la", "pod_current"]}).pod_current
+    assert not Capabilities.from_status({"caps": ["la"]}).pod_current
+    assert Capabilities.from_parameters({"cap.pod_current": "true"}).pod_current
+    assert not Capabilities.from_parameters({"cap.pod_current": "false"}).pod_current
 
 
 def test_reset_line():

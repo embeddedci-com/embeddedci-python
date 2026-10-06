@@ -146,9 +146,15 @@ class FakeTransport(Transport):
         return {"efuse1": {"enabled": int(self.power.get(1, False)), "fault": 0, "valid": 1},
                 "efuse2": {"enabled": 0, "fault": 1, "valid": 1}, "status_supported": True}
 
+    #: Set to a pod reading to fake a board with the pod's own current monitor.
+    pod_power = None
+
     def _cmd_power_status(self, req):
-        return {"internal": {"ok": True, "bus_mv": 5010, "current_ua": 42000},
-                "external": {"ok": False, "bus_mv": 0, "current_ua": 0}}
+        r = {"internal": {"ok": True, "bus_mv": 5010, "current_ua": 42000},
+             "external": {"ok": False, "bus_mv": 0, "current_ua": 0}}
+        if self.pod_power is not None:
+            r["pod"] = self.pod_power
+        return r
 
     def _cmd_nrst(self, req):
         if "assert" in req:

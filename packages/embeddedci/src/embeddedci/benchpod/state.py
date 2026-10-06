@@ -111,6 +111,12 @@ class PowerStatus:
 
     internal: RailPower
     external: RailPower
+    #: The pod's own 5 V draw, on boards that measure it (``Capabilities.pod_current``); ``None``
+    #: otherwise. The DUT's internal rail bypasses this monitor.
+    pod: Optional[RailPower] = None
+    #: Pod + DUT internal rail in amps: what the USB input delivers. ``None`` unless the pod
+    #: reported it (both monitors read).
+    total_current: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
     def rail(self, efuse: "Efuse | int") -> RailPower:
@@ -127,7 +133,10 @@ class PowerStatus:
                              bus_voltage=(_opt_int(r, "bus_mv") or 0) / 1000.0,
                              current=(_opt_int(r, "current_ua") or 0) / 1e6)
 
-        return cls(internal=one("internal"), external=one("external"), raw=d)
+        pod = one("pod") if isinstance(d.get("pod"), Mapping) else None
+        total_ua = _opt_int(_d(d.get("pod")), "total_ua")
+        return cls(internal=one("internal"), external=one("external"), pod=pod,
+                   total_current=None if total_ua is None else total_ua / 1e6, raw=d)
 
 
 @dataclass(frozen=True)

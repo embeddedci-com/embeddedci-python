@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `power_status` returns `pod`: the pod's own 5 V draw and the USB input total, on boards that
+  measure it; null otherwise. `connect` and `status` report the `pod_current` capability.
+  Needs the next `embeddedci`.
+
 ## 2.5.0
 
 - `connect` and `status` report the `can` capability (classic CAN on CAN+/CAN-, the `can_*`

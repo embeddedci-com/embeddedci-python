@@ -1,5 +1,14 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `PowerStatus.pod`: the pod's own 5 V draw, on boards that measure it (INA226 at 0x41, the
+  v3r1 analog and v3r2 digital boards). `PowerStatus.total_current` adds the DUT's internal rail
+  to it, which is what the USB input delivers. Both are `None` on other boards and on firmware
+  up to 3.5.1.
+- `Capabilities.pod_current`: the board has that monitor. Parsed from the pod's `status` and the
+  server's `cap.pod_current`.
+
 ## 2.5.0
 
 - `Capabilities.can`: the pod has classic CAN on CAN+/CAN- (`open_can`). Parsed from the pod's

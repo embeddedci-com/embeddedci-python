@@ -163,8 +163,17 @@ def test_power_tools(connected):
     assert status["internal"]["enabled"] is True and status["internal"]["bus_voltage"] == 5.01
     assert status["internal"]["current"] == pytest.approx(0.042)
     assert status["external"]["fault"] is True
+    assert status["pod"] is None
     call("power_off")
     assert connected.power[1] is False
+
+
+def test_power_status_pod_draw(connected):
+    connected.pod_power = {"ok": True, "bus_mv": 4950, "current_ua": 312000, "total_ua": 354000}
+    pod = call("power_status")["pod"]
+    assert pod["monitor_ok"] is True and pod["bus_voltage"] == pytest.approx(4.95)
+    assert pod["current"] == pytest.approx(0.312)
+    assert pod["total_current"] == pytest.approx(0.354)
 
 
 def test_reset_target(connected):

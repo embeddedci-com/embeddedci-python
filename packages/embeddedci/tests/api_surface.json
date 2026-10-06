@@ -231,6 +231,7 @@
       "calibrate",
       "current_out",
       "can",
+      "pod_current",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -621,6 +622,8 @@
     "__fields__": [
       "internal",
       "external",
+      "pod",
+      "total_current",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'PowerStatus'\"",
