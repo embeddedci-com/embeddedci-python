@@ -12,27 +12,60 @@ from __future__ import annotations
 import json
 import socket
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional
 
-from ..errors import FirmwareError, TransportError
+from ..errors import (
+    BenchPodError,
+    ConnectionClosedError,
+    TransportError,
+    TransportTimeout,
+    firmware_error,
+)
 from ..protocol import encode_request, parse_reply, raise_for_status
-from .base import RawLink, Transport
+from .base import RawLink, Transport, request_timeout
 
 DEFAULT_DIAL_TIMEOUT = 10.0  # total budget to establish a connection
 _DIAL_ATTEMPT_TIMEOUT = 0.5
 _DIAL_RETRY_BACKOFF = 0.1
+#: Floor for an upload's timeout (``load_bin``): the pod acknowledges a large upload slowly.
+_UPLOAD_TIMEOUT = 60.0
+_LINK_LOST = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
 
+
+@contextmanager
+def _io_errors(what: str, timeout: Optional[float]) -> Iterator[None]:
+    """Turn a socket error raised inside the block into a :class:`TransportError`: a timeout
+    into :class:`TransportTimeout`, a reset or broken pipe into :class:`ConnectionClosedError`.
+    SDK errors pass through unchanged."""
+    try:
+        yield
+    except BenchPodError:
+        raise
+    except TimeoutError as exc:  # socket.timeout
+        after = f" within {timeout:g} s" if timeout else ""
+        raise TransportTimeout(f"{what}: the pod did not answer{after}") from exc
+    except _LINK_LOST as exc:
+        raise ConnectionClosedError(f"{what}: the connection was lost ({exc})") from exc
+    except OSError as exc:
+        raise TransportError(f"{what}: {exc}") from exc
 
 class _SocketRawLink:
     """Adapts a connected socket to :class:`RawLink` for the flash bridge."""
 
     def __init__(self, sock: socket.socket) -> None:
         self._sock = sock
+        self._closed = False
+        #: The error that ended the link, if it did not end cleanly (see RawLink).
+        self.error: Optional[BaseException] = None
 
     def read(self, n: int) -> bytes:
         try:
             return self._sock.recv(n)
-        except OSError:
+        except (OSError, BenchPodError) as exc:
+            # RawLink contract: b"" when the stream ends. Keep why, unless we closed it ourselves.
+            if not self._closed and self.error is None:
+                self.error = exc
             return b""
 
     def write(self, data: bytes) -> int:
@@ -40,6 +73,7 @@ class _SocketRawLink:
         return len(data)
 
     def close(self) -> None:
+        self._closed = True
         try:
             self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -73,7 +107,8 @@ class TcpTransport(Transport):
         except ValueError:
             raise TransportError(f"invalid port in address {self.addr!r}") from None
 
-    def _dial(self) -> socket.socket:
+    def _dial(self, timeout: Optional[float] = None) -> socket.socket:
+        """Connect, with ``timeout`` (default: the transport's) on every later read."""
         host, port = self._split_addr()
         deadline = time.monotonic() + self.dial_timeout
         last: Optional[Exception] = None
@@ -81,7 +116,7 @@ class TcpTransport(Transport):
             try:
                 sock = socket.create_connection((host, port), timeout=_DIAL_ATTEMPT_TIMEOUT)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                sock.settimeout(self.timeout)
+                sock.settimeout(self.timeout if timeout is None else timeout)
                 return sock
             except OSError as exc:
                 last = exc
@@ -105,7 +140,7 @@ class TcpTransport(Transport):
                     line = bytes(buf)
                     buf.clear()
                     return line
-                raise TransportError("connection closed before a full reply line")
+                raise ConnectionClosedError("connection closed before a full reply line")
             buf.extend(chunk)
 
     @classmethod
@@ -133,7 +168,7 @@ class TcpTransport(Transport):
         while True:
             b = sock.recv(1)
             if not b:
-                raise TransportError("connection closed before dap_start ack")
+                raise ConnectionClosedError("connection closed before the mode-switch ack")
             if b == b"\n":
                 return bytes(out)
             out.extend(b)
@@ -142,10 +177,12 @@ class TcpTransport(Transport):
 
     def command(self, req: dict) -> Any:
         """Send one JSON command and return its ``data`` (raises on error)."""
-        sock = self._dial()
+        timeout = request_timeout(req, self.timeout)
+        sock = self._dial(timeout)
         try:
-            sock.sendall(encode_request(req))
-            reply = parse_reply(self._recv_line(sock, bytearray()))
+            with _io_errors(f"{req.get('cmd')}", timeout):
+                sock.sendall(encode_request(req))
+                reply = parse_reply(self._recv_line(sock, bytearray()))
             raise_for_status(reply, cmd=req.get("cmd"))
             return reply.data
         finally:
@@ -156,13 +193,17 @@ class TcpTransport(Transport):
 
     def samples(self, req: dict) -> List[int]:
         """Send a command whose reply is a chunked sample array."""
-        sock = self._dial()
+        timeout = request_timeout(req, self.timeout)
+        sock = self._dial(timeout)
         buf = bytearray()
         out: List[int] = []
         try:
-            sock.sendall(encode_request(req))
+            with _io_errors(f"{req.get('cmd')}", timeout):
+                sock.sendall(encode_request(req))
             while True:
-                reply = parse_reply(self._recv_line(sock, buf))
+                with _io_errors(f"{req.get('cmd')}", timeout):
+                    line = self._recv_line(sock, buf)
+                reply = parse_reply(line)
                 raise_for_status(reply, cmd=req.get("cmd"))
                 if isinstance(reply.data, list):
                     out.extend(reply.data)
@@ -183,13 +224,16 @@ class TcpTransport(Transport):
         rates (``adc_rate_hz``/``la_rate_hz``) or the RLE LA frames (``la``/``la_edges``/
         ``la_upto``) of a ``capture_dual`` — can see them. Raises on an error chunk.
         """
-        sock = self._dial()
+        timeout = request_timeout(req, self.timeout)
+        sock = self._dial(timeout)
         buf = bytearray()
         cmd = req.get("cmd")
         try:
-            sock.sendall(encode_request(req))
+            with _io_errors(f"{cmd}", timeout):
+                sock.sendall(encode_request(req))
             while True:
-                line = self._recv_line(sock, buf)
+                with _io_errors(f"{cmd}", timeout):
+                    line = self._recv_line(sock, buf)
                 text = line.decode("utf-8", "replace").strip()
                 if not text:
                     continue
@@ -200,7 +244,7 @@ class TcpTransport(Transport):
                 if not isinstance(obj, dict):
                     continue
                 if obj.get("status") == "error":
-                    raise FirmwareError(obj.get("message") or "capture failed", cmd=cmd)
+                    raise firmware_error(obj.get("message") or "capture failed", cmd=cmd)
                 yield obj
                 if not bool(obj.get("more", False)):
                     return
@@ -219,19 +263,25 @@ class TcpTransport(Transport):
         PSRAM after the socket closes — so a concurrent capture can run alongside it (gateware
         v18). Returns the ``replay`` reply data.
         """
-        sock = self._dial()
-        sock.settimeout(max(self.timeout, 60.0))
+        timeout = max(self.timeout, _UPLOAD_TIMEOUT)
+        sock = self._dial(timeout)
         buf = bytearray()
         try:
             begin = {"cmd": "load_bin", "total": len(data)}
             if psram:
                 begin["psram"] = True
-            sock.sendall(encode_request(begin))
-            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
-            sock.sendall(bytes(data))
-            raise_for_status(parse_reply(self._recv_load_bin_done(sock, buf)), cmd="load_bin")
-            sock.sendall(encode_request(replay))
-            reply = parse_reply(self._recv_line(sock, buf))
+            with _io_errors("load_bin", timeout):
+                sock.sendall(encode_request(begin))
+                line = self._recv_line(sock, buf)
+            raise_for_status(parse_reply(line), cmd="load_bin")
+            with _io_errors("load_bin", timeout):
+                sock.sendall(bytes(data))
+                line = self._recv_load_bin_done(sock, buf)
+            raise_for_status(parse_reply(line), cmd="load_bin")
+            with _io_errors(replay.get("cmd", "replay"), timeout):
+                sock.sendall(encode_request(replay))
+                line = self._recv_line(sock, buf)
+            reply = parse_reply(line)
             raise_for_status(reply, cmd=replay.get("cmd", "replay"))
             return reply.data
         finally:
@@ -243,14 +293,18 @@ class TcpTransport(Transport):
     def stage_psram(self, data: bytes) -> int:
         """Upload raw bytes into the pod's PSRAM staging area (``load_bin`` with ``"psram":true``)
         without arming anything: ``spi_stream`` sends them on. Returns the bytes the pod stored."""
-        sock = self._dial()
-        sock.settimeout(max(self.timeout, 60.0))
+        timeout = max(self.timeout, _UPLOAD_TIMEOUT)
+        sock = self._dial(timeout)
         buf = bytearray()
         try:
-            sock.sendall(encode_request({"cmd": "load_bin", "total": len(data), "psram": True}))
-            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
-            sock.sendall(bytes(data))
-            reply = parse_reply(self._recv_load_bin_done(sock, buf))
+            with _io_errors("load_bin", timeout):
+                sock.sendall(encode_request({"cmd": "load_bin", "total": len(data), "psram": True}))
+                line = self._recv_line(sock, buf)
+            raise_for_status(parse_reply(line), cmd="load_bin")
+            with _io_errors("load_bin", timeout):
+                sock.sendall(bytes(data))
+                line = self._recv_load_bin_done(sock, buf)
+            reply = parse_reply(line)
             raise_for_status(reply, cmd="load_bin")
             total = reply.data.get("total") if isinstance(reply.data, dict) else None
             return int(total) if total is not None else len(data)
@@ -278,16 +332,22 @@ class TcpTransport(Transport):
         Shared by ``dap_start`` and ``uart_proxy_start``: both ack one JSON line
         and then the same socket carries raw bytes, so the ack must be read one
         byte at a time (``_recv_line_exact``) to not swallow what follows.
+
+        The ack is read under the request timeout, so a pod that never answers fails instead of
+        hanging; only after it does the timeout come off.
         """
-        sock = self._dial()
-        # The session can outlast the per-command timeout — clear it so the
-        # caller owns the lifetime, mirroring the Go client.
-        sock.settimeout(None)
+        timeout = request_timeout(req, self.timeout)
+        sock = self._dial(timeout)
         try:
-            sock.sendall(encode_request(req))
-            reply = parse_reply(self._recv_line_exact(sock))
+            with _io_errors(cmd, timeout):
+                sock.sendall(encode_request(req))
+                line = self._recv_line_exact(sock)
+            reply = parse_reply(line)
             raise_for_status(reply, cmd=cmd)
-        except Exception:
+            # The session can outlast the per-command timeout: clear it so the caller owns the
+            # lifetime, mirroring the Go client.
+            sock.settimeout(None)
+        except BaseException:
             try:
                 sock.close()
             except OSError:

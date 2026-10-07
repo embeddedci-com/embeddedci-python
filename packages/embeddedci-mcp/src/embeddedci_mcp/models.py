@@ -58,10 +58,28 @@ class CapabilitiesInfo(BaseModel):
         "4-20 mA output on terminal J9 (current_out, and dac_path current_out on generate and replay)."))
     can: bool = Field(False, description="Classic CAN on CAN+/CAN- (can_* tools).")
     pod_current: bool = Field(False, description="The board measures the pod's own 5 V current (power_status pod).")
+    analog: Optional[bool] = Field(None, description=(
+        "The board has the analog front end (ADC, DAC, 4-20 mA); false on the digital-only board, "
+        "null when the firmware does not say."))
+    dac_limits: bool = Field(False, description="Output limits on the DAC paths.")
+    flash_kb: int = Field(0, description="Internal flash of the pod's MCU in KiB (0 = not reported).")
+    ota_sig: bool = Field(False, description="Firmware updates are signed and the pod checks them.")
+    sig_policy: str = Field("", description="Signature policy: audit (report only) or required.")
+    lan_policy: str = Field("", description=(
+        "LAN policy: open, locked (config and firmware commands need the cloud or USB) or off."))
+    tunnel_max_tier: bool = Field(False, description=(
+        "A cloud tunnel is limited to what the server allows its user (non-admins get "
+        "PermissionDeniedError for config and firmware commands)."))
+    lease_state: bool = Field(False, description=(
+        "The pod knows when a cloud job holds it and refuses LAN writes meanwhile (PodLeasedError)."))
+    cloud_ca: bool = Field(False, description="The pod accepts a company CA for its cloud link.")
+    cloud_proxy: bool = Field(False, description="The pod reaches the cloud through an HTTP proxy.")
 
     @classmethod
     def from_caps(cls, caps: Any) -> "CapabilitiesInfo":
-        return cls(**{name: getattr(caps, name) for name in cls.model_fields})
+        # getattr with the field default: an older embeddedci lacks the newer flags.
+        return cls(**{name: getattr(caps, name, field.default)
+                      for name, field in cls.model_fields.items()})
 
 
 class SessionInfo(BaseModel):

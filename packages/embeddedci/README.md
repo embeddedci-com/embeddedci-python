@@ -1282,13 +1282,20 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `BenchPodError` | base class of all of the below | |
 | `ConnectionConfigError` | no connection configured, unparsable string, discovery found zero or several pods | |
 | `TransportError` | the pod or tunnel could not be reached / talked to | |
+| `TransportTimeout` (a `TransportError` and a `TimeoutError`) | the pod or tunnel did not answer in time | |
+| `ConnectionClosedError` (a `TransportError`) | the connection ended or reset before the reply | |
 | `FirmwareError` | the pod replied with an error (e.g. "la voltage not set") | `firmware_message`, `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
 | `DeviceBusyError` | a cloud device lease was not granted within `lease_wait` | |
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
+| `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or the USB console | `firmware_message`, `cmd` |
+| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running | `firmware_message`, `cmd` |
+| `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409) | `holder`, `left_s`, `expires_at`, `status` |
+| `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
+| `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |
 | `PullConflictError` | an engaged bias resistor can't work with the channel's function (a `FirmwareError`) | `la` |
 | `TriggerTimeout` | a triggered capture's condition never happened (a `FirmwareError`) | `la`, `edge` |

@@ -83,15 +83,22 @@ from .errors import (
     BenchPodError,
     CanTimeout,
     CloudAuthError,
+    ConnectionClosedError,
     ConnectionConfigError,
     DeviceBusyError,
     FirmwareError,
     FlashError,
+    PermissionDeniedError,
     PinConflictError,
+    PodBusyError,
+    PodLeasedError,
+    PodLockedError,
     PullConflictError,
     TargetUnreachableError,
     TransportError,
+    TransportTimeout,
     TriggerTimeout,
+    UartLinkError,
     UartTimeout,
 )
 from .flash import FlashResult
@@ -102,7 +109,7 @@ from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, Segment
 from .results import Capture, CorrelatedCapture, LaCapture, Trigger
-from .server_api import ServerApi, ServerApiError
+from .server_api import ServerApi, ServerApiError, ServerPermissionDeniedError
 from .state import (
     AdcReading,
     AnalogPathState,
@@ -253,13 +260,21 @@ __all__ = [
     "BenchPodError",
     "ConnectionConfigError",
     "TransportError",
+    "TransportTimeout",
+    "ConnectionClosedError",
     "FirmwareError",
     "FlashError",
     "TargetUnreachableError",
     "DeviceBusyError",
     "CloudAuthError",
     "ServerApiError",
+    "ServerPermissionDeniedError",
+    "PodLockedError",
+    "PodBusyError",
+    "PodLeasedError",
+    "PermissionDeniedError",
     "UartTimeout",
+    "UartLinkError",
     "CanTimeout",
     "PinConflictError",
     "PullConflictError",

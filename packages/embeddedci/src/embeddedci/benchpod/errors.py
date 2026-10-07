@@ -18,6 +18,18 @@ class TransportError(BenchPodError):
     """A transport-level failure: could not reach or talk to the pod."""
 
 
+class TransportTimeout(TransportError, TimeoutError):
+    """The pod (or the cloud tunnel) did not answer within the timeout.
+
+    Distinct from :class:`ConnectionClosedError`: the link is still up, the reply just did not
+    come in time. Also a :class:`TimeoutError`, which the raw socket timeout used to be.
+    """
+
+
+class ConnectionClosedError(TransportError):
+    """The connection ended (EOF, reset or a closed tunnel) before the full reply arrived."""
+
+
 class DeviceBusyError(BenchPodError):
     """The shared cloud BenchPod is held by another consumer and did not free within the wait
     timeout. Raised when acquiring the device lease times out."""
@@ -67,6 +79,19 @@ class UartTimeout(BenchPodError):
         super().__init__(message)
 
 
+class UartLinkError(UartTimeout, ConnectionClosedError):
+    """The UART proxy link ended with an error (the connection dropped, the pod went away)
+    while :class:`~embeddedci.benchpod.uart.UartSession` was waiting for output.
+
+    A :class:`UartTimeout` too, so code written for the timeout still catches it; :attr:`text`
+    has everything received before the link died and :attr:`cause` the error that ended it.
+    """
+
+    def __init__(self, message: str, *, text: str = "", cause: Optional[BaseException] = None) -> None:
+        super().__init__(message, text=text)
+        self.cause = cause
+
+
 class CanTimeout(BenchPodError):
     """A :meth:`CanBus.expect` waited for a matching CAN frame but none arrived.
 
@@ -113,9 +138,62 @@ class TriggerTimeout(FirmwareError):
         self.edge = edge
 
 
+class PodLockedError(FirmwareError):
+    """The pod refused a command on its LAN connection: its LAN policy is ``locked`` (or the
+    command changes a policy), so the command needs the cloud (``embeddedci:<device>``) or the
+    USB console. Firmware text: ``locked: <cmd> needs the cloud or the USB console``."""
+
+
+class PodBusyError(FirmwareError):
+    """The pod refused because it is busy (``busy: …``): a capture or upload is running, or a
+    cloud job holds it (:class:`PodLeasedError`)."""
+
+
+class PodLeasedError(PodBusyError, DeviceBusyError, TransportError):
+    """A cloud job holds the pod, so this client may look but not touch.
+
+    Raised for the pod's own refusal on the LAN (``busy: a cloud job holds this pod (<holder>,
+    <n> s left)``) and for the server's HTTP 409 when another consumer holds the device lease.
+    :attr:`holder` names the job (``""`` when unknown), :attr:`left_s` the seconds its lease has
+    left (``None`` when unknown) and :attr:`expires_at` the server's expiry time, if it sent one.
+
+    Also a :class:`FirmwareError`, :class:`DeviceBusyError` and :class:`TransportError`, which
+    these refusals were before, so existing handlers keep working.
+    """
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, holder: str = "",
+                 left_s: Optional[int] = None, expires_at: str = "",
+                 status: Optional[int] = None) -> None:
+        super().__init__(message, cmd=cmd)
+        self.holder = holder
+        self.left_s = left_s
+        self.expires_at = expires_at
+        self.status = status
+
+
+class PermissionDeniedError(FirmwareError, TransportError):
+    """The caller is not allowed to do this: the pod's ``forbidden: <cmd> needs an organization
+    owner or admin`` on a cloud tunnel, or an HTTP 403 from the server (the API key lacks a
+    scope, the session token does not cover the device, the user is not an owner or admin).
+
+    :attr:`status` is the HTTP status (403) when the server refused, else ``None``. Also a
+    :class:`FirmwareError` and :class:`TransportError`, which these refusals were before.
+    """
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None,
+                 status: Optional[int] = None) -> None:
+        super().__init__(message, cmd=cmd)
+        self.status = status
+
+
 _PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by (\w+)")
 _PULL_CONFLICT = re.compile(r"pull conflict: LA(\d+)")
 _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
+#: "busy: a cloud job holds this pod (<holder>, <n> s left)" (command_handler.c dispatch_line).
+_LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
+#: Policy changes the LAN may not make (pod_policy.c).
+_POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
+                     "only the USB console can loosen")
 
 
 def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
@@ -132,4 +210,18 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
     m = _TRIGGER_TIMEOUT.search(msg)
     if m:
         return TriggerTimeout(msg, cmd=exc.cmd, la=int(m.group(2)), edge=m.group(1))
+    if msg.startswith("locked:") or any(p in msg for p in _POLICY_ELSEWHERE):
+        return PodLockedError(msg, cmd=exc.cmd)
+    m = _LEASED.search(msg)
+    if m:
+        return PodLeasedError(msg, cmd=exc.cmd, holder=m.group(1), left_s=int(m.group(2)))
+    if msg.startswith("busy:"):
+        return PodBusyError(msg, cmd=exc.cmd)
+    if msg.startswith("forbidden:"):
+        return PermissionDeniedError(msg, cmd=exc.cmd)
     return exc
+
+
+def firmware_error(message: str, *, cmd: Optional[str] = None) -> FirmwareError:
+    """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal."""
+    return classify_firmware_error(FirmwareError(message, cmd=cmd))

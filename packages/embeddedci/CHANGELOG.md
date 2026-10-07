@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- Typed refusals. `PodLockedError`: the pod's LAN policy keeps this command for the cloud or the
+  USB console (`locked: …`, and a policy change sent over the LAN). `PodLeasedError` (with
+  `holder`, `left_s` and, from the server, `expires_at`): a cloud job holds the pod (`busy: a
+  cloud job holds this pod (…)` on the LAN, HTTP 409 from the server). `PodBusyError`: any other
+  `busy: …`. `PermissionDeniedError` (with `status`): the pod's `forbidden: …` on a cloud tunnel
+  and a server HTTP 403 (`ServerPermissionDeniedError` from `ServerApi`). An HTML 403 from the
+  Cloudflare edge stays a `TransportError`. Every new class also subclasses what the refusal used
+  to raise (`FirmwareError`, `TransportError`, `DeviceBusyError`, `ServerApiError`), so existing
+  handlers still catch them. Refusals are classified wherever they arrive, not only in
+  `BenchPod.command`.
+- `Capabilities` parses every flag firmware 3.6 and the server announce: `analog` (`None` when not
+  announced), `dac_limits`, `flash_kb`, `blob_slots`, `ota_sig`, `sig_policy`, `sig_keys`,
+  `sig_policy_cmd`, `lan_policy`, `lan_policy_cmd`, `tunnel_max_tier`, `lease_state`, `cloud_ca`,
+  `cloud_proxy` and (server only) `ws_auth_v2`.
+- Errors: a socket or serial failure no longer escapes as a raw `OSError`. A pod that does not
+  answer in time raises `TransportTimeout` (a `TransportError`, and still a `TimeoutError`); a
+  connection that ends or resets before the reply raises `ConnectionClosedError` (a
+  `TransportError`). Over the cloud a slow pod used to look like a closed connection; it is now
+  a timeout too, and a lost connection to the server during a command is a
+  `ConnectionClosedError` instead of a raw exception.
+- Timeouts follow the request: a blocking `measure_power(duration)` waits for its duration on top
+  of the connection timeout (it used to fail after the fixed 30 s), and so do a triggered
+  capture's `trigger_timeout` and a `dap_start` wait. The cloud command channel asks the server
+  to wait that long too (the server caps it at 120 s).
+- The handshake that switches a connection to raw mode (`dap_start`, `uart_proxy_start`) is
+  bounded by the timeout. A pod that never acknowledged it used to hang the caller.
+- `BenchPod.capabilities` is not cached when the status read fails, so a passing glitch no longer
+  leaves the whole session without capabilities. The failure is logged.
+- `UartSession`: when the link dies with an error (the connection drops, the pod is unplugged),
+  `expect()` and `read_until()` raise `UartLinkError` at once (a `UartTimeout` with the text so
+  far and the `cause`), `read()` raises it once nothing is unread, and `UartSession.error` says
+  why. They used to wait out the full timeout as if the DUT were quiet. A link closed with
+  `close()` is not an error.
+- Serial: stale bytes (a reply to a request that timed out) are dropped before each JSON request,
+  so they can no longer be taken as the next command's reply.
+- Cloud: after a Cloudflare edge error (502/503/504/52x) the command channel repeats only commands
+  that read (`status`, `ping`, `target_status`, `power_status`, the read form of `la_voltage`,
+  `dac_limits`, `calibrate`, ...). It used to repeat everything except a few target actions, so
+  an `spi_xfer`, a `generate` or a delayed `target_power` could run twice. A command the server
+  refused before forwarding ("retry shortly") is still repeated, whatever it is.
 - `la_step`: the docs said `delay` is the time between pulses; it is half of it (each pulse is
   high for `delay`, then low for `delay`). `steps` above 65535 and a `delay` outside 4 µs..65.535 ms
   now raise `ValueError` before anything is sent: the pod's counters are 16-bit and it refused

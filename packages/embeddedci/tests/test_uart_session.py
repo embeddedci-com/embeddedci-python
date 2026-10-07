@@ -155,3 +155,69 @@ def test_read_until_none_when_link_ends():
     with UartSession(link) as uart:
         link.close()  # EOF with no match
         assert uart.read_until("APP_OK", timeout=2) is None
+
+
+class _DyingLink(FakeLink):
+    """A link whose read raises once ``die`` is called (pyserial on an unplugged pod)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._dead = None
+
+    def die(self, exc: BaseException) -> None:
+        with self._cond:
+            self._dead = exc
+            self._cond.notify_all()
+
+    def read(self, n: int) -> bytes:
+        with self._cond:
+            while not self._q and not self._closed and self._dead is None:
+                self._cond.wait()
+            if self._q:
+                out = bytes(self._q[:n])
+                del self._q[:n]
+                return out
+            if self._dead is not None:
+                raise self._dead
+            return b""
+
+
+def test_reader_death_is_raised_by_expect_at_once():
+    import time
+
+    from embeddedci.benchpod.errors import TransportError, UartLinkError
+
+    link = _DyingLink()
+    with UartSession(link) as uart:
+        link.feed(b"boot...")
+        threading.Timer(0.05, link.die, args=(OSError("device gone"),)).start()
+        start = time.monotonic()
+        with pytest.raises(UartLinkError, match="device gone") as info:
+            uart.expect("APP_OK", timeout=5)
+        assert time.monotonic() - start < 2
+        assert isinstance(info.value, UartTimeout) and isinstance(info.value, TransportError)
+        assert info.value.text == "boot..."
+        assert isinstance(uart.error, OSError)
+
+
+def test_link_error_attribute_is_surfaced():
+    from embeddedci.benchpod.errors import ConnectionClosedError, UartLinkError
+
+    link = FakeLink()
+    uart = UartSession(link)
+    link.error = ConnectionClosedError("tunnel dropped")
+    link.close()  # read returns b"" and the link says why
+    with pytest.raises(UartLinkError, match="tunnel dropped"):
+        uart.read_until("x", timeout=1)
+    with pytest.raises(UartLinkError):
+        uart.read()
+    uart.close()
+
+
+def test_a_clean_close_is_not_an_error():
+    link = FakeLink()
+    uart = UartSession(link)
+    link.feed(b"hi")
+    uart.close()
+    assert uart.error is None
+    assert uart.read_until("nope", timeout=0.1) is None

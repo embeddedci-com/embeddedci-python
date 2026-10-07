@@ -13,20 +13,34 @@ TCP transport's one-connection-per-command model.
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional
 from urllib.parse import quote
 
 from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, mint_session_token
-from ..errors import ConnectionConfigError, FirmwareError, TransportError
+from ..errors import (
+    ConnectionClosedError,
+    ConnectionConfigError,
+    PermissionDeniedError,
+    PodLeasedError,
+    TransportError,
+    TransportTimeout,
+    firmware_error,
+)
+from .base import request_timeout
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
 _RETRY_DELAYS = (0.5, 1.5)
 _EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
+#: The server's cap on how long one command-channel request may wait for the pod
+#: (benchpodCommandMaxTimeout).
+_SERVER_COMMAND_MAX_TIMEOUT = 120.0
 #: Renew a minted session token this many seconds before it expires.
 _RENEW_MARGIN = 120.0
 
@@ -50,9 +64,42 @@ def _server_error(detail: str) -> str:
         return detail
 
 
+def _json_body(detail: str) -> Optional[dict]:
+    try:
+        body = json.loads(detail)
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _seconds_until(stamp: str) -> Optional[int]:
+    """Whole seconds from now until an RFC 3339 time, or None when it does not parse."""
+    try:
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, int(round((when - datetime.now(timezone.utc)).total_seconds())))
+
+
 def _device_problem(device: str, code: int, detail: str) -> Optional[Exception]:
     """A clear error for the device-level failures the server reports, or None."""
     msg = _server_error(detail)
+    body = _json_body(detail)
+    # A JSON body is the server answering; Cloudflare's own 403 (a banned client) is HTML.
+    if code == 403 and body is not None:
+        return PermissionDeniedError(
+            f"not allowed to use BenchPod {device!r}: {msg} (HTTP 403)", status=403)
+    if code == 409 and body is not None and body.get("busy"):
+        holder = str(body.get("holder") or "")
+        expires = str(body.get("expires_at") or "")
+        left = _seconds_until(expires) if expires else None
+        until = f", about {left} s left" if left is not None else ""
+        return PodLeasedError(
+            f"BenchPod {device!r} is in use by {holder or 'another run'}{until} (HTTP 409); "
+            "wait for it to finish or connect with the lease it holds",
+            holder=holder, left_s=left, expires_at=expires, status=409)
     if code == 503 and "offline" in msg:
         return TransportError(
             f"BenchPod {device!r} is offline: it is not connected to embeddedci.com right now. "
@@ -64,11 +111,17 @@ def _device_problem(device: str, code: int, detail: str) -> Optional[Exception]:
     return None
 
 
-def _transient(code: int, detail: str) -> bool:
+def _not_forwarded(code: int, detail: str) -> bool:
+    """The server refused before forwarding the command to the pod (another instance holds its
+    connection), so a retry cannot run it twice."""
+    return code == 503 and "retry shortly" in detail
+
+
+def _edge_failure(code: int, detail: str) -> bool:
+    """The Cloudflare edge failed to reach or hear back from the server. The command may or may
+    not have reached the pod."""
     # The server answers offline/timeout with a JSON error, which a retry would only repeat.
-    # A non-JSON body is the Cloudflare edge failing to reach the server.
-    if code == 503 and "retry shortly" in detail:
-        return True
+    # A non-JSON body is the edge failing to reach the server.
     if code not in _EDGE_ERRORS:
         return False
     try:
@@ -86,17 +139,46 @@ def _redact(text: str, secrets: "tuple[str, ...]") -> str:
     return text
 
 
-def _repeatable(req: dict) -> bool:
-    # An edge error does not prove the pod never ran the command, so never repeat one that
-    # acts on the target: a CAN frame, a reset pulse or a step-pulse train would happen twice.
+#: Commands that only read state: repeating one after an edge error cannot change the pod or
+#: the DUT. The firmware's T0 tier (cmd_tier.c) without the reads that consume or take the
+#: capture hardware (can_read drains the receive queue).
+_READ_ONLY_COMMANDS = frozenset({
+    "ping", "status", "cloud_status", "wifi_status", "la_pins", "usb_cc", "target_status",
+    "power_status", "identity_public", "spi_status", "sensor_status", "can_status", "ota_status",
+    "blob_status", "dac_loop_probe", "sensor_regs",
+})
+
+
+def _read_form(req: dict) -> bool:
+    """The read form of a verb that also writes (the firmware's mixed verbs, plus la_voltage)."""
     cmd = req.get("cmd")
-    if cmd == "can_write":
-        return False
-    if cmd == "nrst" and "pulse_ms" in req:
-        return False
-    if cmd == "la" and "steps" in req:
-        return False
-    return True
+    if cmd == "la_voltage":
+        return req.get("mv") is None
+    if cmd == "dac_limits":
+        return "path" not in req and req.get("enabled") is not False
+    if cmd == "calibrate":
+        return "source" not in req and req.get("clear") is not True
+    if cmd in ("sig_policy", "lan_policy"):
+        return "set" not in req
+    if cmd in ("cloud_ca", "cloud_proxy"):
+        return "set" not in req and req.get("clear") is not True
+    return False
+
+
+def _repeatable(req: dict) -> bool:
+    # An edge error does not prove the pod never ran the command, so only a command that reads
+    # is repeated. Anything else (an SPI transfer, a waveform, a delayed power change, a CAN
+    # frame, a reset pulse) could happen twice.
+    return req.get("cmd") in _READ_ONLY_COMMANDS or _read_form(req)
+
+
+def _ws_exception(name: str) -> type:
+    """A websocket-client exception class, or one nothing raises when the extra is missing."""
+    try:
+        import websocket
+    except ImportError:  # pragma: no cover - exercised only without the extra
+        return type(name, (Exception,), {})
+    return getattr(websocket, name, type(name, (Exception,), {}))
 
 
 class _WsTunnelSocket:
@@ -104,7 +186,8 @@ class _WsTunnelSocket:
 
     The server carries device→client bytes as binary WS frames; ``recv`` buffers one frame and
     serves it out in ``n``-byte slices. ``recv`` returns ``b""`` on close/EOF so the line readers
-    treat a dropped tunnel the same as a closed socket.
+    treat a dropped tunnel the same as a closed socket, and raises :class:`TimeoutError` when no
+    frame came within the timeout, like a socket, so a slow pod is not reported as a closed one.
     """
 
     #: Clock and sleep used for upload pacing (tests swap them).
@@ -151,8 +234,14 @@ class _WsTunnelSocket:
         if not self._buf:
             try:
                 msg = self._ws.recv()
-            except Exception:
+            except (TimeoutError, _ws_exception("WebSocketTimeoutException")) as exc:
+                raise TimeoutError(f"no data from the cloud tunnel ({exc})") from exc
+            except _ws_exception("WebSocketConnectionClosedException"):
                 return b""
+            except OSError:
+                raise
+            except Exception as exc:
+                raise ConnectionClosedError(f"the cloud tunnel failed: {exc}") from exc
             if not msg:
                 return b""
             if isinstance(msg, str):
@@ -175,7 +264,12 @@ class _WsTunnelSocket:
                 behind = start + off / TUNNEL_UPLOAD_BYTES_PER_SEC - self._clock()
                 if behind > 0:
                     self._sleep(behind)
-            self._ws.send_binary(bytes(view[off:off + TUNNEL_FRAME_MAX]))
+            try:
+                self._ws.send_binary(bytes(view[off:off + TUNNEL_FRAME_MAX]))
+            except (TimeoutError, _ws_exception("WebSocketTimeoutException")) as exc:
+                raise TimeoutError(f"the cloud tunnel did not take the data ({exc})") from exc
+            except _ws_exception("WebSocketConnectionClosedException") as exc:
+                raise ConnectionClosedError("the cloud tunnel closed while sending") from exc
 
     def shutdown(self, _how) -> None:
         return None
@@ -275,7 +369,7 @@ class CloudTransport(TcpTransport):
         return _WsTunnelSocket(self._ws_url(), self.timeout, headers=self._ws_headers(token),
                                secrets=(token,))
 
-    def _dial(self) -> _WsTunnelSocket:  # type: ignore[override]
+    def _dial(self, timeout: Optional[float] = None) -> _WsTunnelSocket:  # type: ignore[override]
         try:
             sock = self._open_tunnel()
         except TransportError as exc:
@@ -290,7 +384,7 @@ class CloudTransport(TcpTransport):
                 if problem is not None:
                     raise problem from exc
                 raise
-        sock.settimeout(self.timeout)
+        sock.settimeout(self.timeout if timeout is None else timeout)
         return sock
 
     def command(self, req: dict) -> Any:  # type: ignore[override]
@@ -307,8 +401,9 @@ class CloudTransport(TcpTransport):
         """
         url = (f"{self.api_base}/api/cloud/devices/command"
                f"?device={quote(self.device_name, safe='')}")
+        timeout = min(request_timeout(req, self.timeout), _SERVER_COMMAND_MAX_TIMEOUT)
         body = json.dumps(
-            {"command": req, "timeout_ms": int(self.timeout * 1000)}
+            {"command": req, "timeout_ms": int(timeout * 1000)}
         ).encode("utf-8")
         cmd = req.get("cmd")
         attempt = 0
@@ -322,8 +417,8 @@ class CloudTransport(TcpTransport):
             if self.lease_id:
                 request.add_header("X-Benchpod-Lease", self.lease_id)
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
+                with urllib.request.urlopen(request, timeout=timeout + 10) as resp:
+                    raw = resp.read()
                 break
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300]
@@ -331,8 +426,9 @@ class CloudTransport(TcpTransport):
                 if exc.code == 401 and not renewed and self._invalidate_token():
                     renewed = True
                     continue
-                if (attempt < len(_RETRY_DELAYS) and _transient(exc.code, detail)
-                        and _repeatable(req)):
+                if attempt < len(_RETRY_DELAYS) and (
+                        _not_forwarded(exc.code, detail)
+                        or (_edge_failure(exc.code, detail) and _repeatable(req))):
                     time.sleep(_RETRY_DELAYS[attempt])
                     attempt += 1
                     continue
@@ -343,9 +439,24 @@ class CloudTransport(TcpTransport):
                     f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
                 ) from exc
             except urllib.error.URLError as exc:
+                if isinstance(exc.reason, TimeoutError):
+                    raise TransportTimeout(
+                        f"cloud command {cmd!r}: no answer within {timeout + 10:g} s") from exc
                 raise TransportError(f"cloud command {cmd!r} failed: {exc}") from exc
+            except TimeoutError as exc:  # while reading the response
+                raise TransportTimeout(
+                    f"cloud command {cmd!r}: no answer within {timeout + 10:g} s") from exc
+            except (OSError, http.client.HTTPException) as exc:
+                raise ConnectionClosedError(
+                    f"cloud command {cmd!r}: the connection to the server was lost ({exc})") from exc
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except ValueError as exc:
+            raise TransportError(f"cloud command {cmd!r}: malformed reply from the server") from exc
+        if not isinstance(payload, dict):
+            raise TransportError(f"cloud command {cmd!r}: unexpected reply from the server")
         if payload.get("status") == "error":
-            raise FirmwareError(payload.get("error") or "device returned an error", cmd=cmd)
+            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd)
         return payload.get("data")
 
     def close(self) -> None:

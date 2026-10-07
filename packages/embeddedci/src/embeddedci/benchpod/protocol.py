@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .errors import FirmwareError, TransportError
+from .errors import TransportError, firmware_error
 
 
 @dataclass
@@ -50,12 +50,13 @@ def parse_reply(line: bytes) -> Reply:
 
 
 def raise_for_status(reply: Reply, cmd: Optional[str] = None) -> Reply:
-    """Raise :class:`FirmwareError` if the reply is an error packet.
+    """Raise :class:`FirmwareError` (its specific subclass, see
+    :func:`~embeddedci.benchpod.errors.classify_firmware_error`) if the reply is an error packet.
 
     Returns the reply unchanged on success so callers can chain.
     """
     if reply.status == "error":
-        raise FirmwareError(reply.message or "unknown firmware error", cmd=cmd)
+        raise firmware_error(reply.message or "unknown firmware error", cmd=cmd)
     if reply.status not in ("ok", "chunk"):
         raise TransportError(f"unexpected reply status {reply.status!r}")
     return reply

@@ -11,7 +11,25 @@ operations on. :class:`RawLink` is the bidirectional byte stream that
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+
+
+def request_timeout(req: Mapping[str, Any], base: float) -> float:
+    """How long to wait for the reply to ``req``: ``base`` plus the time the pod spends on
+    purpose before it answers (a blocking power profile's duration, a trigger's timeout, the
+    ``dap_start`` wait for the target, a reset pulse). A fixed timeout would end a 60 s
+    ``measure_power`` after 30 s."""
+    extra_ms = 0.0
+    keys = ["trigger_timeout_ms", "pulse_ms"]
+    if req.get("cmd") == "power_profile":
+        keys.append("duration_ms")
+    if req.get("cmd") == "dap_start":
+        keys.append("wait_ms")
+    for key in keys:
+        v = req.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            extra_ms += float(v)
+    return base + extra_ms / 1000.0
 
 
 @runtime_checkable
@@ -19,7 +37,9 @@ class RawLink(Protocol):
     """A raw, bidirectional byte stream (length-framed CMSIS-DAP during a flash).
 
     ``read`` blocks until at least one byte is available and returns ``b""``
-    only when the stream has ended (EOF) or been closed. ``close`` returns the
+    only when the stream has ended (EOF) or been closed. A link that ended because of an error
+    (a reset connection, a dropped tunnel) sets ``error`` to that exception (optional attribute;
+    ``None`` or absent after a clean end). ``close`` returns the
     pod to a safe state (TCP: closes the socket; serial: sends the ``Q`` quit
     byte) and unblocks any in-flight ``read``.
     """

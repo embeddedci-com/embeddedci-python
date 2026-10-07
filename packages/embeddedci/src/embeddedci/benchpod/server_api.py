@@ -22,7 +22,7 @@ import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .cloud_auth import DEFAULT_API_BASE, USER_AGENT
-from .errors import BenchPodError, CloudAuthError, TransportError
+from .errors import BenchPodError, CloudAuthError, PermissionDeniedError, TransportError
 
 _HTTP_TIMEOUT = 60.0
 
@@ -33,6 +33,15 @@ class ServerApiError(BenchPodError):
     def __init__(self, message: str, *, status: Optional[int] = None) -> None:
         self.status = status
         super().__init__(message)
+
+
+class ServerPermissionDeniedError(ServerApiError, PermissionDeniedError):
+    """The server answered HTTP 403: the credential is not allowed to do this. Both a
+    :class:`ServerApiError` (what it was before) and a
+    :class:`~embeddedci.benchpod.errors.PermissionDeniedError`."""
+
+    def __init__(self, message: str, *, status: Optional[int] = 403) -> None:
+        PermissionDeniedError.__init__(self, message, status=status)
 
 
 class ServerApi:
@@ -120,7 +129,8 @@ class ServerApi:
                 hint = (" — this endpoint needs the 'benchpod:control' capability; a cloud "
                         "(OIDC/github_action) session token authorizes it for its allowed devices, "
                         "as does an API key or a real-user session")
-            raise ServerApiError(
+            cls = ServerPermissionDeniedError if exc.code == 403 else ServerApiError
+            raise cls(
                 f"{method} {path} failed (HTTP {exc.code}): {detail}{hint}", status=exc.code
             ) from exc
         except urllib.error.URLError as exc:

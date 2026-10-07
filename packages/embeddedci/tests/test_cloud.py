@@ -209,7 +209,7 @@ def test_cloud_transport_dap_handshake_returns_raw_link(monkeypatch):
     # dap_start acks one JSON line, then the same tunnel carries raw bytes.
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
     fake = _FakeSock(b'{"status":"ok"}\nRAWBYTES')
-    monkeypatch.setattr(t, "_dial", lambda: fake)
+    monkeypatch.setattr(t, "_dial", lambda *_a: fake)
 
     link = t.dap_start(swclk=11, swdio=12)
     # Bytes after the ack newline are the raw CMSIS-DAP stream and must survive.
@@ -313,7 +313,7 @@ def test_cloud_load_replay_skips_the_tunnel_ack_lines(monkeypatch):
         b'{"status":"ok","data":{"replaying":true}}\n',
     ])
     t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
-    monkeypatch.setattr(t, "_dial", lambda: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
     data = t.load_replay(data=b"\x00" * 20000, replay={"cmd": "replay"}, psram=True)
     assert data == {"replaying": True}
     frames = sock._ws.frames
@@ -362,7 +362,29 @@ def _scripted_urlopen(monkeypatch, outcomes):
 def test_cloud_command_retries_cloudflare_502(monkeypatch):
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
     calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html>Bad gateway</html>"), None])
-    assert t.command({"cmd": "dac_stop"}) == "pong"
+    assert t.command({"cmd": "target_status"}) == "pong"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("req", [
+    {"cmd": "la_voltage"},
+    {"cmd": "dac_limits"},
+    {"cmd": "calibrate"},
+    {"cmd": "lan_policy"},
+    {"cmd": "cloud_proxy"},
+])
+def test_cloud_command_retries_the_read_form_of_a_mixed_verb(monkeypatch, req):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html></html>"), None])
+    assert t.command(req) == "pong"
+    assert len(calls) == 2
+
+
+def test_cloud_command_retries_a_write_the_server_never_forwarded(monkeypatch):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    body = b'{"error":"device is connected to another server instance; retry shortly"}'
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(503, body), None])
+    assert t.command({"cmd": "spi_xfer", "tx": "9f"}) == "pong"
     assert len(calls) == 2
 
 
@@ -389,6 +411,17 @@ def test_cloud_command_retries_other_instance(monkeypatch):
     {"cmd": "can_write", "id": 1, "data": "00"},
     {"cmd": "nrst", "pulse_ms": 10},
     {"cmd": "la", "la": 1, "steps": 5, "delay_us": 100},
+    {"cmd": "spi_xfer", "tx": "9f"},
+    {"cmd": "generate", "waveform": "sine"},
+    {"cmd": "target_power", "efuse": 1, "state": 1, "delay_ms": 500},
+    {"cmd": "dac_stop"},
+    {"cmd": "la_voltage", "mv": 3300},
+    {"cmd": "dac_limits", "path": "dac_out", "min_mv": 0},
+    {"cmd": "calibrate", "source": "current_in"},
+    {"cmd": "lan_policy", "set": "open"},
+    {"cmd": "cloud_ca", "clear": True},
+    {"cmd": "can_read"},
+    {"cmd": "some_future_command"},
 ])
 def test_cloud_command_never_repeats_target_actions(monkeypatch, req):
     from embeddedci.benchpod.errors import TransportError
@@ -537,3 +570,87 @@ def test_server_api_prefers_the_user_token(monkeypatch, user_token, expected):
     t = CloudTransport("dev-a", api_base="https://example.test", token="sess")
     bp = BenchPod(transport=t, cloud_user_token=user_token, lease=False)
     assert bp._try_server_api()._auth_header() == expected
+
+
+# -- timeouts are not EOF ---------------------------------------------------------------------
+
+class _RaisingWS(_FakeWS):
+    def __init__(self, exc):
+        super().__init__([])
+        self._exc = exc
+
+    def recv(self):
+        raise self._exc
+
+
+def _tunnel_socket(ws):
+    sock = _WsTunnelSocket.__new__(_WsTunnelSocket)
+    sock._ws = ws
+    sock._buf = bytearray()
+    sock._closed = False
+    return sock
+
+
+def test_ws_tunnel_timeout_is_a_timeout_not_eof():
+    import websocket
+
+    sock = _tunnel_socket(_RaisingWS(websocket.WebSocketTimeoutException("timed out")))
+    with pytest.raises(TimeoutError):
+        sock.recv(10)
+
+
+def test_ws_tunnel_close_is_eof():
+    import websocket
+
+    sock = _tunnel_socket(_RaisingWS(websocket.WebSocketConnectionClosedException("gone")))
+    assert sock.recv(10) == b""
+
+
+def test_cloud_tunnel_command_times_out_as_transport_timeout(monkeypatch):
+    import websocket
+
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=5)
+    sock = _tunnel_socket(_RaisingWS(websocket.WebSocketTimeoutException("timed out")))
+    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    with pytest.raises(TransportTimeout, match="within 5 s"):
+        list(t.stream_chunks({"cmd": "capture", "samples": 16}))
+
+
+def test_cloud_command_read_timeout_is_transport_timeout(monkeypatch):
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=5)
+    _scripted_urlopen(monkeypatch, [TimeoutError("timed out")])
+    with pytest.raises(TransportTimeout):
+        t.command({"cmd": "status"})
+
+
+def test_cloud_command_connect_timeout_is_transport_timeout(monkeypatch):
+    import urllib.error
+
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=5)
+    _scripted_urlopen(monkeypatch, [urllib.error.URLError(TimeoutError("timed out"))])
+    with pytest.raises(TransportTimeout):
+        t.command({"cmd": "status"})
+
+
+def test_cloud_command_reset_is_connection_closed(monkeypatch):
+    from embeddedci.benchpod.errors import ConnectionClosedError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    _scripted_urlopen(monkeypatch, [ConnectionResetError("reset by peer")])
+    with pytest.raises(ConnectionClosedError):
+        t.command({"cmd": "status"})
+
+
+def test_cloud_command_asks_the_server_to_wait_for_a_blocking_profile(monkeypatch):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=30)
+    calls = _scripted_urlopen(monkeypatch, [None])
+    t.command({"cmd": "power_profile", "duration_ms": 60000})
+    import json
+
+    assert json.loads(calls[0].data)["timeout_ms"] == 90000
