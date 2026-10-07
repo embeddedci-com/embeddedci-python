@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.6.0
 
 - Cloud: the tunnel WebSocket sends the session token as an `Authorization: Bearer` header (and
   the lease as `X-Benchpod-Lease`) instead of `?token=` in the URL, so the token stays out of

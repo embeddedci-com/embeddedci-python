@@ -1,10 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.6.0
 
+- Over the cloud, `replay` with your own samples and SPI flash staging work above about 1.5 KB,
+  and the session token no longer appears in URLs (both from `embeddedci` 2.6.0).
 - `power_status` returns `pod`: the pod's own 5 V draw and the USB input total, on boards that
   measure it; null otherwise. `connect` and `status` report the `pod_current` capability.
-  Needs the next `embeddedci`.
+  Needs `embeddedci` 2.6.0 (pin raised).
 
 ## 2.5.0
 
