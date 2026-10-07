@@ -17,6 +17,7 @@ import http.client
 import json
 import threading
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Optional
@@ -26,6 +27,8 @@ from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, mint_se
 from ..errors import (
     ConnectionClosedError,
     ConnectionConfigError,
+    PermissionDeniedError,
+    PodLeasedError,
     TransportError,
     TransportTimeout,
     firmware_error,
@@ -61,9 +64,42 @@ def _server_error(detail: str) -> str:
         return detail
 
 
+def _json_body(detail: str) -> Optional[dict]:
+    try:
+        body = json.loads(detail)
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _seconds_until(stamp: str) -> Optional[int]:
+    """Whole seconds from now until an RFC 3339 time, or None when it does not parse."""
+    try:
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, int(round((when - datetime.now(timezone.utc)).total_seconds())))
+
+
 def _device_problem(device: str, code: int, detail: str) -> Optional[Exception]:
     """A clear error for the device-level failures the server reports, or None."""
     msg = _server_error(detail)
+    body = _json_body(detail)
+    # A JSON body is the server answering; Cloudflare's own 403 (a banned client) is HTML.
+    if code == 403 and body is not None:
+        return PermissionDeniedError(
+            f"not allowed to use BenchPod {device!r}: {msg} (HTTP 403)", status=403)
+    if code == 409 and body is not None and body.get("busy"):
+        holder = str(body.get("holder") or "")
+        expires = str(body.get("expires_at") or "")
+        left = _seconds_until(expires) if expires else None
+        until = f", about {left} s left" if left is not None else ""
+        return PodLeasedError(
+            f"BenchPod {device!r} is in use by {holder or 'another run'}{until} (HTTP 409); "
+            "wait for it to finish or connect with the lease it holds",
+            holder=holder, left_s=left, expires_at=expires, status=409)
     if code == 503 and "offline" in msg:
         return TransportError(
             f"BenchPod {device!r} is offline: it is not connected to embeddedci.com right now. "

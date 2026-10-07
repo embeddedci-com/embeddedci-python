@@ -88,7 +88,11 @@ from .errors import (
     DeviceBusyError,
     FirmwareError,
     FlashError,
+    PermissionDeniedError,
     PinConflictError,
+    PodBusyError,
+    PodLeasedError,
+    PodLockedError,
     PullConflictError,
     TargetUnreachableError,
     TransportError,
@@ -105,7 +109,7 @@ from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, Segment
 from .results import Capture, CorrelatedCapture, LaCapture, Trigger
-from .server_api import ServerApi, ServerApiError
+from .server_api import ServerApi, ServerApiError, ServerPermissionDeniedError
 from .state import (
     AdcReading,
     AnalogPathState,
@@ -264,6 +268,11 @@ __all__ = [
     "DeviceBusyError",
     "CloudAuthError",
     "ServerApiError",
+    "ServerPermissionDeniedError",
+    "PodLockedError",
+    "PodBusyError",
+    "PodLeasedError",
+    "PermissionDeniedError",
     "UartTimeout",
     "UartLinkError",
     "CanTimeout",

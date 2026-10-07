@@ -101,3 +101,57 @@ def test_boot_health_from_parameters():
     assert c.boot_warning().startswith("the pod crashed and restarted itself")
     assert Capabilities.from_parameters({"cap.safe_mode": "true"}).boot_warning().startswith(
         "the pod is in safe mode. Some features are off")
+
+
+# -- the policy / update / hardening flags (firmware 3.6 status, server cap.*) ------------------
+
+_STATUS_3_6 = {
+    "version": "3.6.0", "board": "stm32h563", "flash_kb": 2048,
+    "ota_sig": True, "sig_policy": "audit", "sig_keys": 2, "sig_policy_cmd": True,
+    "lan_policy": "locked", "lan_policy_cmd": True, "tunnel_max_tier": True, "lease_state": True,
+    "cloud_ca": True, "cloud_proxy": True,
+    "lease": {"held": False, "holder": "", "left_s": 0},
+    "analog": True,
+    "caps": ["signal", "la", "analog", "scope", "dac_limits", "calibrate", "current_out"],
+}
+
+
+def test_status_policy_and_update_flags():
+    c = Capabilities.from_status(_STATUS_3_6)
+    assert c.flash_kb == 2048 and c.ota_sig and c.sig_policy == "audit" and c.sig_keys == 2
+    assert c.sig_policy_cmd and c.lan_policy == "locked" and c.lan_policy_cmd
+    assert c.tunnel_max_tier and c.lease_state and c.cloud_ca and c.cloud_proxy
+    assert c.analog is True and c.dac_limits
+
+
+def test_status_of_a_digital_only_board():
+    c = Capabilities.from_status({"analog": False, "caps": ["la"]})
+    assert c.analog is False and not c.dac_limits
+
+
+def test_older_firmware_leaves_the_new_flags_unknown():
+    c = Capabilities.from_status({"version": "3.1.1", "caps": ["la", "scope"]})
+    assert c.analog is None and not c.ota_sig and c.sig_policy == "" and c.flash_kb == 0
+    assert not c.lease_state and not c.tunnel_max_tier
+
+
+def test_server_parameters_policy_and_update_flags():
+    c = Capabilities.from_parameters({
+        "cap.analog": "true", "cap.dac_limits": "true", "cap.flash_kb": "1024",
+        "cap.blob_slots": "true", "cap.ota_sig": "true", "cap.sig_policy": "required",
+        "cap.sig_policy_cmd": "true", "cap.lan_policy": "open", "cap.lan_policy_cmd": "true",
+        "cap.tunnel_max_tier": "true", "cap.ws_auth_v2": "true", "cap.lease_state": "true",
+        "cap.cloud_ca": "true", "cap.cloud_proxy": "true", "cap.pod_current": "true",
+    })
+    assert c.analog is True and c.dac_limits and c.flash_kb == 1024 and c.blob_slots
+    assert c.ota_sig and c.sig_policy == "required" and c.sig_policy_cmd
+    assert c.lan_policy == "open" and c.lan_policy_cmd and c.tunnel_max_tier
+    assert c.ws_auth_v2 and c.lease_state and c.cloud_ca and c.cloud_proxy and c.pod_current
+
+
+def test_server_analog_is_tri_state():
+    assert Capabilities.from_parameters({"cap.analog": ""}).analog is None
+    assert Capabilities.from_parameters({"cap.analog": "false"}).analog is False
+    # merge keeps the status's answer when the server has none
+    merged = Capabilities.from_status({"analog": False}).merge(Capabilities.from_parameters({}))
+    assert merged.analog is False

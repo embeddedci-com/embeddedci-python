@@ -81,6 +81,12 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
     return None
 
 
+#: Boolean capabilities the firmware's ``status`` reports as top-level ``true`` fields (and the
+#: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
+_STATUS_FLAGS = ("ota_sig", "sig_policy_cmd", "lan_policy_cmd", "tunnel_max_tier", "lease_state",
+                 "cloud_ca", "cloud_proxy", "blob_slots")
+
+
 def _crash_text(v: Any) -> str:
     """The firmware's crash summary, with its "none" (no crash) mapped to ``""``."""
     s = str(v or "").strip()
@@ -173,6 +179,42 @@ class Capabilities:
     can: bool = False
     #: The board measures the pod's own 5 V current: :attr:`PowerStatus.pod`.
     pod_current: bool = False
+    #: The board has the analog front end (ADC, DAC, 4-20 mA). ``False`` on the digital-only
+    #: board; ``None`` when the firmware does not say (older firmware, analog boards only).
+    analog: Optional[bool] = None
+    #: Output limits on the DAC paths (``{"cmd":"dac_limits"}``).
+    dac_limits: bool = False
+
+    # firmware updates and policies
+    #: Internal flash of the pod's MCU in KiB (2048 or 1024); 0 when not reported.
+    flash_kb: int = 0
+    #: Spare flash slots for the W25Q blobs (``flash-self`` installs them).
+    blob_slots: bool = False
+    #: Firmware updates carry a signature the pod checks.
+    ota_sig: bool = False
+    #: The signature policy: ``"audit"`` (report only), ``"required"``, ...; ``""`` when unknown.
+    sig_policy: str = ""
+    #: Number of signing keys the pod trusts; 0 when not reported.
+    sig_keys: int = 0
+    #: The pod takes the ``sig_policy`` command.
+    sig_policy_cmd: bool = False
+    #: The LAN policy: ``"open"``, ``"locked"`` (LAN keeps T0/T1, the rest needs the cloud or USB)
+    #: or ``"off"``; ``""`` when unknown.
+    lan_policy: str = ""
+    #: The pod takes the ``lan_policy`` command.
+    lan_policy_cmd: bool = False
+    #: The pod limits a cloud tunnel to the tier the server allows its user (a non-admin gets
+    #: :class:`~embeddedci.benchpod.errors.PermissionDeniedError` for config and firmware commands).
+    tunnel_max_tier: bool = False
+    #: The pod knows when a cloud job holds it and refuses LAN writes meanwhile
+    #: (:class:`~embeddedci.benchpod.errors.PodLeasedError`).
+    lease_state: bool = False
+    #: The pod accepts a company CA for its cloud connection (``cloud_ca``).
+    cloud_ca: bool = False
+    #: The pod reaches the cloud through an HTTP proxy (``cloud_proxy``).
+    cloud_proxy: bool = False
+    #: The pod signs its cloud login with the v2 scheme (server-side flag only).
+    ws_auth_v2: bool = False
 
     #: LA I/O-bank voltage the pod currently reports (mV), if known.
     la_vccio_mv: int = 0
@@ -219,6 +261,18 @@ class Capabilities:
             c.adc_channels = v
         if (v := _as_int(status, "la_vccio_mv")) is not None:
             c.la_vccio_mv = v
+        # Top-level fields of newer firmware (not in caps[]).
+        for attr in _STATUS_FLAGS:
+            if status.get(attr) is True:
+                setattr(c, attr, True)
+        if (v := _as_bool(status, "analog")) is not None:
+            c.analog = v
+        if (v := _as_int(status, "flash_kb")) is not None and v > 0:
+            c.flash_kb = v
+        if (v := _as_int(status, "sig_keys")) is not None and v > 0:
+            c.sig_keys = v
+        c.sig_policy = str(status.get("sig_policy", "") or "")
+        c.lan_policy = str(status.get("lan_policy", "") or "")
         caps = status.get("caps")
         if isinstance(caps, (list, tuple)):
             names = {str(x).lower() for x in caps}
@@ -254,9 +308,13 @@ class Capabilities:
                 ("current_out", "current_out"),
                 ("can", "can"),
                 ("pod_current", "pod_current"),
+                ("dac_limits", "dac_limits"),
+                *((f, f) for f in _STATUS_FLAGS),
             ):
                 if name in names and hasattr(c, attr):
                     setattr(c, attr, True)
+            if "analog" in names:
+                c.analog = True
         c.safe_mode = _as_bool(status, "safe_mode") is True
         c.safe_reason = str(status.get("safe_reason", "") or "") if c.safe_mode else ""
         c.last_crash = _crash_text(status.get("last_crash", status.get("crash")))
@@ -306,10 +364,21 @@ class Capabilities:
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
             ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
+            ("dac_limits", "cap.dac_limits"),
+            ("ws_auth_v2", "cap.ws_auth_v2"),
+            *((f, f"cap.{f}") for f in _STATUS_FLAGS),
         ):
             b = _as_bool(params, key)
             if b is not None:
                 setattr(c, attr, b)
+        # Tri-state: "" (not announced) stays None.
+        c.analog = _as_bool(params, "cap.analog")
+        if (v := _as_int(params, "cap.flash_kb")) is not None and v > 0:
+            c.flash_kb = v
+        if (v := _as_int(params, "cap.sig_keys")) is not None and v > 0:
+            c.sig_keys = v
+        c.sig_policy = str(params.get("cap.sig_policy", "") or "")
+        c.lan_policy = str(params.get("cap.lan_policy", "") or "")
         c.safe_mode = _as_bool(params, "cap.safe_mode") is True
         c.safe_reason = str(params.get("cap.safe_reason", "") or "") if c.safe_mode else ""
         c.last_crash = _crash_text(params.get("cap.last_crash"))

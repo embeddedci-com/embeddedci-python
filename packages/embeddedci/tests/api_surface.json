@@ -232,6 +232,21 @@
       "current_out",
       "can",
       "pod_current",
+      "analog",
+      "dac_limits",
+      "flash_kb",
+      "blob_slots",
+      "ota_sig",
+      "sig_policy",
+      "sig_keys",
+      "sig_policy_cmd",
+      "lan_policy",
+      "lan_policy_cmd",
+      "tunnel_max_tier",
+      "lease_state",
+      "cloud_ca",
+      "cloud_proxy",
+      "ws_auth_v2",
       "la_vccio_mv",
       "safe_mode",
       "safe_reason",
@@ -568,6 +583,9 @@
   "PIN7": "Pin.PIN7",
   "PIN8": "Pin.PIN8",
   "PIN9": "Pin.PIN9",
+  "PermissionDeniedError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, status: 'Optional[int]' = None) -> 'None'"
+  },
   "Pin": {
     "__members__": {
       "PIN1": 1,
@@ -589,6 +607,11 @@
   "PinConflictError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, function: 'str' = '') -> 'None'"
   },
+  "PodBusyError": {},
+  "PodLeasedError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, holder: 'str' = '', left_s: 'Optional[int]' = None, expires_at: 'str' = '', status: 'Optional[int]' = None) -> 'None'"
+  },
+  "PodLockedError": {},
   "PowerProfile": {
     "__fields__": [
       "efuse",
@@ -692,6 +715,9 @@
   },
   "ServerApiError": {
     "__init__": "(self, message: 'str', *, status: 'Optional[int]' = None) -> 'None'"
+  },
+  "ServerPermissionDeniedError": {
+    "__init__": "(self, message: 'str', *, status: 'Optional[int]' = 403) -> 'None'"
   },
   "Signal": {
     "__fields__": [
@@ -971,8 +997,12 @@
     "PIN7",
     "PIN8",
     "PIN9",
+    "PermissionDeniedError",
     "Pin",
     "PinConflictError",
+    "PodBusyError",
+    "PodLeasedError",
+    "PodLockedError",
     "PowerProfile",
     "PowerProfileSession",
     "PowerStatus",
@@ -986,6 +1016,7 @@
     "Sensor",
     "ServerApi",
     "ServerApiError",
+    "ServerPermissionDeniedError",
     "Signal",
     "SpiFlashInfo",
     "SpiFlashResult",

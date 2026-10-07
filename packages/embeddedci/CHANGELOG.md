@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Typed refusals. `PodLockedError`: the pod's LAN policy keeps this command for the cloud or the
+  USB console (`locked: …`, and a policy change sent over the LAN). `PodLeasedError` (with
+  `holder`, `left_s` and, from the server, `expires_at`): a cloud job holds the pod (`busy: a
+  cloud job holds this pod (…)` on the LAN, HTTP 409 from the server). `PodBusyError`: any other
+  `busy: …`. `PermissionDeniedError` (with `status`): the pod's `forbidden: …` on a cloud tunnel
+  and a server HTTP 403 (`ServerPermissionDeniedError` from `ServerApi`). An HTML 403 from the
+  Cloudflare edge stays a `TransportError`. Every new class also subclasses what the refusal used
+  to raise (`FirmwareError`, `TransportError`, `DeviceBusyError`, `ServerApiError`), so existing
+  handlers still catch them. Refusals are classified wherever they arrive, not only in
+  `BenchPod.command`.
+- `Capabilities` parses every flag firmware 3.6 and the server announce: `analog` (`None` when not
+  announced), `dac_limits`, `flash_kb`, `blob_slots`, `ota_sig`, `sig_policy`, `sig_keys`,
+  `sig_policy_cmd`, `lan_policy`, `lan_policy_cmd`, `tunnel_max_tier`, `lease_state`, `cloud_ca`,
+  `cloud_proxy` and (server only) `ws_auth_v2`.
 - Errors: a socket or serial failure no longer escapes as a raw `OSError`. A pod that does not
   answer in time raises `TransportTimeout` (a `TransportError`, and still a `TimeoutError`); a
   connection that ends or resets before the reply raises `ConnectionClosedError` (a
