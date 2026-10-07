@@ -153,6 +153,12 @@ PULL_OHMS: Dict[int, str] = {
 PULLUP_CHANNELS: Tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 PULLDOWN_CHANNELS: Tuple[int, ...] = (7, 8)
 
+# LA step trains (``la_step``, ``GpioPin.pulse``): the gateware counts steps and the half-period in
+# 16-bit counters, so the pod refuses more steps or a longer half-period.
+LA_STEP_MAX_STEPS = 65535
+LA_STEP_MIN_DELAY_US = 4
+LA_STEP_MAX_DELAY_US = 65535
+
 
 def check_choice(value: str, choices: Sequence[str], name: str) -> str:
     """Return ``value`` if it is one of ``choices``, else raise a :class:`ValueError` naming them."""
