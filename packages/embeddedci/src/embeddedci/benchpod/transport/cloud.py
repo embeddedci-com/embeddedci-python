@@ -30,6 +30,17 @@ _EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
 #: Renew a minted session token this many seconds before it expires.
 _RENEW_MARGIN = 120.0
 
+#: Largest raw payload of one client->pod WebSocket frame. The server forwards each client frame
+#: as one ``tunnel.data`` message (base64url plus a ~70-byte JSON envelope) and the pod copies that
+#: message into a 2048-byte buffer (firmware BP_CLOUD_RX_MAX): a frame over about 1.5 KB raw is
+#: dropped without an error. 1024 raw bytes is 1366 base64 characters, well inside the limit.
+TUNNEL_FRAME_MAX = 1024
+#: Rate cap for one large client upload (``load_bin`` for replay/SPI staging), the same backstop the
+#: server's own DAC upload uses (benchpodUploadBytesPerSec): the pod acknowledges TCP eagerly, so
+#: without pacing a fast burst overruns its 16 KB receive buffer or the server's per-pod inbox
+#: and the tunnel ends.
+TUNNEL_UPLOAD_BYTES_PER_SEC = 128 * 1024
+
 
 def _server_error(detail: str) -> str:
     """The ``error`` field of a server JSON error body, else the raw text."""
@@ -88,6 +99,10 @@ class _WsTunnelSocket:
     treat a dropped tunnel the same as a closed socket.
     """
 
+    #: Clock and sleep used for upload pacing (tests swap them).
+    _clock = staticmethod(time.monotonic)
+    _sleep = staticmethod(time.sleep)
+
     def __init__(self, url: str, timeout: float) -> None:
         try:
             import websocket  # websocket-client (optional extra: embeddedci[cloud])
@@ -137,7 +152,17 @@ class _WsTunnelSocket:
         return take
 
     def sendall(self, data: bytes) -> None:
-        self._ws.send_binary(bytes(data))
+        """Send ``data`` as WebSocket binary frames of at most :data:`TUNNEL_FRAME_MAX` bytes, in
+        order. A write larger than one frame (a ``load_bin`` upload) is paced to
+        :data:`TUNNEL_UPLOAD_BYTES_PER_SEC`; small writes (commands, DAP packets) go out at once."""
+        view = memoryview(bytes(data))
+        start = self._clock()
+        for off in range(0, len(view), TUNNEL_FRAME_MAX):
+            if off:
+                behind = start + off / TUNNEL_UPLOAD_BYTES_PER_SEC - self._clock()
+                if behind > 0:
+                    self._sleep(behind)
+            self._ws.send_binary(bytes(view[off:off + TUNNEL_FRAME_MAX]))
 
     def shutdown(self, _how) -> None:
         return None
