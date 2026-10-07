@@ -38,9 +38,52 @@ def test_resolve_and_open_cloud_transport():
 def test_cloud_ws_url():
     t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
     url = t._ws_url()
-    assert url.startswith("wss://example.test/api/cloud/devices/ws?")
-    assert "device=dev-a" in url
-    assert "token=abc" in url
+    assert url == "wss://example.test/api/cloud/devices/ws?device=dev-a"
+
+
+def _fake_websocket_module(monkeypatch, fail=None):
+    """Install a fake ``websocket`` module; returns the list of create_connection calls."""
+    import sys
+    import types
+
+    calls = []
+
+    def create_connection(url, **kwargs):
+        calls.append((url, kwargs))
+        if fail is not None:
+            raise fail
+        return _FakeWS([])
+
+    monkeypatch.setitem(sys.modules, "websocket",
+                        types.SimpleNamespace(create_connection=create_connection))
+    return calls
+
+
+def test_tunnel_sends_the_token_as_a_bearer_header_not_in_the_url(monkeypatch):
+    calls = _fake_websocket_module(monkeypatch)
+    t = CloudTransport("dev-a", api_base="https://example.test", token="sekrit-tok")
+    t.lease_id = "lease-1"
+    t._dial()
+    (url, kwargs), = calls
+    assert url == "wss://example.test/api/cloud/devices/ws?device=dev-a"
+    assert "sekrit-tok" not in url and "lease" not in url
+    assert "Authorization: Bearer sekrit-tok" in kwargs["header"]
+    assert "X-Benchpod-Lease: lease-1" in kwargs["header"]
+    assert any(h.startswith("User-Agent: ") for h in kwargs["header"])
+
+
+def test_tunnel_error_never_shows_the_token(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    # An exception text that echoes the request (as a proxy or a debug build might).
+    _fake_websocket_module(monkeypatch, fail=OSError(
+        "handshake failed: Authorization: Bearer sekrit/tok+1 url=?token=sekrit%2Ftok%2B1"))
+    t = CloudTransport("dev-a", api_base="https://example.test", token="sekrit/tok+1")
+    with pytest.raises(TransportError) as info:
+        t._dial()
+    assert "sekrit" not in str(info.value)
+    assert "[redacted]" in str(info.value)
+    assert info.value.__cause__ is None  # the unredacted original is not chained
 
 
 # -- OIDC minting: the three distinct error reasons -------------------------
@@ -187,6 +230,8 @@ class _FakeWS:
 
     def send_binary(self, data):
         self.last = data
+        self.frames = getattr(self, "frames", [])
+        self.frames.append(bytes(data))
 
     def settimeout(self, _t):
         pass
@@ -205,6 +250,77 @@ def test_ws_tunnel_socket_buffers_and_eofs():
     assert sock.recv(100) == b"lo"  # rest of first frame
     assert sock.recv(5) == b"world"
     assert sock.recv(5) == b""  # EOF
+
+
+def _sending_socket(monkeypatch):
+    """A tunnel socket over a fake WS with a fake clock: sleeps advance it."""
+    from embeddedci.benchpod.transport import cloud
+
+    clock = [100.0]
+    sleeps = []
+
+    def sleep(s):
+        sleeps.append(s)
+        clock[0] += s
+
+    monkeypatch.setattr(cloud._WsTunnelSocket, "_clock", staticmethod(lambda: clock[0]))
+    monkeypatch.setattr(cloud._WsTunnelSocket, "_sleep", staticmethod(sleep))
+    sock = _WsTunnelSocket.__new__(_WsTunnelSocket)
+    sock._ws = _FakeWS([])
+    sock._buf = bytearray()
+    sock._closed = False
+    return sock, sleeps
+
+
+def test_ws_tunnel_socket_splits_a_large_upload_into_small_frames_in_order(monkeypatch):
+    from embeddedci.benchpod.transport import cloud
+
+    sock, sleeps = _sending_socket(monkeypatch)
+    payload = bytes(i * 7 % 251 for i in range(10 * 1024))
+    sock.sendall(payload)
+    frames = sock._ws.frames
+    assert [len(f) for f in frames] == [1024] * 10
+    assert all(len(f) <= cloud.TUNNEL_FRAME_MAX for f in frames)
+    assert b"".join(frames) == payload
+    # base64url of one frame plus the server's tunnel.data envelope fits the pod's 2048-byte buffer.
+    import base64
+    import json
+    env = json.dumps({"type": "tunnel.data", "tunnel_id": "x" * 36,
+                      "data_b64": base64.urlsafe_b64encode(frames[0]).decode().rstrip("=")})
+    assert len(env) < 1600
+    # Paced to the upload rate: 10 KiB at 128 KiB/s takes about 70 ms after the first frame.
+    assert len(sleeps) == 9
+    assert sum(sleeps) == pytest.approx(9 * 1024 / cloud.TUNNEL_UPLOAD_BYTES_PER_SEC)
+
+
+def test_ws_tunnel_socket_sends_a_small_write_as_one_frame_without_waiting(monkeypatch):
+    sock, sleeps = _sending_socket(monkeypatch)
+    sock.sendall(b'{"cmd":"ping"}\n')
+    sock.sendall(bytearray(b"x" * 1024))
+    sock.sendall(b"y" * 1025)
+    assert [len(f) for f in sock._ws.frames] == [15, 1024, 1024, 1]
+    assert sleeps == [pytest.approx(1024 / (128 * 1024))]
+
+
+def test_cloud_load_replay_skips_the_tunnel_ack_lines(monkeypatch):
+    """Over a cloud tunnel the pod interleaves {"ack":N} progress lines during load_bin; the
+    completion line, not the first ack, ends the upload."""
+    sock, _ = _sending_socket(monkeypatch)
+    sock._ws = _FakeWS([
+        b'{"status":"ok","data":{"ready":20000}}\n',
+        b'{"ack":8192}\n{"ack":16384}\n',
+        b'{"status":"ok","data":{"total":20000}}\n',
+        b'{"status":"ok","data":{"replaying":true}}\n',
+    ])
+    t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
+    monkeypatch.setattr(t, "_dial", lambda: sock)
+    data = t.load_replay(data=b"\x00" * 20000, replay={"cmd": "replay"}, psram=True)
+    assert data == {"replaying": True}
+    frames = sock._ws.frames
+    import json
+    assert json.loads(frames[0])["cmd"] == "load_bin"
+    assert json.loads(frames[-1]) == {"cmd": "replay"}
+    assert b"".join(frames[1:-1]) == b"\x00" * 20000
 
 
 def _edge_error(code, body):
@@ -397,8 +513,8 @@ def test_tunnel_renews_a_rejected_token(monkeypatch):
         def settimeout(self, t):
             pass
 
-    def fake_socket(url, timeout):
-        urls.append(url)
+    def fake_socket(url, timeout, headers=None, secrets=()):
+        urls.append(headers[0])
         if len(urls) == 1:
             err = TransportError("could not open cloud tunnel: Handshake status 401")
             err.status = 401
@@ -408,7 +524,7 @@ def test_tunnel_renews_a_rejected_token(monkeypatch):
     monkeypatch.setattr(cloud, "_WsTunnelSocket", fake_socket)
     t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
     t._dial()
-    assert "token=tok1" in urls[0] and "token=tok2" in urls[1]
+    assert urls == ["Authorization: Bearer tok1", "Authorization: Bearer tok2"]
 
 
 @pytest.mark.parametrize("user_token, expected", [(lambda: "user-jwt", "Bearer user-jwt"), (None, "Bearer sess")])

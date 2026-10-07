@@ -108,6 +108,20 @@ class TcpTransport(Transport):
                 raise TransportError("connection closed before a full reply line")
             buf.extend(chunk)
 
+    @classmethod
+    def _recv_load_bin_done(cls, sock: socket.socket, buf: bytearray) -> bytes:
+        """Read the ``load_bin`` completion line, skipping the ``{"ack":N}`` progress lines the
+        pod interleaves on a cloud tunnel (firmware sends them only there, for flow control)."""
+        while True:
+            line = cls._recv_line(sock, buf)
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                return line
+            if isinstance(obj, dict) and "ack" in obj and "status" not in obj:
+                continue
+            return line
+
     @staticmethod
     def _recv_line_exact(sock: socket.socket) -> bytes:
         """Read one line a byte at a time, leaving everything after ``\\n``.
@@ -215,7 +229,7 @@ class TcpTransport(Transport):
             sock.sendall(encode_request(begin))
             raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
             sock.sendall(bytes(data))
-            raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
+            raise_for_status(parse_reply(self._recv_load_bin_done(sock, buf)), cmd="load_bin")
             sock.sendall(encode_request(replay))
             reply = parse_reply(self._recv_line(sock, buf))
             raise_for_status(reply, cmd=replay.get("cmd", "replay"))
@@ -236,7 +250,7 @@ class TcpTransport(Transport):
             sock.sendall(encode_request({"cmd": "load_bin", "total": len(data), "psram": True}))
             raise_for_status(parse_reply(self._recv_line(sock, buf)), cmd="load_bin")
             sock.sendall(bytes(data))
-            reply = parse_reply(self._recv_line(sock, buf))
+            reply = parse_reply(self._recv_load_bin_done(sock, buf))
             raise_for_status(reply, cmd="load_bin")
             total = reply.data.get("total") if isinstance(reply.data, dict) else None
             return int(total) if total is not None else len(data)
