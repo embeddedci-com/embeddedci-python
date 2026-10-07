@@ -5,9 +5,14 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from embeddedci.benchpod.errors import FirmwareError, firmware_error
+from embeddedci.benchpod import errors
 
 from conftest import call
+
+if not hasattr(errors, "PodLeasedError"):  # embeddedci 2.6.0, the pinned minimum
+    pytest.skip("needs the typed refusals of embeddedci after 2.6.0", allow_module_level=True)
+
+FirmwareError, firmware_error = errors.FirmwareError, errors.firmware_error
 
 
 def _refuse(transport, cmd, message):
