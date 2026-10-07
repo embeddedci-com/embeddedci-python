@@ -14,11 +14,19 @@ from __future__ import annotations
 import json
 import re
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional
 
-from ..errors import FirmwareError, TransportError
+from ..errors import (
+    BenchPodError,
+    ConnectionClosedError,
+    FirmwareError,
+    TransportError,
+    TransportTimeout,
+    firmware_error,
+)
 from ..protocol import encode_request, parse_reply, raise_for_status
-from .base import RawLink, Transport
+from .base import RawLink, Transport, request_timeout
 
 # USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
 # the RP2350 pod) and 0x0483 (STMicroelectronics, the STM32H563 pod, which uses
@@ -52,6 +60,18 @@ UNKNOWN_COMMAND = "unknown command"
 #: JSON commands the text console can answer itself when the firmware has no JSON mode on USB
 #: (the STM32 pod's console is a text shell: status, ping, la-voltage, power, diagnostics).
 TEXT_CONSOLE_COMMANDS = ("status", "ping", "la_voltage")
+
+
+@contextmanager
+def _port_errors(what: str) -> Iterator[None]:
+    """Turn a pyserial failure (an ``OSError``: the pod was unplugged or reset) into a
+    :class:`ConnectionClosedError`. SDK errors pass through unchanged."""
+    try:
+        yield
+    except BenchPodError:
+        raise
+    except OSError as exc:
+        raise ConnectionClosedError(f"{what}: the USB serial link failed ({exc})") from exc
 
 
 def parse_text_status(raw: str) -> Dict[str, Any]:
@@ -205,6 +225,8 @@ class _SerialRawLink:
         self._closed = False
         self._quit = quit_byte
         self._port.timeout = _RAW_READ_TIMEOUT
+        #: The error that ended the link, if it did not end cleanly (see RawLink).
+        self.error: Optional[BaseException] = None
 
     def read(self, n: int) -> bytes:
         # Return as soon as ANY byte is available — do NOT wait for the full `n`.
@@ -213,12 +235,18 @@ class _SerialRawLink:
         # sample (the pod replies a byte or two at a time), throttling a flash to
         # a crawl. Block for the first byte, then drain whatever else is buffered.
         while not self._closed:
-            first = self._port.read(1)
-            if not first:
-                continue  # read timeout with no data → poll again (or until closed)
-            waiting = getattr(self._port, "in_waiting", 0) or 0
-            if waiting and n > 1:
-                first += self._port.read(min(n - 1, waiting))
+            try:
+                first = self._port.read(1)
+                if not first:
+                    continue  # read timeout with no data → poll again (or until closed)
+                waiting = getattr(self._port, "in_waiting", 0) or 0
+                if waiting and n > 1:
+                    first += self._port.read(min(n - 1, waiting))
+            except OSError as exc:  # unplugged: the stream has ended, say why
+                if not self._closed:
+                    self.error = ConnectionClosedError(f"the USB serial link failed ({exc})")
+                    self._closed = True
+                return b""
             return first
         return b""
 
@@ -290,16 +318,17 @@ class SerialTransport(Transport):
                 text = buf.decode("utf-8", errors="replace")
                 if text.rstrip(" \t").endswith(">"):
                     return text
-        raise TransportError(
+        raise TransportTimeout(
             f"timed out waiting for console prompt; got: "
             f"{buf.decode('utf-8', errors='replace')!r}"
         )
 
     def _send_command(self, line: str) -> str:
-        self._ensure_text()
-        deadline = time.monotonic() + self.timeout
-        self._write_line(line)
-        return self._read_until_prompt(deadline)
+        with _port_errors(line.split()[0] if line else "console"):
+            self._ensure_text()
+            deadline = time.monotonic() + self.timeout
+            self._write_line(line)
+            return self._read_until_prompt(deadline)
 
     # -- console "json" mode (TCP-style JSON API over serial) ---------------
 
@@ -322,7 +351,7 @@ class SerialTransport(Transport):
                 if not s or not s.startswith("{"):
                     continue  # echo, prompt, or [subsystem] debug line
                 yield parse_reply(s.encode("utf-8"))
-        raise TransportError("timed out waiting for a JSON reply over serial")
+        raise TransportTimeout("timed out waiting for a JSON reply over serial")
 
     def _probe_json(self) -> bool:
         """Ask the console to switch to JSON mode once and remember whether it can.
@@ -404,32 +433,44 @@ class SerialTransport(Transport):
         :class:`TransportError` naming the network/cloud alternative.
         """
         cmd = req.get("cmd")
-        if not self._probe_json():
-            if cmd not in TEXT_CONSOLE_COMMANDS:
-                raise TransportError(self._unsupported(cmd))
-            return getattr(self, f"_text_{cmd}")(req)
-        self._enter_json(cmd)
-        deadline = time.monotonic() + self.timeout
+        with _port_errors(str(cmd)):
+            if not self._probe_json():
+                if cmd not in TEXT_CONSOLE_COMMANDS:
+                    raise TransportError(self._unsupported(cmd))
+                return getattr(self, f"_text_{cmd}")(req)
+            self._enter_json(cmd)
+            deadline = time.monotonic() + request_timeout(req, self.timeout)
+            self._send_json(req)
+            for reply in self._read_json_reply(deadline):
+                raise_for_status(reply, cmd=req.get("cmd"))
+                return reply.data
+        raise TransportError("no JSON reply over serial")
+
+    def _send_json(self, req: dict) -> None:
+        """Write one JSON request, dropping whatever is still unread first: a reply to an earlier
+        request that timed out would otherwise be taken as this one's."""
+        try:
+            self._port.reset_input_buffer()
+        except OSError:
+            raise
+        except Exception:
+            pass
         self._port.write(encode_request(req))
         self._port.flush()
-        for reply in self._read_json_reply(deadline):
-            raise_for_status(reply, cmd=req.get("cmd"))
-            return reply.data
-        raise TransportError("no JSON reply over serial")
 
     def samples(self, req: dict) -> List[int]:
         """Send a command whose reply is a chunked sample array (json mode)."""
-        self._enter_json(req.get("cmd"))
-        deadline = time.monotonic() + self.timeout
-        self._port.write(encode_request(req))
-        self._port.flush()
-        out: List[int] = []
-        for reply in self._read_json_reply(deadline):
-            raise_for_status(reply, cmd=req.get("cmd"))
-            if isinstance(reply.data, list):
-                out.extend(reply.data)
-            if not reply.more:
-                return out
+        with _port_errors(str(req.get("cmd"))):
+            self._enter_json(req.get("cmd"))
+            deadline = time.monotonic() + request_timeout(req, self.timeout)
+            self._send_json(req)
+            out: List[int] = []
+            for reply in self._read_json_reply(deadline):
+                raise_for_status(reply, cmd=req.get("cmd"))
+                if isinstance(reply.data, list):
+                    out.extend(reply.data)
+                if not reply.more:
+                    return out
         raise TransportError("incomplete chunked JSON reply over serial")
 
     def _read_json_objects(self, idle_timeout: float) -> Iterator[Dict[str, Any]]:
@@ -454,7 +495,7 @@ class SerialTransport(Transport):
                     continue
                 if isinstance(obj, dict):
                     yield obj
-        raise TransportError("timed out waiting for a streamed JSON reply over serial")
+        raise TransportTimeout("timed out waiting for a streamed JSON reply over serial")
 
     def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
         """Send a streaming command and yield each raw chunk object until ``more`` is false.
@@ -462,16 +503,16 @@ class SerialTransport(Transport):
         The serial counterpart of :meth:`TcpTransport.stream_chunks`: callers see every chunk's
         extra fields (achieved rates, the RLE LA frames), which :meth:`samples` flattens away.
         """
-        self._enter_json(req.get("cmd"))
-        self._port.write(encode_request(req))
-        self._port.flush()
         cmd = req.get("cmd")
-        for obj in self._read_json_objects(self.timeout):
-            if obj.get("status") == "error":
-                raise FirmwareError(obj.get("message") or "streamed command failed", cmd=cmd)
-            yield obj
-            if not bool(obj.get("more", False)):
-                return
+        with _port_errors(str(cmd)):
+            self._enter_json(cmd)
+            self._send_json(req)
+            for obj in self._read_json_objects(request_timeout(req, self.timeout)):
+                if obj.get("status") == "error":
+                    raise firmware_error(obj.get("message") or "streamed command failed", cmd=cmd)
+                yield obj
+                if not bool(obj.get("more", False)):
+                    return
 
     @staticmethod
     def _clean(raw: str, cmd: str) -> str:
@@ -532,6 +573,10 @@ class SerialTransport(Transport):
         without it the pod stays wedged until its inactivity watchdog and the
         next handshake fails too.
         """
+        with _port_errors(cmd.split()[0]):
+            return self._console_raw_handshake_inner(cmd, ready, quit_byte)
+
+    def _console_raw_handshake_inner(self, cmd: str, ready: str, quit_byte: bytes) -> RawLink:
         self._ensure_text()
         # Recover from a previous raw session that didn't cleanly exit (e.g. a
         # stalled flash whose Q got dropped on a flaky link): send the quit byte

@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Pattern, Union
 
-from .errors import UartTimeout
+from .errors import UartLinkError, UartTimeout
 from .transport.base import RawLink
 
 # An ``until`` condition: a substring, a compiled regex, or a predicate on the
@@ -91,6 +91,7 @@ class UartSession:
         self._size = 0
         self._consumed = 0          # read cursor: text before it has been returned
         self._closed = False        # link reached EOF / was closed
+        self._error: Optional[BaseException] = None  # why the link ended, if not cleanly
         self._stop = False
         self.overflowed = False     # more than max_buffer characters arrived; the oldest were dropped
         self._cond = threading.Condition(threading.Lock())
@@ -100,11 +101,18 @@ class UartSession:
     # -- background reader --------------------------------------------------
     def _read_loop(self) -> None:
         while not self._stop:
-            data = self._link.read(self._chunk)
+            error: Optional[BaseException] = None
+            try:
+                data = self._link.read(self._chunk)
+            except Exception as exc:  # the thread must not die without telling the readers
+                data, error = b"", exc
+            if not data and error is None and not self._stop:
+                error = getattr(self._link, "error", None)
             with self._cond:
                 self._append_locked(self._decoder.decode(data, final=not data))
                 if not data:
                     self._closed = True
+                    self._error = error
                 self._cond.notify_all()
             if not data:
                 return
@@ -127,6 +135,12 @@ class UartSession:
             self._parts = ["".join(self._parts)]
         return self._parts[0] if self._parts else ""
 
+    def _raise_if_failed_locked(self, what: str) -> None:
+        """Raise :class:`UartLinkError` when the link died with an error."""
+        if self._error is not None:
+            raise UartLinkError(f"the UART link ended while {what}: {self._error}",
+                                text=self._text_locked(), cause=self._error)
+
     def _wait_for_locked(self, pattern: Until, timeout: float) -> Optional[tuple]:
         """Wait for ``pattern`` in the unread text: ``(match, end)`` relative to the cursor, or None."""
         deadline = time.monotonic() + timeout
@@ -146,10 +160,13 @@ class UartSession:
         mark it read.
 
         Returns ``None`` — leaving the output unread — on timeout or when the link ends first.
+        Raises :class:`~embeddedci.benchpod.errors.UartLinkError` when the link ended with an
+        error (a dropped connection) instead.
         """
         with self._cond:
             found = self._wait_for_locked(pattern, timeout)
             if found is None:
+                self._raise_if_failed_locked(f"waiting for {pattern!r}")
                 return None
             start = self._consumed
             self._consumed += found[1]
@@ -159,12 +176,15 @@ class UartSession:
         """Wait for ``pattern`` like :meth:`read_until` (marking the output read up to the end of
         the match), but return the match itself — the substring, the :class:`re.Match` (use its
         groups), or ``True`` for a predicate — and raise :class:`UartTimeout` (carrying everything
-        received) instead of returning ``None``."""
+        received) instead of returning ``None``. When the link died with an error first, that is
+        a :class:`~embeddedci.benchpod.errors.UartLinkError` (a ``UartTimeout`` subclass) naming
+        the error, raised as soon as it happens."""
         with self._cond:
             found = self._wait_for_locked(pattern, timeout)
             if found is not None:
                 self._consumed += found[1]
                 return found[0]
+            self._raise_if_failed_locked(f"waiting for {pattern!r}")
             text = self._text_locked()
         raise UartTimeout(f"timed out after {timeout:g}s waiting for {pattern!r}", text=text)
 
@@ -173,6 +193,8 @@ class UartSession:
 
         When nothing is unread, ``timeout > 0`` first waits up to that long for new output;
         ``timeout == 0`` never blocks. Everything received stays available as :attr:`text`.
+        Once the link has died with an error and nothing is left unread, raises
+        :class:`~embeddedci.benchpod.errors.UartLinkError`.
         """
         with self._cond:
             if timeout > 0:
@@ -184,6 +206,8 @@ class UartSession:
                     self._cond.wait(remaining)
             text = self._text_locked()
             out = text[self._consumed:]
+            if not out:
+                self._raise_if_failed_locked("reading")
             self._consumed = len(text)
             return out
 
@@ -200,6 +224,13 @@ class UartSession:
         if out and out[-1] == "":
             out.pop()
         return out
+
+    @property
+    def error(self) -> Optional[BaseException]:
+        """The error that ended the link (a dropped connection, the pod gone), or ``None`` while it
+        runs and after a clean end."""
+        with self._cond:
+            return self._error
 
     @property
     def closed(self) -> bool:

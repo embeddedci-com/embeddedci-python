@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Errors: a socket or serial failure no longer escapes as a raw `OSError`. A pod that does not
+  answer in time raises `TransportTimeout` (a `TransportError`, and still a `TimeoutError`); a
+  connection that ends or resets before the reply raises `ConnectionClosedError` (a
+  `TransportError`). Over the cloud a slow pod used to look like a closed connection; it is now
+  a timeout too, and a lost connection to the server during a command is a
+  `ConnectionClosedError` instead of a raw exception.
+- Timeouts follow the request: a blocking `measure_power(duration)` waits for its duration on top
+  of the connection timeout (it used to fail after the fixed 30 s), and so do a triggered
+  capture's `trigger_timeout` and a `dap_start` wait. The cloud command channel asks the server
+  to wait that long too (the server caps it at 120 s).
+- The handshake that switches a connection to raw mode (`dap_start`, `uart_proxy_start`) is
+  bounded by the timeout. A pod that never acknowledged it used to hang the caller.
+- `BenchPod.capabilities` is not cached when the status read fails, so a passing glitch no longer
+  leaves the whole session without capabilities. The failure is logged.
+- `UartSession`: when the link dies with an error (the connection drops, the pod is unplugged),
+  `expect()` and `read_until()` raise `UartLinkError` at once (a `UartTimeout` with the text so
+  far and the `cause`), `read()` raises it once nothing is unread, and `UartSession.error` says
+  why. They used to wait out the full timeout as if the DUT were quiet. A link closed with
+  `close()` is not an error.
+- Serial: stale bytes (a reply to a request that timed out) are dropped before each JSON request,
+  so they can no longer be taken as the next command's reply.
 - Cloud: after a Cloudflare edge error (502/503/504/52x) the command channel repeats only commands
   that read (`status`, `ping`, `target_status`, `power_status`, the read form of `la_voltage`,
   `dac_limits`, `calibrate`, ...). It used to repeat everything except a few target actions, so

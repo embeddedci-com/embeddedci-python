@@ -13,6 +13,7 @@ TCP transport's one-connection-per-command model.
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import time
@@ -22,11 +23,21 @@ from typing import Any, Callable, Optional
 from urllib.parse import quote
 
 from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, USER_AGENT, mint_session_token
-from ..errors import ConnectionConfigError, FirmwareError, TransportError
+from ..errors import (
+    ConnectionClosedError,
+    ConnectionConfigError,
+    TransportError,
+    TransportTimeout,
+    firmware_error,
+)
+from .base import request_timeout
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
 _RETRY_DELAYS = (0.5, 1.5)
 _EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
+#: The server's cap on how long one command-channel request may wait for the pod
+#: (benchpodCommandMaxTimeout).
+_SERVER_COMMAND_MAX_TIMEOUT = 120.0
 #: Renew a minted session token this many seconds before it expires.
 _RENEW_MARGIN = 120.0
 
@@ -125,12 +136,22 @@ def _repeatable(req: dict) -> bool:
     return req.get("cmd") in _READ_ONLY_COMMANDS or _read_form(req)
 
 
+def _ws_exception(name: str) -> type:
+    """A websocket-client exception class, or one nothing raises when the extra is missing."""
+    try:
+        import websocket
+    except ImportError:  # pragma: no cover - exercised only without the extra
+        return type(name, (Exception,), {})
+    return getattr(websocket, name, type(name, (Exception,), {}))
+
+
 class _WsTunnelSocket:
     """Adapts a WebSocket tunnel to the subset of the socket API the TCP transport uses.
 
     The server carries device→client bytes as binary WS frames; ``recv`` buffers one frame and
     serves it out in ``n``-byte slices. ``recv`` returns ``b""`` on close/EOF so the line readers
-    treat a dropped tunnel the same as a closed socket.
+    treat a dropped tunnel the same as a closed socket, and raises :class:`TimeoutError` when no
+    frame came within the timeout, like a socket, so a slow pod is not reported as a closed one.
     """
 
     #: Clock and sleep used for upload pacing (tests swap them).
@@ -177,8 +198,14 @@ class _WsTunnelSocket:
         if not self._buf:
             try:
                 msg = self._ws.recv()
-            except Exception:
+            except (TimeoutError, _ws_exception("WebSocketTimeoutException")) as exc:
+                raise TimeoutError(f"no data from the cloud tunnel ({exc})") from exc
+            except _ws_exception("WebSocketConnectionClosedException"):
                 return b""
+            except OSError:
+                raise
+            except Exception as exc:
+                raise ConnectionClosedError(f"the cloud tunnel failed: {exc}") from exc
             if not msg:
                 return b""
             if isinstance(msg, str):
@@ -201,7 +228,12 @@ class _WsTunnelSocket:
                 behind = start + off / TUNNEL_UPLOAD_BYTES_PER_SEC - self._clock()
                 if behind > 0:
                     self._sleep(behind)
-            self._ws.send_binary(bytes(view[off:off + TUNNEL_FRAME_MAX]))
+            try:
+                self._ws.send_binary(bytes(view[off:off + TUNNEL_FRAME_MAX]))
+            except (TimeoutError, _ws_exception("WebSocketTimeoutException")) as exc:
+                raise TimeoutError(f"the cloud tunnel did not take the data ({exc})") from exc
+            except _ws_exception("WebSocketConnectionClosedException") as exc:
+                raise ConnectionClosedError("the cloud tunnel closed while sending") from exc
 
     def shutdown(self, _how) -> None:
         return None
@@ -301,7 +333,7 @@ class CloudTransport(TcpTransport):
         return _WsTunnelSocket(self._ws_url(), self.timeout, headers=self._ws_headers(token),
                                secrets=(token,))
 
-    def _dial(self) -> _WsTunnelSocket:  # type: ignore[override]
+    def _dial(self, timeout: Optional[float] = None) -> _WsTunnelSocket:  # type: ignore[override]
         try:
             sock = self._open_tunnel()
         except TransportError as exc:
@@ -316,7 +348,7 @@ class CloudTransport(TcpTransport):
                 if problem is not None:
                     raise problem from exc
                 raise
-        sock.settimeout(self.timeout)
+        sock.settimeout(self.timeout if timeout is None else timeout)
         return sock
 
     def command(self, req: dict) -> Any:  # type: ignore[override]
@@ -333,8 +365,9 @@ class CloudTransport(TcpTransport):
         """
         url = (f"{self.api_base}/api/cloud/devices/command"
                f"?device={quote(self.device_name, safe='')}")
+        timeout = min(request_timeout(req, self.timeout), _SERVER_COMMAND_MAX_TIMEOUT)
         body = json.dumps(
-            {"command": req, "timeout_ms": int(self.timeout * 1000)}
+            {"command": req, "timeout_ms": int(timeout * 1000)}
         ).encode("utf-8")
         cmd = req.get("cmd")
         attempt = 0
@@ -348,8 +381,8 @@ class CloudTransport(TcpTransport):
             if self.lease_id:
                 request.add_header("X-Benchpod-Lease", self.lease_id)
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout + 10) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
+                with urllib.request.urlopen(request, timeout=timeout + 10) as resp:
+                    raw = resp.read()
                 break
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300]
@@ -370,9 +403,24 @@ class CloudTransport(TcpTransport):
                     f"cloud command {cmd!r} failed (HTTP {exc.code}): {detail}"
                 ) from exc
             except urllib.error.URLError as exc:
+                if isinstance(exc.reason, TimeoutError):
+                    raise TransportTimeout(
+                        f"cloud command {cmd!r}: no answer within {timeout + 10:g} s") from exc
                 raise TransportError(f"cloud command {cmd!r} failed: {exc}") from exc
+            except TimeoutError as exc:  # while reading the response
+                raise TransportTimeout(
+                    f"cloud command {cmd!r}: no answer within {timeout + 10:g} s") from exc
+            except (OSError, http.client.HTTPException) as exc:
+                raise ConnectionClosedError(
+                    f"cloud command {cmd!r}: the connection to the server was lost ({exc})") from exc
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except ValueError as exc:
+            raise TransportError(f"cloud command {cmd!r}: malformed reply from the server") from exc
+        if not isinstance(payload, dict):
+            raise TransportError(f"cloud command {cmd!r}: unexpected reply from the server")
         if payload.get("status") == "error":
-            raise FirmwareError(payload.get("error") or "device returned an error", cmd=cmd)
+            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd)
         return payload.get("data")
 
     def close(self) -> None:

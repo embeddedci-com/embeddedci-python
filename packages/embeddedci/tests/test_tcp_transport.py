@@ -177,3 +177,104 @@ def test_stage_psram_raises_when_the_pod_refuses():
             TcpTransport(pod.addr, timeout=2).stage_psram(b"abc")
     finally:
         pod.close()
+
+
+# -- socket failures become BenchPodErrors (timeout distinct from EOF) ------------------------
+
+def _serve(handler):
+    pod = FakePod(handler)
+    return pod, TcpTransport(pod.addr, timeout=0.3, dial_timeout=1)
+
+
+def test_a_silent_pod_is_a_timeout_not_eof():
+    import time
+
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    pod, t = _serve(lambda conn, line: time.sleep(1.0))
+    try:
+        with pytest.raises(TransportTimeout, match="did not answer within 0.3 s"):
+            t.command({"cmd": "status"})
+    finally:
+        pod.close()
+
+
+def test_a_closed_connection_is_eof_not_a_timeout():
+    from embeddedci.benchpod.errors import ConnectionClosedError, TransportTimeout
+
+    pod, t = _serve(lambda conn, line: None)  # closes without a reply
+    try:
+        with pytest.raises(ConnectionClosedError) as info:
+            t.command({"cmd": "status"})
+        assert not isinstance(info.value, TransportTimeout)
+    finally:
+        pod.close()
+
+
+def test_a_reset_connection_is_a_transport_error():
+    import struct
+
+    from embeddedci.benchpod.errors import ConnectionClosedError
+
+    def reset(conn, line):
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+    pod, t = _serve(reset)
+    try:
+        with pytest.raises(ConnectionClosedError):
+            t.command({"cmd": "status"})
+    finally:
+        pod.close()
+
+
+def test_a_timeout_is_still_a_builtin_timeout_error():
+    import time
+
+    pod, t = _serve(lambda conn, line: time.sleep(1.0))
+    try:
+        with pytest.raises(TimeoutError):  # what the raw socket used to raise
+            t.command({"cmd": "status"})
+    finally:
+        pod.close()
+
+
+def test_a_blocking_power_profile_gets_its_duration_on_top_of_the_timeout():
+    import time
+
+    def slow(conn, line):
+        time.sleep(0.6)
+        conn.sendall(b'{"status":"ok","data":{"n":1},"more":false}\n')
+
+    pod, t = _serve(slow)
+    try:
+        chunks = list(t.stream_chunks({"cmd": "power_profile", "duration_ms": 500}))
+        assert chunks[0]["data"] == {"n": 1}
+    finally:
+        pod.close()
+
+
+def test_the_raw_mode_handshake_is_bounded():
+    import time
+
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    pod, t = _serve(lambda conn, line: time.sleep(1.5))
+    try:
+        start = time.monotonic()
+        with pytest.raises(TransportTimeout):
+            t.uart_proxy_start(rx=5, tx=4, baud=115200)
+        assert time.monotonic() - start < 1.2
+    finally:
+        pod.close()
+
+
+def test_request_timeout_adds_the_pods_own_wait():
+    from embeddedci.benchpod.transport.base import request_timeout
+
+    assert request_timeout({"cmd": "status"}, 30) == 30
+    assert request_timeout({"cmd": "power_profile", "duration_ms": 90000}, 30) == 120
+    # a running profile's start returns at once: max_duration_ms is not waited for
+    assert request_timeout({"cmd": "power_profile", "max_duration_ms": 90000}, 30) == 30
+    assert request_timeout({"cmd": "capture", "trigger_timeout_ms": 60000}, 30) == 90
+    assert request_timeout({"cmd": "dap_start", "wait_ms": 2000}, 30) == 32
+    assert request_timeout({"cmd": "generate", "duration_ms": 10_000_000}, 30) == 30

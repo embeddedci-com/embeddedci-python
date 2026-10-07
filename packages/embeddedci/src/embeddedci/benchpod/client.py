@@ -322,13 +322,17 @@ class BenchPod:
 
         Parsed from :meth:`status` and — when the SDK has server access — enriched with the
         fuller ``cap.*`` set the server holds (explicit calibration + replay depth). Cached after
-        the first read; :meth:`refresh_capabilities` re-reads it.
+        the first successful read; :meth:`refresh_capabilities` re-reads it. When the status read
+        fails the result is not cached, so a passing glitch does not leave the session without
+        any capability for good.
         """
         if self._caps is None:
+            status_ok = True
             try:
                 status = self.status()
-            except BenchPodError:
-                status = {}
+            except BenchPodError as exc:
+                _log.warning("could not read the pod's status for its capabilities: %s", exc)
+                status, status_ok = {}, False
             caps = Capabilities.from_status(status)
             api = self._try_server_api()
             if api is not None and self._device_name:
@@ -338,6 +342,8 @@ class BenchPod:
                         caps = caps.merge(Capabilities.from_parameters(params))
                 except BenchPodError:
                     pass
+            if not status_ok:
+                return caps
             self._caps = caps
         return self._caps
 

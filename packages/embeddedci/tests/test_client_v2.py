@@ -460,3 +460,33 @@ def test_decode_rejects_unknown_protocol():
     bp, _ = _bp()
     with pytest.raises(ValueError, match="protocol"):
         bp.decode([0, 1], "can")  # type: ignore[arg-type]
+
+
+def test_a_failed_status_read_does_not_cache_empty_capabilities():
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    bp, t = _bp()
+    real = t.status
+    t.status = lambda: (_ for _ in ()).throw(TransportTimeout("no answer"))
+    assert bp.capabilities.adc_bits == 8  # nothing known yet
+    t.status = lambda: dict(real(), caps=["power_profile"])
+    assert bp.capabilities.adc_bits == 16 and bp.capabilities.power_profile
+    t.status = lambda: (_ for _ in ()).throw(AssertionError("cached now: not read again"))
+    assert bp.capabilities.power_profile
+
+
+def test_measure_power_streams_with_its_duration_in_the_request():
+    class Streaming(FakeTransport):
+        def status(self):
+            return dict(super().status(), caps=["power_profile"])
+
+        def stream_chunks(self, req):
+            self.commands.append(req)
+            yield {"data": {"stats": {"n": 10, "duration_ms": 60000}}, "more": False}
+
+    t = Streaming()
+    bp = BenchPod(transport=t, lease=False)
+    bp.measure_power(60.0, efuse=1)
+    from embeddedci.benchpod.transport.base import request_timeout
+
+    assert request_timeout(t.commands[-1], 30) == 90

@@ -145,3 +145,35 @@ def test_pullup_via_client_over_serial():
 def test_status_is_a_dict_over_serial():
     t = _transport()
     assert isinstance(t.status(), dict)
+
+
+def test_a_stale_reply_is_dropped_before_the_next_request():
+    t = _transport()
+    t.command({"cmd": "ping"})  # in JSON mode now
+    # A reply to an earlier request that timed out, still in the input buffer.
+    t._port._emit('{"status":"ok","data":"stale"}\n')
+    assert t.command({"cmd": "ping"}) == "pong"
+
+
+def test_an_unplugged_port_is_a_transport_error():
+    from embeddedci.benchpod.errors import ConnectionClosedError
+
+    t = _transport()
+    t.command({"cmd": "ping"})
+
+    def gone(n=1):
+        raise OSError(6, "Device not configured")
+
+    t._port.read = gone
+    with pytest.raises(ConnectionClosedError, match="USB serial link failed"):
+        t.command({"cmd": "ping"})
+
+
+def test_a_silent_console_is_a_timeout():
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = SerialTransport(port=FakeConsolePort(), timeout=0.2)
+    t.command({"cmd": "ping"})
+    t._port._process = lambda line: None  # the pod stops answering
+    with pytest.raises(TransportTimeout):
+        t.command({"cmd": "ping"})

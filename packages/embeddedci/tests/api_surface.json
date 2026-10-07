@@ -280,6 +280,7 @@
     "is_serial": "(self) -> 'bool'",
     "is_wifi": "(self) -> 'bool'"
   },
+  "ConnectionClosedError": {},
   "ConnectionConfigError": {},
   "ControlLoopHandle": {
     "__init__": "(self, *, probe: 'Callable[[], IVPoint]', stop: 'Callable[[], Any]', data: 'Optional[Dict[str, Any]]' = None, set_input: 'Optional[Callable[..., Any]]' = None, switched_image: 'Optional[FpgaImageInfo]' = None) -> 'None'",
@@ -761,6 +762,7 @@
   },
   "TargetUnreachableError": {},
   "TransportError": {},
+  "TransportTimeout": {},
   "Trigger": {
     "__fields__": [
       "la",
@@ -792,10 +794,14 @@
       "error"
     ]
   },
+  "UartLinkError": {
+    "__init__": "(self, message: 'str', *, text: 'str' = '', cause: 'Optional[BaseException]' = None) -> 'None'"
+  },
   "UartSession": {
     "__init__": "(self, link: 'RawLink', *, max_buffer: 'int' = 1048576, chunk: 'int' = 256) -> 'None'",
     "close": "(self) -> 'None'",
     "closed": "property",
+    "error": "property",
     "expect": "(self, pattern: 'Until', *, timeout: 'float')",
     "lines": "property",
     "read": "(self, *, timeout: 'float' = 0.0) -> 'str'",
@@ -911,6 +917,7 @@
     "Capture",
     "CloudAuthError",
     "ConnSpec",
+    "ConnectionClosedError",
     "ConnectionConfigError",
     "ControlLoopHandle",
     "CorrelatedCapture",
@@ -988,11 +995,13 @@
     "TargetStatus",
     "TargetUnreachableError",
     "TransportError",
+    "TransportTimeout",
     "Trigger",
     "TriggerEdge",
     "TriggerTimeout",
     "UartCapture",
     "UartFrame",
+    "UartLinkError",
     "UartSession",
     "UartTimeout",
     "UsbCcStatus",

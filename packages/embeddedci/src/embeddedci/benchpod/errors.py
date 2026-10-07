@@ -18,6 +18,18 @@ class TransportError(BenchPodError):
     """A transport-level failure: could not reach or talk to the pod."""
 
 
+class TransportTimeout(TransportError, TimeoutError):
+    """The pod (or the cloud tunnel) did not answer within the timeout.
+
+    Distinct from :class:`ConnectionClosedError`: the link is still up, the reply just did not
+    come in time. Also a :class:`TimeoutError`, which the raw socket timeout used to be.
+    """
+
+
+class ConnectionClosedError(TransportError):
+    """The connection ended (EOF, reset or a closed tunnel) before the full reply arrived."""
+
+
 class DeviceBusyError(BenchPodError):
     """The shared cloud BenchPod is held by another consumer and did not free within the wait
     timeout. Raised when acquiring the device lease times out."""
@@ -65,6 +77,19 @@ class UartTimeout(BenchPodError):
     def __init__(self, message: str, *, text: str = "") -> None:
         self.text = text
         super().__init__(message)
+
+
+class UartLinkError(UartTimeout, ConnectionClosedError):
+    """The UART proxy link ended with an error (the connection dropped, the pod went away)
+    while :class:`~embeddedci.benchpod.uart.UartSession` was waiting for output.
+
+    A :class:`UartTimeout` too, so code written for the timeout still catches it; :attr:`text`
+    has everything received before the link died and :attr:`cause` the error that ended it.
+    """
+
+    def __init__(self, message: str, *, text: str = "", cause: Optional[BaseException] = None) -> None:
+        super().__init__(message, text=text)
+        self.cause = cause
 
 
 class CanTimeout(BenchPodError):
@@ -133,3 +158,8 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
     if m:
         return TriggerTimeout(msg, cmd=exc.cmd, la=int(m.group(2)), edge=m.group(1))
     return exc
+
+
+def firmware_error(message: str, *, cmd: Optional[str] = None) -> FirmwareError:
+    """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal."""
+    return classify_firmware_error(FirmwareError(message, cmd=cmd))
