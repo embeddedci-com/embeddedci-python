@@ -64,11 +64,17 @@ def _device_problem(device: str, code: int, detail: str) -> Optional[Exception]:
     return None
 
 
-def _transient(code: int, detail: str) -> bool:
+def _not_forwarded(code: int, detail: str) -> bool:
+    """The server refused before forwarding the command to the pod (another instance holds its
+    connection), so a retry cannot run it twice."""
+    return code == 503 and "retry shortly" in detail
+
+
+def _edge_failure(code: int, detail: str) -> bool:
+    """The Cloudflare edge failed to reach or hear back from the server. The command may or may
+    not have reached the pod."""
     # The server answers offline/timeout with a JSON error, which a retry would only repeat.
-    # A non-JSON body is the Cloudflare edge failing to reach the server.
-    if code == 503 and "retry shortly" in detail:
-        return True
+    # A non-JSON body is the edge failing to reach the server.
     if code not in _EDGE_ERRORS:
         return False
     try:
@@ -86,17 +92,37 @@ def _redact(text: str, secrets: "tuple[str, ...]") -> str:
     return text
 
 
-def _repeatable(req: dict) -> bool:
-    # An edge error does not prove the pod never ran the command, so never repeat one that
-    # acts on the target: a CAN frame, a reset pulse or a step-pulse train would happen twice.
+#: Commands that only read state: repeating one after an edge error cannot change the pod or
+#: the DUT. The firmware's T0 tier (cmd_tier.c) without the reads that consume or take the
+#: capture hardware (can_read drains the receive queue).
+_READ_ONLY_COMMANDS = frozenset({
+    "ping", "status", "cloud_status", "wifi_status", "la_pins", "usb_cc", "target_status",
+    "power_status", "identity_public", "spi_status", "sensor_status", "can_status", "ota_status",
+    "blob_status", "dac_loop_probe", "sensor_regs",
+})
+
+
+def _read_form(req: dict) -> bool:
+    """The read form of a verb that also writes (the firmware's mixed verbs, plus la_voltage)."""
     cmd = req.get("cmd")
-    if cmd == "can_write":
-        return False
-    if cmd == "nrst" and "pulse_ms" in req:
-        return False
-    if cmd == "la" and "steps" in req:
-        return False
-    return True
+    if cmd == "la_voltage":
+        return req.get("mv") is None
+    if cmd == "dac_limits":
+        return "path" not in req and req.get("enabled") is not False
+    if cmd == "calibrate":
+        return "source" not in req and req.get("clear") is not True
+    if cmd in ("sig_policy", "lan_policy"):
+        return "set" not in req
+    if cmd in ("cloud_ca", "cloud_proxy"):
+        return "set" not in req and req.get("clear") is not True
+    return False
+
+
+def _repeatable(req: dict) -> bool:
+    # An edge error does not prove the pod never ran the command, so only a command that reads
+    # is repeated. Anything else (an SPI transfer, a waveform, a delayed power change, a CAN
+    # frame, a reset pulse) could happen twice.
+    return req.get("cmd") in _READ_ONLY_COMMANDS or _read_form(req)
 
 
 class _WsTunnelSocket:
@@ -331,8 +357,9 @@ class CloudTransport(TcpTransport):
                 if exc.code == 401 and not renewed and self._invalidate_token():
                     renewed = True
                     continue
-                if (attempt < len(_RETRY_DELAYS) and _transient(exc.code, detail)
-                        and _repeatable(req)):
+                if attempt < len(_RETRY_DELAYS) and (
+                        _not_forwarded(exc.code, detail)
+                        or (_edge_failure(exc.code, detail) and _repeatable(req))):
                     time.sleep(_RETRY_DELAYS[attempt])
                     attempt += 1
                     continue

@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Cloud: after a Cloudflare edge error (502/503/504/52x) the command channel repeats only commands
+  that read (`status`, `ping`, `target_status`, `power_status`, the read form of `la_voltage`,
+  `dac_limits`, `calibrate`, ...). It used to repeat everything except a few target actions, so
+  an `spi_xfer`, a `generate` or a delayed `target_power` could run twice. A command the server
+  refused before forwarding ("retry shortly") is still repeated, whatever it is.
+
 ## 2.6.0
 
 - Cloud: the tunnel WebSocket sends the session token as an `Authorization: Bearer` header (and

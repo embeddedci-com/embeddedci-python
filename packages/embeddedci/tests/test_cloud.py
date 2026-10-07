@@ -362,7 +362,29 @@ def _scripted_urlopen(monkeypatch, outcomes):
 def test_cloud_command_retries_cloudflare_502(monkeypatch):
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
     calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html>Bad gateway</html>"), None])
-    assert t.command({"cmd": "dac_stop"}) == "pong"
+    assert t.command({"cmd": "target_status"}) == "pong"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("req", [
+    {"cmd": "la_voltage"},
+    {"cmd": "dac_limits"},
+    {"cmd": "calibrate"},
+    {"cmd": "lan_policy"},
+    {"cmd": "cloud_proxy"},
+])
+def test_cloud_command_retries_the_read_form_of_a_mixed_verb(monkeypatch, req):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(502, b"<html></html>"), None])
+    assert t.command(req) == "pong"
+    assert len(calls) == 2
+
+
+def test_cloud_command_retries_a_write_the_server_never_forwarded(monkeypatch):
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    body = b'{"error":"device is connected to another server instance; retry shortly"}'
+    calls = _scripted_urlopen(monkeypatch, [_edge_error(503, body), None])
+    assert t.command({"cmd": "spi_xfer", "tx": "9f"}) == "pong"
     assert len(calls) == 2
 
 
@@ -389,6 +411,17 @@ def test_cloud_command_retries_other_instance(monkeypatch):
     {"cmd": "can_write", "id": 1, "data": "00"},
     {"cmd": "nrst", "pulse_ms": 10},
     {"cmd": "la", "la": 1, "steps": 5, "delay_us": 100},
+    {"cmd": "spi_xfer", "tx": "9f"},
+    {"cmd": "generate", "waveform": "sine"},
+    {"cmd": "target_power", "efuse": 1, "state": 1, "delay_ms": 500},
+    {"cmd": "dac_stop"},
+    {"cmd": "la_voltage", "mv": 3300},
+    {"cmd": "dac_limits", "path": "dac_out", "min_mv": 0},
+    {"cmd": "calibrate", "source": "current_in"},
+    {"cmd": "lan_policy", "set": "open"},
+    {"cmd": "cloud_ca", "clear": True},
+    {"cmd": "can_read"},
+    {"cmd": "some_future_command"},
 ])
 def test_cloud_command_never_repeats_target_actions(monkeypatch, req):
     from embeddedci.benchpod.errors import TransportError
