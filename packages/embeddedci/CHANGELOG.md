@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `la_step`: the docs said `delay` is the time between pulses; it is half of it (each pulse is
+  high for `delay`, then low for `delay`). `steps` above 65535 and a `delay` outside 4 µs..65.535 ms
+  now raise `ValueError` before anything is sent: the pod's counters are 16-bit and it refused
+  them with a bare "invalid args". `GpioPin.pulse` documents the same bounds.
+
 ## 2.6.0
 
 - Cloud: the tunnel WebSocket sends the session token as an `Authorization: Bearer` header (and

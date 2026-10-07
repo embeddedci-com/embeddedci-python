@@ -123,8 +123,8 @@ class GpioPin:
 
     def pulse(self, width: float, *, count: int = 1) -> None:
         """Emit ``count`` high pulses of ``width`` seconds (``width`` low between them), timed by the
-        FPGA; returns immediately. The pin must be a GPIO output at level 0 (it goes back to its GPIO
-        level afterwards) or unused."""
+        FPGA; returns immediately. ``count`` is 1..65535 and ``width`` 4 µs..65.535 ms. The pin must
+        be a GPIO output at level 0 (it goes back to its GPIO level afterwards) or unused."""
         self._pod.la_step(self.la, steps=count, delay=width)
 
     def release(self) -> None:

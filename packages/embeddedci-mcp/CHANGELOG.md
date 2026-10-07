@@ -1,5 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `la_step`: `delay` is described as half the step period (it was "seconds between step pulses",
+  which is twice that). `la_step` `steps` and `gpio_pulse` `count` are capped at 65535 and
+  `delay`/`width` at 4 µs..65.535 ms, the pod's 16-bit limits (the schemas allowed 10,000,000
+  steps and 10 s, which the pod refused).
+
 ## 2.6.0
 
 - Over the cloud, `replay` with your own samples and SPI flash staging work above about 1.5 KB,

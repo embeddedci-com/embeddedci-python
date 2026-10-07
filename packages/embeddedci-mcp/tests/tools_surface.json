@@ -1810,8 +1810,8 @@
       "properties": {
         "count": {
           "default": 1,
-          "description": "Number of pulses.",
-          "maximum": 10000000,
+          "description": "Number of pulses (at most 65535).",
+          "maximum": 65535,
           "minimum": 1,
           "title": "Count",
           "type": "integer"
@@ -1831,9 +1831,9 @@
           "title": "La"
         },
         "width": {
-          "description": "Seconds the pulse is high (and low between pulses).",
-          "exclusiveMinimum": 0,
-          "maximum": 10,
+          "description": "Seconds the pulse is high (and low between pulses), 4 us to 65.535 ms.",
+          "maximum": 0.065535,
+          "minimum": 4e-06,
           "title": "Width",
           "type": "number"
         }
@@ -2146,9 +2146,9 @@
     "input": {
       "properties": {
         "delay": {
-          "description": "Seconds between step pulses.",
-          "exclusiveMinimum": 0,
-          "maximum": 10,
+          "description": "HALF the step period in seconds: each pulse is high for delay, then low for delay, so pulses are 2 x delay apart. 4 us to 65.535 ms.",
+          "maximum": 0.065535,
+          "minimum": 4e-06,
           "title": "Delay",
           "type": "number"
         },
@@ -2184,7 +2184,8 @@
           "type": "integer"
         },
         "steps": {
-          "maximum": 10000000,
+          "description": "Number of step pulses (at most 65535).",
+          "maximum": 65535,
           "minimum": 1,
           "title": "Steps",
           "type": "integer"

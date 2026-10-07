@@ -453,6 +453,14 @@ def test_la_step_and_command(connected):
     assert call("la_step", la=3, steps=100, delay=0.001) == {"la": 3, "steps": 100, "delay": 0.001,
                                                              "status": "started"}
     assert connected.requests[-1]["delay_us"] == 1000
+    sent = len(connected.requests)
+    with pytest.raises(ToolError):
+        call("la_step", la=3, steps=70000, delay=0.001)      # the pod counts 16 bits
+    with pytest.raises(ToolError):
+        call("la_step", la=3, steps=10, delay=0.1)           # half-period above 65.535 ms
+    with pytest.raises(ToolError):
+        call("gpio_pulse", la=3, width=0.001, count=70000)
+    assert len(connected.requests) == sent
     assert call("command", request={"cmd": "adc_read", "source": "cal1"})["reply"]["source"] == "cal1"
     with pytest.raises(ToolError):
         call("command", request={"samples": 1})
