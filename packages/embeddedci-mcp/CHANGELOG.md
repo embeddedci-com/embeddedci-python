@@ -1,5 +1,19 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- A refused command names its kind and what to do: `PodLockedError` (the pod's LAN policy keeps it
+  for the cloud or USB), `PodLeasedError` (a cloud job holds the pod, with who and for how long),
+  `PodBusyError`, `PermissionDeniedError` (pod `forbidden:` or a server 403) and
+  `TransportTimeout`, each followed by a one-line hint. Needs the next `embeddedci` release for the
+  typed errors; with `embeddedci` 2.6.0 the messages stay as before.
+- `status` warns when a cloud job holds the pod (over the LAN) and when the LAN policy is locked.
+- `connect` and `status` report `analog`, `dac_limits`, `flash_kb`, `ota_sig`, `sig_policy`,
+  `lan_policy`, `tunnel_max_tier`, `lease_state`, `cloud_ca` and `cloud_proxy` (defaults with
+  `embeddedci` 2.6.0).
+- The SDK's typed transport errors reach the agent: a pod that does not answer is a
+  `TransportTimeout`, a dropped connection a `ConnectionClosedError` (next `embeddedci` release).
+
 ## 2.6.0
 
 - Over the cloud, `replay` with your own samples and SPI flash staging work above about 1.5 KB,

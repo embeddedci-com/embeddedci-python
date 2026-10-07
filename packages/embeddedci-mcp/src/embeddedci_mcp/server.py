@@ -51,6 +51,7 @@ from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
+from embeddedci.benchpod import errors as _errors
 from embeddedci.benchpod.errors import BenchPodError
 from embeddedci.benchpod.server_api import ServerApi
 
@@ -106,6 +107,34 @@ def _ann(title: str, *, read_only: bool = False, destructive: bool = False,
                            idempotentHint=idempotent, openWorldHint=cloud)
 
 
+def _refusal_hint(exc: BenchPodError) -> str:
+    """What to do about a policy refusal, or ``""``. The classes are new in ``embeddedci`` after
+    2.6.0; with an older SDK nothing matches and the message stays as it was."""
+    def isa(name: str) -> bool:
+        cls = getattr(_errors, name, None)
+        return cls is not None and isinstance(exc, cls)
+
+    if isa("PodLockedError"):
+        return ("The pod's LAN policy keeps this command for the cloud or the USB console: connect "
+                "with 'embeddedci:<device>' (or 'usb'), or have an owner open the LAN policy.")
+    if isa("PodLeasedError"):  # the message already names the holder and the time left
+        return "Wait for that job to finish and retry; reads such as status still work meanwhile."
+    if isa("PodBusyError"):
+        return "The pod is busy with a capture or upload. Wait for it to finish and retry."
+    if isa("PermissionDeniedError"):
+        return ("The credential in use is not allowed to do this. It needs an organization owner "
+                "or admin (an API key needs the benchpod:admin scope), or access to this device.")
+    if isa("TransportTimeout"):
+        return "The pod did not answer in time. Check that it is online (status), then retry."
+    return ""
+
+
+def _tool_error(exc: BenchPodError) -> ToolError:
+    msg = f"{type(exc).__name__}: {exc}"
+    hint = _refusal_hint(exc)
+    return ToolError(f"{msg}. {hint}" if hint else msg)
+
+
 async def _call(fn: Callable[[], T], *, lock: bool = True) -> T:
     """Run ``fn`` on a worker thread (under the device lock) and map SDK errors to tool errors."""
     def run() -> T:
@@ -117,7 +146,7 @@ async def _call(fn: Callable[[], T], *, lock: bool = True) -> T:
     try:
         return await anyio.to_thread.run_sync(run)
     except BenchPodError as exc:
-        raise ToolError(f"{type(exc).__name__}: {exc}") from exc
+        raise _tool_error(exc) from exc
     except (ValueError, re.error) as exc:
         raise ToolError(f"invalid argument: {exc}") from exc
 
@@ -214,6 +243,13 @@ def _status() -> m.StatusResult:
         la = pod.get_la_voltage().voltage
     except BenchPodError:
         la = None
+    lease = firmware.get("lease") if isinstance(firmware, dict) else None
+    if isinstance(lease, dict) and lease.get("held") and not pod.leased:
+        warnings.append(f"a cloud job holds this pod ({lease.get('holder') or 'cloud'}, "
+                        f"{lease.get('left_s', '?')} s left): over the LAN it can be read, not driven")
+    if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
+        warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
+                        "the cloud ('embeddedci:<device>') or the USB console")
     if la is None:
         warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
                         "the DUT) before flash, UART, LA capture, pulls or I2C-sensor emulation")
