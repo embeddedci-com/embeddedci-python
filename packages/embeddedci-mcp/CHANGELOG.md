@@ -13,6 +13,10 @@
   `embeddedci` 2.6.0).
 - The SDK's typed transport errors reach the agent: a pod that does not answer is a
   `TransportTimeout`, a dropped connection a `ConnectionClosedError` (next `embeddedci` release).
+- `la_step`: `delay` is described as half the step period (it was "seconds between step pulses",
+  which is twice that). `la_step` `steps` and `gpio_pulse` `count` are capped at 65535 and
+  `delay`/`width` at 4 µs..65.535 ms, the pod's 16-bit limits (the schemas allowed 10,000,000
+  steps and 10 s, which the pod refused).
 
 ## 2.6.0
 

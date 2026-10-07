@@ -401,6 +401,24 @@ def test_la_step_delay_is_seconds():
         bp.la_step(3, steps=10, delay=0)
 
 
+def test_la_step_bounds_match_the_16_bit_gateware():
+    """More than 65535 steps, or a half-period outside 4 us..65.535 ms, is refused before it reaches
+    the pod (the counters are 16-bit), with a message that names the range."""
+    bp, t = _bp()
+    bp.la_step(3, steps=65535, delay=0.065535)
+    assert t.commands[-1]["steps"] == 65535 and t.commands[-1]["delay_us"] == 65535
+    bp.la_step(3, steps=1, delay=4e-6)
+    assert t.commands[-1]["delay_us"] == 4
+    sent = len(t.commands)
+    with pytest.raises(ValueError, match=r"steps must be 1\.\.65535"):
+        bp.la_step(3, steps=65536, delay=0.001)
+    with pytest.raises(ValueError, match="half the step period"):
+        bp.la_step(3, steps=10, delay=3e-6)
+    with pytest.raises(ValueError, match="half the step period"):
+        bp.la_step(3, steps=10, delay=0.0656)
+    assert len(t.commands) == sent
+
+
 def test_can_read_returns_frames():
     bp, t = _bp({"can_read": {"frames": [{"id": 0x123, "data": [1, 2]}], "overflow": 2}})
     res = bp.can_read(max_frames=4)

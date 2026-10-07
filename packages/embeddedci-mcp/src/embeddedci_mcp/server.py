@@ -991,8 +991,10 @@ async def gpio_wait(
 @mcp.tool(annotations=_ann("Pulse a GPIO channel", destructive=True))
 async def gpio_pulse(
     la: LaRef,
-    width: Annotated[float, Field(gt=0, le=10, description="Seconds the pulse is high (and low between pulses).")],
-    count: Annotated[int, Field(ge=1, le=10_000_000, description="Number of pulses.")] = 1,
+    width: Annotated[float, Field(ge=4e-6, le=0.065535,
+                                  description="Seconds the pulse is high (and low between pulses), "
+                                              "4 us to 65.535 ms.")],
+    count: Annotated[int, Field(ge=1, le=65535, description="Number of pulses (at most 65535).")] = 1,
 ) -> m.GpioPulseResult:
     """Emit FPGA-timed pulses on an LA channel — a trigger for the DUT, or a step/dir motor train.
 
@@ -1664,14 +1666,18 @@ async def can_close() -> m.CanOpenResult:
 @mcp.tool(annotations=_ann("Step pulse train", destructive=True))
 async def la_step(
     la: LaPin,
-    steps: Annotated[int, Field(ge=1, le=10_000_000)],
-    delay: Annotated[float, Field(gt=0, le=10, description="Seconds between step pulses.")],
+    steps: Annotated[int, Field(ge=1, le=65535, description="Number of step pulses (at most 65535).")],
+    delay: Annotated[float, Field(ge=4e-6, le=0.065535,
+                                  description="HALF the step period in seconds: each pulse is high for "
+                                              "delay, then low for delay, so pulses are 2 x delay apart. "
+                                              "4 us to 65.535 ms.")],
     dir_la: Optional[LaPin] = None,
     direction: Literal[0, 1] = 0,
 ) -> m.StepResult:
     """Emit step pulses on an LA channel (step/dir motor drivers); with dir_la, set direction first.
 
-    The FPGA runs the train by itself; this returns as soon as it starts.
+    The step rate is 1 / (2 x delay). The FPGA runs the train by itself; this returns as soon as it
+    starts. More than 65535 steps: send several trains (wait for the pod between them).
     """
     reply = await _call(lambda: SESSION.require().la_step(la, steps=steps, delay=delay, dir_la=dir_la,
                                                          direction=direction))

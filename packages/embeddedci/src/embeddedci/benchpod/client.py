@@ -54,6 +54,9 @@ from .constants import (
     DAC_PATHS,
     DECODE_PROTOCOLS,
     GPIO_MODES,
+    LA_STEP_MAX_DELAY_US,
+    LA_STEP_MAX_STEPS,
+    LA_STEP_MIN_DELAY_US,
     LA_VOLTAGES,
     PULLDOWN_CHANNELS,
     PULLUP_CHANNELS,
@@ -1951,16 +1954,22 @@ class BenchPod:
 
     def la_step(self, la: Union[Pin, int], *, steps: int, delay: float,
                 dir_la: Optional[Union[Pin, int]] = None, direction: int = 0) -> Dict[str, Any]:
-        """Emit ``steps`` step pulses on an LA channel, ``delay`` seconds apart (step/dir drivers).
+        """Emit ``steps`` step pulses on an LA channel (step/dir drivers).
 
-        The FPGA runs the train autonomously and this returns immediately. With ``dir_la`` set,
-        that channel is driven to ``direction`` (0/1) first.
+        ``delay`` is HALF the step period: each pulse is high for ``delay`` seconds, then low for
+        ``delay``, so pulses are ``2 * delay`` apart (``1 / (2 * delay)`` steps per second).
+        ``steps`` is 1..65535 and ``delay`` 4 µs..65.535 ms (the gateware counters are 16-bit);
+        split a longer move into several trains. The FPGA runs the train autonomously and this
+        returns immediately. With ``dir_la`` set, that channel is driven to ``direction`` (0/1)
+        first.
         """
-        if steps <= 0:
-            raise ValueError(f"steps must be > 0, got {steps!r}")
+        if not 1 <= steps <= LA_STEP_MAX_STEPS:
+            raise ValueError(f"steps must be 1..{LA_STEP_MAX_STEPS} (the pod's step counter is "
+                             f"16-bit; split a longer move), got {steps!r}")
         delay_us = int(round(delay * 1e6))
-        if delay_us < 1:
-            raise ValueError(f"delay must be at least 1 µs, got {delay!r}")
+        if not LA_STEP_MIN_DELAY_US <= delay_us <= LA_STEP_MAX_DELAY_US:
+            raise ValueError(f"delay must be {LA_STEP_MIN_DELAY_US} µs..{LA_STEP_MAX_DELAY_US / 1e3:g} ms "
+                             f"(half the step period), got {delay!r}")
         if direction not in (0, 1):
             raise ValueError(f"direction must be 0 or 1, got {direction!r}")
         req: Dict[str, Any] = {"cmd": "la", "la": self._resolve_la(la)[0], "steps": int(steps),
