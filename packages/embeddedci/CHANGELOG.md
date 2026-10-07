@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Cloud: the tunnel WebSocket sends the session token as an `Authorization: Bearer` header (and
+  the lease as `X-Benchpod-Lease`) instead of `?token=` in the URL, so the token stays out of
+  access logs. A tunnel error message never shows the token.
 - Cloud: a client-side upload over `embeddedci:<device>` (`replay()` of a waveform, SPI PSRAM
   staging) goes out in frames of at most 1 KiB, paced to 128 KiB/s. It used to be one WebSocket
   frame, which the pod drops without an error above about 1.5 KB. The upload also skips the

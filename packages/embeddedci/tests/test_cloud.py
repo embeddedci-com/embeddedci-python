@@ -38,9 +38,52 @@ def test_resolve_and_open_cloud_transport():
 def test_cloud_ws_url():
     t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
     url = t._ws_url()
-    assert url.startswith("wss://example.test/api/cloud/devices/ws?")
-    assert "device=dev-a" in url
-    assert "token=abc" in url
+    assert url == "wss://example.test/api/cloud/devices/ws?device=dev-a"
+
+
+def _fake_websocket_module(monkeypatch, fail=None):
+    """Install a fake ``websocket`` module; returns the list of create_connection calls."""
+    import sys
+    import types
+
+    calls = []
+
+    def create_connection(url, **kwargs):
+        calls.append((url, kwargs))
+        if fail is not None:
+            raise fail
+        return _FakeWS([])
+
+    monkeypatch.setitem(sys.modules, "websocket",
+                        types.SimpleNamespace(create_connection=create_connection))
+    return calls
+
+
+def test_tunnel_sends_the_token_as_a_bearer_header_not_in_the_url(monkeypatch):
+    calls = _fake_websocket_module(monkeypatch)
+    t = CloudTransport("dev-a", api_base="https://example.test", token="sekrit-tok")
+    t.lease_id = "lease-1"
+    t._dial()
+    (url, kwargs), = calls
+    assert url == "wss://example.test/api/cloud/devices/ws?device=dev-a"
+    assert "sekrit-tok" not in url and "lease" not in url
+    assert "Authorization: Bearer sekrit-tok" in kwargs["header"]
+    assert "X-Benchpod-Lease: lease-1" in kwargs["header"]
+    assert any(h.startswith("User-Agent: ") for h in kwargs["header"])
+
+
+def test_tunnel_error_never_shows_the_token(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    # An exception text that echoes the request (as a proxy or a debug build might).
+    _fake_websocket_module(monkeypatch, fail=OSError(
+        "handshake failed: Authorization: Bearer sekrit/tok+1 url=?token=sekrit%2Ftok%2B1"))
+    t = CloudTransport("dev-a", api_base="https://example.test", token="sekrit/tok+1")
+    with pytest.raises(TransportError) as info:
+        t._dial()
+    assert "sekrit" not in str(info.value)
+    assert "[redacted]" in str(info.value)
+    assert info.value.__cause__ is None  # the unredacted original is not chained
 
 
 # -- OIDC minting: the three distinct error reasons -------------------------
@@ -280,7 +323,6 @@ def test_cloud_load_replay_skips_the_tunnel_ack_lines(monkeypatch):
     assert b"".join(frames[1:-1]) == b"\x00" * 20000
 
 
-
 def _edge_error(code, body):
     import io
     import urllib.error
@@ -471,8 +513,8 @@ def test_tunnel_renews_a_rejected_token(monkeypatch):
         def settimeout(self, t):
             pass
 
-    def fake_socket(url, timeout):
-        urls.append(url)
+    def fake_socket(url, timeout, headers=None, secrets=()):
+        urls.append(headers[0])
         if len(urls) == 1:
             err = TransportError("could not open cloud tunnel: Handshake status 401")
             err.status = 401
@@ -482,7 +524,7 @@ def test_tunnel_renews_a_rejected_token(monkeypatch):
     monkeypatch.setattr(cloud, "_WsTunnelSocket", fake_socket)
     t = CloudTransport("dev-a", api_base="https://example.test", user_token=lambda: "u")
     t._dial()
-    assert "token=tok1" in urls[0] and "token=tok2" in urls[1]
+    assert urls == ["Authorization: Bearer tok1", "Authorization: Bearer tok2"]
 
 
 @pytest.mark.parametrize("user_token, expected", [(lambda: "user-jwt", "Bearer user-jwt"), (None, "Bearer sess")])

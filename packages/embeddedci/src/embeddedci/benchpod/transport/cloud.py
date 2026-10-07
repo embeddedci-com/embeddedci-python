@@ -78,6 +78,14 @@ def _transient(code: int, detail: str) -> bool:
     return False
 
 
+def _redact(text: str, secrets: "tuple[str, ...]") -> str:
+    """``text`` with every secret (a session token, say) replaced, for error messages."""
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[redacted]").replace(quote(secret, safe=""), "[redacted]")
+    return text
+
+
 def _repeatable(req: dict) -> bool:
     # An edge error does not prove the pod never ran the command, so never repeat one that
     # acts on the target: a CAN frame, a reset pulse or a step-pulse train would happen twice.
@@ -103,7 +111,8 @@ class _WsTunnelSocket:
     _clock = staticmethod(time.monotonic)
     _sleep = staticmethod(time.sleep)
 
-    def __init__(self, url: str, timeout: float) -> None:
+    def __init__(self, url: str, timeout: float, headers: "list[str] | None" = None,
+                 secrets: "tuple[str, ...]" = ()) -> None:
         try:
             import websocket  # websocket-client (optional extra: embeddedci[cloud])
         except ImportError as exc:  # pragma: no cover - exercised only without the extra
@@ -115,13 +124,17 @@ class _WsTunnelSocket:
             # default Python/websocket-client signature (HTTP 403, error 1010).
             self._ws = websocket.create_connection(
                 url, timeout=timeout, enable_multithread=True,
-                header=[f"User-Agent: {USER_AGENT}"],
+                header=[f"User-Agent: {USER_AGENT}", *(headers or [])],
             )
         except Exception as exc:
-            err = TransportError(f"could not open cloud tunnel: {exc}")
+            text = str(exc)
+            safe = _redact(text, secrets)
+            err = TransportError(f"could not open cloud tunnel: {safe}")
             # websocket-client's WebSocketBadStatusException carries the HTTP status of the upgrade.
             err.status = getattr(exc, "status_code", None)  # type: ignore[attr-defined]
             err.body = getattr(exc, "resp_body", None)  # type: ignore[attr-defined]
+            if safe != text:  # the original would show the token in a traceback
+                raise err from None
             raise err from exc
         self._buf = bytearray()
         self._closed = False
@@ -237,6 +250,8 @@ class CloudTransport(TcpTransport):
         return True
 
     def _ws_url(self) -> str:
+        """The tunnel URL. It carries no credentials: those go in :meth:`_ws_headers`, so the
+        token never reaches an access log or an error message."""
         base = self.api_base
         if base.startswith("https://"):
             ws_base = "wss://" + base[len("https://"):]
@@ -244,22 +259,29 @@ class CloudTransport(TcpTransport):
             ws_base = "ws://" + base[len("http://"):]
         else:
             ws_base = base
-        token = self._session_token()
-        url = (
-            f"{ws_base}/api/cloud/devices/ws"
-            f"?device={quote(self.device_name, safe='')}&token={quote(token, safe='')}"
-        )
+        return f"{ws_base}/api/cloud/devices/ws?device={quote(self.device_name, safe='')}"
+
+    def _ws_headers(self, token: str) -> "list[str]":
+        """Headers for the tunnel's WebSocket upgrade: the session token as a Bearer header
+        (the server's requireGithubActionToken reads it before the ``?token=`` fallback) and the
+        lease, if any."""
+        headers = [f"Authorization: Bearer {token}"]
         if self.lease_id:
-            url += f"&lease_id={quote(self.lease_id, safe='')}"
-        return url
+            headers.append(f"X-Benchpod-Lease: {self.lease_id}")
+        return headers
+
+    def _open_tunnel(self) -> _WsTunnelSocket:
+        token = self._session_token()
+        return _WsTunnelSocket(self._ws_url(), self.timeout, headers=self._ws_headers(token),
+                               secrets=(token,))
 
     def _dial(self) -> _WsTunnelSocket:  # type: ignore[override]
         try:
-            sock = _WsTunnelSocket(self._ws_url(), self.timeout)
+            sock = self._open_tunnel()
         except TransportError as exc:
             status = getattr(exc, "status", None)
             if status == 401 and self._invalidate_token():
-                sock = _WsTunnelSocket(self._ws_url(), self.timeout)
+                sock = self._open_tunnel()
             else:
                 body = getattr(exc, "body", None) or b""
                 if isinstance(body, bytes):
