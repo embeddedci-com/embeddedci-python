@@ -134,24 +134,165 @@ pod connection shared by all HTTP clients, and serialises their tool calls.
 
 ## Tools
 
-| Group | Tools |
-| --- | --- |
-| Connection | `connect`, `disconnect`, `status`, `set_la_voltage` |
-| Cloud (embeddedci.com) | `cloud_list_devices` |
-| Wiring profile | `wiring`, `set_wiring` |
-| Power | `power_on`, `power_off`, `power_status`, `reset_target`, `measure_power`, `power_profile_start`, `power_profile_stop` |
-| Flash | `flash` |
-| SPI flash / SPI devices | `spi_flash_info`, `spi_flash_program`, `spi_flash_read`, `spi_transfer` |
-| UART | `capture_uart`, `power_cycle_and_capture`, `uart_open`, `uart_write`, `uart_read`, `uart_close` |
-| Emulated I2C sensor | `enable_i2c_sensor`, `set_i2c_sensor`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture` |
-| Pins + GPIO | `la_pins`, `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait`, `gpio_pulse`, `gpio_release` |
-| Pull resistors | `set_pull`, `pull_status` |
-| Analog | `analog_path`, `dac_output`, `current_out`, `adc_read`, `calibration`, `calibrate` |
-| Capture + decode | `capture_adc`, `capture_la`, `capture_correlated`, `decode_la`, `la_timing` |
-| DAC | `generate`, `dac_stop`, `replay`, `list_waveforms`, `replay_waveform`, `save_capture_as_recording` |
-| Control loop | `control_loop`, `loop_input`, `loop_probe`, `fpga_image` |
-| CAN | `can_open`, `can_write`, `can_read`, `can_respond`, `can_status`, `can_close` |
-| Other | `la_step`, `command` (raw firmware escape hatch) |
+Every tool, grouped as in the server. Parameters in **bold** are required; the others are optional
+and show their default when they have one (no default means "from the wiring profile", "keep the
+current setting" or "not used"). Units are volts, amps, seconds and hertz. LA channel arguments take
+a number (1-14) or a name from the wiring profile. Each tool's input schema carries the full
+description, ranges and enums, so an agent sees more than this table.
+
+### Connection
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `connect` | Open a connection (closing any previous one) and report status and capabilities. | `connection`, `la_voltage`, `lease_wait=30` |
+| `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
+| `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected). | none |
+| `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |
+
+### Cloud (embeddedci.com)
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `cloud_list_devices` | The pods on your embeddedci.com organization and whether each is online, without connecting. | none |
+
+### Wiring profile
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `wiring` | Which DUT signal is on which LA channel, plus the power rail, UART baud and SWD target. | none |
+| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. | **`profile`**, `save=false` |
+
+### Power
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `power_on` | Switch the target's power rail on (optionally scheduled pod-side). | `efuse`, `delay` |
+| `power_off` | Switch the target's power rail off. | `efuse`, `delay` |
+| `power_status` | Both eFuse rails: on/off, tripped, bus voltage and current, and the pod's own draw. | none |
+| `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse=0.1` |
+
+### Power profiles
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration`**, `efuse`, `rate_hz=500`, `points=0` |
+| `power_profile_start` | Start sampling the rail in the background while other tools run. | `efuse`, `rate_hz=500`, `max_duration=60` |
+| `power_profile_stop` | Stop the running profile and return its statistics (and a trace). | `points=0` |
+
+### Flash
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `flash` | Program the DUT over SWD through the pod's CMSIS-DAP probe (OpenOCD runs next to the server). | `swclk`, `swdio`, `target`, `file`, `nreset`, `load_address`, `target_power`, `verify=true`, `reset=true`, `connect_under_reset`, `extra_configs`, `extra_args`, `timeout=300`, `connect_attempts=5` |
+
+### SPI flash and SPI devices
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `spi_flash_info` | Read the JEDEC ID and size of the SPI NOR flash on the SPI pins. | `sck`, `mosi`, `miso`, `cs`, `hz=1000000`, `mode=0` |
+| `spi_flash_program` | Erase, write and verify an image in the SPI NOR flash. | **`file`**, `addr=0`, `erase=true`, `verify=true`, `hold_reset=false`, `sck`, `mosi`, `miso`, `cs`, `hz=6000000`, `mode=0` |
+| `spi_flash_read` | Read flash bytes to a file, or up to 4096 bytes as hex. | **`addr`**, **`length`**, `file`, `sck`, `mosi`, `miso`, `cs`, `hz=6000000`, `mode=0` |
+| `spi_transfer` | One full-duplex SPI transaction with any device on the SPI pins. | **`tx_hex`**, `sck`, `mosi`, `miso`, `cs`, `hz=1000000`, `mode=0` |
+
+### UART
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex` |
+| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay=1`, `duration=4`, `baud`, `until_regex`, `off_settle=0.3` |
+| `uart_open` | Start buffering the DUT's UART in the background. | `rx`, `tx`, `baud` |
+| `uart_write` | Send text to the DUT through the open UART session. | **`text`**, `line_ending=lf` |
+| `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout=2` |
+| `uart_close` | Stop the background UART session. | none |
+
+### Emulated I2C sensor
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `enable_i2c_sensor` | Make the pod act as a BMP280 for the DUT to read (engage pull-ups first). | `sda`, `scl`, `address`, `temperature_c`, `pressure_pa` |
+| `set_i2c_sensor` | Change the temperature or pressure the emulated sensor reports. | `temperature_c`, `pressure_pa` |
+| `disable_i2c_sensor` | Disarm the emulated sensor. | none |
+| `i2c_sensor_status` | Sensor state and bus activity counters: did the DUT talk to it? | none |
+| `i2c_sensor_regs` | Read the emulated sensor's register image. | `start=0`, `length=256` |
+| `i2c_sensor_capture` | Capture and decode the sensor's I2C bus into a transaction trace. | `samples=4096`, `sample_rate_hz=500000`, `address`, `register` |
+
+### Pull resistors
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `set_pull` | Engage or release the bias resistors: LA1-LA6 pull up, LA7/LA8 pull down. | **`las`**, **`enabled`** |
+| `pull_status` | State, direction and value of the bias resistor on LA1-LA8. | none |
+
+### GPIO on the LA pins
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `la_pins` | What owns each of the 14 LA channels, with GPIO mode, level and bias resistor. | none |
+| `gpio_mode` | Claim LA channels as GPIO (input, output or open drain). | **`la`**, `mode=output`, `level` |
+| `gpio_write` | Set the level of GPIO output and open-drain channels. | **`la`**, **`level`** |
+| `gpio_read` | The live level of LA channels (all 14 when `la` is omitted). | `la` |
+| `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout=5` |
+| `gpio_pulse` | FPGA-timed pulses on an LA channel: `width` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width`**, `count=1` |
+| `gpio_release` | Return channels to high-Z, watched by captures. | `la` |
+
+### Analog
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `analog_path` | Set every analog mux and relay for a named path in one step. | **`path`** |
+| `dac_output` | Route a DAC output and drive a calibrated DC voltage on it. | **`path`**, `volts` |
+| `current_out` | Hold a current on the 4-20 mA output (J9), in amps, or read its range. | `current` |
+| `adc_read` | One calibrated reading: front SMA, DAC loopbacks or the 4-20 mA input (J8). | `source=ext` |
+| `calibration` | The stored calibration of the 4-20 mA input and the fit it uses. | none |
+| `calibrate` | Measure and store the 4-20 mA input's offset, or clear it. | `source=current_in`, `clear=false` |
+
+### Capture and decode
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10` |
+| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10` |
+| `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `source` |
+| `decode_la` | Decode I2C, UART or SPI from the last LA capture (or a new one). | **`protocol`**, `sda`, `scl`, `rx`, `baud`, `sclk`, `mosi`, `miso`, `cs`, `mode=0`, `capture=last`, `samples=16384`, `sample_rate_hz=1000000`, `max_items=200` |
+| `la_timing` | Edge timestamps, pulse widths, frequency, duty cycle and channel-to-channel delay from the last capture. | **`la`**, `edge=rising`, `to_la`, `to_edge=rising`, `after=0`, `max_edges=100` |
+
+### DAC
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `generate` | Drive a sine, square or sawtooth on a DAC output (volts, or amps on `current_out`). | **`waveform`**, **`freq_hz`**, **`amplitude`**, `offset`, `dac_path=5v`, `duration`, `sample_rate_hz`, `on_capture=false`, `route=true` |
+| `dac_stop` | Stop any DAC output: generator, replay or control loop. | none |
+| `replay` | Loop your own samples, or the last ADC capture, out of the DAC. | `volts`, `from_last_capture=false`, `dac_path=5v`, `mapping=faithful`, `sample_rate_hz`, `fault`, `on_capture=false`, `route=true`, `switch_image=true` |
+| `list_waveforms` | The organization's cloud waveform library. | none |
+| `replay_waveform` | Loop a cloud-library waveform out of the DAC. | **`waveform_id`**, `dac_path`, `mapping=faithful`, `sample_rate_hz`, `window_start=0`, `window_len=0`, `target_samples=0`, `fault`, `on_capture=false`, `switch_image=true` |
+| `save_capture_as_recording` | Save the last ADC capture to the cloud waveform library. | **`name`**, `full_scale_v` |
+
+### Control loop
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `control_loop` | Run a tabulated transfer function in the FPGA (for example a solar panel I-V curve). | `curve`, `voc_code`, `sharpness=4`, `points=256`, `k=8192`, `vmin=0`, `vmax=65535`, `tick_div=64`, `source`, `input_code=0`, `step=0`, `input_map`, `switch_image=true` |
+| `loop_input` | Re-target the running loop's input without re-arming. | `input_code`, `source`, `step` |
+| `loop_probe` | The running loop's live operating point. | none |
+| `fpga_image` | Switch the FPGA to the `loop` or `deep_replay` gateware image (~2-3 s). | **`image`** |
+
+### CAN
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `can_open` | Bring up the pod's CAN interface (normal, loopback or listen-only). | `bitrate=500000`, `mode=normal`, `term=false` |
+| `can_write` | Queue one classic CAN frame. | **`can_id`**, `data`, `ext=false`, `rtr=false` |
+| `can_read` | Read received frames, or wait for one id. | `timeout=0`, `can_id`, `max_frames=32` |
+| `can_respond` | Answer a CAN id from the pod firmware (ECU simulation), or clear all rules. | `match_id`, `reply_id`, `reply_data`, `match_ext=false`, `reply_ext=false`, `clear=false` |
+| `can_status` | Link state: mode, bitrate, error counters, bus-off. | none |
+| `can_close` | Clear responder rules and stop CAN. | none |
+
+### Other
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `la_step` | Step pulses for step/dir motor drivers: `delay` is half the step period (4 us to 65.535 ms), `steps` up to 65535. | **`la`**, **`steps`**, **`delay`**, `dir_la`, `direction=0` |
+| `command` | Raw firmware JSON command, for anything no tool covers. | **`request`** |
 
 Resources: `benchpod://wiring` (the connected bench's own wiring profile, then LA channels, bias
 resistors and analog paths) and `benchpod://help` (the server instructions).
@@ -168,6 +309,19 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   the cause, e.g. `FirmwareError: la voltage not set` or `NotConnectedError: …`. A completed
   operation with a negative outcome is a normal result: `flash` returns `ok: false` with its logs,
   a UART capture `matched: false`.
+- **Refusals.** When the pod or the server refuses a command, the error names the kind and ends
+  with a one-line hint on what to do: `PodLockedError` (the pod's LAN policy keeps the command for
+  the cloud or USB), `PodLeasedError` (a cloud job holds the pod; the message names who and for
+  how long), `PodBusyError` (a capture or upload is running), `PermissionDeniedError` (the
+  credential lacks the right, for example an API key without the `benchpod:admin` scope) and
+  `TransportTimeout` (the pod did not answer). A dropped link is a `ConnectionClosedError`.
+  `status` also warns when a cloud job holds the pod or the LAN policy is locked.
+- **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
+  check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
+  `nrst_pin`, `can`, `calibrate`, `current_out`, `pod_current` and `analog` (false on the
+  digital-only board), plus the pod's policy and cloud settings (`dac_limits`, `flash_kb`,
+  `ota_sig`, `sig_policy`, `lan_policy`, `tunnel_max_tier`, `lease_state`, `cloud_ca`,
+  `cloud_proxy`).
 - **Wiring profile.** `wiring` is the bench's map of DUT signal → LA channel, plus the target-power
   rail, the UART baud and the SWD target. Omitted channel / baud / rail / SWD arguments come from
   it, and channel arguments also accept its names (`trigger_la: "READY"`, `rx: "uart_rx"`), so an
