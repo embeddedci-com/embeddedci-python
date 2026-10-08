@@ -107,8 +107,12 @@ class TcpTransport(Transport):
         except ValueError:
             raise TransportError(f"invalid port in address {self.addr!r}") from None
 
-    def _dial(self, timeout: Optional[float] = None) -> socket.socket:
-        """Connect, with ``timeout`` (default: the transport's) on every later read."""
+    def _dial(self, timeout: Optional[float] = None, kind: Optional[str] = None) -> socket.socket:
+        """Connect, with ``timeout`` (default: the transport's) on every later read.
+
+        ``kind`` names what the connection is for (``"uart"``, ``"capture"``, ``"dac"``,
+        ``"flash"``). The cloud transport passes it to the server so a UART console and a capture
+        can share the pod as they do here; a LAN socket needs no such hint and ignores it."""
         host, port = self._split_addr()
         deadline = time.monotonic() + self.dial_timeout
         last: Optional[Exception] = None
@@ -194,7 +198,7 @@ class TcpTransport(Transport):
     def samples(self, req: dict) -> List[int]:
         """Send a command whose reply is a chunked sample array."""
         timeout = request_timeout(req, self.timeout)
-        sock = self._dial(timeout)
+        sock = self._dial(timeout, kind="capture")
         buf = bytearray()
         out: List[int] = []
         try:
@@ -225,7 +229,7 @@ class TcpTransport(Transport):
         ``la_upto``) of a ``capture_dual`` — can see them. Raises on an error chunk.
         """
         timeout = request_timeout(req, self.timeout)
-        sock = self._dial(timeout)
+        sock = self._dial(timeout, kind="capture")
         buf = bytearray()
         cmd = req.get("cmd")
         try:
@@ -264,7 +268,7 @@ class TcpTransport(Transport):
         v18). Returns the ``replay`` reply data.
         """
         timeout = max(self.timeout, _UPLOAD_TIMEOUT)
-        sock = self._dial(timeout)
+        sock = self._dial(timeout, kind="dac")
         buf = bytearray()
         try:
             begin = {"cmd": "load_bin", "total": len(data)}
@@ -326,7 +330,7 @@ class TcpTransport(Transport):
             req["delay_ms"] = int(delay_ms)
         self.command(req)
 
-    def _raw_handshake(self, req: dict, cmd: str) -> RawLink:
+    def _raw_handshake(self, req: dict, cmd: str, kind: str) -> RawLink:
         """Send a mode-switch command and hand back the raw byte link.
 
         Shared by ``dap_start`` and ``uart_proxy_start``: both ack one JSON line
@@ -337,7 +341,7 @@ class TcpTransport(Transport):
         hanging; only after it does the timeout come off.
         """
         timeout = request_timeout(req, self.timeout)
-        sock = self._dial(timeout)
+        sock = self._dial(timeout, kind=kind)
         try:
             with _io_errors(cmd, timeout):
                 sock.sendall(encode_request(req))
@@ -364,12 +368,12 @@ class TcpTransport(Transport):
             req["packet_count"] = packet_count
         if wait_ms:
             req["wait_ms"] = wait_ms
-        return self._raw_handshake(req, "dap_start")
+        return self._raw_handshake(req, "dap_start", "flash")
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
         return self._raw_handshake(
             {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud},
-            "uart_proxy_start",
+            "uart_proxy_start", "uart",
         )
 
     def close(self) -> None:
