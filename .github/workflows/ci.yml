@@ -13,8 +13,8 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install the SDK and the MCP server
@@ -43,14 +43,38 @@ jobs:
           python -m pip install -e "packages/embeddedci-openhtf[dev]"
           pytest -q packages/embeddedci-openhtf
 
+  mcp-min-sdk:
+    # The MCP server against the oldest SDK its pin allows, installed from PyPI, so a tool that
+    # needs newer SDK code fails here instead of on a user's machine. A separate job, not an
+    # entry in the test matrix: an extra matrix key would rename the required "test (3.x)" checks.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the minimum pinned embeddedci from PyPI, then the MCP server
+        run: |
+          MIN=$(python scripts/min_sdk_version.py packages/embeddedci-mcp/pyproject.toml)
+          echo "minimum embeddedci: $MIN"
+          python -m pip install "embeddedci[cloud,discovery,analysis]==$MIN"
+          python -m pip install -e "packages/embeddedci-mcp[dev]"
+          python -c "import embeddedci, sys; v = embeddedci.__version__; print('testing against embeddedci', v, embeddedci.__file__); sys.exit(v != '$MIN')"
+      - name: Run the MCP tests
+        run: pytest -q packages/embeddedci-mcp
+
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         package: [embeddedci, embeddedci-mcp, embeddedci-openhtf]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build and check ${{ matrix.package }} distribution
