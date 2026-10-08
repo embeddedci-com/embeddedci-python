@@ -4,6 +4,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # publish.yml calls this workflow so a release tag publishes only after the same tests pass.
+  workflow_call:
 
 jobs:
   test:
@@ -36,6 +38,10 @@ jobs:
         run: |
           pytest -q packages/embeddedci
           pytest -q packages/embeddedci-mcp
+      - name: Release tooling tests + server.json version check
+        run: |
+          pytest -q scripts
+          python scripts/check_release_tag.py --consistency
       - name: Install + test the OpenHTF plug
         # Tested on the Python versions the package declares (3.10-3.13).
         if: matrix.python-version != '3.14'

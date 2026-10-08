@@ -1,0 +1,20 @@
+# Weekly version updates, one grouped PR per ecosystem. Security updates arrive on their own.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directories:
+      - /packages/embeddedci
+      - /packages/embeddedci-mcp
+      - /packages/embeddedci-openhtf
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]

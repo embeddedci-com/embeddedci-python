@@ -15,6 +15,14 @@ name: Publish to PyPI
 # embeddedci is already on PyPI, so embeddedci-mcp (which depends on it) can be
 # released on its own. To cut a new embeddedci version, bump packages/embeddedci
 # and push an embeddedci-v* tag.
+#
+# Every publish job waits for two gates:
+#   verify  the tag's version equals the package's pyproject version (and, for
+#           embeddedci-mcp, both versions in server.json); scripts/check_release_tag.py
+#   tests   the full CI workflow (ci.yml) on the tagged commit
+# An embeddedci-mcp tag also publishes server.json to the MCP Registry after PyPI,
+# logged in with the workflow's GitHub OIDC token (no secret: the registry grants
+# io.github.embeddedci-com/* to workflows in embeddedci-com repos).
 
 on:
   push:
@@ -24,17 +32,35 @@ on:
       - "embeddedci-mcp-v*"
       - "embeddedci-openhtf-v*"
 
+permissions:
+  contents: read
+
 jobs:
+  verify:
+    name: Check the tag against the package version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - run: python scripts/check_release_tag.py "$GITHUB_REF_NAME"
+
+  tests:
+    name: Tests
+    uses: ./.github/workflows/ci.yml
+
   publish-embeddedci:
     if: startsWith(github.ref, 'refs/tags/embeddedci-v')
     name: Publish embeddedci
+    needs: [verify, tests]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write # required for trusted publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
@@ -43,7 +69,7 @@ jobs:
           python -m pip install --upgrade build twine
           python -m build
           twine check dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: packages/embeddedci/dist/
 
@@ -53,13 +79,14 @@ jobs:
   publish-embeddedci-py39-shim:
     if: startsWith(github.ref, 'refs/tags/embeddedci-py39-shim-v')
     name: Publish embeddedci 0.2.4 (Python 3.9 placeholder)
+    needs: [verify, tests]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write # required for trusted publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
@@ -68,20 +95,21 @@ jobs:
           python -m pip install --upgrade build twine
           python -m build
           twine check dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: packages/embeddedci-py39-shim/dist/
 
   publish-embeddedci-mcp:
     if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
     name: Publish embeddedci-mcp
+    needs: [verify, tests]
     runs-on: ubuntu-latest
     environment: pypi-embeddedci-mcp
     permissions:
       id-token: write # required for trusted publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
@@ -90,20 +118,21 @@ jobs:
           python -m pip install --upgrade build twine
           python -m build
           twine check dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: packages/embeddedci-mcp/dist/
 
   publish-embeddedci-openhtf:
     if: startsWith(github.ref, 'refs/tags/embeddedci-openhtf-v')
     name: Publish embeddedci-openhtf
+    needs: [verify, tests]
     runs-on: ubuntu-latest
     environment: pypi-embeddedci-openhtf
     permissions:
       id-token: write # required for trusted publishing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
@@ -112,6 +141,44 @@ jobs:
           python -m pip install --upgrade build twine
           python -m build
           twine check dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: packages/embeddedci-openhtf/dist/
+
+  publish-mcp-registry:
+    if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
+    name: Publish embeddedci-mcp to the MCP Registry
+    needs: publish-embeddedci-mcp
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # mcp-publisher login github-oidc
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Wait for the PyPI release
+        # The registry checks the package on PyPI (and the mcp-name line in its README).
+        # The JSON API can lag the upload by a minute or two.
+        run: |
+          version="${GITHUB_REF_NAME#embeddedci-mcp-v}"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/pypi/embeddedci-mcp/${version}/json" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "embeddedci-mcp ${version} did not show up on PyPI" >&2
+          exit 1
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json
+        working-directory: packages/embeddedci-mcp
+        run: ../../mcp-publisher publish
