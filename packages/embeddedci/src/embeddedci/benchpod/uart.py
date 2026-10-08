@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Pattern, Union
 
-from .errors import UartLinkError, UartTimeout
+from .errors import BenchPodError, UartLinkError, UartTimeout
 from .transport.base import RawLink
 
 # An ``until`` condition: a substring, a compiled regex, or a predicate on the
@@ -240,10 +240,21 @@ class UartSession:
 
     # -- writing (the proxy is bidirectional) -------------------------------
     def write(self, data: Union[bytes, str]) -> None:
-        """Send bytes to the DUT's RX (e.g. a console command)."""
+        """Send bytes to the DUT's RX (e.g. a console command).
+
+        Raises :class:`~embeddedci.benchpod.errors.UartLinkError` when the link is gone (a reset
+        connection, an unplugged pod) instead of the raw socket or serial error."""
         if isinstance(data, str):
             data = data.encode("utf-8")
-        self._link.write(data)
+        try:
+            self._link.write(data)
+        except (OSError, BenchPodError) as exc:
+            if isinstance(exc, UartLinkError):
+                raise
+            with self._cond:
+                text = self._text_locked()
+            raise UartLinkError(f"the UART link failed while writing: {exc}",
+                                text=text, cause=exc) from exc
 
     # -- lifecycle ----------------------------------------------------------
     def close(self) -> None:
