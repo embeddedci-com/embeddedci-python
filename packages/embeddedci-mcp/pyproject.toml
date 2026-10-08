@@ -27,7 +27,7 @@ dependencies = [
     # cloud: the embeddedci:<device> destination; discovery: connect("discover") over mDNS;
     # analysis: dominant frequency in capture summaries.
     "embeddedci[cloud,discovery,analysis]>=2.6,<3",
-    "mcp>=1.12,<2",
+    "mcp>=1.12,<3",
     "anyio>=4",
     "pydantic>=2.7",
     "starlette>=0.27",
