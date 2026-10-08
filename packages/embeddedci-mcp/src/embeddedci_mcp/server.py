@@ -108,8 +108,9 @@ def _ann(title: str, *, read_only: bool = False, destructive: bool = False,
 
 
 def _refusal_hint(exc: BenchPodError) -> str:
-    """What to do about a policy refusal, or ``""``. The classes are new in ``embeddedci`` after
-    2.6.0; with an older SDK nothing matches and the message stays as it was."""
+    """What to do about a policy refusal or a missing feature, or ``""``. The classes are new in
+    ``embeddedci`` after 2.6.0 (UnsupportedFeatureError after 2.7.0); with an older SDK nothing
+    matches and the message stays as it was."""
     def isa(name: str) -> bool:
         cls = getattr(_errors, name, None)
         return cls is not None and isinstance(exc, cls)
@@ -126,6 +127,13 @@ def _refusal_hint(exc: BenchPodError) -> str:
                 "or admin (an API key needs the benchpod:admin scope), or access to this device.")
     if isa("TransportTimeout"):
         return "The pod did not answer in time. Check that it is online (status), then retry."
+    if isa("UnsupportedFeatureError"):  # embeddedci after 2.7.0
+        if getattr(exc, "feature", "") == "analog":
+            return ("This is the digital-only board: it has no analog front end (ADC, DAC, "
+                    "4-20 mA). Use a pod with the analog board for this.")
+        return ("This pod's firmware or gateware lacks the feature (see the capabilities in "
+                "status). Update the pod's firmware if a newer release has it; retrying will not "
+                "help.")
     return ""
 
 

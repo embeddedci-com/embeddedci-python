@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `UnsupportedFeatureError` (from `embeddedci` after 2.7.0) gets a hint too: the pod's firmware
+  or gateware lacks the feature, or it is the digital-only board without the analog front end.
+  With `embeddedci` 2.7.0 the error stays as it was.
+
 ## 2.7.0
 
 - Requires `embeddedci` 2.7.0 (pin raised), which brings the typed refusals and transport errors

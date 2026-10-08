@@ -36,7 +36,7 @@ class BenchPodPins:
     file, e.g. ``swclk = pins.pin_11`` — that mapping is bench-specific and lives
     with the test, not here.
 
-    Eight of the twelve channels carry a fixed bias network, and the direction is
+    Eight of the fourteen channels carry a fixed bias network, and the direction is
     NOT the same for all of them:
 
     ===========  =========  =====================================
@@ -46,7 +46,7 @@ class BenchPodPins:
     LA3, LA4     pull-up    2.2k
     LA5, LA6     pull-up    10k
     LA7, LA8     pull-down  10k
-    LA9 - LA12   none       --
+    LA9 - LA14   none       --
     ===========  =========  =====================================
 
     Use :meth:`has_pullup` before relying on one for an open-drain bus (I2C):
