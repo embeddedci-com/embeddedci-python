@@ -48,6 +48,29 @@ def test_forbidden_says_who_may(connected):
         call("gpio_pulse", la=3, width=0.001, count=5)
 
 
+needs_unsupported = pytest.mark.skipif(not hasattr(errors, "UnsupportedFeatureError"),
+                                       reason="needs UnsupportedFeatureError (embeddedci after 2.7.0)")
+
+
+@needs_unsupported
+def test_unknown_command_says_the_firmware_lacks_it(connected):
+    _refuse(connected, "la", "unknown cmd")
+    with pytest.raises(ToolError) as info:
+        call("gpio_pulse", la=3, width=0.001, count=5)
+    msg = str(info.value)
+    assert "UnsupportedFeatureError: la: unknown cmd" in msg
+    assert "firmware or gateware lacks the feature" in msg and "retrying will not help" in msg
+
+
+@needs_unsupported
+def test_digital_board_says_it_has_no_analog(connected):
+    # The hint goes by the refusal's text, whichever command drew it.
+    _refuse(connected, "la", "this BenchPod has no analog front end (digital board): no DAC, ADC or "
+            "analog outputs. Restart the pod after fitting an analog add-on")
+    with pytest.raises(ToolError, match=r"UnsupportedFeatureError: .*digital-only board"):
+        call("gpio_pulse", la=3, width=0.001, count=5)
+
+
 def test_other_firmware_errors_have_no_hint(connected):
     def command(req):
         raise FirmwareError("la voltage not set", cmd=req["cmd"])

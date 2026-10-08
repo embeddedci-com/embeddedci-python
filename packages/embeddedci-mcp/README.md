@@ -315,6 +315,8 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   how long), `PodBusyError` (a capture or upload is running), `PermissionDeniedError` (the
   credential lacks the right, for example an API key without the `benchpod:admin` scope) and
   `TransportTimeout` (the pod did not answer). A dropped link is a `ConnectionClosedError`.
+  `UnsupportedFeatureError` means the pod cannot do it at all: its firmware or gateware lacks the
+  feature, or it is the digital-only board without the analog front end; the hint says which.
   `status` also warns when a cloud job holds the pod or the LAN policy is locked.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
