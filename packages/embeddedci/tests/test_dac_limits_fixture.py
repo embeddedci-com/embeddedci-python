@@ -22,6 +22,7 @@ def pod(monkeypatch) -> Dict[str, Any]:
         def __init__(self, connection, **kwargs):
             state["opened"] += 1
             state["connection"] = connection
+            state["kwargs"] = kwargs
 
         def __enter__(self):
             return self
@@ -110,3 +111,41 @@ def test_firmware_without_dac_limits_does_not_stop_the_run(pytester, pod, monkey
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*BENCHPOD_LIFT_DAC_LIMITS: could not read/clear DAC limits*"])
     assert pod["sent"] == [{"cmd": "dac_limits"}]  # nothing to restore
+
+
+def test_the_api_key_option_reaches_its_connection(pytester, pod, monkeypatch):
+    """--benchpod-api-key (and the lease options) reach the fixture's own connection, so a cloud
+    run authenticated only by the flag can lift and restore the limits too."""
+    monkeypatch.setenv(pytest_plugin.LIFT_DAC_LIMITS_ENV, "1")
+    monkeypatch.delenv("BENCHPOD_API_KEY", raising=False)
+    monkeypatch.delenv("BENCHPOD_API_BASE", raising=False)
+    pytester.makepyfile("def test_x():\n    pass\n")
+    pytester.runpytest("--benchpod-connection=embeddedci:bench-1", "--benchpod-api-key=eci_flag",
+                       "--benchpod-api-base=https://x.test", "--benchpod-lease-wait=5"
+                       ).assert_outcomes(passed=1)
+    assert pod["connection"] == "embeddedci:bench-1"
+    assert pod["kwargs"] == {"api_key": "eci_flag", "api_base": "https://x.test",
+                             "lease": True, "lease_wait": 5.0}
+    assert pod["sent"][-1]["cmd"] == "dac_limits" and "path" in pod["sent"][-1]
+
+
+def test_the_benchpod_fixture_takes_the_api_key_option(pytester, monkeypatch):
+    seen: Dict[str, Any] = {}
+
+    class FakePod:
+        def __init__(self, connection, **kwargs):
+            seen.update(kwargs, connection=connection)
+
+        def la_pins(self):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pytest_plugin, "BenchPod", FakePod)
+    monkeypatch.delenv(pytest_plugin.LIFT_DAC_LIMITS_ENV, raising=False)
+    monkeypatch.setenv("BENCHPOD_API_KEY", "eci_env")
+    pytester.makepyfile("def test_x(benchpod):\n    pass\n")
+    pytester.runpytest("--benchpod-connection=embeddedci:bench-1", "--benchpod-api-key=eci_flag",
+                       "--benchpod-no-lease").assert_outcomes(passed=1)
+    assert seen["api_key"] == "eci_flag" and seen["lease"] is False  # the flag wins over the env

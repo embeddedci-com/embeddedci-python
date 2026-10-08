@@ -11,6 +11,9 @@
   properties `can_gpio`, `can_trigger`, `can_spi`, `can_profile_power`, `can_calibrate`,
   `can_current_out`, `can_reset_target` and `can_analog`, e.g. to skip a test on a pod without the
   feature. (`can_config` … `can_disable` remain the CAN bus commands.)
+- pytest plugin: `--benchpod-api-key`, `--benchpod-api-base` and the lease options also reach the
+  connection the `BENCHPOD_LIFT_DAC_LIMITS=1` session fixture opens. A cloud run authenticated
+  only by the flag used to fail to lift (and restore) the DAC limits there.
 
 - Over the cloud, a UART console (`open_uart`) can stay open while a capture, power profile or
   DAC replay runs, as on the LAN. Each streaming tunnel tells the server what it is for
