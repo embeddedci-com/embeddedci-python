@@ -136,3 +136,31 @@ def test_allowlist_is_still_needed():
 
 def test_the_check_notices_a_missing_name():
     assert _missing({"definitely_not_documented_xyz"}) == ["definitely_not_documented_xyz"]
+
+
+def website_surface() -> Dict[str, object]:
+    """The names embeddedci.com's SDK page (DocsPytestPage.tsx in the private server repo) must
+    mention: the exports, the BenchPod, ServerApi and Capabilities members, the pytest plugin, and
+    embeddedci-openhtf's exports. The server keeps a copy as webapp/src/docs/coverage/sdk.json."""
+    surface = json.loads(SURFACE.read_text())
+    out: Dict[str, object] = {
+        "_source": "embeddedci-python: python packages/embeddedci/tests/test_docs_coverage.py "
+                   "> webapp/src/docs/coverage/sdk.json (needs embeddedci and embeddedci-openhtf "
+                   "installed from the same checkout)",
+        "exports": sorted(surface["__all__"]),
+        "BenchPod": sorted(m for m in surface["BenchPod"] if not m.startswith("_")),
+        "ServerApi": sorted(m for m in surface["ServerApi"] if not m.startswith("_")),
+        "Capabilities": list(surface["Capabilities"]["__fields__"]),
+        "pytest": sorted(plugin_names()),
+    }
+    try:
+        import embeddedci_openhtf
+    except ImportError:  # the OpenHTF package is not a dependency of the SDK
+        pass
+    else:
+        out["openhtf"] = sorted(n for n in embeddedci_openhtf.__all__ if not n.startswith("_"))
+    return out
+
+
+if __name__ == "__main__":
+    print(json.dumps(website_surface(), indent=2))
