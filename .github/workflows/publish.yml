@@ -20,6 +20,9 @@ name: Publish to PyPI
 #   verify  the tag's version equals the package's pyproject version (and, for
 #           embeddedci-mcp, both versions in server.json); scripts/check_release_tag.py
 #   tests   the full CI workflow (ci.yml) on the tagged commit
+# An embeddedci-mcp tag also publishes server.json to the MCP Registry after PyPI,
+# logged in with the workflow's GitHub OIDC token (no secret: the registry grants
+# io.github.embeddedci-com/* to workflows in embeddedci-com repos).
 
 on:
   push:
@@ -142,3 +145,40 @@ jobs:
         with:
           packages-dir: packages/embeddedci-openhtf/dist/
 
+  publish-mcp-registry:
+    if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
+    name: Publish embeddedci-mcp to the MCP Registry
+    needs: publish-embeddedci-mcp
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # mcp-publisher login github-oidc
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Wait for the PyPI release
+        # The registry checks the package on PyPI (and the mcp-name line in its README).
+        # The JSON API can lag the upload by a minute or two.
+        run: |
+          version="${GITHUB_REF_NAME#embeddedci-mcp-v}"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/pypi/embeddedci-mcp/${version}/json" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "embeddedci-mcp ${version} did not show up on PyPI" >&2
+          exit 1
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json
+        working-directory: packages/embeddedci-mcp
+        run: ../../mcp-publisher publish
