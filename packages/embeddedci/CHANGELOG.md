@@ -2,6 +2,19 @@
 
 ## 2.7.1
 
+- `UnsupportedFeatureError` (with `feature` and `firmware_version`): the pod cannot do what was
+  asked. Raised before anything is sent when the pod's capabilities lack the feature (it used to
+  be a plain `BenchPodError`), and for the pod's own `unknown cmd` and the digital board's "no
+  analog front end" refusal (they used to be plain `FirmwareError`s). It subclasses
+  `FirmwareError`, so existing handlers still catch it.
+- Capability checks on `BenchPod`: `supports(flag)` for any `Capabilities` flag, and the
+  properties `can_gpio`, `can_trigger`, `can_spi`, `can_profile_power`, `can_calibrate`,
+  `can_current_out`, `can_reset_target` and `can_analog`, e.g. to skip a test on a pod without the
+  feature. (`can_config` … `can_disable` remain the CAN bus commands.)
+- pytest plugin: `--benchpod-api-key`, `--benchpod-api-base` and the lease options also reach the
+  connection the `BENCHPOD_LIFT_DAC_LIMITS=1` session fixture opens. A cloud run authenticated
+  only by the flag used to fail to lift (and restore) the DAC limits there.
+
 - Over the cloud, a UART console (`open_uart`) can stay open while a capture, power profile or
   DAC replay runs, as on the LAN. Each streaming tunnel tells the server what it is for
   (`?kind=uart|capture|dac|flash`). A server without kind support still answers HTTP 409

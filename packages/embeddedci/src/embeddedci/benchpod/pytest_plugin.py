@@ -268,6 +268,19 @@ def _resolve_connection(config: "pytest.Config") -> Optional[str]:
     return None
 
 
+def _cloud_kwargs(config: "pytest.Config") -> Dict[str, Any]:
+    """The server access and lease options every BenchPod the plugin opens gets: the API base and
+    key (``--benchpod-api-base`` / ``--benchpod-api-key``, then ``BENCHPOD_API_BASE`` /
+    ``BENCHPOD_API_KEY``) and the lease settings. They only matter for the cloud destination and
+    the cloud waveform library; a LAN or serial connection ignores the lease."""
+    return {
+        "api_base": config.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE"),
+        "api_key": config.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY"),
+        "lease": not config.getoption("benchpod_no_lease"),
+        "lease_wait": config.getoption("benchpod_lease_wait"),
+    }
+
+
 @pytest.fixture(scope="session")
 def benchpod_connection(pytestconfig: "pytest.Config") -> str:
     """The configured connection string, or skip the test if none is set."""
@@ -297,8 +310,9 @@ def _benchpod_lift_dac_limits(pytestconfig: "pytest.Config") -> Iterator[None]:
         yield
         return
     saved = None
+    kwargs = _cloud_kwargs(pytestconfig)
     try:
-        with BenchPod(conn) as pod:
+        with BenchPod(conn, **kwargs) as pod:
             limits = pod.command({"cmd": "dac_limits"})
             if isinstance(limits, dict) and limits.get("enabled"):
                 pod.command({"cmd": "dac_limits", "enabled": False})
@@ -311,7 +325,7 @@ def _benchpod_lift_dac_limits(pytestconfig: "pytest.Config") -> Iterator[None]:
         if saved is not None:
             restore = {"cmd": "dac_limits", "path": saved["path"], "inverted": saved["inverted"],
                        "min_mv": saved["min_mv"], "max_mv": saved["max_mv"]}
-            with BenchPod(conn) as pod:
+            with BenchPod(conn, **kwargs) as pod:
                 pod.command(restore)
 
 
@@ -369,8 +383,6 @@ def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
     waiting up to ``--benchpod-lease-wait`` seconds if another run is using it (so concurrent CI
     runs queue instead of colliding). Disable with ``--benchpod-no-lease``.
     """
-    api_base = pytestconfig.getoption("benchpod_api_base") or os.environ.get("BENCHPOD_API_BASE")
-    api_key = pytestconfig.getoption("benchpod_api_key") or os.environ.get("BENCHPOD_API_KEY")
     wiring_arg = pytestconfig.getoption("benchpod_wiring") or benchpod_wiring
     wiring = Wiring.coerce(wiring_arg) if wiring_arg is not None else None
     la_voltage = pytestconfig.getoption("benchpod_la_voltage")
@@ -381,11 +393,8 @@ def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
     device = BenchPod(
         benchpod_connection,
         la_voltage=la_voltage,
-        api_base=api_base,
-        api_key=api_key,
-        lease=not pytestconfig.getoption("benchpod_no_lease"),
-        lease_wait=pytestconfig.getoption("benchpod_lease_wait"),
         wiring=wiring,
+        **_cloud_kwargs(pytestconfig),
     )
     _release_gpio(device)
     try:

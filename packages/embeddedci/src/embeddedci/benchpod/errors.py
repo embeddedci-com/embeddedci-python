@@ -56,6 +56,27 @@ class FirmwareError(BenchPodError):
             super().__init__(message)
 
 
+class UnsupportedFeatureError(FirmwareError):
+    """This pod cannot do what was asked: its firmware or gateware lacks the feature, or the board
+    lacks the hardware (the digital-only board has no analog front end).
+
+    Raised before anything is sent when the pod's :attr:`~embeddedci.benchpod.BenchPod.capabilities`
+    lack the feature, and for the pod's own answer when it does not know a command
+    (``unknown cmd``) or has no analog front end. :attr:`feature` names the capability flag (or the
+    command) that is missing, ``""`` when unknown; :attr:`firmware_version` is the pod's firmware
+    when known. Check ahead with the ``can_*`` properties or :meth:`BenchPod.supports
+    <embeddedci.benchpod.BenchPod.supports>`.
+
+    A :class:`FirmwareError` (and so a :class:`BenchPodError`), which these errors were before.
+    """
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, feature: str = "",
+                 firmware_version: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.feature = feature
+        self.firmware_version = firmware_version
+
+
 class FlashError(BenchPodError):
     """Flashing failed — OpenOCD exited non-zero (see ``stderr``)."""
 
@@ -194,6 +215,10 @@ _LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
 #: Policy changes the LAN may not make (pod_policy.c).
 _POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
                      "only the USB console can loosen")
+#: Older firmware's answer to a command it does not have (command_handler.c).
+_UNKNOWN_CMD = "unknown cmd"
+#: The digital-only board refusing an analog command (cmd_gate.c cmd_gate_check).
+_NO_ANALOG = "this BenchPod has no analog front end"
 
 
 def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
@@ -219,6 +244,10 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
         return PodBusyError(msg, cmd=exc.cmd)
     if msg.startswith("forbidden:"):
         return PermissionDeniedError(msg, cmd=exc.cmd)
+    if msg.strip() == _UNKNOWN_CMD:
+        return UnsupportedFeatureError(msg, cmd=exc.cmd, feature=exc.cmd or "")
+    if msg.startswith(_NO_ANALOG):
+        return UnsupportedFeatureError(msg, cmd=exc.cmd, feature="analog")
     return exc
 
 
