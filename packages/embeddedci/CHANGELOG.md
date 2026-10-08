@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.7.1
 
 - Over the cloud, a UART console (`open_uart`) can stay open while a capture, power profile or
   DAC replay runs, as on the LAN. Each streaming tunnel tells the server what it is for
