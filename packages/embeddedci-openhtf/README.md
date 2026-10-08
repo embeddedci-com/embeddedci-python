@@ -157,6 +157,23 @@ def boot_and_rail(test, bench):
     test.measurements.rail_v = bench.power_status().rail(1).bus_voltage   # volts
 ```
 
+`flash_ok_measurement(name="flash_ok")` and `uart_matched_measurement(name="boot_ok")` are the
+matching declarations, so a custom flash phase needs no hand-written measurement:
+
+```python
+from embeddedci_openhtf import flash_ok_measurement, record_flash
+
+@htf.measures(flash_ok_measurement())
+@htf.plug(bench=bench)
+def flash(test, bench):
+    result = bench.flash(file="fw.elf", target="target/stm32f4x.cfg",
+                         swclk=11, swdio=12, nreset=True, check=False)
+    record_flash(test, result)            # sets flash_ok and attaches openocd.log
+```
+
+The recorders never raise on a bad result: they record the failing value, so the measurement (not
+an exception) decides the phase outcome, and the OpenOCD or UART output is always attached.
+
 ### Analog steps
 
 The pod's DAC output and ADC input are exposed as phases (and low-level helpers).
@@ -314,6 +331,12 @@ try:
 finally:
     close_persistent_benchpods()   # also runs automatically at process exit
 ```
+
+`benchpod_plug(connection=None, *, persistent=False, health_check=True, **pod_kwargs)` returns a
+`BenchPodPlug` subclass with those values as class attributes (`connection`, `persistent`,
+`health_check`, `pod_kwargs`). `health_check=False` skips the ping before a pooled connection is
+reused. Inside a phase, `bench.pod` is the connected `BenchPod`; any other attribute the plug does
+not have is looked up on it, which is why `bench.power_on()` works.
 
 ## Examples
 
