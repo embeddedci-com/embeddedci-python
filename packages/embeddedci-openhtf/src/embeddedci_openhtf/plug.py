@@ -54,6 +54,7 @@ station that cycles many DUTs back-to-back, pass ``persistent=True`` to
 :func:`benchpod_plug` to keep one connection open across executions (re-checked
 with a ping each run and reconnected if it dropped); close it explicitly with
 :func:`close_persistent_benchpods` (also run automatically at process exit).
+Persistent plugs with the same connection settings share one connection.
 
 Unknown attribute access proxies to the underlying
 :class:`~embeddedci.benchpod.BenchPod`, so ``bench.flash(...)`` /
@@ -67,7 +68,7 @@ import atexit
 import os
 import threading
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Hashable, Mapping, Optional
 
 import openhtf as htf
 from openhtf.plugs import BasePlug
@@ -105,10 +106,34 @@ htf.conf.declare(
     default_value=None,
 )
 
-# Process-wide pool of persistent connections, keyed by the bound plug class (one
-# per benchpod_plug(persistent=True) call). Survives across test executions.
-_PERSISTENT_POOL: Dict[type, BenchPod] = {}
+# Process-wide pool of persistent connections, keyed by the connection settings (the connection
+# and the BenchPod keywords, see _pool_key). Plugs with the same settings share one connection,
+# which a pod that serves one client at a time needs, and a plug whose settings change (an OpenHTF
+# conf value, an env var) gets a connection that matches them. Survives across test executions.
+_PERSISTENT_POOL: Dict[Hashable, BenchPod] = {}
 _PERSISTENT_LOCK = threading.Lock()
+
+
+def _key_part(value: Any) -> Hashable:
+    """A hashable stand-in for one setting: the value itself when hashable and plain, its
+    contents for a dict, list or set (a wiring map), and its identity for any other object (an
+    injected transport, a Wiring), which is the same pod only when it is the same object."""
+    if value is None or isinstance(value, (bool, int, float, str, bytes)):
+        return value
+    if isinstance(value, Mapping):
+        return ("map", tuple(sorted((str(k), _key_part(v)) for k, v in value.items())))
+    if isinstance(value, (list, tuple)):
+        return ("seq", tuple(_key_part(v) for v in value))
+    if isinstance(value, (set, frozenset)):
+        return ("set", tuple(sorted(repr(_key_part(v)) for v in value)))
+    if isinstance(value, os.PathLike):
+        return ("path", os.fspath(value))
+    return ("obj", id(value))
+
+
+def _pool_key(conn: Optional[str], pod_kwargs: Mapping[str, Any]) -> Hashable:
+    """The pool key for a connection and its BenchPod keywords."""
+    return (conn, tuple(sorted((k, _key_part(v)) for k, v in pod_kwargs.items())))
 
 
 def _conf_value(name: str) -> Any:
@@ -138,12 +163,13 @@ def close_persistent_benchpods() -> None:
 atexit.register(close_persistent_benchpods)
 
 
-def _acquire_persistent(cls: type, conn: Optional[str],
-                        pod_kwargs: Mapping[str, Any], health_check: bool) -> BenchPod:
-    """Return the pooled connection for ``cls``, opening (or reopening, if a
+def _acquire_persistent(conn: Optional[str], pod_kwargs: Mapping[str, Any],
+                        health_check: bool) -> BenchPod:
+    """Return the pooled connection for these settings, opening (or reopening, if a
     health-check ping fails) it as needed."""
+    key = _pool_key(conn, pod_kwargs)
     with _PERSISTENT_LOCK:
-        pod = _PERSISTENT_POOL.get(cls)
+        pod = _PERSISTENT_POOL.get(key)
         if pod is not None and health_check:
             try:
                 pod.ping()  # cheap liveness check; reconnect if the link died
@@ -153,10 +179,10 @@ def _acquire_persistent(cls: type, conn: Optional[str],
                 except Exception:
                     pass
                 pod = None
-                _PERSISTENT_POOL.pop(cls, None)
+                _PERSISTENT_POOL.pop(key, None)
         if pod is None:
             pod = BenchPod(conn, **pod_kwargs)
-            _PERSISTENT_POOL[cls] = pod
+            _PERSISTENT_POOL[key] = pod
         return pod
 
 
@@ -214,8 +240,7 @@ class BenchPodPlug(BasePlug):
             pod_kwargs.setdefault("la_voltage", float(benchpod_la_voltage))
         if cls.persistent:
             #: The connected SDK client (shared, kept open across executions).
-            self.pod: BenchPod = _acquire_persistent(
-                cls, conn, pod_kwargs, cls.health_check)
+            self.pod: BenchPod = _acquire_persistent(conn, pod_kwargs, cls.health_check)
         else:
             # Direct TCP/serial connections never lease.
             self.pod = BenchPod(conn, **pod_kwargs)
@@ -258,9 +283,9 @@ def benchpod_plug(connection: Optional[str] = None, *, persistent: bool = False,
         @htf.plug(bench=benchpod_plug("/dev/ttyACM0"))
         def phase(test, bench): ...
 
-    Set ``persistent=True`` to keep one connection open across test executions
-    (reuse the *same* returned class for every ``Test.execute()`` so they share
-    it); see :func:`close_persistent_benchpods`. Extra keyword args are forwarded
+    Set ``persistent=True`` to keep one connection open across test executions;
+    persistent plugs with the same connection and keyword arguments share it,
+    whichever ``benchpod_plug`` call made them. See :func:`close_persistent_benchpods`. Extra keyword args are forwarded
     to ``BenchPod(...)``: ``la_voltage=`` (volts), ``wiring=`` (a dict, a
     ``.json``/``.toml`` path or a :class:`~embeddedci.benchpod.Wiring`, which then
     supplies the channels, baud and power rail a phase leaves out), ``timeout=``

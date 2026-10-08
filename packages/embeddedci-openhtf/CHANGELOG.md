@@ -1,5 +1,12 @@
 # Changelog — `embeddedci-openhtf`
 
+## Unreleased
+
+- Persistent plugs (`benchpod_plug(..., persistent=True)`) are pooled by their connection
+  settings (the connection and the `BenchPod` keyword arguments) instead of by plug class. Two
+  `benchpod_plug` calls for the same pod now share one connection (a pod serves one client at a
+  time), and a plug whose OpenHTF conf or environment changes gets a connection that matches.
+
 ## 2.1.0
 
 - 4-20 mA terminals: `current_out_phase` (and the `current_out` helper) holds a current on the
