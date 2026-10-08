@@ -239,7 +239,11 @@ within a major version. See [CHANGELOG.md](CHANGELOG.md) for migrating from 0.1.
 ## Publishing to the MCP Registry
 
 `server.json` describes this package for the [MCP Registry](https://registry.modelcontextprotocol.io).
-After the PyPI release (which is what makes `uvx embeddedci-mcp` work):
+The `embeddedci-mcp-v*` release workflow publishes it after the PyPI upload (which is what makes
+`uvx embeddedci-mcp` work), logged in with GitHub OIDC. Bump both `version` fields in `server.json`
+together with `pyproject.toml`: the release fails when they differ, and so does CI.
+
+To publish by hand instead:
 
 ```bash
 mcp-publisher login github

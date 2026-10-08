@@ -88,6 +88,9 @@ configuration and the tool list.
 Each package publishes from its own tag (`embeddedci-v*`, `embeddedci-mcp-v*`,
 `embeddedci-openhtf-v*`) via `.github/workflows/publish.yml`; the tag must match the version in
 that package's `pyproject.toml`. Release `embeddedci` first — the other two depend on it from PyPI.
+The workflow enforces the version match (`scripts/check_release_tag.py`) and runs the full CI suite
+before anything is uploaded. An `embeddedci-mcp-v*` tag also publishes `server.json` to the MCP
+Registry, so its two `version` fields have to match too.
 
 ### The Python 3.9 placeholder
 
