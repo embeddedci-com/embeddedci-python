@@ -18,3 +18,8 @@ updates:
     groups:
       python:
         patterns: ["*"]
+    ignore:
+      # mcp 2.x removes mcp.server.fastmcp, which embeddedci-mcp's server imports: moving to it
+      # is a port, not a bump. The <2 pin still takes every 1.x fix; drop this once ported.
+      - dependency-name: mcp
+        versions: [">=2"]
