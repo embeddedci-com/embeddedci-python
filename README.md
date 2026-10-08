@@ -35,6 +35,12 @@ UPDATE_API_SURFACE=1 pytest packages/embeddedci/tests/test_api_surface.py
 UPDATE_TOOLS_SURFACE=1 pytest packages/embeddedci-mcp/tests/test_server_runtime.py -k surface
 ```
 
+The public names are also checked against the documentation: `tests/test_docs_coverage.py` in
+`embeddedci` and `embeddedci-openhtf` fails when an exported name, a pytest plugin option, fixture,
+marker or `BENCHPOD_*` variable, or an OpenHTF plug attribute is missing from the package README.
+Document a new name in the same change (the `embeddedci` README has an API reference section for
+that), or add it to the test's allowlist with the reason.
+
 Migration notes: [embeddedci](packages/embeddedci/CHANGELOG.md),
 [embeddedci-mcp](packages/embeddedci-mcp/CHANGELOG.md),
 [embeddedci-openhtf](packages/embeddedci-openhtf/CHANGELOG.md).
