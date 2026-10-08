@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `UartSession.write` on a link that is gone (a reset connection, an unplugged pod, a closed
+  cloud tunnel) raises `UartLinkError` instead of the raw `BrokenPipeError`/`OSError`.
 - Typed refusals. `PodLockedError`: the pod's LAN policy keeps this command for the cloud or the
   USB console (`locked: …`, and a policy change sent over the LAN). `PodLeasedError` (with
   `holder`, `left_s` and, from the server, `expires_at`): a cloud job holds the pod (`busy: a
