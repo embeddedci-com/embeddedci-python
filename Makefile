@@ -27,6 +27,7 @@ test:  # one run per package, like CI (their tests/conftest.py modules share a n
 	$(PYTHON) -m pytest -q packages/embeddedci
 	$(PYTHON) -m pytest -q packages/embeddedci-mcp
 	$(PYTHON) -m pytest -q packages/embeddedci-openhtf
+	$(PYTHON) -m pytest -q scripts
 
 # The e2e tiers must test THIS checkout.  Installing a package that depends on embeddedci (the
 # OpenHTF plug, say) can quietly swap the editable install for the PyPI release, and every test
