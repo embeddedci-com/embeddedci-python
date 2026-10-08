@@ -35,7 +35,8 @@ No pin numbers: the SWD channels, the UART pair, the baud and the power rail com
 [Analog paths](#analog-paths-dc-output-and-single-readings) · [Captures](#captures) ·
 [DAC](#dac-generator-replay-and-faults) · [Control loop](#in-fabric-dac-control-loop) ·
 [CAN](#can) · [Cloud](#cloud-embeddedcidevice-name) · [Build reporting](#build-reporting) ·
-[Errors](#errors) · [Escape hatches](#escape-hatches) · [Releasing](#releasing-maintainers)
+[Errors](#errors) · [Escape hatches](#escape-hatches) · [API reference](#api-reference) ·
+[Releasing](#releasing-maintainers)
 
 ## Install
 
@@ -194,6 +195,8 @@ automatically.)
 | `BENCHPOD_API_KEY` | no `api_key` argument / `--benchpod-api-key` | EmbeddedCI API key (`eci_…`) for the cloud destination and server features |
 | `BENCHPOD_API_BASE` | no `api_base` argument / `--benchpod-api-base` | server base URL (default `https://www.embeddedci.com`) |
 | `BENCHPOD_BUILD_TARGET` | no `--benchpod-build-target` | platform id recorded by the `build_report` fixture |
+| `BENCHPOD_WIRING` | no `wiring` argument / `--benchpod-wiring` / `benchpod_wiring` fixture | wiring profile file (`.json`/`.toml`), see [Wiring profile](#wiring-profile) |
+| `BENCHPOD_LIFT_DAC_LIMITS` | pytest sessions | `1` clears the pod's DAC output limits for the session and restores the same limits at the end, even when tests fail (only with the output stage switched off) |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 
 ## API conventions and stability
@@ -339,6 +342,13 @@ benchpod_connection = 192.168.1.213
 
 `benchpod` is shared by the whole session, so state a test leaves behind (a running DAC, engaged
 pull-ups, an armed sensor) carries into the next one — use the teardown fixtures.
+
+**DAC output limits.** A pod can carry DAC output limits that protect an external output stage (a
+solar simulator module on the 5 V path, say); it then refuses what they forbid. With the stage
+switched off, run the suite with `BENCHPOD_LIFT_DAC_LIMITS=1`: the plugin clears the limits once
+when the session starts and puts the same limits back at the end, even when tests fail. It opens
+its own short connection, so it applies whichever fixture the suite uses. Without the variable
+nothing changes.
 
 ### Markers
 
@@ -619,7 +629,7 @@ won't engage one while the LA bank is at 1.8 V (`PullState.available` is false).
 | LA3, LA4 | pull-up | 2.2k |
 | LA5, LA6 | pull-up | 10k |
 | LA7, LA8 | pull-**down** | 10k |
-| LA9–LA12 | none | — |
+| LA9–LA14 | none | — |
 
 ```python
 from embeddedci.benchpod import PIN1, PIN2, PIN7
@@ -1312,6 +1322,156 @@ These sit below the stable API and are **not** covered by the stability promise:
   `dac_mux(ctrl1=, ctrl2=)`, `dac_mux_status()`, `cal_switch(cal1=, cal2=, current_in=, cal_path=)`,
   `cal_switch_status()`, `dac_set(code, divider=)`. Prefer the named paths — these can leave the
   front end in a state no named path describes.
+
+## API reference
+
+Every name in `embeddedci.benchpod.__all__`, in one place. The sections above show how the pieces
+fit together; this is the index. `tests/test_docs_coverage.py` fails when a public name is missing
+from this README, so the list stays complete.
+
+### `BenchPod`
+
+`BenchPod(connection=None, *, la_voltage=None, timeout=30.0, transport=None, api_base=None,
+api_key=None, cloud_token=None, cloud_audience=None, cloud_user_token=None, lease=True,
+lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is idempotent.
+
+| Area | Methods and properties |
+|---|---|
+| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()` |
+| LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
+| Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
+| Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
+| UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
+| Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
+| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
+| I2C sensor | `enable_i2c_sensor(...)`, `set_i2c_sensor(...)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
+| Analog | `analog_path(path)`, `adc_read(source="ext")`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration()` |
+| Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
+| DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
+| CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
+| Cloud library and server | `waveforms`, `save_capture_as_recording(...)`, `server_api` (the `ServerApi`; needs an API key or a cloud session) |
+| Escape hatches | `command(cmd)`, `transport`, `lowlevel` (see [Escape hatches](#escape-hatches)) |
+
+### Types
+
+Results are frozen dataclasses unless noted. A result built from a firmware reply keeps that reply in
+`raw` and has a `from_reply()` classmethod (`from_dict()`, `from_json()` or `from_chunks()` for the
+few built from other shapes); `to_dict()` goes the other way where a type is sent back.
+
+| Type | Returned by / used for | Fields and members |
+|---|---|---|
+| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set` |
+| `TargetStatus` | `target_status` | `internal`, `external` (each an `EfuseState`), `supported`, `efuse(n)` |
+| `EfuseState` | `TargetStatus.efuse` | `enabled`, `fault`, `valid` |
+| `PowerStatus` | `power_status` | `internal`, `external` (each a `RailPower`), `pod`, `total_current`, `rail(n)` |
+| `RailPower` | `PowerStatus.rail` | `ok`, `bus_voltage`, `current` |
+| `PowerProfile` | `measure_power`, `PowerProfileSession.result` | see [Power profiles](#power-profiles) |
+| `PowerProfileSession` | `power_profile` (a context manager) | `start()`, `stop()`, `status()`, `result` |
+| `ResetState` | `reset_target`, `set_reset`, `reset_state` | `asserted`, `supported` |
+| `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
+| `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
+| `LaPinState` | `la_pins`, `configure_gpio` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `in_use` |
+| `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
+| `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled` |
+| `SpiSession` (class) | `open_spi` | `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
+| `SpiFlashInfo` | `SpiSession.flash_id` | `jedec_id`, `present`, `size`, `status` |
+| `SpiFlashResult` | `spi_flash`, `SpiSession.flash_program` | `jedec_id`, `addr`, `length`, `erased`, `verified`, `seconds` |
+| `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
+| `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
+| `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
+| `Sensor` (enum) | `enable_i2c_sensor` | `Sensor.BMP280` |
+| `I2CTransaction` | `i2c_sensor_capture`, `decode("i2c")` | `messages`, `complete`, `address`, `to(address)` |
+| `I2CMessage` | `I2CTransaction.messages` | `address`, `read`, `address_ack`, `data`, `values` |
+| `I2CByte` | `I2CMessage.data` | `value`, `ack` |
+| `UartFrame` | `decode("uart")` | `index`, `start_us`, `end_us`, `value`, `hex`, `text`, `ok`, `error` |
+| `SpiFrame` | `decode("spi")` | `index`, `start_us`, `end_us`, `mosi`, `miso`, `mosi_hex`, `miso_hex` |
+| `AnalogPathState` | `analog_path` | `path`, `dac_mux_register`, `cal_relay_register` |
+| `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current` |
+| `DacOutput` | `dac_output` | `path`, `voltage`, `code` |
+| `CurrentOutput` | `current_out`, `current_out_range` | `current`, `code`, `min_current`, `max_current` |
+| `Calibration` | `calibrate`, `calibration`, `clear_calibration` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples` |
+| `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
+| `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |
+| `CorrelatedCapture` | `capture_correlated` | `adc` (a `Capture`), `la` (a `LaCapture`), sharing one hardware trigger |
+| `Trigger` | `capture_adc`, `capture_la`, `capture_correlated` | `la`, `edge` |
+| `DacHandle` (class) | `generate` (a context manager) | `stop()` |
+| `ReplayHandle` (class) | `replay`, `replay_waveform` (a context manager) | a `DacHandle` that also knows what it replays: `stop()` |
+| `Fault` | `replay(fault=...)` | `type`, `start`, `width`, `level`, `to_dict()` |
+| `Segment` | `WaveformLibrary.save_segments` | `shape` (`ramp`, `hold`, `step`), `duration`, `v_start`, `v_end`, `to_dict()` |
+| `ControlLoopHandle` (class) | `control_loop` (a context manager) | `probe()`, `set_input(...)`, `stop()` |
+| `IVPoint` | `loop_probe`, `ControlLoopHandle.probe` | `i`, `v`, `input_code`, `source`, `tripped`, `loop_input` |
+| `LoopInputMap` | `control_loop(input_map=...)` | `mv_per_unit`, `range_min`, `range_max`, `mv_at_zero`, `trip`, `to_request()` |
+| `LoopState` | `loop_input` | `source`, `input_code`, `step`, `output_code` |
+| `FpgaImage` (enum) | `fpga_image` | `LOOP`, `DEEP_REPLAY` |
+| `FpgaImageInfo` | `fpga_image` | `image`, `version`, `features` |
+| `CanBus` (class) | `open_can` | `write()`, `read()`, `read_until()`, `expect()`, `collect()`, `assert_periodic()`, `add_responder()`, `clear_responders()`, `simulate_ecu()`, `set_term()`, `status()`, `close()` |
+| `CanFrame` | `CanBus.read`, `CanBus.expect` | `id`, `data`, `ext`, `rtr`, `ts`, `dlc` |
+| `CanReadResult` | `can_read` | `frames`, `overflow` |
+| `MotorEmulator` (class) | `open_motor_emulator` | `configure()`, `boards()`, `probe()`, `read()`, `read_signed(reg)`, `write()`, `status()`, `trips()`, `clear_trips()`, `arm()`, `set_control()`, `set_pwm()`, `set_duties(a, b, c)`, `set_shape(shape)`, `set_protection()`, `set_battery()`, `battery_state()`, `set_pv_calibration(offset, gain)`, `sample()`, `time()`, `start_log()`, `stop_log()`, `read_log()`, `eeprom_read(addr, length)`, `eeprom_write(addr, data)`, `close()` |
+| `BatteryModel` | `MotorEmulator.set_battery` | `capacity_ah`, `ocv`, `r0_ohm`, `r1_ohm`, `tau_s`, `soc`, `v_min`, `v_max`, `invert_current` |
+| `EmulatorCalibration` | `open_motor_emulator(calibration=...)` | `codes_per_amp`, `codes_per_volt`, `offsets`, `sample_rate_hz`, `amps()`, `volts()`, `current_code()`, `bus_code()`, `resistance_code()` |
+| `Wiring` | `wiring`, `save_wiring` | see [Wiring profile](#wiring-profile); also `defaults()`, `load(path)`, `coerce(value)` (a `Wiring`, dict or file path), `from_dict(data, *, strict=True)` (`strict=False` keeps unknown keys in `extra`), `to_dict()`, `with_changes(**changes)`, `assignments()`, `pins()`, `la(name)`, `signal(name)`, `describe()`, `warnings()`, `la_voltage`, `i2c_address` |
+| `Signal` | `Wiring.signals` | `name`, `la`, `direction`, `active_low`, `description`, `to_dict()` |
+| `Waveform` | `WaveformLibrary` | `id`, `name`, `kind`, `sample_count`, `sample_rate_hz`, `bits`, `full_scale_v`, `recording_size_bytes`, `created_at`, `dac_path`, `segments`, `unit`, `is_recording` |
+| `WaveformLibrary` (class) | `waveforms` | `list()`, `get()`, `find()`, `save_recording()`, `save_waveform()`, `save_segments()`, `rename()`, `delete()`, `preview()`, `download_recording()`, `samples_b64(waveform_id)` |
+| `BuildReporter`, `NoopBuildReporter` (classes) | `build_report`, `make_build_reporter` | `active`, `build_id`, `record_wiring()`, `upload_artifact()`, `upload_artifacts()`, `upload_logs()`, `set_result()`, `finalize()` |
+| `DeviceLease` (class) | a cloud `BenchPod` holds one | `acquire(*, wait_timeout=600.0, poll_interval=5.0)`, `held`, `lease_id`, `release()` |
+| `ConnSpec` | `parse_connection`, `resolve_connection` | `kind`, `addr`, `device`, `device_name`, `is_wifi()`, `is_serial()`, `is_cloud()` |
+| `LowLevel` (class) | `lowlevel` | see [Escape hatches](#escape-hatches) |
+| `Pin` / `Efuse` (enums) | channel and rail arguments | `PIN1` … `PIN14`, `INTERNAL`, `EXTERNAL` |
+
+### `Capabilities`
+
+`bp.capabilities` (and the `benchpod_capabilities` fixture) parses the pod's `status` reply
+(`Capabilities.from_status`) or the server's `cap.*` map for a cloud device
+(`Capabilities.from_parameters`); `merge(other)` overlays one on another. A flag that was not
+reported keeps its default (`False`, `0` or `""`), so a feature check is just
+`if bp.capabilities.spi_master:`. `@pytest.mark.benchpod_capability("name")` takes the same names.
+
+| Group | Fields |
+|---|---|
+| Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
+| ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
+| DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
+| Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
+| Source | `raw` (the map it was parsed from) |
+
+### `ServerApi`
+
+A thin client for the embeddedci server's HTTP API (`{api_base}/api/...`), for scripts that need
+the server rather than a pod. `bp.server_api` returns one bound to the connection's credentials;
+build one yourself with `ServerApi(*, api_base=None, api_key=None, token_provider=None,
+timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an HTTP 403 raises
+`ServerPermissionDeniedError`.
+
+| Method | Purpose |
+|---|---|
+| `list_devices()` | the pods the credentials can see |
+| `resolve_device_id(name)` | a device name to its server id (raises when unknown) |
+| `device_parameters(name_or_id)` | the server's `cap.*` map for a device (`Capabilities.from_parameters` parses it) |
+| `wiring_profile(device_id)` | the stored wiring profile: `{"profile", "stored", "defaults", "warnings"}` |
+| `put_wiring(device_id, wiring)` | store a wiring profile (the server validates it; errors name the fields) |
+| `scope_capture_start(device_id, *, samples=256, sample_rate_mhz=1.0)` | start a server-side ADC capture; returns its id |
+| `dual_capture_start(device_id, *, adc_samples, adc_rate_mhz, la_samples, la_rate_mhz)` | start a server-side ADC + LA capture; returns its id |
+| `capture_snapshot(capture_id)` | fetch a server-side capture |
+| `replay_start(payload)` | arm a server-side DAC replay (`POST /dac/replay/start`) |
+| `request(method, path, *, query=None, json_body=None, raw_body=None, content_type=None, parse_json=True)` | any other endpoint; returns `(status, body)` |
+
+### Functions, constants and modules
+
+| Name | Purpose |
+|---|---|
+| `parse_connection(raw)` | parse a connection string into a `ConnSpec` (raises `ConnectionConfigError`) |
+| `resolve_connection(connection=None)` | the same, falling back to `BENCHPOD_CONNECTION` |
+| `make_build_reporter(*, api_base=None, audience=None, target="", name="")` | a `BuildReporter` inside GitHub Actions, else a `NoopBuildReporter` |
+| `build_panel_curve(voc_code, sharpness=4.0, points=256)`, `build_linear_curve(max_code, rising=True, points=256)`, `build_constant_curve(value_code, points=256)` | control-loop curves (see [In-fabric DAC control loop](#in-fabric-dac-control-loop)) |
+| `curve_output_at(curve, input_code)`, `input_percent_to_code(percent)` | evaluate a curve the way the gateware does; an input percentage as a code |
+| `encode_curve_b64url(codes)` | 16-bit DAC codes as little-endian base64url, the wire form of a curve |
+| `INTERNAL`, `EXTERNAL`, `PIN1` … `PIN14`, `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | named constants (see [API conventions](#api-conventions-and-stability)) |
+| `DacPath`, `DacOutputPath`, `AnalogPath`, `AdcSource`, `CalibrateSource` (`"current_in"`), `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`, `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge` | the `Literal` string types |
+| `decode`, `i2c`, `can`, `control_loop`, `motor_emulator`, `dsp` | submodules: off-device decoders, I2C helpers, CAN types, curve helpers, the emulator's registers, and `dsp`, a pure-Python mirror of the server's record-to-replay processing |
 
 ## Examples
 
