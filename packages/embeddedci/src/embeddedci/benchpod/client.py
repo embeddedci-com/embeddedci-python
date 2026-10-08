@@ -82,7 +82,7 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import BenchPodError, FirmwareError, classify_firmware_error
+from .errors import BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error
 from .flash import FlashResult
 from .gpio import GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -355,11 +355,62 @@ class BenchPod:
         self._caps = None
         return self.capabilities
 
+    def supports(self, feature: str) -> bool:
+        """Whether this pod has ``feature``, a :class:`Capabilities` flag (``"spi_master"``,
+        ``"capture_trigger"``, ``"can"``, ...). Reads the capabilities once; ``False`` for a
+        flag this SDK does not know. The ``can_*`` properties name the common ones."""
+        return bool(getattr(self.capabilities, feature, False))
+
+    @property
+    def can_gpio(self) -> bool:
+        """LA pin modes and GPIO (:meth:`gpio`, :meth:`la_pins`, :meth:`set_gpio`): capability ``la_pins``."""
+        return self.supports("la_pins")
+
+    @property
+    def can_trigger(self) -> bool:
+        """Triggered captures (``trigger=``): capability ``capture_trigger``."""
+        return self.supports("capture_trigger")
+
+    @property
+    def can_spi(self) -> bool:
+        """The SPI master and SPI NOR flash programming (:meth:`open_spi`, :meth:`spi_flash`):
+        capability ``spi_master``."""
+        return self.supports("spi_master")
+
+    @property
+    def can_profile_power(self) -> bool:
+        """Gap-free power profiles (:meth:`measure_power`): capability ``power_profile``."""
+        return self.supports("power_profile")
+
+    @property
+    def can_calibrate(self) -> bool:
+        """On-pod ADC calibration (:meth:`calibrate`): capability ``calibrate``."""
+        return self.supports("calibrate")
+
+    @property
+    def can_current_out(self) -> bool:
+        """The 4-20 mA output (:meth:`current_out`): capability ``current_out``."""
+        return self.supports("current_out")
+
+    @property
+    def can_reset_target(self) -> bool:
+        """The dedicated target-reset pin (:meth:`reset_target`, ``flash(nreset=True)``):
+        capability ``nrst_pin``."""
+        return self.supports("nrst_pin")
+
+    @property
+    def can_analog(self) -> bool:
+        """The analog front end (ADC, DAC, 4-20 mA). ``False`` only on the digital-only board;
+        firmware that does not say is taken as analog (every older board has it)."""
+        return self.capabilities.analog is not False
+
     def _require_capability(self, flag: str, what: str) -> None:
-        if not getattr(self.capabilities, flag, False):
+        if not self.supports(flag):
             fw = self.capabilities.firmware_version or "unknown"
-            raise BenchPodError(f"{what} need newer pod firmware (the {flag!r} capability is missing; "
-                                f"this pod runs firmware {fw})")
+            raise UnsupportedFeatureError(
+                f"{what} need newer pod firmware (the {flag!r} capability is missing; "
+                f"this pod runs firmware {fw})",
+                feature=flag, firmware_version=self.capabilities.firmware_version)
 
     # -- wiring profile -------------------------------------------------------
 

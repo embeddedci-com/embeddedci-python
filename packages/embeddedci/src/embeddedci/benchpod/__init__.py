@@ -100,6 +100,7 @@ from .errors import (
     TriggerTimeout,
     UartLinkError,
     UartTimeout,
+    UnsupportedFeatureError,
 )
 from .flash import FlashResult
 from .gpio import GpioPin, LaPinState
@@ -279,6 +280,7 @@ __all__ = [
     "PinConflictError",
     "PullConflictError",
     "TriggerTimeout",
+    "UnsupportedFeatureError",
     # device lease
     "DeviceLease",
     # CI build reporting

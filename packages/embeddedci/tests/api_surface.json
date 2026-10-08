@@ -43,13 +43,21 @@
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
     "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",
     "calibration": "(self) -> 'Calibration'",
+    "can_analog": "property",
+    "can_calibrate": "property",
     "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_current_out": "property",
     "can_disable": "(self) -> 'Dict[str, Any]'",
+    "can_gpio": "property",
+    "can_profile_power": "property",
     "can_read": "(self, *, max_frames: 'int' = 8) -> '_can.CanReadResult'",
+    "can_reset_target": "property",
     "can_respond": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'Dict[str, Any]'",
     "can_respond_clear": "(self) -> 'Dict[str, Any]'",
+    "can_spi": "property",
     "can_status": "(self) -> 'Dict[str, Any]'",
     "can_term": "(self, on: 'bool') -> 'Dict[str, Any]'",
+    "can_trigger": "property",
     "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'Dict[str, Any]'",
     "capabilities": "property",
     "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'Capture'",
@@ -118,6 +126,7 @@
     "signal": "(self, name: 'str') -> 'GpioPin'",
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
     "status": "(self) -> 'Dict[str, Any]'",
+    "supports": "(self, feature: 'str') -> 'bool'",
     "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
@@ -838,6 +847,9 @@
   "UartTimeout": {
     "__init__": "(self, message: 'str', *, text: 'str' = '') -> 'None'"
   },
+  "UnsupportedFeatureError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, feature: 'str' = '', firmware_version: 'str' = '') -> 'None'"
+  },
   "UsbCcStatus": {
     "__fields__": [
       "orientation",
@@ -1035,6 +1047,7 @@
     "UartLinkError",
     "UartSession",
     "UartTimeout",
+    "UnsupportedFeatureError",
     "UsbCcStatus",
     "Waveform",
     "WaveformLibrary",
