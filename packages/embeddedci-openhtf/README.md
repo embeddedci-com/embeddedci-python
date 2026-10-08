@@ -295,8 +295,10 @@ def ripple_under_load(test, bench):
 By default the plug opens a connection per `Test.execute()` and closes it at
 teardown. On a station cycling many DUTs back-to-back, pass `persistent=True` to
 keep **one** connection open across executions (re-checked with a ping each run,
-reconnected if it dropped). Reuse the *same* plug class for every execution, and
-close it once at the end:
+reconnected if it dropped). Persistent plugs are pooled by their connection settings (the
+connection and the `BenchPod` keyword arguments), so two `benchpod_plug(..., persistent=True)`
+calls for the same pod share one connection, and a plug whose OpenHTF conf or environment changes
+gets a connection that matches. Close them once at the end:
 
 ```python
 import openhtf as htf
