@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.7.0
 
 - `UartSession.write` on a link that is gone (a reset connection, an unplugged pod, a closed
   cloud tunnel) raises `UartLinkError` instead of the raw `BrokenPipeError`/`OSError`.
