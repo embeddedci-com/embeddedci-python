@@ -223,6 +223,24 @@ automatically.)
   Plain ints work too (`efuse=1`, `swclk=11`); they are validated. The target's reset line is not an
   LA channel — it has a dedicated pin (see [Flashing](#flashing)).
 
+**Feature checks.** Pods differ by board, firmware and gateware. `bp.supports("spi_master")` says
+whether the pod has any `Capabilities` flag (`False` for a flag this SDK does not know), and the
+properties `can_gpio`, `can_trigger`, `can_spi`, `can_profile_power`, `can_calibrate`,
+`can_current_out`, `can_reset_target` and `can_analog` name the common ones (`can_config` …
+`can_disable` stay the CAN bus commands). A call the pod cannot serve raises
+`UnsupportedFeatureError` (see [Errors](#errors)), before anything is sent when the capabilities
+already say so:
+
+```python
+import pytest
+
+
+def test_flash_spi_nor(benchpod):
+    if not benchpod.can_spi:
+        pytest.skip("this pod has no SPI master")
+    benchpod.spi_flash("fw.bin")
+```
+
 **Stability promise.** Everything in `embeddedci.benchpod.__all__` follows semantic versioning:
 within 2.x names and signatures only grow. `BenchPod.command()`, `BenchPod.transport` and
 `BenchPod.lowlevel` are escape hatches **outside** the promise. Migrating from 0.x/1.x? The
@@ -305,7 +323,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-efuse` | — | the profile's rail | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external); `benchpod_target` otherwise follows the wiring profile, `pins.efuse` is 1 |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
-| `--benchpod-api-key` | `BENCHPOD_API_KEY` | — | API key for the cloud destination and the waveform library |
+| `--benchpod-api-key` | `BENCHPOD_API_KEY` | — | API key for the cloud destination and the waveform library; it, `--benchpod-api-base` and the lease options also reach the short connection that lifts the DAC limits (`BENCHPOD_LIFT_DAC_LIMITS=1`) |
 | `--benchpod-api-base` | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | embeddedci server |
 | `--benchpod-lease-wait` | — | `600` | seconds to wait for a busy cloud device |
 | `--benchpod-no-lease` | — | off | don't lock the cloud device (only when nothing else can use it) |
@@ -1294,6 +1312,7 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running | `firmware_message`, `cmd` |
 | `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409) | `holder`, `left_s`, `expires_at`, `status` |
 | `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
+| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd`, or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
 | `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |
