@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Over the cloud, a UART console (`open_uart`) can stay open while a capture, power profile or
+  DAC replay runs, as on the LAN. Each streaming tunnel tells the server what it is for
+  (`?kind=uart|capture|dac|flash`). A server without kind support still answers HTTP 409
+  ("device is busy") for the second tunnel, as before.
+
 ## 2.7.0
 
 - `UartSession.write` on a link that is gone (a reset connection, an unplugged pod, a closed

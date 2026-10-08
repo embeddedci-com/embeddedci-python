@@ -345,7 +345,7 @@ def test_a_tunnel_closing_mid_upload_is_connection_closed_through_load_replay(mo
     ws.fail_with = websocket.WebSocketConnectionClosedException("gone")
     sock, _ = _tunnel(monkeypatch, ws, clock)
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
-    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: sock)
     with pytest.raises(ConnectionClosedError, match="closed while sending"):
         t.load_replay(data=b"\x00" * 20000, replay={"cmd": "replay"})
     assert len(ws.sent) == 5  # the load_bin line and four data frames, then nothing
@@ -360,7 +360,7 @@ def test_a_tunnel_that_stops_taking_data_is_a_transport_timeout(monkeypatch):
     ws.fail_with = websocket.WebSocketTimeoutException("send timed out")
     sock, _ = _tunnel(monkeypatch, ws, clock)
     t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=5)
-    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: sock)
     with pytest.raises(TransportTimeout):
         t.stage_psram(b"\x01" * 5000)
 
@@ -376,7 +376,7 @@ def test_a_large_download_frame_carrying_many_lines_is_split_correctly(monkeypat
     clock = [0.0]
     sock, _ = _tunnel(monkeypatch, _WS([blob[:cut], blob[cut:]]), clock)
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
-    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: sock)
     assert t.samples({"cmd": "capture", "samples": 20000}) == list(range(20000))
 
 
@@ -451,7 +451,7 @@ def test_measure_power_over_the_cloud_tunnel_waits_for_its_duration(monkeypatch)
     t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=30)
     ws = _WS([b'{"status":"ok","data":{"stats":{"n":1}},"more":false}\n'])
     sock, _ = _tunnel(monkeypatch, ws, [0.0])
-    monkeypatch.setattr(t, "_open_tunnel", lambda: sock)
+    monkeypatch.setattr(t, "_open_tunnel", lambda *_a: sock)
     list(t.stream_chunks({"cmd": "power_profile", "efuse": 1, "duration_ms": 600_000}))
     assert ws.timeout == pytest.approx(630)
 

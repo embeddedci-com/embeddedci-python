@@ -39,6 +39,65 @@ def test_cloud_ws_url():
     t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
     url = t._ws_url()
     assert url == "wss://example.test/api/cloud/devices/ws?device=dev-a"
+    assert t._ws_url("uart") == "wss://example.test/api/cloud/devices/ws?device=dev-a&kind=uart"
+
+
+def test_tunnel_url_carries_the_kind_hint(monkeypatch):
+    calls = _fake_websocket_module(monkeypatch)
+    t = CloudTransport("dev-a", api_base="https://example.test", token="tok")
+    t._dial(kind="capture")
+    t._dial()
+    assert calls[0][0].endswith("?device=dev-a&kind=capture")
+    assert calls[1][0].endswith("?device=dev-a")
+
+
+def _recording_dial(monkeypatch, t, sock):
+    kinds = []
+
+    def dial(timeout=None, kind=None):
+        kinds.append(kind)
+        return sock
+
+    monkeypatch.setattr(t, "_dial", dial)
+    return kinds
+
+
+@pytest.mark.parametrize("call, reply, kind", [
+    (lambda t: t.uart_proxy_start(rx=1, tx=2, baud=115200), b'{"status":"ok"}\n', "uart"),
+    (lambda t: t.dap_start(swclk=11, swdio=12), b'{"status":"ok"}\n', "flash"),
+    (lambda t: t.samples({"cmd": "capture", "samples": 4}),
+     b'{"status":"ok","data":[1,2],"more":false}\n', "capture"),
+    (lambda t: list(t.stream_chunks({"cmd": "power_profile"})),
+     b'{"status":"ok","data":{},"more":false}\n', "capture"),
+])
+def test_streaming_sessions_name_their_tunnel_kind(monkeypatch, call, reply, kind):
+    """Each streaming session tells the server what it is for, so a UART console and a capture
+    or power profile can share the pod over the cloud as they do on the LAN."""
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    kinds = _recording_dial(monkeypatch, t, _FakeSock(reply))
+    call(t)
+    assert kinds == [kind]
+
+
+def test_load_replay_names_the_dac_kind_and_staging_stays_exclusive(monkeypatch):
+    sock, _ = _sending_socket(monkeypatch)
+    sock._ws = _FakeWS([
+        b'{"status":"ok","data":{"ready":4}}\n',
+        b'{"status":"ok","data":{"total":4}}\n',
+        b'{"status":"ok","data":{}}\n',
+    ])
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    kinds = _recording_dial(monkeypatch, t, sock)
+    t.load_replay(data=b"\x00" * 4, replay={"cmd": "replay"})
+    assert kinds == ["dac"]
+
+    sock._ws = _FakeWS([
+        b'{"status":"ok","data":{"ready":4}}\n',
+        b'{"status":"ok","data":{"total":4}}\n',
+    ])
+    t.stage_psram(b"\x00" * 4)
+    # PSRAM staging for an SPI session has no kind: the server keeps it exclusive.
+    assert kinds == ["dac", None]
 
 
 def _fake_websocket_module(monkeypatch, fail=None):
@@ -209,7 +268,7 @@ def test_cloud_transport_dap_handshake_returns_raw_link(monkeypatch):
     # dap_start acks one JSON line, then the same tunnel carries raw bytes.
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
     fake = _FakeSock(b'{"status":"ok"}\nRAWBYTES')
-    monkeypatch.setattr(t, "_dial", lambda *_a: fake)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: fake)
 
     link = t.dap_start(swclk=11, swdio=12)
     # Bytes after the ack newline are the raw CMSIS-DAP stream and must survive.
@@ -313,7 +372,7 @@ def test_cloud_load_replay_skips_the_tunnel_ack_lines(monkeypatch):
         b'{"status":"ok","data":{"replaying":true}}\n',
     ])
     t = CloudTransport("dev-a", api_base="https://example.test", token="abc")
-    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: sock)
     data = t.load_replay(data=b"\x00" * 20000, replay={"cmd": "replay"}, psram=True)
     assert data == {"replaying": True}
     frames = sock._ws.frames
@@ -613,7 +672,7 @@ def test_cloud_tunnel_command_times_out_as_transport_timeout(monkeypatch):
 
     t = CloudTransport("dev-a", api_base="https://example.test", token="x", timeout=5)
     sock = _tunnel_socket(_RaisingWS(websocket.WebSocketTimeoutException("timed out")))
-    monkeypatch.setattr(t, "_dial", lambda *_a: sock)
+    monkeypatch.setattr(t, "_dial", lambda *_a, **_k: sock)
     with pytest.raises(TransportTimeout, match="within 5 s"):
         list(t.stream_chunks({"cmd": "capture", "samples": 16}))
 

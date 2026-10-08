@@ -343,9 +343,13 @@ class CloudTransport(TcpTransport):
             self._expires_at = None
         return True
 
-    def _ws_url(self) -> str:
+    def _ws_url(self, kind: Optional[str] = None) -> str:
         """The tunnel URL. It carries no credentials: those go in :meth:`_ws_headers`, so the
-        token never reaches an access log or an error message."""
+        token never reaches an access log or an error message.
+
+        ``kind`` (``uart``/``capture``/``dac``/``flash``) tells the server what the tunnel is
+        for, so a UART console and a capture or DAC replay may be open together, as on the LAN.
+        Without it the server treats the tunnel as exclusive."""
         base = self.api_base
         if base.startswith("https://"):
             ws_base = "wss://" + base[len("https://"):]
@@ -353,7 +357,10 @@ class CloudTransport(TcpTransport):
             ws_base = "ws://" + base[len("http://"):]
         else:
             ws_base = base
-        return f"{ws_base}/api/cloud/devices/ws?device={quote(self.device_name, safe='')}"
+        url = f"{ws_base}/api/cloud/devices/ws?device={quote(self.device_name, safe='')}"
+        if kind:
+            url += f"&kind={quote(kind, safe='')}"
+        return url
 
     def _ws_headers(self, token: str) -> "list[str]":
         """Headers for the tunnel's WebSocket upgrade: the session token as a Bearer header
@@ -364,18 +371,19 @@ class CloudTransport(TcpTransport):
             headers.append(f"X-Benchpod-Lease: {self.lease_id}")
         return headers
 
-    def _open_tunnel(self) -> _WsTunnelSocket:
+    def _open_tunnel(self, kind: Optional[str] = None) -> _WsTunnelSocket:
         token = self._session_token()
-        return _WsTunnelSocket(self._ws_url(), self.timeout, headers=self._ws_headers(token),
+        return _WsTunnelSocket(self._ws_url(kind), self.timeout, headers=self._ws_headers(token),
                                secrets=(token,))
 
-    def _dial(self, timeout: Optional[float] = None) -> _WsTunnelSocket:  # type: ignore[override]
+    def _dial(self, timeout: Optional[float] = None,  # type: ignore[override]
+              kind: Optional[str] = None) -> _WsTunnelSocket:
         try:
-            sock = self._open_tunnel()
+            sock = self._open_tunnel(kind)
         except TransportError as exc:
             status = getattr(exc, "status", None)
             if status == 401 and self._invalidate_token():
-                sock = self._open_tunnel()
+                sock = self._open_tunnel(kind)
             else:
                 body = getattr(exc, "body", None) or b""
                 if isinstance(body, bytes):
