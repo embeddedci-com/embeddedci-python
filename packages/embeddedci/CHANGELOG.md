@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## 2.7.1
+## 2.8.0
 
 - `UnsupportedFeatureError` (with `feature` and `firmware_version`): the pod cannot do what was
   asked. Raised before anything is sent when the pod's capabilities lack the feature (it used to
@@ -14,6 +14,8 @@
 - pytest plugin: `--benchpod-api-key`, `--benchpod-api-base` and the lease options also reach the
   connection the `BENCHPOD_LIFT_DAC_LIMITS=1` session fixture opens. A cloud run authenticated
   only by the flag used to fail to lift (and restore) the DAC limits there.
+
+## 2.7.1
 
 - Over the cloud, a UART console (`open_uart`) can stay open while a capture, power profile or
   DAC replay runs, as on the LAN. Each streaming tunnel tells the server what it is for
