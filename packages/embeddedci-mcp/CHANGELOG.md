@@ -1,7 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.9.0
 
+- Requires `embeddedci` 2.9.0 (pin raised).
 - More emulated sensors: `enable_i2c_sensor` takes `sensor` (`bmp280`, `bme280`, `sht4x`,
   `mpu6050`) and `values` (readings by key); `set_i2c_sensor` takes `values`; new
   `i2c_sensor_types` lists the models and their readings.
