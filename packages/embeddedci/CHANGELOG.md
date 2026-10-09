@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.10.0
 
 - One wiring profile everywhere. A LAN or USB `BenchPod` now uses the wiring profile stored on
   embeddedci.com for the pod (the web UI's Wiring tab), as a cloud connection already did, when

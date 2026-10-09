@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.10.0
 
 - `connect` without a connection now uses, in order: `--connection`, `BENCHPOD_CONNECTION`, the
   default connection `benchpod-cli` saved (`benchpod set-connection`), then mDNS discovery. The
