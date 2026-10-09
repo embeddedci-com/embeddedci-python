@@ -163,8 +163,24 @@ fixture in conftest.py, or bp.set_la_voltage(3.3)` (prefixed with the command, a
 `FirmwareError` is).
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
-`cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name))
-and `transport` (inject a custom backend).
+`cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name)),
+`wiring` and `wiring_source` (see [Wiring profile](#wiring-profile)) and `transport` (inject a
+custom backend).
+
+### Which pod `BenchPod()` connects to
+
+The CLI, the SDK and the MCP server share one saved connection. `BenchPod()` picks, first match
+wins:
+
+1. the `connection` argument;
+2. the `BENCHPOD_CONNECTION` environment variable;
+3. the default connection `benchpod-cli` saved with `benchpod set-connection <address|device|usb>`
+   (or `benchpod discover --save`), read from `~/.config/benchpod-cli/config.json`
+   (`$XDG_CONFIG_HOME/benchpod-cli/config.json` when that is set).
+
+With none of them it raises `ConnectionConfigError`. The SDK only reads that file, and a missing or
+malformed file counts as "nothing saved". The connection string `saved` names the saved connection
+explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](#pytest-plugin)).
 
 ### Connection strings
 
@@ -175,6 +191,7 @@ and `transport` (inject a custom backend).
 | `usb` | USB console, auto-detected by probing the serial ports (`serial` also accepted) |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key or a user token anywhere, or GitHub Actions OIDC) |
+| `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
 
 **Use the network (or the cloud) for testing.** The STM32 pod's USB console is a text shell for
 setup and diagnostics with no JSON mode, so over USB the SDK can only read `status()`, `ping()`,
@@ -194,12 +211,13 @@ automatically.)
 
 | Variable | Used when | Purpose |
 |---|---|---|
-| `BENCHPOD_CONNECTION` | no `connection` argument / `--benchpod-connection` | connection string |
+| `BENCHPOD_CONNECTION` | no `connection` argument / `--benchpod-connection` | connection string (`BenchPod()` then falls back to the CLI's saved connection; pytest does not) |
 | `BENCHPOD_LA_VOLTAGE` | no `la_voltage` argument / `--benchpod-la-voltage` | LA bank voltage to select on connect (`1.8` or `3.3`) |
 | `BENCHPOD_API_KEY` | no `api_key` argument / `--benchpod-api-key` | EmbeddedCI API key (`eci_…`) for the cloud destination and server features |
 | `BENCHPOD_API_BASE` | no `api_base` argument / `--benchpod-api-base` | server base URL (default `https://www.embeddedci.com`) |
 | `BENCHPOD_BUILD_TARGET` | no `--benchpod-build-target` | platform id recorded by the `build_report` fixture |
 | `BENCHPOD_WIRING` | no `wiring` argument / `--benchpod-wiring` / `benchpod_wiring` fixture | wiring profile file (`.json`/`.toml`), see [Wiring profile](#wiring-profile) |
+| `BENCHPOD_WIRING_SOURCE` | no `wiring_source` argument | `local` never asks embeddedci.com for the pod's stored wiring profile; `auto` (default) does, see [Wiring profile](#wiring-profile) |
 | `BENCHPOD_LIFT_DAC_LIMITS` | pytest sessions | `1` clears the pod's DAC output limits for the session and restores the same limits at the end, even when tests fail (only with the output stage switched off) |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 
@@ -339,6 +357,11 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 Connection resolution order: `--benchpod-connection` → `benchpod_connection` ini option →
 `BENCHPOD_CONNECTION` → `--benchpod-discover`.
 
+The plugin never falls back to the connection `benchpod-cli` saved on this machine, unlike
+`BenchPod()`: a suite must not start driving hardware on a developer's machine just because they
+once ran `benchpod set-connection`. Opt in with `--benchpod-connection=saved` (or `saved` in the ini
+option or `BENCHPOD_CONNECTION`); with nothing saved the hardware tests skip and say why.
+
 ```ini
 # pytest.ini
 [pytest]
@@ -350,7 +373,7 @@ benchpod_connection = 192.168.1.213
 | Fixture | Scope | Provides |
 |---|---|---|
 | `benchpod_la_voltage` | session | the board's I/O voltage selected on connect — **override it in `conftest.py`** (default `None` → `BENCHPOD_LA_VOLTAGE`) |
-| `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, a cloud device's stored profile, the defaults). An explicit profile also supplies the LA voltage when nothing else sets one |
+| `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, the pod's profile stored on embeddedci.com, the defaults; see [Wiring profile](#wiring-profile)). An explicit profile also supplies the LA voltage when nothing else sets one |
 | `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
 | `benchpod_target` | function | `benchpod` with the target rail (`--benchpod-efuse`, else the wiring profile's) powered on for the test, off at teardown |
@@ -418,9 +441,24 @@ A role set to `None` is not wired. Construction validates the whole profile and 
 listing every problem — including two roles or signals on one LA channel; `wiring.warnings()` lists
 wiring that works but is risky, such as an I2C bus on a channel without a pull-up.
 
-**Where the profile comes from** (`bp.wiring`, resolved once): the `wiring=` argument (a `Wiring`, a
-dict, or a `.json`/`.toml` file) → the `BENCHPOD_WIRING` file → for a cloud device
-(`embeddedci:<device>`), the profile stored on embeddedci.com, which the web UI edits → the defaults.
+**Where the profile comes from.** The web UI, the CLI, the SDK and the MCP server use one profile
+per pod: the one stored on embeddedci.com. `bp.wiring` is resolved once, first match wins:
+
+| # | Source | `bp.wiring.source` |
+|---|---|---|
+| 1 | the `wiring=` argument (a `Wiring`, a dict, or a `.json`/`.toml` file); in pytest `--benchpod-wiring`, then the `benchpod_wiring` fixture | `dict`, `file` (a `Wiring` keeps its own) |
+| 2 | the `BENCHPOD_WIRING` file | `file` |
+| 3 | the profile stored on embeddedci.com for this pod, as the web UI's Wiring tab shows it: for `embeddedci:<device>` that device; over the LAN (or a USB console that answers JSON commands), the device the pod reports it is registered as, when an API key (`api_key=` / `BENCHPOD_API_KEY`) or the `benchpod login` session is available and that device is on the same account | `server` |
+| 4 | the defaults | `defaults` |
+
+Step 3 never fails the connection. Without credentials, with the pod not registered, the server
+unreachable, or the pod on another account, the SDK logs why (logger `embeddedci.benchpod`) and uses
+the defaults; over the LAN or USB it gives up after about 3 seconds. The STM32 pod's USB text
+console cannot say which device it is registered as, so over USB the defaults apply unless
+`wiring=` or `BENCHPOD_WIRING` gives a profile. `wiring_source="local"` (or
+`BENCHPOD_WIRING_SOURCE=local`) skips step 3 entirely, for offline benches or a bench that should
+ignore the stored profile.
+
 `bp.wiring = ...` swaps it for this connection; `bp.save_wiring(profile)` stores it for a cloud device.
 A file holds the same JSON object the server stores:
 
