@@ -9,7 +9,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04: ubuntu-latest moves to Ubuntu 26 from 2026-10-19. Unpin once 26.04 is verified.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +54,7 @@ jobs:
     # The MCP server against the oldest SDK its pin allows, installed from PyPI, so a tool that
     # needs newer SDK code fails here instead of on a user's machine. A separate job, not an
     # entry in the test matrix: an extra matrix key would rename the required "test (3.x)" checks.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +75,7 @@ jobs:
         run: pytest -q packages/embeddedci-mcp
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         package: [embeddedci, embeddedci-mcp, embeddedci-openhtf]
