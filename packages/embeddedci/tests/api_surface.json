@@ -74,10 +74,12 @@
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
+    "disable_gps": "(self) -> 'None'",
     "disable_i2c_sensor": "(self) -> 'None'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
-    "enable_i2c_sensor": "(self, sensor: 'Union[Sensor, str]' = <Sensor.BMP280: 'bmp280'>, *, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, address: 'Optional[int]' = None, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None) -> 'Dict[str, Any]'",
+    "enable_gps": "(self, tx: 'Union[Pin, int, str]', *, baud: 'int' = 9600, rate_hz: 'int' = 1, sentences: 'Union[str, Sequence[str], None]' = None, utc: 'Union[_dt.datetime, str, int, None]' = None, **fix: 'Any') -> 'Dict[str, Any]'",
+    "enable_i2c_sensor": "(self, sensor: 'Union[Sensor, str]' = <Sensor.BMP280: 'bmp280'>, *, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, address: 'Optional[int]' = None, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None, **values: 'float') -> 'Dict[str, Any]'",
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
@@ -87,9 +89,11 @@
     "get_la_voltage": "(self) -> 'LaVoltage'",
     "gpio": "(self, la: 'Union[Pin, int, str]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'GpioPin'",
     "gpio_pins": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[GpioPin]'",
+    "gps_status": "(self) -> 'Dict[str, Any]'",
     "i2c_sensor_capture": "(self, samples: 'int' = 1024, *, sample_rate_hz: 'Optional[float]' = None) -> 'List[_i2c.I2CTransaction]'",
     "i2c_sensor_regs": "(self, *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
     "i2c_sensor_status": "(self) -> 'Dict[str, Any]'",
+    "i2c_sensor_types": "(self) -> 'List[Dict[str, Any]]'",
     "la_pins": "(self) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
     "leased": "property",
@@ -119,7 +123,8 @@
     "save_wiring": "(self, wiring: 'Union[Wiring, Mapping[str, Any], str, None]' = None) -> 'Wiring'",
     "server_api": "property",
     "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'int') -> 'None'",
-    "set_i2c_sensor": "(self, *, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None) -> 'Dict[str, Any]'",
+    "set_gps": "(self, *, utc: 'Union[_dt.datetime, str, int, None]' = None, **fix: 'Any') -> 'Dict[str, Any]'",
+    "set_i2c_sensor": "(self, *, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None, **values: 'float') -> 'Dict[str, Any]'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
@@ -243,6 +248,8 @@
       "pod_current",
       "analog",
       "dac_limits",
+      "sensor_types",
+      "gps",
       "flash_kb",
       "blob_slots",
       "ota_sig",
@@ -706,7 +713,10 @@
   },
   "Sensor": {
     "__members__": {
-      "BMP280": "bmp280"
+      "BME280": "bme280",
+      "BMP280": "bmp280",
+      "MPU6050": "mpu6050",
+      "SHT4X": "sht4x"
     }
   },
   "ServerApi": {

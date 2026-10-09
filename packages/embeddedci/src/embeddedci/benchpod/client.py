@@ -26,6 +26,7 @@ hatches below that API and are not covered by its stability guarantee.
 from __future__ import annotations
 
 import base64
+import datetime as _dt
 import logging
 import math
 import os
@@ -38,6 +39,7 @@ from . import capture as _capture
 from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import flash as _flash
+from . import gps as _gps
 from . import i2c as _i2c
 from . import motor_emulator as _motor_emulator
 from . import sensor as _sensor
@@ -685,31 +687,55 @@ class BenchPod:
         address: Optional[int] = None,
         temperature_c: Optional[float] = None,
         pressure_pa: Optional[float] = None,
+        **values: float,
     ) -> Dict[str, Any]:
-        """Make the pod emulate an I2C sensor (a BMP280) on ``sda``/``scl``.
+        """Make the pod emulate an I2C sensor on ``sda``/``scl``.
 
-        The pod becomes an I2C target the DUT's controller can read. Engage the pull-ups on SDA/SCL
-        first (:meth:`enable_pullup`) so the open-drain bus idles high. Optionally seed
-        ``temperature_c``/``pressure_pa``. Omitted ``sda``, ``scl`` and ``address`` come from the
-        wiring profile. Returns the pod's start reply.
+        ``sensor`` is a :class:`Sensor` (BMP280, BME280, SHT4x, MPU-6050). The pod becomes an I2C
+        target the DUT's controller can read. Engage the pull-ups on SDA/SCL first
+        (:meth:`enable_pullup`) so the open-drain bus idles high. Seed its readings with
+        ``temperature_c``/``pressure_pa`` or any of the model's parameters as keywords
+        (``humidity_pct=55``, ``accel_z_g=1.0``; :meth:`i2c_sensor_types` lists them). Omitted
+        ``sda`` and ``scl`` come from the wiring profile; an omitted ``address`` is the profile's
+        ``i2c_addr`` for a BMP280/BME280 and the model's default otherwise. Returns the pod's
+        start reply.
         """
         sda_i = self._wired(sda, "i2c_sda")
         scl_i = self._wired(scl, "i2c_scl")
-        addr = self.wiring.i2c_address if address is None else address
+        name = sensor.value if isinstance(sensor, Sensor) else str(sensor)
+        if name != Sensor.BMP280.value:
+            self._require_capability("sensor_types", f"{name} emulation and the other sensor models")
+        addr = address
+        if addr is None and name in (Sensor.BMP280.value, Sensor.BME280.value):
+            addr = self.wiring.i2c_address
         with _classified_errors():
             result = _sensor.sensor_start(
-                self._transport, sensor, sda=sda_i, scl=scl_i, address=addr
+                self._transport, name, sda=sda_i, scl=scl_i, address=addr
             )
-            if temperature_c is not None or pressure_pa is not None:
-                _sensor.sensor_set(self._transport, temperature_c=temperature_c,
+            if temperature_c is not None or pressure_pa is not None or values:
+                _sensor.sensor_set(self._transport, values, temperature_c=temperature_c,
                                    pressure_pa=pressure_pa)
         return result
 
     def set_i2c_sensor(self, *, temperature_c: Optional[float] = None,
-                       pressure_pa: Optional[float] = None) -> Dict[str, Any]:
-        """Update the emulated sensor's reported values (at least one)."""
-        return _sensor.sensor_set(self._transport, temperature_c=temperature_c,
-                                  pressure_pa=pressure_pa)
+                       pressure_pa: Optional[float] = None, **values: float) -> Dict[str, Any]:
+        """Update the emulated sensor's readings: any of the active model's parameters.
+
+        ``set_i2c_sensor(temperature_c=30)``, ``set_i2c_sensor(humidity_pct=80)``,
+        ``set_i2c_sensor(accel_x_g=0.0, accel_y_g=0.0, accel_z_g=-1.0)``. At least one value; the
+        pod rejects the whole request if any is unknown or out of range. Returns the model and
+        every parameter's new value.
+        """
+        with _classified_errors():
+            return _sensor.sensor_set(self._transport, values, temperature_c=temperature_c,
+                                      pressure_pa=pressure_pa)
+
+    def i2c_sensor_types(self) -> List[Dict[str, Any]]:
+        """The sensor models the pod emulates, each with its addresses and the parameters
+        :meth:`set_i2c_sensor` takes (key, unit, min, max, default)."""
+        self._require_capability("sensor_types", "the sensor model list")
+        with _classified_errors():
+            return _sensor.sensor_types(self._transport)
 
     def disable_i2c_sensor(self) -> None:
         """Disarm the emulated sensor (safe if none is active)."""
@@ -732,6 +758,53 @@ class BenchPod:
         :meth:`decode`.
         """
         return _i2c.decode(_sensor.sensor_la(self._transport, samples, sample_rate_hz))
+
+    # -- emulated GPS receiver -------------------------------------------------
+
+    def enable_gps(
+        self,
+        tx: Union[Pin, int, str],
+        *,
+        baud: int = 9600,
+        rate_hz: int = 1,
+        sentences: Union[str, Sequence[str], None] = None,
+        utc: Union[_dt.datetime, str, int, None] = None,
+        **fix: Any,
+    ) -> Dict[str, Any]:
+        """Make the pod play a GPS receiver: NMEA sentences on LA channel ``tx`` (the DUT's RX).
+
+        The pod prints one fix every ``1/rate_hz`` s at ``baud`` (default 9600 baud, 1 Hz, all of
+        RMC VTG GGA GSA GSV GLL, like a u-blox module out of the box) from UART2, a second UART,
+        so the UART proxy and the DUT's console keep working. Set the fix with keywords:
+        ``latitude_deg``, ``longitude_deg``, ``altitude_m``, ``speed_kmh``, ``course_deg``,
+        ``satellites``, ``hdop``, ``fix`` (0 none, 1 GPS, 2 DGPS). ``utc`` (a datetime, ISO
+        string or seconds since 1970) defaults to now: the pod has no clock of its own. Between
+        fixes the position moves along ``course_deg`` at ``speed_kmh``. Needs gateware v48
+        (``"gps"`` in :meth:`status` caps). Returns :meth:`gps_status`.
+        """
+        self._require_capability("gps", "the GPS receiver (gateware v48, UART2)")
+        tx_i = self._resolve_la(tx, "tx")[0]
+        when = _dt.datetime.now(_dt.timezone.utc) if utc is None else utc
+        with _classified_errors():
+            return _gps.gps_start(self._transport, tx=tx_i, baud=baud, rate_hz=rate_hz,
+                                  sentences=sentences, utc=when, **fix)
+
+    def set_gps(self, *, utc: Union[_dt.datetime, str, int, None] = None, **fix: Any) -> Dict[str, Any]:
+        """Change the fix the receiver prints (any subset of the :meth:`enable_gps` fields and
+        ``utc``); kept for the next :meth:`enable_gps` when none runs. Returns :meth:`gps_status`."""
+        with _classified_errors():
+            return _gps.gps_set(self._transport, utc=utc, **fix)
+
+    def disable_gps(self) -> None:
+        """Stop the GPS receiver and release its pin (safe if none runs)."""
+        with _classified_errors():
+            _gps.gps_stop(self._transport)
+
+    def gps_status(self) -> Dict[str, Any]:
+        """The receiver's session (``tx``, ``baud``, ``rate_hz``, ``sentences``, ``epochs``,
+        ``overruns``) and the fix it prints (``utc`` in seconds since 1970)."""
+        with _classified_errors():
+            return _gps.gps_status(self._transport)
 
     # -- analog paths ---------------------------------------------------------
     # One named path == one fully-specified switch state, defined once in the firmware, so the SDK

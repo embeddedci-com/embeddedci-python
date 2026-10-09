@@ -725,8 +725,12 @@ v35+ and falls back to a short capture on older gateware. GPIO needs pod firmwar
 
 ## Emulated I2C sensor
 
-The pod can **be an I2C sensor** (a BMP280) on two LA channels, so firmware that probes a sensor can
-be tested with it present, absent, or reporting chosen values:
+The pod can **be an I2C sensor** on two LA channels, so firmware that probes a sensor can be tested
+with it present, absent, or reporting chosen values. It emulates a Bosch **BMP280**
+(`Sensor.BMP280`: temperature, pressure), a **BME280** (`Sensor.BME280`: plus humidity), a Sensirion
+**SHT4x** (`Sensor.SHT4X`: temperature, humidity) and an InvenSense **MPU-6050** (`Sensor.MPU6050`:
+accelerometer, gyroscope, die temperature); `bp.i2c_sensor_types()` lists each model's address and
+the readings it takes (key, unit, range, default):
 
 ```python
 from embeddedci.benchpod import BMP280_ADDR_PRIMARY, PIN1, PIN2, Sensor, i2c
@@ -744,6 +748,23 @@ assert i2c.read_register(txns, BMP280_ADDR_PRIMARY, 0xD0) == [0x58]
 bp.disable_i2c_sensor()
 ```
 
+Any model's readings go in as keywords, on `enable_i2c_sensor` or later on `set_i2c_sensor`; the
+reply lists every value:
+
+```python
+bp.enable_i2c_sensor(Sensor.SHT4X, sda=PIN2, scl=PIN1, temperature_c=21.0, humidity_pct=45.0)
+bp.set_i2c_sensor(humidity_pct=95.0)              # condensation alarm?
+
+bp.enable_i2c_sensor(Sensor.MPU6050, sda=PIN2, scl=PIN1, accel_z_g=1.0)   # lying flat
+bp.set_i2c_sensor(accel_x_g=0.0, accel_y_g=0.0, accel_z_g=-1.0)          # turned upside down
+bp.set_i2c_sensor(gyro_z_dps=180.0)              # spinning
+```
+
+The address defaults to the model's own (the wiring profile's `i2c_addr` for the BMP280/BME280).
+Registers the DUT writes stay as it wrote them: the MPU-6050's readings follow the full-scale range
+the DUT selects, read 0 until the driver wakes the part, and a soft reset clears itself as on the
+real chip. Models other than the BMP280 need firmware with the `sensor_types` capability.
+
 `i2c_sensor_capture` samples fast enough to resolve the bus at around 500 kS/s – 1 MS/s; one call
 covers a few tens of milliseconds, so to catch a one-shot boot probe, call it repeatedly right after
 powering the DUT on. The `benchpod.i2c` decoder handles START / repeated START / STOP, R/W, per-byte
@@ -751,6 +772,31 @@ ACK/NACK and the "write register pointer, then read" pattern (`read_register`, `
 decodes `(scl, sda)` streams (`i2c.decode_samples`) and synthesizes traces (`i2c.synthesize`), so
 decode logic can be tested without hardware. For a bus on arbitrary channels, use `capture_la` +
 `decode` (below).
+
+## Emulated GPS receiver
+
+The pod can **play a GPS module**: NMEA sentences on one LA channel wired to the DUT's UART RX, the
+way a u-blox NEO-6M/M8N prints them out of the box (9600 baud, one fix a second, RMC VTG GGA GSA GSV
+GLL, checksummed). It runs on a second UART in the gateware (v48+, the `gps` capability), so the
+UART proxy stays free for the DUT's console:
+
+```python
+st = bp.enable_gps("PIN9", latitude_deg=50.8466, longitude_deg=4.3528, altitude_m=56,
+                   satellites=9)                # utc defaults to now: the pod has no clock
+bp.set_gps(speed_kmh=36, course_deg=90)          # drive east: the position moves between fixes
+bp.set_gps(fix=0)                                # lose the lock: empty position, RMC status V
+print(bp.gps_status())                           # epochs sent, overruns, the current fix
+bp.disable_gps()
+```
+
+`enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)` takes an LA channel or a
+wiring name for `tx`, up to 10 fixes a second, and a subset of sentences (`"RMC,GGA"`). The fix
+fields are `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`
+(0-12), `hdop` and `fix` (0 none, 1 GPS, 2 DGPS); they keep their values across sessions.
+`utc` is a `datetime`, an ISO 8601 string or seconds since 1970. One fix must fit the period at the
+baud rate (the full set is ~450 bytes: 9600 baud carries 1-2 a second; 10 Hz needs 115200 or
+fewer sentences); the pod refuses a setting that cannot keep up. To check what the DUT receives,
+capture the channel (`capture_la`) and decode it with `decode_uart`.
 
 ## Analog paths, DC output and single readings
 
@@ -1363,7 +1409,8 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
 | GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
-| I2C sensor | `enable_i2c_sensor(...)`, `set_i2c_sensor(...)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
+| I2C sensor | `enable_i2c_sensor(sensor=Sensor.BMP280, *, sda=None, scl=None, address=None, **values)`, `set_i2c_sensor(**values)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_types()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
+| GPS receiver | `enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)`, `set_gps(*, utc=None, **fix)`, `disable_gps()`, `gps_status()` |
 | Analog | `analog_path(path)`, `adc_read(source="ext")`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration()` |
 | Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
@@ -1398,7 +1445,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
 | `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
 | `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
-| `Sensor` (enum) | `enable_i2c_sensor` | `Sensor.BMP280` |
+| `Sensor` (enum) | `enable_i2c_sensor` | `Sensor.BMP280`, `Sensor.BME280`, `Sensor.SHT4X`, `Sensor.MPU6050` |
 | `I2CTransaction` | `i2c_sensor_capture`, `decode("i2c")` | `messages`, `complete`, `address`, `to(address)` |
 | `I2CMessage` | `I2CTransaction.messages` | `address`, `read`, `address_ack`, `data`, `values` |
 | `I2CByte` | `I2CMessage.data` | `value`, `ack` |
@@ -1452,7 +1499,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |

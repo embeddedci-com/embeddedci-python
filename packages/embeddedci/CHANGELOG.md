@@ -1,5 +1,18 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- More emulated I2C sensors: `Sensor.BME280` (temperature, pressure, humidity), `Sensor.SHT4X`
+  (temperature, humidity) and `Sensor.MPU6050` (accelerometer, gyroscope, die temperature).
+  `enable_i2c_sensor` and `set_i2c_sensor` take any model's readings as keywords
+  (`set_i2c_sensor(humidity_pct=80)`, `accel_z_g=-1.0`); `i2c_sensor_types()` lists each model's
+  address and readings. An omitted `address` is now the model's default (the wiring profile's
+  `i2c_addr` for the BMP280/BME280, as before). Needs firmware with the `sensor_types` capability.
+- Emulated GPS receiver: `enable_gps`, `set_gps`, `disable_gps`, `gps_status`: NMEA sentences
+  (RMC VTG GGA GSA GSV GLL) on an LA channel for the DUT's UART, from the pod's second UART, so
+  `open_uart` keeps the console. Needs gateware v48 (the `gps` capability).
+- `Capabilities.sensor_types` and `Capabilities.gps`.
+
 ## 2.8.0
 
 - `UnsupportedFeatureError` (with `feature` and `firmware_version`): the pod cannot do what was
