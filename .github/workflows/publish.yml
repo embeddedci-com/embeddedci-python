@@ -39,7 +39,7 @@ jobs:
   verify:
     name: Check the tag against the package version
     # Pinned to ubuntu-24.04: ubuntu-latest moves to Ubuntu 26 from 2026-10-19. Unpin once 26.04 is verified.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -55,7 +55,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/embeddedci-v')
     name: Publish embeddedci
     needs: [verify, tests]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: pypi
     permissions:
       id-token: write # required for trusted publishing
@@ -81,7 +81,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/embeddedci-py39-shim-v')
     name: Publish embeddedci 0.2.4 (Python 3.9 placeholder)
     needs: [verify, tests]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: pypi
     permissions:
       id-token: write # required for trusted publishing
@@ -104,7 +104,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
     name: Publish embeddedci-mcp
     needs: [verify, tests]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: pypi-embeddedci-mcp
     permissions:
       id-token: write # required for trusted publishing
@@ -127,7 +127,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/embeddedci-openhtf-v')
     name: Publish embeddedci-openhtf
     needs: [verify, tests]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: pypi-embeddedci-openhtf
     permissions:
       id-token: write # required for trusted publishing
@@ -150,7 +150,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/embeddedci-mcp-v')
     name: Publish embeddedci-mcp to the MCP Registry
     needs: publish-embeddedci-mcp
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       id-token: write # mcp-publisher login github-oidc
       contents: read
