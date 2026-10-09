@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `connect` without a connection now uses, in order: `--connection`, `BENCHPOD_CONNECTION`, the
+  default connection `benchpod-cli` saved (`benchpod set-connection`), then mDNS discovery. The
+  saved connection needs embeddedci 2.10 or newer; with an older SDK the step is skipped.
+  **Behavior change:** on a machine with a saved CLI connection, `connect()` goes there instead of
+  discovering a pod over mDNS.
+- One wiring profile everywhere: on a LAN or USB connection the `wiring` tool (and every tool that
+  falls back to the profile) now uses the profile stored on embeddedci.com for the pod, as the web
+  UI's Wiring tab shows it, when `BENCHPOD_API_KEY` or the `benchpod login` session is available
+  and the pod is registered on that account (embeddedci 2.10 or newer). `BENCHPOD_WIRING` still
+  wins, `BENCHPOD_WIRING_SOURCE=local` skips the lookup, and any failure falls back to the
+  defaults within about 3 seconds. **Behavior change:** a signed-in user's registered LAN pod
+  reports `source: "server"` instead of `"defaults"` when a profile is stored.
+- `connect` and `status` report `wiring_source` (`server`, `file`, `dict` or `defaults`).
+- The `benchpod login` session is also handed to the SDK for a LAN or USB connection when a login
+  exists, so the waveform library works there without an API key too.
 - `connect` without a connection, `--connection` or `BENCHPOD_CONNECTION` now looks for the pod
   on the LAN over mDNS (as `discover` does) instead of failing with "no connection given", so
   `BENCHPOD_CONNECTION` is optional for a single pod on your network. When discovery finds no pod

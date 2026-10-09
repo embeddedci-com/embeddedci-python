@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- One wiring profile everywhere. A LAN or USB `BenchPod` now uses the wiring profile stored on
+  embeddedci.com for the pod (the web UI's Wiring tab), as a cloud connection already did, when
+  credentials are available (`api_key=` / `BENCHPOD_API_KEY`, `cloud_user_token=`, or the
+  `benchpod login` session) and the pod reports (`cloud_status`) a device id on that account;
+  `bp.wiring.source` is then `"server"`. The `wiring=` argument, `--benchpod-wiring`, the
+  `benchpod_wiring` fixture and `BENCHPOD_WIRING` still win. Any failure (no credentials, pod not
+  registered, server unreachable, HTTP 404, another account) logs why and uses the defaults; it
+  never raises and gives up after about 3 seconds. (The STM32 pod's USB text console has no
+  `cloud_status`, so over USB the defaults still apply there.) New `wiring_source=` argument and
+  `BENCHPOD_WIRING_SOURCE` variable: `"local"` skips the embeddedci.com lookup on every
+  connection kind, `"auto"` is the default.
+  **Behavior change:** a signed-in developer (or a run with `BENCHPOD_API_KEY`) whose LAN or USB
+  pod is registered and has a stored profile now gets that profile instead of the defaults, and
+  the first `bp.wiring` access on such a connection makes one `cloud_status` call to the pod and
+  one request to embeddedci.com. Set `BENCHPOD_WIRING_SOURCE=local` for the old behavior.
+- One saved connection. `BenchPod()` with no `connection` argument and no `BENCHPOD_CONNECTION`
+  now uses the default connection `benchpod-cli` saved (`benchpod set-connection`,
+  `benchpod discover --save`) in `~/.config/benchpod-cli/config.json` (under `$XDG_CONFIG_HOME`
+  when set). Precedence: argument, then `BENCHPOD_CONNECTION`, then the saved connection. The file
+  is only read; a missing or malformed one counts as nothing saved. The connection string `saved`
+  names it explicitly. **Behavior change:** `BenchPod()` used to raise `ConnectionConfigError`
+  here; it now connects to the saved pod when there is one.
+- The pytest plugin keeps its behavior: without `--benchpod-connection`, the ini option or
+  `BENCHPOD_CONNECTION` the hardware fixtures skip, and the CLI's saved connection is never used
+  implicitly, so a suite does not start driving hardware on a developer's machine. Opt in with
+  `--benchpod-connection=saved`.
+- New modules `embeddedci.benchpod.cli_config` (`saved_connection()`, `config_path()`) and
+  `embeddedci.benchpod.cli_login` (the `benchpod login` session, as the MCP server reads it).
 - Friendlier pod refusals: a `FirmwareError` whose fix the firmware spells as a raw protocol
   command now names the SDK call instead. "la voltage not set" says to set the board's I/O voltage
   with `BenchPod(conn, la_voltage=3.3)`, the `benchpod_la_voltage` fixture or

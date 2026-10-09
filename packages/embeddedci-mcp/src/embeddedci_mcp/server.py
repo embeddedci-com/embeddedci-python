@@ -292,7 +292,8 @@ def _status() -> m.StatusResult:
     if not SESSION.connected and not SESSION.reconnectable:
         default = SESSION.default_connection
         hint = (f"call connect (the server default is {default!r})" if default
-                else "call connect: without a connection it finds the one pod on the LAN over mDNS; "
+                else "call connect: without a connection it uses the one saved with `benchpod "
+                     "set-connection`, else finds the one pod on the LAN over mDNS; "
                      "else pass a host, 'usb' or 'embeddedci:<device>'")
         return m.StatusResult(connected=False, warnings=[f"not connected — {hint}"])
     pod = SESSION.require()
@@ -313,13 +314,17 @@ def _status() -> m.StatusResult:
     if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
         warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
                         "the cloud ('embeddedci:<device>') or the USB console")
+    try:
+        wiring_source: Optional[str] = pod.wiring.source
+    except (BenchPodError, ValueError, OSError):
+        wiring_source = None
     if la is None:
         warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
                         "the DUT) before flash, UART, LA capture, pulls or I2C-sensor emulation")
     return m.StatusResult(
         connected=True, connection=SESSION.connection, kind=SESSION.kind, leased=pod.leased,
         la_voltage=la, capabilities=m.CapabilitiesInfo.from_caps(pod.capabilities),
-        session=SESSION.info(), warnings=warnings, firmware=firmware,
+        session=SESSION.info(), warnings=warnings, firmware=firmware, wiring_source=wiring_source,
     )
 
 
@@ -328,7 +333,8 @@ async def connect(
     connection: Annotated[Optional[str], Field(description=(
         "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), "
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
-        "(--connection or BENCHPOD_CONNECTION), else to find the one pod on the LAN over mDNS."))] = None,
+        "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
+        "set-connection`), else to find the one pod on the LAN over mDNS."))] = None,
     la_voltage: Annotated[Optional[Literal[1.8, 3.3]], Field(description=(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage)."))] = None,
     lease_wait: Annotated[float, Field(ge=0, le=3600, description=(

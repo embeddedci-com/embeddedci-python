@@ -4,6 +4,7 @@ MCP client does — through FastMCP's argument validation, error mapping and res
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, Dict, Iterator, List, Optional
 
 import anyio
@@ -431,3 +432,15 @@ def connected(fake_open, fake_transport) -> FakeTransport:
     """A session connected (via the connect tool) to the fake pod, LA bank at 3.3 V."""
     call("connect", connection="192.168.1.50", la_voltage=3.3)
     return fake_transport
+
+
+@pytest.fixture(autouse=True)
+def _isolated_benchpod_cli_config(request, tmp_path_factory, monkeypatch):
+    """Unit tests never see this machine's benchpod-cli config (its saved connection) or its
+    `benchpod login` session: both change what BenchPod() connects to and where its wiring comes
+    from. Hardware tests (e2e, examples) keep them."""
+    path = str(request.node.fspath)
+    if "e2e" in os.path.basename(path) or os.sep + "e2e" + os.sep in path \
+            or os.sep + "examples" + os.sep in path:
+        return
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))

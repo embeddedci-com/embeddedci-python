@@ -105,6 +105,9 @@ class StatusResult(BaseModel):
     session: SessionInfo = Field(default_factory=SessionInfo)
     warnings: List[str] = Field(default_factory=list)
     firmware: Dict[str, Any] = Field(default_factory=dict, description="The pod's raw status report.")
+    wiring_source: Optional[str] = Field(None, description=(
+        "Where this connection's wiring profile came from: server (stored on embeddedci.com, as the "
+        "web UI's Wiring tab shows it), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))
 
 
 class LaVoltageResult(BaseModel):
@@ -134,7 +137,9 @@ class WiringPin(BaseModel):
 class WiringResult(BaseModel):
     """The bench's effective wiring profile: which DUT signal is on which LA channel."""
 
-    source: str = Field(description="Where the profile came from: defaults, file, server or dict.")
+    source: str = Field(description=(
+        "Where the profile came from: server (stored on embeddedci.com for this pod, over the cloud "
+        "or, signed in, over the LAN/USB), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))
     version: int = 1
     la_voltage: float = Field(description="LA I/O-bank voltage the profile asks for, in volts.")
     efuse: int = Field(description=(

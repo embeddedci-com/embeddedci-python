@@ -808,7 +808,7 @@
             }
           ],
           "default": null,
-          "description": "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), 'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default (--connection or BENCHPOD_CONNECTION), else to find the one pod on the LAN over mDNS.",
+          "description": "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), 'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default (--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod set-connection`), else to find the one pod on the LAN over mDNS.",
           "title": "Connection"
         },
         "la_voltage": {

@@ -38,7 +38,7 @@
     ]
   },
   "BenchPod": {
-    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None) -> 'None'",
+    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None, wiring_source: 'Optional[str]' = None) -> 'None'",
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
     "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",

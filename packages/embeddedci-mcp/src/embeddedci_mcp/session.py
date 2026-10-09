@@ -59,21 +59,34 @@ def connection_kind(connection: str) -> str:
 
 
 def cloud_user_token(connection: str) -> Optional[Callable[[], str]]:
-    """For a cloud connection without BENCHPOD_API_KEY, outside GitHub Actions (which uses OIDC):
-    the `benchpod login` session, exchanged by the SDK for a device session token."""
-    if connection_kind(connection) != "embeddedci" or os.environ.get(API_KEY_ENV):
+    """The `benchpod login` session, without BENCHPOD_API_KEY and outside GitHub Actions (which uses
+    OIDC). For a cloud connection the SDK exchanges it for a device session token; for a LAN or USB
+    pod (only when a login exists) the SDK reads the pod's stored wiring profile with it, so the
+    `wiring` tool shows what the web UI's Wiring tab shows."""
+    if os.environ.get(API_KEY_ENV) or os.environ.get("GITHUB_ACTIONS") == "true":
         return None
-    if os.environ.get("GITHUB_ACTIONS") == "true":
+    if connection_kind(connection) != "embeddedci" and not cli_login.token_path().is_file():
         return None
     base = os.environ.get(API_BASE_ENV) or DEFAULT_API_BASE
     return lambda: cli_login.access_token(base)
+
+
+def saved_connection() -> Optional[str]:
+    """The default connection `benchpod-cli` saved (`benchpod set-connection`), or None. Needs an
+    SDK that reads it (embeddedci 2.10); older ones have none."""
+    try:
+        from embeddedci.benchpod.cli_config import saved_connection as _saved
+    except ImportError:  # pragma: no cover - embeddedci < 2.10
+        return None
+    return _saved()
 
 
 #: What to pass instead when mDNS finds no single pod.
 CONNECTION_HELP = (
     "pass connection= one of: host[:port] (a pod on the LAN, default port 8080), 'usb' (a pod on "
     "this machine's USB), or 'embeddedci:<device>' for a cloud pod (cloud_list_devices lists "
-    "them). The user can also make one the default with " + ENV_VAR + " or --connection."
+    "them). The user can also make one the default with `benchpod set-connection <target>`, "
+    + ENV_VAR + " or --connection."
 )
 
 
@@ -101,7 +114,8 @@ class Session:
         self.lock = threading.RLock()
         self._pod: Optional[BenchPod] = None
         #: Connection used by ``connect`` when called without one (``--connection``); falls back to
-        #: ``BENCHPOD_CONNECTION``, then to mDNS discovery of a single pod on the LAN.
+        #: ``BENCHPOD_CONNECTION``, then to the connection ``benchpod-cli`` saved, then to mDNS
+        #: discovery of a single pod on the LAN.
         self.default_connection: Optional[str] = None
         #: LA voltage applied on connect when the tool call does not pass one (``--la-voltage``);
         #: falls back to ``BENCHPOD_LA_VOLTAGE`` inside the SDK.
@@ -145,7 +159,8 @@ class Session:
         """Open (or re-open) the device, closing any prior connection and sessions first."""
         with self.lock:
             self.disconnect()
-            conn = connection or self.default_connection or os.environ.get(ENV_VAR)
+            conn = (connection or self.default_connection or os.environ.get(ENV_VAR)
+                    or saved_connection())
             if not conn:
                 conn = discover_connection()
             la = self.default_la_voltage if la_voltage is None else la_voltage

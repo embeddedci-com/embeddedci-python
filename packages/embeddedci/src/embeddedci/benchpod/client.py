@@ -120,6 +120,12 @@ LA_VOLTAGE_ENV = "BENCHPOD_LA_VOLTAGE"
 API_BASE_ENV = "BENCHPOD_API_BASE"
 API_KEY_ENV = "BENCHPOD_API_KEY"
 WIRING_ENV = "BENCHPOD_WIRING"
+#: ``local`` keeps the wiring lookup off embeddedci.com (see :attr:`BenchPod.wiring`).
+WIRING_SOURCE_ENV = "BENCHPOD_WIRING_SOURCE"
+#: Accepted ``wiring_source`` values: ``auto`` (the default) and ``local``.
+WIRING_SOURCES = ("auto", "local")
+#: Budget, in seconds, for finding a LAN/USB pod's stored wiring profile on embeddedci.com.
+_WIRING_LOOKUP_TIMEOUT = 3.0
 
 #: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
 _GENERATOR_MAX_CODE = 255
@@ -199,13 +205,16 @@ class BenchPod:
         lease_wait: float = DEFAULT_LEASE_WAIT,
         lease_ttl: int = DEFAULT_LEASE_TTL,
         wiring: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]", None] = None,
+        wiring_source: Optional[str] = None,
     ) -> None:
         """Open a BenchPod.
 
         ``connection`` is a host[:port], a serial device path, ``"usb"`` (auto-detect the USB
         console), ``"discover"`` (find one pod on the LAN via mDNS), or ``"embeddedci:<device>"``
         to drive a named device through embeddedci.com. When omitted ``BENCHPOD_CONNECTION`` is
-        used. Pass ``transport`` to inject a custom backend instead.
+        used, else the default connection ``benchpod-cli`` saved (``benchpod set-connection``);
+        ``"saved"`` names that one explicitly. Pass ``transport`` to inject a custom backend
+        instead.
 
         ``la_voltage`` (1.8 or 3.3 volts, falling back to ``BENCHPOD_LA_VOLTAGE``) selects the LA
         I/O-bank voltage right after connecting. The pod refuses every LA-bank operation —
@@ -225,8 +234,16 @@ class BenchPod:
         TCP/serial connections never lease.
 
         ``wiring`` is the bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile (a ``Wiring``, a
-        dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`.
+        dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`. ``wiring_source`` (or
+        ``BENCHPOD_WIRING_SOURCE``) is ``"auto"`` (default) or ``"local"``, which never asks
+        embeddedci.com for the stored profile.
         """
+        source = (wiring_source if wiring_source is not None
+                  else os.environ.get(WIRING_SOURCE_ENV, "")).strip().lower() or "auto"
+        if source not in WIRING_SOURCES:
+            what = "wiring_source" if wiring_source is not None else WIRING_SOURCE_ENV
+            raise ValueError(f"{what} must be 'auto' or 'local', got {source!r}")
+        self._wiring_source = source
         self._wiring: Optional[Wiring] = Wiring.coerce(wiring) if wiring is not None else None
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
@@ -421,8 +438,21 @@ class BenchPod:
         """The bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile: which DUT signal is on
         which LA channel, the target-power rail and the LA I/O voltage.
 
-        Resolved once: the ``wiring`` argument; else the ``BENCHPOD_WIRING`` file; else, for a cloud
-        device, the profile stored on embeddedci.com (edited in the web UI); else the defaults.
+        Resolved once, first match wins:
+
+        1. the ``wiring`` argument (or an assigned profile);
+        2. the ``BENCHPOD_WIRING`` file;
+        3. the profile stored on embeddedci.com for this pod (edited in the web UI's Wiring tab):
+           for a cloud connection, the named device; for a LAN or USB connection, the device the
+           pod reports it is registered as (``cloud_status``), when credentials are available
+           (``api_key``/``BENCHPOD_API_KEY``, or the ``benchpod login`` session) and the device is
+           on that account. ``source`` is then ``"server"``. Skipped with
+           ``wiring_source="local"`` / ``BENCHPOD_WIRING_SOURCE=local``;
+        4. the defaults.
+
+        The lookup in step 3 never raises: without credentials, with the pod not registered, the
+        server unreachable or the device on another account, it logs why and uses the defaults,
+        and on a LAN/USB connection it gives up after about 3 seconds.
         Channel arguments fall back to it — ``open_uart()``, ``capture_uart()``, ``flash()``,
         ``enable_i2c_sensor()``, the power rail — and :meth:`signal` / GPIO names come from it.
         Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`).
@@ -439,16 +469,99 @@ class BenchPod:
         env = os.environ.get(WIRING_ENV, "").strip()
         if env:
             return Wiring.load(env)
-        if self._device_name:
-            api = self._try_server_api()
-            if api is not None:
-                try:
-                    data = api.wiring_profile(api.resolve_device_id(self._device_name))
-                    return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
-                except (BenchPodError, ValueError) as exc:
-                    _log.warning("could not load the wiring profile of %s from embeddedci.com (%s); "
-                                 "using the defaults", self._device_name, exc)
+        if self._wiring_source == "local":
+            return Wiring.defaults()
+        if not self._device_name:  # a LAN or USB pod
+            return self._local_pod_server_wiring() or Wiring.defaults()
+        api = self._try_server_api()
+        if api is not None:
+            try:
+                data = api.wiring_profile(api.resolve_device_id(self._device_name))
+                return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
+            except (BenchPodError, ValueError) as exc:
+                _log.warning("could not load the wiring profile of %s from embeddedci.com (%s); "
+                             "using the defaults", self._device_name, exc)
         return Wiring.defaults()
+
+    def _wiring_credential(self, deadline: float) -> Optional[Tuple[Optional[str], Optional[Callable[[], str]]]]:
+        """``(api_key, token_provider)`` for the wiring lookup of a LAN/USB pod, or None without
+        any: the API key, else the caller's user token, else the ``benchpod login`` session."""
+        if self._api_key:
+            return self._api_key.strip(), None
+        if self._cloud_user_token is not None:
+            return None, self._cloud_user_token
+        from . import cli_login
+
+        if not cli_login.has_session():
+            return None
+        from .cloud_auth import DEFAULT_API_BASE
+
+        base = self._api_base or DEFAULT_API_BASE
+        return None, lambda: cli_login.access_token(
+            base, timeout=max(0.5, deadline - time.monotonic()))
+
+    def _pod_cloud_device_id(self, deadline: float) -> str:
+        """The embeddedci.com device id the pod says it is registered as (``cloud_status``), or
+        "" when it is not registered. Asks with the lookup's short timeout."""
+        cmd = getattr(self._transport, "command", None)
+        if cmd is None:
+            return ""
+        budget = max(0.5, deadline - time.monotonic())
+        saved = {}
+        for attr in ("timeout", "dial_timeout"):
+            value = getattr(self._transport, attr, None)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > budget:
+                saved[attr] = value
+                setattr(self._transport, attr, budget)
+        try:
+            data = _dict(cmd({"cmd": "cloud_status"}))
+        finally:
+            for attr, value in saved.items():
+                setattr(self._transport, attr, value)
+        if data.get("configured") is False:
+            return ""
+        return str(data.get("device_id") or "").strip()
+
+    def _local_pod_server_wiring(self) -> Optional[Wiring]:
+        """The profile stored on embeddedci.com for the device a LAN/USB pod is registered as, or
+        None (logged) when there is no credential, no registration, or the lookup fails."""
+        deadline = time.monotonic() + _WIRING_LOOKUP_TIMEOUT
+        try:
+            cred = self._wiring_credential(deadline)
+            if cred is None:
+                _log.info("wiring: no embeddedci.com credentials (BENCHPOD_API_KEY or `benchpod "
+                          "login`), so the stored profile is not used; using the defaults")
+                return None
+            try:
+                device_id = self._pod_cloud_device_id(deadline)
+            except BenchPodError as exc:
+                # The USB console of current STM32 firmware has no cloud_status: expected, so quieter.
+                level = logging.INFO if type(self._transport).__name__ == "SerialTransport" \
+                    else logging.WARNING
+                _log.log(level, "wiring: could not ask the pod which embeddedci.com device it is "
+                         "(%s); using the defaults", exc)
+                return None
+            if not device_id:
+                _log.info("wiring: the pod is not registered on embeddedci.com; using the defaults")
+                return None
+            from .server_api import ServerApi, ServerApiError
+
+            api_key, token_provider = cred
+            api = ServerApi(api_base=self._api_base, api_key=api_key, token_provider=token_provider,
+                            timeout=max(0.5, deadline - time.monotonic()))
+            try:
+                data = api.wiring_profile(device_id)
+            except ServerApiError as exc:
+                if exc.status in (401, 403, 404):
+                    _log.warning("wiring: the pod's embeddedci.com device %s is not on this account "
+                                 "(HTTP %s); using the defaults", device_id, exc.status)
+                    return None
+                raise
+            return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
+        except Exception as exc:  # the lookup is a convenience: never fail the caller over it
+            _log.warning("wiring: could not load the pod's profile from embeddedci.com (%s); "
+                         "using the defaults", exc)
+            return None
 
     def save_wiring(self, wiring: Union[Wiring, Mapping[str, Any], str, None] = None) -> Wiring:
         """Store a wiring profile for this cloud device on embeddedci.com (default: :attr:`wiring`)

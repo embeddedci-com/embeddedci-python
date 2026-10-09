@@ -32,9 +32,18 @@ claude mcp add benchpod \
 `BENCHPOD_LA_VOLTAGE` is the board's I/O voltage, configured once here — use `1.8` for a 1V8
 board. Without it the agent is told to call `set_la_voltage` before touching the LA bank.
 
-Both variables are optional. With no connection configured (no `connection` argument, no
-`--connection`, no `BENCHPOD_CONNECTION`), `connect` looks for a BenchPod on the LAN over mDNS
-(like `discover`) and uses it when it finds exactly one. When it finds none or several, the error
+Both variables are optional. `connect` picks the pod, first match wins:
+
+1. its `connection` argument;
+2. the server default, `--connection`;
+3. `BENCHPOD_CONNECTION`;
+4. the default connection `benchpod-cli` saved with `benchpod set-connection <address|device|usb>`
+   (read-only, from `~/.config/benchpod-cli/config.json`, or under `$XDG_CONFIG_HOME`);
+5. mDNS discovery of the one pod on the LAN.
+
+So the CLI, the SDK and the MCP server share one saved connection. With none of the first four,
+`connect` looks for a BenchPod on the LAN over mDNS (like `discover`) and uses it when it finds
+exactly one. When it finds none or several, the error
 lists the pods it heard (name and address) and what to pass instead: `host[:port]`, `usb`, or
 `embeddedci:<device>` for a cloud pod (`cloud_list_devices` lists those). So
 `claude mcp add benchpod -- uvx embeddedci-mcp` is enough for a single pod on your network: just
@@ -93,8 +102,9 @@ transport is included:
 ```
 
 Or skip the API key: after `benchpod login`, the server reuses that session
-(`~/.config/benchpod-cli/token.json`, refreshed and written back when it has expired) for both
-`cloud_list_devices` and `connect("embeddedci:<name>")`. `BENCHPOD_API_KEY` wins when set, and
+(`~/.config/benchpod-cli/token.json`, refreshed and written back when it has expired) for
+`cloud_list_devices`, `connect("embeddedci:<name>")` and, on a LAN or USB connection, the pod's
+stored wiring profile. `BENCHPOD_API_KEY` wins when set, and
 inside GitHub Actions the SDK uses OIDC instead.
 
 `cloud_list_devices` lists the pods on your account and which are online, without connecting to
@@ -110,10 +120,12 @@ chat never blocks CI on that pod.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--connection` | `BENCHPOD_CONNECTION` | mDNS | host[:port], serial device, `usb`, `discover`, or `embeddedci:<device>`; unset = find the one pod on the LAN |
+| `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], serial device, `usb`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
+| — | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`) that wins over the stored profile |
+| — | `BENCHPOD_WIRING_SOURCE` | `auto` | `local` never asks embeddedci.com for the pod's stored wiring profile |
 | `--lease-wait` | — | `30` | cloud: seconds to wait for a busy pod |
 | `--idle-timeout` | — | `600` | cloud: release the lease after this many idle seconds (0 = never) |
 | `--timeout` | — | `30` | per-command device timeout |
@@ -152,7 +164,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `connect` | Open a connection (closing any previous one) and report status and capabilities. Without a `connection` or a configured default, finds the one pod on the LAN over mDNS. | `connection`, `la_voltage`, `lease_wait=30` |
+| `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. | `connection`, `la_voltage`, `lease_wait=30` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
 | `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected). | none |
 | `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |
@@ -356,6 +368,16 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   agent that read `wiring` once can call `flash()`, `uart_open()` or `power_on()` with no
   pin numbers at all. `set_wiring` replaces it for the connection, or stores it on embeddedci.com
   with `save: true`.
+
+  It is the same profile the web UI's Wiring tab edits. The SDK resolves it, first match wins:
+  `BENCHPOD_WIRING` (a file); the profile stored on embeddedci.com for this pod (a cloud pod by
+  name; a LAN or USB pod by the device it reports it is registered as, when `BENCHPOD_API_KEY` or
+  the `benchpod login` session is available and that device is on the same account); the
+  defaults. `wiring` and `connect`/`status` (`wiring_source`) report where it came from: `server`,
+  `file`, `dict` (from `set_wiring`) or `defaults`. When the lookup fails (not signed in, pod not
+  registered, server unreachable, another account) the defaults apply and nothing fails; over the
+  LAN or USB it gives up after about 3 seconds. The STM32 pod's USB text console cannot report its
+  registration, so over USB the defaults apply. `BENCHPOD_WIRING_SOURCE=local` skips the lookup.
 - **Agent-sized captures.** `capture_adc` returns calibrated statistics, the dominant frequency and a
   min/max envelope; `capture_la` returns per-channel levels, edges and frequencies. The last captures
   stay in the session, so `decode_la`, `replay(from_last_capture=true)` and

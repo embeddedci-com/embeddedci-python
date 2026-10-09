@@ -6,6 +6,11 @@ connection is: ``--benchpod-connection`` CLI flag > ``benchpod_connection`` ini
 option > ``BENCHPOD_CONNECTION`` environment variable. With no connection
 configured the fixtures ``skip`` rather than fail, so the suite stays green
 without hardware.
+
+Unlike ``BenchPod()``, the plugin never falls back to the connection ``benchpod-cli`` saved on
+this machine: a suite must not start driving hardware just because a developer once ran
+``benchpod set-connection``. Opt in with ``--benchpod-connection=saved`` (or ``saved`` in the
+ini option or ``BENCHPOD_CONNECTION``).
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from typing import Any, ClassVar, Dict, Iterator, Optional, Union
 import pytest
 
 from .client import BenchPod
+from .cli_config import SAVED_KEYWORD, config_path, saved_connection
 from .connection import ENV_VAR
 from .wiring import Wiring
 from .constants import PULL_OHMS as _PULL_OHMS
@@ -116,8 +122,9 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         default=None,
         dest="benchpod_connection",
         help="BenchPod connection: host[:port], a serial device path, 'usb' (auto-detect), "
-        "'discover' (mDNS), or 'embeddedci:<device-name>' to drive a named device through "
-        f"embeddedci.com. Falls back to the {ENV_VAR} env var.",
+        "'discover' (mDNS), 'embeddedci:<device-name>' to drive a named device through "
+        "embeddedci.com, or 'saved' for the default connection benchpod-cli saved "
+        f"(never used unless asked for). Falls back to the {ENV_VAR} env var.",
     )
     group.addoption(
         "--benchpod-api-base",
@@ -160,7 +167,8 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         "--benchpod-wiring", action="store", default=None, dest="benchpod_wiring",
         help="Wiring profile file (.json or .toml): which DUT signal is on which LA channel. Normally "
         "set once by overriding the benchpod_wiring fixture in conftest.py; this flag wins over it. "
-        "Without either: BENCHPOD_WIRING, then a cloud device's stored profile, then the defaults.",
+        "Without either: BENCHPOD_WIRING, then the profile stored on embeddedci.com for the pod "
+        "(BENCHPOD_WIRING_SOURCE=local skips it), then the defaults.",
     )
     group.addoption(
         "--benchpod-discover",
@@ -260,6 +268,8 @@ def _resolve_connection(config: "pytest.Config") -> Optional[str]:
         or os.environ.get(ENV_VAR)
     )
     if explicit:
+        if str(explicit).strip().lower() == SAVED_KEYWORD:
+            return saved_connection()  # None (nothing saved) skips like no connection
         return explicit
     # No explicit target: opt into LAN auto-discovery. "discover" is turned into
     # an mDNS lookup by connection.parse_connection().
@@ -286,11 +296,20 @@ def benchpod_connection(pytestconfig: "pytest.Config") -> str:
     """The configured connection string, or skip the test if none is set."""
     conn = _resolve_connection(pytestconfig)
     if not conn:
+        if _asked_for_saved(pytestconfig):
+            pytest.skip(f"--benchpod-connection=saved, but benchpod-cli saved no connection in "
+                        f"{config_path()} (`benchpod set-connection <address|device|usb>`)")
         pytest.skip(
             "no BenchPod connection configured; pass --benchpod-connection=... "
             f"or set {ENV_VAR}"
         )
     return conn
+
+
+def _asked_for_saved(config: "pytest.Config") -> bool:
+    explicit = (config.getoption("benchpod_connection") or config.getini("benchpod_connection")
+                or os.environ.get(ENV_VAR) or "")
+    return str(explicit).strip().lower() == SAVED_KEYWORD
 
 
 LIFT_DAC_LIMITS_ENV = "BENCHPOD_LIFT_DAC_LIMITS"
@@ -361,8 +380,10 @@ def benchpod_wiring() -> Optional[Union[Wiring, Dict[str, Any], str]]:
             return Wiring(uart_rx=3, uart_tx=4, signals=[Signal("TRIGGER", 9, "output")])
 
     Tests then use names and defaults: ``benchpod.open_uart()``, ``benchpod.signal("TRIGGER")``.
-    The default returns ``None``: ``BENCHPOD_WIRING``, then a cloud device's profile stored on
-    embeddedci.com (edited in the web UI), then the defaults. ``--benchpod-wiring`` overrides it.
+    The default returns ``None``: ``BENCHPOD_WIRING``, then the pod's profile stored on
+    embeddedci.com (edited in the web UI; for a LAN or USB pod when an API key or the
+    ``benchpod login`` session is available; ``BENCHPOD_WIRING_SOURCE=local`` skips it), then the
+    defaults. ``--benchpod-wiring`` overrides it.
     """
     return None
 

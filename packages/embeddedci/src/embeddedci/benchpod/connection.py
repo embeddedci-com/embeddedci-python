@@ -9,9 +9,12 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (an API key
                                       anywhere, or GitHub Actions OIDC)
+* ``saved``                        -> the default connection ``benchpod-cli`` saved
+                                      (``benchpod set-connection``, ``benchpod discover --save``)
 
-Precedence is handled by the caller: an explicit argument wins over the
-``BENCHPOD_CONNECTION`` environment variable.
+:func:`resolve_connection` applies the precedence: an explicit argument, then the
+``BENCHPOD_CONNECTION`` environment variable, then the connection ``benchpod-cli`` saved in
+``~/.config/benchpod-cli/config.json``.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ import os
 import re
 from dataclasses import dataclass
 
+from .cli_config import SAVED_KEYWORD, config_path, saved_connection
 from .errors import ConnectionConfigError
 
 DEFAULT_PORT = 8080
@@ -84,6 +88,14 @@ def parse_connection(raw: str) -> ConnSpec:
         return ConnSpec(kind="embeddedci", device_name=name)
     # "usb" is the documented spelling; "serial" is the older one, still accepted
     # so connection strings written before the rename keep working.
+    if s.lower() == SAVED_KEYWORD:
+        saved = saved_connection()
+        if not saved:
+            raise ConnectionConfigError(
+                f"connection 'saved' asks for benchpod-cli's saved connection, but {config_path()} "
+                "holds none; save one with `benchpod set-connection <address|device|usb>`"
+            )
+        return parse_connection(saved)
     if s.lower() in ("usb", "serial"):
         return ConnSpec(kind="serial", device="")
     if s.lower() in DISCOVER_KEYWORDS:
@@ -119,12 +131,16 @@ def _discover_one() -> ConnSpec:
 
 
 def resolve_connection(connection: "str | None" = None) -> ConnSpec:
-    """Resolve a connection from an explicit value or the environment."""
+    """Resolve a connection: the ``connection`` argument, else ``BENCHPOD_CONNECTION``, else the
+    default connection ``benchpod-cli`` saved (see :mod:`~embeddedci.benchpod.cli_config`)."""
     raw = connection if connection is not None else os.environ.get(ENV_VAR)
     if not raw or not str(raw).strip():
+        raw = saved_connection()
+    if not raw or not str(raw).strip():
         raise ConnectionConfigError(
-            "no BenchPod connection configured; pass connection=... or set "
+            "no BenchPod connection configured; pass connection=..., set "
             f"the {ENV_VAR} environment variable "
-            "(e.g. '192.168.1.213', '/dev/ttyACM0', 'usb', or 'embeddedci:<device-name>')"
+            "(e.g. '192.168.1.213', '/dev/ttyACM0', 'usb', or 'embeddedci:<device-name>'), "
+            "or save a default with `benchpod set-connection <address|device|usb>`"
         )
     return parse_connection(str(raw))
