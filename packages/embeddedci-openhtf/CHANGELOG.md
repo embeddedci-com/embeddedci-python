@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-openhtf`
 
-## Unreleased
+## 2.2.0
 
 - Persistent plugs (`benchpod_plug(..., persistent=True)`) are pooled by their connection
   settings (the connection and the `BenchPod` keyword arguments) instead of by plug class. Two
