@@ -45,15 +45,22 @@ class CloudAuthError(BenchPodError):
 
 
 class FirmwareError(BenchPodError):
-    """The pod accepted the request but replied ``{"status":"error"}``."""
+    """The pod accepted the request but replied ``{"status":"error"}``.
+
+    :attr:`firmware_message` is the pod's own text, unchanged. The exception's message is that
+    text with any fix the firmware spells as a raw protocol command (``{"cmd":"gpio",...}``)
+    rewritten into the SDK call that does it (``bp.release_gpio(4)``); the leading words the
+    firmware uses (``la voltage not set``, ``pin conflict: LA4 is in use by gpio``) stay as they are.
+    """
 
     def __init__(self, message: str, *, cmd: Optional[str] = None) -> None:
         self.firmware_message = message
         self.cmd = cmd
+        text = _sdk_refusal_text(message)
         if cmd:
-            super().__init__(f"{cmd}: {message}")
+            super().__init__(f"{cmd}: {text}")
         else:
-            super().__init__(message)
+            super().__init__(text)
 
 
 class UnsupportedFeatureError(FirmwareError):
@@ -129,8 +136,9 @@ class PinConflictError(FirmwareError):
     """The pod refused because an LA channel is already used by another function.
 
     ``la`` is the channel and ``function`` its owner (``gpio``, ``uart_tx``, ``i2c_sda``, ``swd_clk``,
-    ``step``, …). The message says how to free it — e.g. release a GPIO pin with
-    :meth:`BenchPod.release_gpio` before starting a UART session on it.
+    ``step``, …). The message names the SDK call that frees it (``release it with
+    bp.release_gpio(4)``, ``bp.disable_i2c_sensor()``, ``bp.disable_gps()``, close the UART or SPI
+    session); :attr:`firmware_message` keeps the pod's own text.
     """
 
     def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0,
@@ -219,6 +227,52 @@ _POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
 _UNKNOWN_CMD = "unknown cmd"
 #: The digital-only board refusing an analog command (cmd_gate.c cmd_gate_check).
 _NO_ANALOG = "this BenchPod has no analog front end"
+
+
+#: The firmware's "la voltage not set; set it with la_voltage (mv 1800 or 3300) first"
+#: (command_handler.c require_la_voltage). Matched on the leading words only.
+_LA_VOLTAGE_UNSET = "la voltage not set"
+_LA_VOLTAGE_SDK = ("la voltage not set; set the board's I/O voltage first: "
+                   "BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the "
+                   "benchpod_la_voltage fixture in conftest.py, or bp.set_la_voltage(3.3)")
+
+#: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint and the pull and
+#: gpio-output checks, command_handler_dap.c, command_handler_dac.c), in the caller's SDK terms.
+#: Whole phrases first, so a hint reads naturally; anything not listed passes through unchanged.
+_SDK_FIXES = (
+    (re.compile(r'release it with \{"cmd":"gpio","la":(\d+),"mode":"off"\}'),
+     r"release it with bp.release_gpio(\1)"),
+    (re.compile(r"stop the uart proxy first"),
+     "close the UART session from bp.open_uart() first (session.close(), or leave its with block)"),
+    (re.compile(r"end the SWD session first"),
+     "wait for the running flash (its SWD session) to finish"),
+    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"\}\)'),
+     "stop the sensor emulation first with bp.disable_i2c_sensor()"),
+    (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
+     "close the SPI session from bp.open_spi() first (spi.close(), or leave its with block)"),
+    (re.compile(r'stop the GPS receiver first \(\{"cmd":"gps_stop"\}\)'),
+     "stop the GPS emulation first with bp.disable_gps()"),
+    (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
+     "(close the SPI session from bp.open_spi() first)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"bp.set_pull(\1, False)"),
+    (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'bp.gpio(\1, "output")'),
+    (re.compile(r'\{"cmd":"fpga_image","image":0\}'), "bp.fpga_image(0)"),
+    (re.compile(r'\{"cmd":"dac_loop_input"\}'), "bp.loop_input()"),
+)
+
+
+def _sdk_refusal_text(message: str) -> str:
+    """``message`` (a pod refusal) with its protocol-level fix rewritten into the SDK call.
+
+    ``"pin conflict: LA4 is in use by gpio; release it with {"cmd":"gpio","la":4,"mode":"off"}"``
+    becomes ``"pin conflict: LA4 is in use by gpio; release it with bp.release_gpio(4)"``. Text
+    with nothing to rewrite comes back unchanged.
+    """
+    if message.startswith(_LA_VOLTAGE_UNSET):
+        return _LA_VOLTAGE_SDK
+    for pattern, repl in _SDK_FIXES:
+        message = pattern.sub(repl, message)
+    return message
 
 
 def classify_firmware_error(exc: FirmwareError) -> FirmwareError:

@@ -1,5 +1,16 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Friendlier pod refusals: a `FirmwareError` whose fix the firmware spells as a raw protocol
+  command now names the SDK call instead. "la voltage not set" says to set the board's I/O voltage
+  with `BenchPod(conn, la_voltage=3.3)`, the `benchpod_la_voltage` fixture or
+  `bp.set_la_voltage(3.3)`; a `PinConflictError` says `release it with bp.release_gpio(4)`,
+  `bp.disable_i2c_sensor()`, `bp.disable_gps()` or to close the UART or SPI session; a
+  `PullConflictError` says `bp.set_pull(7, False)`. The error classes, their attributes and the
+  leading words of each message are unchanged, and `firmware_message` still holds the pod's own
+  text. Hints the SDK does not know pass through as before.
+
 ## 2.9.0
 
 - More emulated I2C sensors: `Sensor.BME280` (temperature, pressure, humidity), `Sensor.SHT4X`

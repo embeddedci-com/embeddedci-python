@@ -110,14 +110,16 @@ def test_gpio_pulse_runs_a_step_train(connected):
 
 def test_pin_conflict_names_the_owner_and_how_to_free_it(connected):
     call("uart_open", rx=5, tx=4)
-    with pytest.raises(ToolError, match="PinConflictError: gpio: pin conflict: LA5 is in use by uart_rx"):
+    with pytest.raises(ToolError, match="PinConflictError: gpio: pin conflict: LA5 is in use by uart_rx; "
+                       "close the UART session first with uart_close"):
         call("gpio_mode", la=[5])
     call("uart_close")
 
 
 def test_a_gpio_channel_blocks_the_uart_until_it_is_released(connected):
     call("gpio_mode", la=[5], mode="output")
-    with pytest.raises(ToolError, match=r"PinConflictError:.*LA5 is in use by gpio"):
+    with pytest.raises(ToolError, match=r"PinConflictError:.*LA5 is in use by gpio; "
+                       r"release it with gpio_release\(la=\[5\]\)$"):
         call("uart_open", rx=5, tx=4)
     call("gpio_release", la=[5])
     assert call("uart_open", rx=5, tx=4)["open"] is True

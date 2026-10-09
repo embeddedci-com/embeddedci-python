@@ -158,7 +158,8 @@ def test_pin_conflicts_are_their_own_error():
     with pytest.raises(PinConflictError) as ei:
         bp.open_uart(rx=3, tx=4)
     assert ei.value.la == 4 and ei.value.function == "gpio"
-    assert 'release it with {"cmd":"gpio","la":4,"mode":"off"}' in str(ei.value)
+    assert str(ei.value).endswith("pin conflict: LA4 is in use by gpio; release it with bp.release_gpio(4)")
+    assert 'release it with {"cmd":"gpio","la":4,"mode":"off"}' in ei.value.firmware_message
     assert isinstance(ei.value, FirmwareError)
 
 

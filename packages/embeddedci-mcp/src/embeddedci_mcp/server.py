@@ -74,9 +74,9 @@ LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(descript
     "LA channel 1-14, or a name from the wiring profile — a signal ('READY') or a role "
     "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."))]
 BiasPin = Annotated[int, Field(ge=1, le=8)]
-EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power eFuse: 1 = internal 5 V, 2 = external supply.")]
+EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power rail: internal 5 V (efuse 1) or external (efuse 2).")]
 WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
-    "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail."))]
+    "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail."))]
 BaudRate = Annotated[int, Field(ge=300, le=4_000_000)]
 WiredBaud = Annotated[Optional[int], Field(ge=300, le=4_000_000, description=(
     "UART baud rate; omit for the wiring profile's uart_baud."))]
@@ -137,8 +137,62 @@ def _refusal_hint(exc: BenchPodError) -> str:
     return ""
 
 
+#: The firmware's "la voltage not set; set it with la_voltage (mv 1800 or 3300) first".
+_LA_VOLTAGE_UNSET = "la voltage not set"
+_LA_VOLTAGE_MCP = ("la voltage not set; call set_la_voltage first with the DUT's I/O voltage "
+                   "(1.8 or 3.3)")
+
+#: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint, the pull and
+#: gpio-output checks, command_handler_dap.c, command_handler_dac.c), named as this server's
+#: tools. Whole phrases first; anything not listed passes through unchanged. Kept here rather
+#: than taken from the SDK so the text is the same with every supported embeddedci release.
+_MCP_FIXES = (
+    (re.compile(r'release it with \{"cmd":"gpio","la":(\d+),"mode":"off"\}'),
+     r"release it with gpio_release(la=[\1])"),
+    (re.compile(r"stop the uart proxy first"),
+     "close the UART session first with uart_close"),
+    (re.compile(r"end the SWD session first"),
+     "wait for the running flash (its SWD session) to finish"),
+    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"\}\)'),
+     "stop the sensor emulation first with disable_i2c_sensor"),
+    (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
+     'stop the SPI session first: another client holds it (the command tool can send '
+     '{"cmd":"spi_stop"})'),
+    (re.compile(r'stop the GPS receiver first \(\{"cmd":"gps_stop"\}\)'),
+     "stop the GPS emulation first with disable_gps"),
+    (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
+     '(another client holds the SPI session; the command tool can send {"cmd":"spi_stop"})'),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"set_pull(las=[\1], enabled=false)"),
+    (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'gpio_mode(la=[\1], mode="output")'),
+    (re.compile(r'\{"cmd":"fpga_image","image":0\}'), 'fpga_image(image="loop")'),
+    (re.compile(r'\{"cmd":"dac_loop_input"\}'), "loop_input"),
+)
+
+
+def _mcp_refusal_text(message: str) -> str:
+    """A pod refusal with its protocol-level fix named as this server's tool, or unchanged."""
+    if message.startswith(_LA_VOLTAGE_UNSET):
+        return _LA_VOLTAGE_MCP
+    for pattern, repl in _MCP_FIXES:
+        message = pattern.sub(repl, message)
+    return message
+
+
+def _error_text(exc: BenchPodError) -> str:
+    """``str(exc)``, with a firmware refusal's fix rewritten from the pod's own text (the SDK's
+    message names SDK calls; an agent here needs the tool names)."""
+    original = getattr(exc, "firmware_message", None)
+    if not isinstance(exc, _errors.FirmwareError) or not isinstance(original, str):
+        return str(exc)
+    text = _mcp_refusal_text(original)
+    if text == original:
+        return str(exc)
+    cmd = getattr(exc, "cmd", None)
+    return f"{cmd}: {text}" if cmd else text
+
+
 def _tool_error(exc: BenchPodError) -> ToolError:
-    msg = f"{type(exc).__name__}: {exc}"
+    msg = f"{type(exc).__name__}: {_error_text(exc)}"
     hint = _refusal_hint(exc)
     return ToolError(f"{msg}. {hint}" if hint else msg)
 
@@ -449,7 +503,8 @@ async def power_profile_stop(
 
 @mcp.tool(annotations=_ann("Power status", read_only=True))
 async def power_status() -> m.PowerStatusResult:
-    """Both target-power rails: eFuse on/off and tripped state, bus voltage and current draw."""
+    """Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off and tripped
+    state, bus voltage and current draw."""
     def op() -> m.PowerStatusResult:
         pod = SESSION.require()
         ts, ps = pod.target_status(), pod.power_status()
@@ -625,7 +680,8 @@ async def flash(
         "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
         "Omit for the profile's swd_nreset."))] = None,
     load_address: Annotated[str, Field(description="Load address for raw .bin images, e.g. 0x08000000.")] = "",
-    target_power: Annotated[Optional[Literal[1, 2]], Field(description="Power this eFuse on before flashing.")] = None,
+    target_power: Annotated[Optional[Literal[1, 2]], Field(description=(
+        "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2)."))] = None,
     verify: bool = True,
     reset: bool = True,
     connect_under_reset: Optional[bool] = None,
@@ -1020,7 +1076,7 @@ async def gpio_mode(
     A channel stays GPIO — across disconnects — until gpio_release, and while it is GPIO nothing
     else can use it: release it before uart_open, flash or enable_i2c_sensor on that channel.
     A channel already owned by another function is refused with a PinConflictError naming the
-    owner, and an engaged bias resistor that would fight the mode with a PullConflictError.
+    owner and the tool that frees it, and an engaged bias resistor that would fight the mode with a PullConflictError.
     """
     def op() -> m.GpioPinsResult:
         pod = SESSION.require()

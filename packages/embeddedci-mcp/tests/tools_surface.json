@@ -1809,7 +1809,7 @@
             }
           ],
           "default": null,
-          "description": "Power this eFuse on before flashing.",
+          "description": "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2).",
           "title": "Target Power"
         },
         "timeout": {
@@ -2644,7 +2644,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "points": {
@@ -2726,7 +2726,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "off_settle": {
@@ -2837,7 +2837,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         }
       },
@@ -2882,7 +2882,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         }
       },
@@ -2914,7 +2914,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power eFuse: 1 = internal 5 V, 2 = external supply. Omit for the wiring profile's rail.",
+          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "max_duration": {
