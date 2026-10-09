@@ -137,7 +137,8 @@ class WiringResult(BaseModel):
     source: str = Field(description="Where the profile came from: defaults, file, server or dict.")
     version: int = 1
     la_voltage: float = Field(description="LA I/O-bank voltage the profile asks for, in volts.")
-    efuse: int = Field(description="Target-power rail the tools default to.")
+    efuse: int = Field(description=(
+        "Target-power rail the tools default to: internal 5 V (efuse 1) or external (efuse 2)."))
     uart_baud: int
     i2c_address: int = Field(description="Emulated-sensor address as a 7-bit integer.")
     swd_nreset: bool
@@ -209,7 +210,7 @@ class GpioReleaseResult(BaseModel):
 # -- power -----------------------------------------------------------------------
 
 class PowerResult(BaseModel):
-    efuse: int
+    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
     on: bool
     delay: Optional[float] = None
 
@@ -231,8 +232,8 @@ class PodPowerResult(BaseModel):
 
 
 class PowerStatusResult(BaseModel):
-    internal: RailResult
-    external: RailResult
+    internal: RailResult = Field(description="The internal 5 V rail (efuse 1).")
+    external: RailResult = Field(description="The external rail (efuse 2).")
     pod: Optional[PodPowerResult] = Field(None, description="The pod's own draw; null on boards that don't measure it.")
 
 
@@ -245,7 +246,7 @@ class PowerProfileResult(BaseModel):
     """A target-power rail profiled over time. Currents are amps, voltages volts, energy joules,
     charge coulombs, durations seconds."""
 
-    efuse: int
+    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
     rate_hz: float = Field(description="Samples per second actually delivered (measured). The pod reads one sensor register per firmware pass, so this lands below what was asked for — roughly 350-450 Hz. Every sample carries its own timestamp, so the trace is exact regardless.")
     adc_rate_hz: float = Field(default=0.0, description="Conversion rate the current sensor was configured for — the ceiling, not what arrived.")
     n: int = Field(description="Raw samples the statistics cover.")
@@ -268,7 +269,7 @@ class PowerProfileResult(BaseModel):
 
 class PowerProfileStartResult(BaseModel):
     running: bool = True
-    efuse: int
+    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
     rate_hz: float = Field(description="Sample rate asked for; the achieved rate is in the stop result.")
     max_duration: float = Field(description="Seconds after which the pod stops sampling by itself.")
 

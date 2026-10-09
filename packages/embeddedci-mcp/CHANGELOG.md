@@ -8,6 +8,14 @@
   or several, the error lists the pods it heard (name and address) and what to pass instead:
   `host[:port]`, `usb`, or `embeddedci:<device>` (from `cloud_list_devices`).
 - The `connect` description, the `status` hint and the server instructions say so.
+- Pod refusals name the tool that fixes them instead of a raw protocol command: "la voltage not
+  set; call set_la_voltage first with the DUT's I/O voltage (1.8 or 3.3)", and a pin conflict
+  says `release it with gpio_release(la=[4])`, `uart_close`, `disable_i2c_sensor` or
+  `disable_gps` (a pull conflict `set_pull(las=[7], enabled=false)`). The error kind and the
+  leading words stay the same; hints it does not know pass through unchanged.
+- Target power is named the same way everywhere: "internal 5 V (efuse 1)" and "external
+  (efuse 2)", in the server instructions, the wiring reference and the tool and result
+  descriptions.
 
 ## 2.9.0
 

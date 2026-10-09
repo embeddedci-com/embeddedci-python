@@ -176,7 +176,7 @@ description, ranges and enums, so an agent sees more than this table.
 | --- | --- | --- |
 | `power_on` | Switch the target's power rail on (optionally scheduled pod-side). | `efuse`, `delay` |
 | `power_off` | Switch the target's power rail off. | `efuse`, `delay` |
-| `power_status` | Both eFuse rails: on/off, tripped, bus voltage and current, and the pod's own draw. | none |
+| `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
 | `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse=0.1` |
 
 ### Power profiles
@@ -324,8 +324,8 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   flows, units, error contract — so the agent knows to `connect` and `set_la_voltage` before
   anything else.
 - **Typed, structured results.** Every tool has an input schema with enums and ranges (paths,
-  sources, LA channels 1-14, eFuse 1/2, …) and an output schema; results come back as structured
-  content. Units are volts, seconds and hertz.
+  sources, LA channels 1-14, internal 5 V (efuse 1) or external (efuse 2), …) and an output
+  schema; results come back as structured content. Units are volts, seconds and hertz.
 - **Errors.** A tool that cannot do what was asked fails with an MCP tool error whose message names
   the cause, e.g. `FirmwareError: la voltage not set` or `NotConnectedError: …`. A completed
   operation with a negative outcome is a normal result: `flash` returns `ok: false` with its logs,
@@ -339,6 +339,11 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   `UnsupportedFeatureError` means the pod cannot do it at all: its firmware or gateware lacks the
   feature, or it is the digital-only board without the analog front end; the hint says which.
   `status` also warns when a cloud job holds the pod or the LAN policy is locked.
+  Refusals whose fix the firmware spells as a raw protocol command name the tool instead:
+  `FirmwareError: uart_proxy_start: la voltage not set; call set_la_voltage first with the DUT's
+  I/O voltage (1.8 or 3.3)` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
+  by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close`,
+  `disable_i2c_sensor` and `disable_gps`; a pull conflict to `set_pull(las=[7], enabled=false)`.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
   `nrst_pin`, `can`, `calibrate`, `current_out`, `pod_current` and `analog` (false on the
@@ -401,7 +406,7 @@ With a wiring profile stored for the bench, the same run needs no pin numbers:
 
 ```
 connect()
-wiring()                                    # SWCLK on LA11, DUT TX on LA5, rail eFuse 1, …
+wiring()                                    # SWCLK on LA11, DUT TX on LA5, rail internal 5 V (efuse 1), …
 flash(file="build/app.elf")
 power_cycle_and_capture(delay=1.0, duration=5.0, until_regex="APP_OK")
 measure_power(duration=2.0, points=100)     # what the firmware draws once it is up

@@ -156,7 +156,11 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:
 **LA I/O-bank voltage** right after connecting — match it to the DUT's I/O voltage. The pod refuses
 every LA-bank operation (flashing, UART, LA capture, pull resistors, I2C-sensor emulation) until one
 is selected. You can also call `bp.set_la_voltage(3.3)` later; `bp.get_la_voltage()` returns a
-`LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod.
+`LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. Until then a
+refused command raises `FirmwareError` with the message `la voltage not set; set the board's I/O
+voltage first: BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the benchpod_la_voltage
+fixture in conftest.py, or bp.set_la_voltage(3.3)` (prefixed with the command, as every
+`FirmwareError` is).
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
 `cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name))
@@ -689,17 +693,22 @@ bp.release_gpio(9, 10)                        # back to high-Z; no arguments rel
 
 **One function per channel.** Each channel has exactly one owner at a time: `none` (the default — high-Z
 and watched by captures), `gpio`, or a peripheral that claimed it — `uart_rx`/`uart_tx` (a UART session),
-`swd_clk`/`swd_dio` (flashing), `i2c_sda`/`i2c_scl` (sensor emulation), `step`/`step_dir` (a pulse train).
+`swd_clk`/`swd_dio` (flashing), `i2c_sda`/`i2c_scl` (sensor emulation), `step`/`step_dir` (a pulse train),
+`spi_*` (an SPI session) and `gps_tx` (GPS emulation).
 The pod refuses a second function with `PinConflictError` (`.la`, `.function`) instead of letting one
-silently override the other, and the message says how to free the channel:
+silently override the other, and the message names the SDK call that frees the channel:
 
 ```python
 bp.gpio(4)
 try:
     bp.open_uart(rx=3, tx=4)
-except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release it with ...
+except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release it with bp.release_gpio(4)
     bp.release_gpio(exc.la)
 ```
+
+The other owners point to `bp.disable_i2c_sensor()`, `bp.disable_gps()`, closing the session from
+`bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train to finish. The pod's own
+text, with its raw protocol command, stays in `exc.firmware_message`.
 
 `bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`),
 and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()` returning those states.
@@ -1362,7 +1371,7 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `TransportError` | the pod or tunnel could not be reached / talked to | |
 | `TransportTimeout` (a `TransportError` and a `TimeoutError`) | the pod or tunnel did not answer in time | |
 | `ConnectionClosedError` (a `TransportError`) | the connection ended or reset before the reply | |
-| `FirmwareError` | the pod replied with an error (e.g. "la voltage not set") | `firmware_message`, `cmd` |
+| `FirmwareError` | the pod replied with an error (e.g. "la voltage not set"); a fix the firmware spells as a raw protocol command is rewritten into the SDK call in the message, and `firmware_message` keeps the pod's own text | `firmware_message`, `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
 | `DeviceBusyError` | a cloud device lease was not granted within `lease_wait` | |
