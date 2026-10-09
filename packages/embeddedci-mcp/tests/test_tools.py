@@ -137,6 +137,74 @@ def test_connect_uses_the_server_default(fake_open):
     assert fake_open["connection"] == "embeddedci:bench-1" and fake_open["la_voltage"] == 1.8
 
 
+def _mdns(monkeypatch, *pods):
+    """Make mDNS discovery hear ``pods`` (name, address) instead of browsing the LAN."""
+    from embeddedci.benchpod import discovery
+
+    found = [discovery.DiscoveredPod(name=name, hostname=f"{name}.local", addresses=[ip], port=8080,
+                                     pod_id="abcdefghijklmnop") for name, ip in pods]
+    monkeypatch.setattr(discovery, "discover", lambda timeout=discovery.DEFAULT_TIMEOUT: found)
+
+
+def test_connect_without_any_connection_finds_the_pod_over_mdns(fake_open, monkeypatch):
+    _mdns(monkeypatch, ("benchpod-baea06", "192.168.1.220"))
+    result = call("connect")
+    assert fake_open["connection"] == "192.168.1.220:8080"
+    assert result["connected"] is True and result["kind"] == "tcp"
+    assert result["connection"] == "192.168.1.220:8080"
+
+
+@pytest.mark.parametrize("configured", ["env", "server"])
+def test_a_configured_connection_skips_mdns(fake_open, monkeypatch, configured):
+    from embeddedci.benchpod import discovery
+
+    def no_browse(timeout=None):
+        raise AssertionError("mDNS must not run when a connection is configured")
+
+    monkeypatch.setattr(discovery, "discover", no_browse)
+    if configured == "env":
+        monkeypatch.setenv("BENCHPOD_CONNECTION", "10.0.0.7")
+    else:
+        SESSION.default_connection = "10.0.0.7"
+    call("connect")
+    assert fake_open["connection"] == "10.0.0.7"
+
+
+def test_connect_with_no_pod_on_the_lan_says_what_to_pass(fake_open, monkeypatch):
+    _mdns(monkeypatch)
+    with pytest.raises(ToolError) as err:
+        call("connect")
+    msg = str(err.value)
+    assert "ConnectionConfigError" in msg and "no BenchPod found" in msg
+    for needle in ("host[:port]", "'usb'", "'embeddedci:<device>'", "cloud_list_devices",
+                   "BENCHPOD_CONNECTION"):
+        assert needle in msg
+    assert not SESSION.connected and "connection" not in fake_open
+
+
+def test_connect_with_several_pods_lists_them(fake_open, monkeypatch):
+    _mdns(monkeypatch, ("benchpod-baea06", "192.168.1.220"), ("benchpod-435dca", "192.168.1.221"))
+    with pytest.raises(ToolError) as err:
+        call("connect")
+    msg = str(err.value)
+    assert "2 BenchPods found" in msg
+    for needle in ("benchpod-baea06", "192.168.1.220:8080", "benchpod-435dca", "192.168.1.221:8080",
+                   "host[:port]", "'usb'", "cloud_list_devices"):
+        assert needle in msg
+    assert not SESSION.connected and "connection" not in fake_open
+
+
+def test_connect_without_mdns_support_says_what_to_pass(fake_open, monkeypatch):
+    from embeddedci.benchpod import discovery
+
+    def missing(timeout=None):
+        raise RuntimeError("mDNS discovery needs the 'zeroconf' package")
+
+    monkeypatch.setattr(discovery, "discover", missing)
+    with pytest.raises(ToolError, match=r"(?s)ConnectionConfigError.*zeroconf.*host\[:port\]"):
+        call("connect")
+
+
 def test_schema_rejects_bad_arguments(connected):
     with pytest.raises(ToolError):
         call("set_la_voltage", voltage=5.0)

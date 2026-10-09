@@ -32,6 +32,14 @@ claude mcp add benchpod \
 `BENCHPOD_LA_VOLTAGE` is the board's I/O voltage, configured once here — use `1.8` for a 1V8
 board. Without it the agent is told to call `set_la_voltage` before touching the LA bank.
 
+Both variables are optional. With no connection configured (no `connection` argument, no
+`--connection`, no `BENCHPOD_CONNECTION`), `connect` looks for a BenchPod on the LAN over mDNS
+(like `discover`) and uses it when it finds exactly one. When it finds none or several, the error
+lists the pods it heard (name and address) and what to pass instead: `host[:port]`, `usb`, or
+`embeddedci:<device>` for a cloud pod (`cloud_list_devices` lists those). So
+`claude mcp add benchpod -- uvx embeddedci-mcp` is enough for a single pod on your network: just
+ask the agent to connect.
+
 ### Claude Desktop / Cursor
 
 `claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor):
@@ -102,7 +110,7 @@ chat never blocks CI on that pod.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--connection` | `BENCHPOD_CONNECTION` | — | host[:port], serial device, `usb`, `discover`, or `embeddedci:<device>` |
+| `--connection` | `BENCHPOD_CONNECTION` | mDNS | host[:port], serial device, `usb`, `discover`, or `embeddedci:<device>`; unset = find the one pod on the LAN |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
@@ -144,7 +152,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `connect` | Open a connection (closing any previous one) and report status and capabilities. | `connection`, `la_voltage`, `lease_wait=30` |
+| `connect` | Open a connection (closing any previous one) and report status and capabilities. Without a `connection` or a configured default, finds the one pod on the LAN over mDNS. | `connection`, `la_voltage`, `lease_wait=30` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
 | `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected). | none |
 | `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |

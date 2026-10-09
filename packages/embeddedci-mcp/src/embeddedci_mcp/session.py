@@ -30,6 +30,7 @@ from embeddedci.benchpod import (
 )
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
+from embeddedci.benchpod import connection as _connection
 from embeddedci.benchpod.connection import CLOUD_PREFIX, DISCOVER_KEYWORDS, ENV_VAR, _is_device_path
 from embeddedci.benchpod.errors import BenchPodError, ConnectionConfigError
 
@@ -68,6 +69,31 @@ def cloud_user_token(connection: str) -> Optional[Callable[[], str]]:
     return lambda: cli_login.access_token(base)
 
 
+#: What to pass instead when mDNS finds no single pod.
+CONNECTION_HELP = (
+    "pass connection= one of: host[:port] (a pod on the LAN, default port 8080), 'usb' (a pod on "
+    "this machine's USB), or 'embeddedci:<device>' for a cloud pod (cloud_list_devices lists "
+    "them). The user can also make one the default with " + ENV_VAR + " or --connection."
+)
+
+
+def discover_connection() -> str:
+    """Find the single BenchPod on the LAN over mDNS and return its ``host:port``.
+
+    No pod, several pods or no mDNS support raise :class:`ConnectionConfigError` whose message
+    says what was found (the names and addresses when there are several) and what to pass instead.
+    """
+    try:
+        spec = _connection._discover_one()
+    except ConnectionConfigError as exc:
+        raise ConnectionConfigError(f"no connection configured and mDNS discovery did not settle "
+                                    f"on one pod: {exc}\nTo connect, {CONNECTION_HELP}") from exc
+    except (RuntimeError, OSError) as exc:  # zeroconf missing, or no usable network interface
+        raise ConnectionConfigError(f"no connection configured and mDNS discovery failed ({exc}). "
+                                    f"To connect, {CONNECTION_HELP}") from exc
+    return spec.addr
+
+
 class Session:
     """At most one open BenchPod connection, plus the sessions opened on it."""
 
@@ -75,7 +101,7 @@ class Session:
         self.lock = threading.RLock()
         self._pod: Optional[BenchPod] = None
         #: Connection used by ``connect`` when called without one (``--connection``); falls back to
-        #: ``BENCHPOD_CONNECTION``.
+        #: ``BENCHPOD_CONNECTION``, then to mDNS discovery of a single pod on the LAN.
         self.default_connection: Optional[str] = None
         #: LA voltage applied on connect when the tool call does not pass one (``--la-voltage``);
         #: falls back to ``BENCHPOD_LA_VOLTAGE`` inside the SDK.
@@ -121,10 +147,7 @@ class Session:
             self.disconnect()
             conn = connection or self.default_connection or os.environ.get(ENV_VAR)
             if not conn:
-                raise ConnectionConfigError(
-                    "no connection given: pass one (host[:port], /dev/tty…, 'usb' or "
-                    f"'embeddedci:<device>'), start the server with --connection, or set {ENV_VAR}"
-                )
+                conn = discover_connection()
             la = self.default_la_voltage if la_voltage is None else la_voltage
             wait = self.lease_wait if lease_wait is None else lease_wait
             self._pod = self._open(conn, la, wait)
