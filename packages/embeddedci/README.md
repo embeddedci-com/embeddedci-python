@@ -943,7 +943,11 @@ print(both.adc.duration, both.la.duration)              # one hardware trigger: 
   current routing is left alone). `volts` use the front-SMA calibration; for the other sources
   compare `counts` or use `adc_read`.
 * `capture_la(samples=4096, *, sample_rate_hz=None, stop_dac_after=None, trigger=None, trigger_timeout=10.0)` — 12-bit words; bit *n* is
-  channel LA*n+1*.
+  channel LA*n+1*. The **achieved** rate is on the result and can be below the request: the pod
+  runs 24 MHz ÷ a whole divider (2.304 MHz runs at 2.18 MHz; ask for 12, 8, 6, 4.8, 4, 3, 2.4 or
+  2 MHz to get it exactly), and slows a capture over 32768 samples until it fits the burst buffer
+  (about 4 MS/s at 100 000 samples, 3 MS/s at 300 000). Older firmware did not report it, so
+  `sample_rate_hz` was the requested rate there.
 * `capture_correlated(...)` — ADC + LA from one trigger; set either count to 0 for a single stream.
 * `bp.decode(source, protocol, **channels)` / `LaCapture.decode(...)` — off-device decoding of
   `i2c` (`sda`, `scl`), `uart` (`rx`, `baud`, optional `data_bits`, `parity`, `stop_bits`) and `spi`

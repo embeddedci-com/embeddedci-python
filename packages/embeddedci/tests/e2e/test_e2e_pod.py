@@ -597,6 +597,31 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
         time.sleep(max(0.0, t0 + steps * 2 * delay + 0.1 - time.monotonic()))
 
 
+# The step train is timed by the pod's own 24 MHz clock, so its frequency read through the
+# capture's reported rate is exact only when that rate is the one the pod really ran. 1 MHz is
+# 24 MHz / 24 and shallow, so the tests above can't tell; these rates are rounded down to a whole
+# divider (2.304 MHz -> 24/11 = 2.18 MHz) or slowed to fit the 64 KB burst ring (300K samples at
+# 4 MHz -> 3 MHz). Firmware that reports the request instead fails by 5-25%.
+@pytest.mark.parametrize("samples,rate_hz", [(20_000, 2_304_000), (20_000, 12_000_000),
+                                             (100_000, 12_000_000), (300_000, 4_000_000)])
+def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
+    ch = bench.free_la[0]
+    delay = 10e-6                                           # 10 us high, 10 us low: 50 kHz
+    steps = min(65535, int((samples / rate_hz + 0.15) / (2 * delay)) + 1)
+    t0 = time.monotonic()
+    pod.la_step(ch, steps=steps, delay=delay)
+    try:
+        la = pod.capture_la(samples, sample_rate_hz=rate_hz)
+        assert la.sample_rate_hz <= rate_hz
+        assert la.frequency(ch) == pytest.approx(50_000, rel=0.002), (
+            f"a 50 kHz train reads {la.frequency(ch):.0f} Hz at the reported "
+            f"{la.sample_rate_hz:.0f} Hz: the capture ran at another rate")
+        widths = la.pulse_widths(ch)
+        assert min(widths) > 0.9 * delay, "samples were dropped"
+    finally:
+        time.sleep(max(0.0, t0 + steps * 2 * delay + 0.1 - time.monotonic()))
+
+
 # The host clock is the independent reference for the capture clock: events sent at known host
 # times land at sample indices, and the fitted slope is the real sample rate. The drift a wrong
 # rate causes grows with the capture length (samples / 24 MHz regardless of rate: ~170 ms for
