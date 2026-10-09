@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.9.0
 
 - More emulated I2C sensors: `Sensor.BME280` (temperature, pressure, humidity), `Sensor.SHT4X`
   (temperature, humidity) and `Sensor.MPU6050` (accelerometer, gyroscope, die temperature).
