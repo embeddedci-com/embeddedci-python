@@ -1,10 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.8.0
 
-- `UnsupportedFeatureError` (from `embeddedci` after 2.7.0) gets a hint too: the pod's firmware
-  or gateware lacks the feature, or it is the digital-only board without the analog front end.
-  With `embeddedci` 2.7.0 the error stays as it was.
+- Requires `embeddedci` 2.8.0 (pin raised).
+- `UnsupportedFeatureError` gets a hint too: the pod's firmware or gateware lacks the feature, or
+  it is the digital-only board without the analog front end.
+- The README has a per-tool reference with every parameter and default, the typed refusals and
+  the capability flags; a test fails when a tool or parameter is missing from it.
 
 ## 2.7.0
 

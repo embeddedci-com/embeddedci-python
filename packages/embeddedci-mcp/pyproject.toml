@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci-mcp"
-version = "2.7.0"
+version = "2.8.0"
 description = "MCP server that lets AI agents drive an EmbeddedCI BenchPod hardware-in-the-loop bench"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
     # cloud: the embeddedci:<device> destination; discovery: connect("discover") over mDNS;
     # analysis: dominant frequency in capture summaries.
-    "embeddedci[cloud,discovery,analysis]>=2.7,<3",
+    "embeddedci[cloud,discovery,analysis]>=2.8,<3",
     "mcp>=1.12,<2",
     "anyio>=4",
     "pydantic>=2.7",
