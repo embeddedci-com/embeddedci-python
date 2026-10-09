@@ -31,9 +31,16 @@ class Efuse(IntEnum):
 
 
 class Sensor(str, Enum):
-    """Emulated I2C sensor model (firmware ships BMP280 today)."""
+    """Emulated I2C sensor model (``BenchPod.i2c_sensor_types`` lists what the pod has)."""
 
-    BMP280 = "bmp280"
+    BMP280 = "bmp280"    #: Bosch BMP280: temperature, pressure (0x76/0x77)
+    BME280 = "bme280"    #: Bosch BME280: temperature, pressure, humidity (0x76/0x77)
+    SHT4X = "sht4x"      #: Sensirion SHT40/41/43/45: temperature, humidity (0x44/0x45)
+    MPU6050 = "mpu6050"  #: InvenSense MPU-6050: accelerometer, gyroscope (0x68/0x69)
+
+
+#: The NMEA sentences the emulated GPS receiver can print, in its output order.
+GPS_SENTENCES = ("RMC", "VTG", "GGA", "GSA", "GSV", "GLL")
 
 
 class FpgaImage(IntEnum):

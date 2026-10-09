@@ -24,6 +24,7 @@ from embeddedci.benchpod import (
     LoopInputMap,
     PowerStatus,
     ResetState,
+    Sensor,
     TargetStatus,
     UsbCcStatus,
     build_constant_curve,
@@ -33,6 +34,7 @@ from embeddedci.benchpod import (
 )
 from embeddedci.benchpod.constants import ANALOG_PATHS
 from embeddedci.benchpod.control_loop import CURVE_POINTS
+from embeddedci.benchpod.decode import decode_uart
 
 from e2e_helpers import SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
 
@@ -809,6 +811,81 @@ def test_i2c_sensor_emulation(pod, bench):
     finally:
         pod.disable_i2c_sensor()
     assert not pod.i2c_sensor_status().get("active")
+
+
+def test_i2c_sensor_models(pod, bench):
+    """BME280, SHT4x and MPU-6050: the start, a reading reaching the register image, the ranges.
+    (examples/process-node-stm32 reads them over a real bus with a DUT.)"""
+    if not pod.capabilities.sensor_types:
+        pytest.skip("firmware without the sensor models (no sensor_types cap)")
+    types = {t["type"]: t for t in pod.i2c_sensor_types()}
+    assert {"bmp280", "bme280", "sht4x", "mpu6050"} <= set(types)
+    try:
+        r = pod.enable_i2c_sensor(Sensor.BME280, sda=bench.i2c_sda, scl=bench.i2c_scl, humidity_pct=30)
+        assert r["type"] == "bme280" and pod.i2c_sensor_regs(start=0xD0, length=1) == [0x60]
+        before = pod.i2c_sensor_regs(start=0xFD, length=2)
+        assert pod.set_i2c_sensor(humidity_pct=70)["values"]["humidity_pct"] == 70
+        assert pod.i2c_sensor_regs(start=0xFD, length=2) != before, "humidity registers did not move"
+        with pytest.raises(BenchPodError, match="humidity_pct"):
+            pod.set_i2c_sensor(humidity_pct=150)
+
+        r = pod.enable_i2c_sensor(Sensor.SHT4X, sda=bench.i2c_sda, scl=bench.i2c_scl, temperature_c=25.0)
+        assert r["addr"] == 0x44
+        t = pod.i2c_sensor_regs(start=0xFD, length=2)     # the 0xFD command's answer
+        assert abs(-45 + 175 * (t[0] << 8 | t[1]) / 65535 - 25.0) < 0.01
+
+        r = pod.enable_i2c_sensor(Sensor.MPU6050, sda=bench.i2c_sda, scl=bench.i2c_scl, accel_z_g=1.0)
+        assert r["addr"] == 0x68 and pod.i2c_sensor_regs(start=0x75, length=1) == [0x68]
+        assert pod.i2c_sensor_status()["values"]["accel_z_g"] == 1.0
+    finally:
+        pod.disable_i2c_sensor()
+
+
+def _nmea_lines(pod, ch, baud, seconds):
+    rate = min(baud * 20, 1_200_000)           # >= 10 samples a bit
+    cap = pod.capture_la(int(rate * seconds), sample_rate_hz=rate)
+    frames = decode_uart(cap.words, rx=ch, baud=baud, sample_rate_hz=cap.sample_rate_hz)
+    text = "".join(chr(f.value) for f in frames if not f.error)
+    return [line for line in text.split("\r\n") if line.startswith("$") and "*" in line]
+
+
+def _nmea_ok(line):
+    body, cs = line[1:].rsplit("*", 1)
+    x = 0
+    for c in body:
+        x ^= ord(c)
+    return f"{x:02X}" == cs.strip()
+
+
+def test_gps_receiver_prints_nmea(pod, bench):
+    """The emulated GPS on a free channel, decoded from an LA capture: checksummed sentences with
+    the fix and time we set, the clock moving, a 10 Hz subset, the no-fix form."""
+    if not pod.capabilities.gps:
+        pytest.skip("gateware without UART2 (no gps cap)")
+    ch = bench.free_la[0]
+    try:
+        st = pod.enable_gps(ch, utc="2026-10-08T12:34:56Z", latitude_deg=50.8466123,
+                            longitude_deg=4.3527987, satellites=9, speed_kmh=0, fix=1)
+        assert st["active"] and st["tx"] == ch and st["baud"] == 9600
+        lines = _nmea_lines(pod, ch, 9600, 1.3)
+        assert len([line for line in lines if _nmea_ok(line)]) >= 6, lines
+        rmc = [line for line in lines if line.startswith("$GPRMC") and _nmea_ok(line)]
+        assert rmc and ",A,5050.79674,N,00421.16792,E," in rmc[0], rmc
+        assert rmc[0][7:13] in ("123456", "123457"), rmc[0]
+
+        pod.enable_gps(ch, baud=115200, rate_hz=10, sentences="RMC,GGA", utc="2026-10-08T12:34:56Z")
+        lines = [line for line in _nmea_lines(pod, ch, 115200, 0.55) if _nmea_ok(line)]
+        stamps = {line.split(",")[1] for line in lines}
+        assert len(stamps) >= 4 and all(line[:6] in ("$GPRMC", "$GPGGA") for line in lines), lines
+
+        pod.set_gps(fix=0)
+        time.sleep(0.2)
+        lines = _nmea_lines(pod, ch, 115200, 0.3)
+        assert any(line.startswith("$GPRMC") and ",V," in line for line in lines), lines
+        assert pod.gps_status()["overruns"] == 0
+    finally:
+        pod.disable_gps()
+    assert not pod.gps_status()["active"]
 
 
 def test_uart_session_on_unwired_channels(pod, bench):

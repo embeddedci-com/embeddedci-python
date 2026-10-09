@@ -62,6 +62,9 @@ class CapabilitiesInfo(BaseModel):
         "The board has the analog front end (ADC, DAC, 4-20 mA); false on the digital-only board, "
         "null when the firmware does not say."))
     dac_limits: bool = Field(False, description="Output limits on the DAC paths.")
+    sensor_types: bool = Field(False, description=(
+        "Emulated BME280, SHT4x and MPU-6050 besides the BMP280 (i2c_sensor_types, enable_i2c_sensor sensor=...)."))
+    gps: bool = Field(False, description="Emulated GPS receiver on a second UART (enable_gps, set_gps).")
     flash_kb: int = Field(0, description="Internal flash of the pod's MCU in KiB (0 = not reported).")
     ota_sig: bool = Field(False, description="Firmware updates are signed and the pod checks them.")
     sig_policy: str = Field("", description="Signature policy: audit (report only) or required.")

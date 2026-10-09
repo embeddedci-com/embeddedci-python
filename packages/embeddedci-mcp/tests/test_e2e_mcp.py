@@ -137,6 +137,35 @@ def test_i2c_sensor_and_can(connected):
         call("can_close")
 
 
+def test_sensor_models_and_gps(connected):
+    """The other sensor models and the GPS receiver through the tools an agent would call."""
+    caps = connected["capabilities"]
+    if not caps.get("sensor_types"):
+        pytest.skip("firmware without the sensor models")
+    types = {t["type"] for t in call("i2c_sensor_types")["reply"]["types"]}
+    assert {"bme280", "sht4x", "mpu6050"} <= types
+    try:
+        call("enable_i2c_sensor", sensor="mpu6050", sda=_pin("I2C_SDA", 2), scl=_pin("I2C_SCL", 1),
+             values={"accel_x_g": 0.5})
+        assert call("i2c_sensor_regs", start=0x75, length=1)["bytes"] == [0x68]
+        reply = call("set_i2c_sensor", values={"gyro_z_dps": 90})["reply"]
+        assert reply["values"]["gyro_z_dps"] == 90 and reply["values"]["accel_x_g"] == 0.5
+    finally:
+        call("disable_i2c_sensor")
+    if not caps.get("gps"):
+        return
+    try:
+        st = call("enable_gps", tx=_pin("FREE_LA_A", 9), latitude_deg=40.7128, longitude_deg=-74.006,
+                  fix=1)["reply"]
+        assert st["active"] and abs(st["latitude_deg"] - 40.7128) < 1e-6
+        st = call("set_gps", speed_kmh=50, course_deg=180)["reply"]
+        assert st["speed_kmh"] == 50
+        time.sleep(1.2)
+        assert call("gps_status")["reply"]["epochs"] >= 1
+    finally:
+        call("disable_gps")
+
+
 def test_firmware_refusals_are_tool_errors(connected):
     if connected["firmware"].get("nrst_pin"):
         pytest.skip("rev3 pod: the reset pin exists")

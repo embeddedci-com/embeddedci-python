@@ -1300,6 +1300,20 @@
       "type": "object"
     }
   },
+  "disable_gps": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop the emulated GPS"
+    },
+    "input": {
+      "properties": {},
+      "title": "disable_gpsArguments",
+      "type": "object"
+    }
+  },
   "disable_i2c_sensor": {
     "annotations": {
       "destructiveHint": false,
@@ -1328,6 +1342,190 @@
       "type": "object"
     }
   },
+  "enable_gps": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Emulate a GPS receiver"
+    },
+    "input": {
+      "properties": {
+        "altitude_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Altitude M"
+        },
+        "baud": {
+          "default": 9600,
+          "maximum": 921600,
+          "minimum": 300,
+          "title": "Baud",
+          "type": "integer"
+        },
+        "course_deg": {
+          "anyOf": [
+            {
+              "maximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Course Deg"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0 no fix, 1 GPS, 2 DGPS.",
+          "title": "Fix"
+        },
+        "hdop": {
+          "anyOf": [
+            {
+              "maximum": 99,
+              "minimum": 0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hdop"
+        },
+        "latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latitude Deg"
+        },
+        "longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Longitude Deg"
+        },
+        "rate_hz": {
+          "default": 1,
+          "description": "Fixes per second.",
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Rate Hz",
+          "type": "integer"
+        },
+        "satellites": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Satellites"
+        },
+        "sentences": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Comma-separated subset of RMC, VTG, GGA, GSA, GSV, GLL; omit for all six.",
+          "title": "Sentences"
+        },
+        "speed_kmh": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed Kmh"
+        },
+        "tx": {
+          "anyOf": [
+            {
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "LA channel (or wiring name) wired to the DUT's UART RX.",
+          "title": "Tx"
+        },
+        "utc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock).",
+          "title": "Utc"
+        }
+      },
+      "required": [
+        "tx"
+      ],
+      "title": "enable_gpsArguments",
+      "type": "object"
+    }
+  },
   "enable_i2c_sensor": {
     "annotations": {
       "destructiveHint": false,
@@ -1350,7 +1548,7 @@
             }
           ],
           "default": null,
-          "description": "7-bit address (BMP280: 0x76 or 0x77); omit for the profile's i2c_addr.",
+          "description": "7-bit address; omit for the profile's i2c_addr (BMP280/BME280) or the model's default (SHT4x 0x44, MPU-6050 0x68).",
           "title": "Address"
         },
         "pressure_pa": {
@@ -1411,6 +1609,18 @@
           "description": "LA channel (or wiring name) of the bus's SDA; omit for the profile's i2c_sda.",
           "title": "Sda"
         },
+        "sensor": {
+          "default": "bmp280",
+          "description": "bmp280 (temperature, pressure), bme280 (+ humidity), sht4x (temperature, humidity) or mpu6050 (accelerometer, gyroscope, die temperature).",
+          "enum": [
+            "bmp280",
+            "bme280",
+            "sht4x",
+            "mpu6050"
+          ],
+          "title": "Sensor",
+          "type": "string"
+        },
         "temperature_c": {
           "anyOf": [
             {
@@ -1422,6 +1632,22 @@
           ],
           "default": null,
           "title": "Temperature C"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or {\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, units and ranges.",
+          "title": "Values"
         }
       },
       "title": "enable_i2c_sensorArguments",
@@ -2026,6 +2252,19 @@
       "type": "object"
     }
   },
+  "gps_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated GPS status"
+    },
+    "input": {
+      "properties": {},
+      "title": "gps_statusArguments",
+      "type": "object"
+    }
+  },
   "i2c_sensor_capture": {
     "annotations": {
       "destructiveHint": false,
@@ -2119,6 +2358,19 @@
     "input": {
       "properties": {},
       "title": "i2c_sensor_statusArguments",
+      "type": "object"
+    }
+  },
+  "i2c_sensor_types": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated sensor models"
+    },
+    "input": {
+      "properties": {},
+      "title": "i2c_sensor_typesArguments",
       "type": "object"
     }
   },
@@ -3111,6 +3363,145 @@
       "type": "object"
     }
   },
+  "set_gps": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set the emulated GPS fix"
+    },
+    "input": {
+      "properties": {
+        "altitude_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Altitude M"
+        },
+        "course_deg": {
+          "anyOf": [
+            {
+              "maximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Course Deg"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0 no fix, 1 GPS, 2 DGPS.",
+          "title": "Fix"
+        },
+        "hdop": {
+          "anyOf": [
+            {
+              "maximum": 99,
+              "minimum": 0.5,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hdop"
+        },
+        "latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latitude Deg"
+        },
+        "longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Longitude Deg"
+        },
+        "satellites": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Satellites"
+        },
+        "speed_kmh": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed Kmh"
+        },
+        "utc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock).",
+          "title": "Utc"
+        }
+      },
+      "title": "set_gpsArguments",
+      "type": "object"
+    }
+  },
   "set_i2c_sensor": {
     "annotations": {
       "destructiveHint": false,
@@ -3144,6 +3535,22 @@
           ],
           "default": null,
           "title": "Temperature C"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or {\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, units and ranges.",
+          "title": "Values"
         }
       },
       "title": "set_i2c_sensorArguments",

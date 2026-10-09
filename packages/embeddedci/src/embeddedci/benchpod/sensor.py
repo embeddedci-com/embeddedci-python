@@ -1,7 +1,8 @@
 """Emulated I2C sensor helpers.
 
-Thin wrappers over the pod's ``sensor_*`` JSON commands — the pod acts as an I2C
-slave (currently a BMP280) on two LA channels so a DUT's I2C master can read it.
+Thin wrappers over the pod's ``sensor_*`` JSON commands: the pod acts as an I2C
+target (a BMP280, BME280, SHT4x or MPU-6050) on two LA channels so a DUT's I2C
+controller can read it.
 See ``bench-pod-firmware/docs/API.md`` ("Emulated I2C sensor").
 
 These call ``transport.command``/``transport.samples`` directly, so they require
@@ -11,7 +12,7 @@ console mode.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from .constants import Sensor, coerce_pin
 from .errors import BenchPodError
@@ -27,31 +28,52 @@ def _require_command(transport: Transport) -> Callable[[dict], Any]:
     return fn
 
 
-def sensor_start(transport, sensor, *, sda, scl, address: int = 0x76) -> dict:
-    """Arm an emulated sensor on the given SDA/SCL LA channels."""
+def sensor_start(transport, sensor, *, sda, scl, address: Optional[int] = None) -> dict:
+    """Arm an emulated sensor on the given SDA/SCL LA channels.
+
+    ``address`` None leaves the model's default address (``sensor_types`` lists it).
+    """
     command = _require_command(transport)
     sensor_name = sensor.value if isinstance(sensor, Sensor) else str(sensor)
-    return command({
+    req: dict = {
         "cmd": "sensor_start",
         "type": sensor_name,
-        "addr": hex(int(address)),
         "sda": coerce_pin(sda, "sda"),
         "scl": coerce_pin(scl, "scl"),
-    })
+    }
+    if address is not None:
+        req["addr"] = hex(int(address))
+    return command(req)
 
 
-def sensor_set(transport, *, temperature_c: Optional[float] = None,
+def sensor_set(transport, values: Optional[Mapping[str, float]] = None, *,
+               temperature_c: Optional[float] = None,
                pressure_pa: Optional[float] = None) -> dict:
-    """Set what the emulated sensor reports. At least one value is required."""
+    """Set what the emulated sensor reports: any of the active model's parameters.
+
+    ``values`` maps parameter keys (``"humidity_pct"``, ``"accel_z_g"``, ...; ``sensor_types``
+    lists them per model) to numbers; ``temperature_c``/``pressure_pa`` are shorthands. At least
+    one value is required. The pod checks every value before applying any.
+    """
     command = _require_command(transport)
-    if temperature_c is None and pressure_pa is None:
-        raise BenchPodError("sensor_set needs temperature_c and/or pressure_pa")
-    req: dict = {"cmd": "sensor_set"}
+    req: Dict[str, Any] = {"cmd": "sensor_set"}
+    for key, value in (values or {}).items():
+        if value is not None:
+            req[str(key)] = float(value)
     if temperature_c is not None:
         req["temperature_c"] = float(temperature_c)
     if pressure_pa is not None:
         req["pressure_pa"] = float(pressure_pa)
+    if len(req) == 1:
+        raise BenchPodError("sensor_set needs at least one value (sensor_types lists each model's)")
     return command(req)
+
+
+def sensor_types(transport) -> List[Dict[str, Any]]:
+    """The models the pod emulates: type, label, addresses and the parameters ``sensor_set`` takes."""
+    reply = _require_command(transport)({"cmd": "sensor_types"})
+    types = reply.get("types") if isinstance(reply, dict) else None
+    return list(types or [])
 
 
 def sensor_stop(transport) -> None:

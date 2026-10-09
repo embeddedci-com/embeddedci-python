@@ -785,6 +785,13 @@ async def uart_close() -> m.UartSessionResult:
 
 # -- emulated I2C sensor --------------------------------------------------------------
 
+SensorType = Literal["bmp280", "bme280", "sht4x", "mpu6050"]
+SensorValues = Annotated[Optional[Dict[str, float]], Field(description=(
+    "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or "
+    "{\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, "
+    "units and ranges."))]
+
+
 @mcp.tool(annotations=_ann("Emulate an I2C sensor"))
 async def enable_i2c_sensor(
     sda: Annotated[Optional[LaRef], Field(description=(
@@ -792,24 +799,39 @@ async def enable_i2c_sensor(
     scl: Annotated[Optional[LaRef], Field(description=(
         "LA channel (or wiring name) of the bus's SCL; omit for the profile's i2c_scl."))] = None,
     address: Annotated[Optional[int], Field(ge=0x03, le=0x77, description=(
-        "7-bit address (BMP280: 0x76 or 0x77); omit for the profile's i2c_addr."))] = None,
+        "7-bit address; omit for the profile's i2c_addr (BMP280/BME280) or the model's default "
+        "(SHT4x 0x44, MPU-6050 0x68)."))] = None,
     temperature_c: Optional[float] = None,
     pressure_pa: Optional[float] = None,
+    sensor: Annotated[SensorType, Field(description=(
+        "bmp280 (temperature, pressure), bme280 (+ humidity), sht4x (temperature, humidity) or "
+        "mpu6050 (accelerometer, gyroscope, die temperature)."))] = "bmp280",
+    values: SensorValues = None,
 ) -> m.DeviceReply:
-    """Make the pod act as a BMP280 on sda/scl for the DUT to read. Engage pull-ups on both lines first (set_pull).
+    """Make the pod act as an I2C sensor on sda/scl for the DUT to read. Engage pull-ups on both lines first (set_pull).
 
-    The channels and address come from the wiring profile when omitted.
+    The channels come from the wiring profile when omitted. Readings start at the model's
+    defaults; seed them with temperature_c/pressure_pa or values.
     """
     return m.DeviceReply(reply=await _call(lambda: SESSION.require().enable_i2c_sensor(
-        sda=sda, scl=scl, address=address, temperature_c=temperature_c, pressure_pa=pressure_pa)) or {})
+        sensor, sda=sda, scl=scl, address=address, temperature_c=temperature_c,
+        pressure_pa=pressure_pa, **(values or {}))) or {})
 
 
 @mcp.tool(annotations=_ann("Set emulated sensor values", idempotent=True))
 async def set_i2c_sensor(temperature_c: Optional[float] = None,
-                         pressure_pa: Optional[float] = None) -> m.DeviceReply:
-    """Change what the emulated sensor reports (at least one value)."""
+                         pressure_pa: Optional[float] = None,
+                         values: SensorValues = None) -> m.DeviceReply:
+    """Change what the emulated sensor reports (at least one value); the reply lists every reading."""
     return m.DeviceReply(reply=await _call(lambda: SESSION.require().set_i2c_sensor(
-        temperature_c=temperature_c, pressure_pa=pressure_pa)) or {})
+        temperature_c=temperature_c, pressure_pa=pressure_pa, **(values or {}))) or {})
+
+
+@mcp.tool(annotations=_ann("Emulated sensor models", read_only=True))
+async def i2c_sensor_types() -> m.DeviceReply:
+    """The sensor models the pod can emulate, with their addresses and settable readings (key, unit, range, default)."""
+    types = await _call(lambda: SESSION.require().i2c_sensor_types())
+    return m.DeviceReply(reply={"types": types or []})
 
 
 @mcp.tool(annotations=_ann("Stop the emulated sensor", idempotent=True))
@@ -854,6 +876,71 @@ async def i2c_sensor_capture(
         return result
 
     return await _call(op)
+
+
+# -- emulated GPS receiver --------------------------------------------------------------
+
+GpsUtc = Annotated[Optional[str], Field(description=(
+    "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock)."))]
+
+
+@mcp.tool(annotations=_ann("Emulate a GPS receiver"))
+async def enable_gps(
+    tx: Annotated[LaRef, Field(description="LA channel (or wiring name) wired to the DUT's UART RX.")],
+    baud: Annotated[int, Field(ge=300, le=921600)] = 9600,
+    rate_hz: Annotated[int, Field(ge=1, le=10, description="Fixes per second.")] = 1,
+    sentences: Annotated[Optional[str], Field(description=(
+        "Comma-separated subset of RMC, VTG, GGA, GSA, GSV, GLL; omit for all six."))] = None,
+    latitude_deg: Annotated[Optional[float], Field(ge=-90, le=90)] = None,
+    longitude_deg: Annotated[Optional[float], Field(ge=-180, le=180)] = None,
+    altitude_m: Optional[float] = None,
+    speed_kmh: Annotated[Optional[float], Field(ge=0, le=2000)] = None,
+    course_deg: Annotated[Optional[float], Field(ge=0, le=360)] = None,
+    satellites: Annotated[Optional[int], Field(ge=0, le=12)] = None,
+    hdop: Annotated[Optional[float], Field(ge=0.5, le=99)] = None,
+    fix: Annotated[Optional[int], Field(ge=0, le=2, description="0 no fix, 1 GPS, 2 DGPS.")] = None,
+    utc: GpsUtc = None,
+) -> m.DeviceReply:
+    """Make the pod play a GPS module: NMEA sentences (u-blox style, 9600 baud, 1 Hz by default) on tx for the DUT's UART.
+
+    It runs on a second UART, so uart_open keeps working for the DUT's console. The position
+    moves along course_deg at speed_kmh between fixes. Needs gateware v48 ("gps" in status caps).
+    """
+    fields = dict(latitude_deg=latitude_deg, longitude_deg=longitude_deg, altitude_m=altitude_m,
+                  speed_kmh=speed_kmh, course_deg=course_deg, satellites=satellites, hdop=hdop, fix=fix)
+    return m.DeviceReply(reply=await _call(lambda: SESSION.require().enable_gps(
+        tx, baud=baud, rate_hz=rate_hz, sentences=sentences, utc=utc, **fields)) or {})
+
+
+@mcp.tool(annotations=_ann("Set the emulated GPS fix", idempotent=True))
+async def set_gps(
+    latitude_deg: Annotated[Optional[float], Field(ge=-90, le=90)] = None,
+    longitude_deg: Annotated[Optional[float], Field(ge=-180, le=180)] = None,
+    altitude_m: Optional[float] = None,
+    speed_kmh: Annotated[Optional[float], Field(ge=0, le=2000)] = None,
+    course_deg: Annotated[Optional[float], Field(ge=0, le=360)] = None,
+    satellites: Annotated[Optional[int], Field(ge=0, le=12)] = None,
+    hdop: Annotated[Optional[float], Field(ge=0.5, le=99)] = None,
+    fix: Annotated[Optional[int], Field(ge=0, le=2, description="0 no fix, 1 GPS, 2 DGPS.")] = None,
+    utc: GpsUtc = None,
+) -> m.DeviceReply:
+    """Change the fix the emulated GPS prints (any subset); the next sentences carry it."""
+    fields = dict(latitude_deg=latitude_deg, longitude_deg=longitude_deg, altitude_m=altitude_m,
+                  speed_kmh=speed_kmh, course_deg=course_deg, satellites=satellites, hdop=hdop, fix=fix)
+    return m.DeviceReply(reply=await _call(lambda: SESSION.require().set_gps(utc=utc, **fields)) or {})
+
+
+@mcp.tool(annotations=_ann("Stop the emulated GPS", idempotent=True))
+async def disable_gps() -> m.StopResult:
+    """Stop the GPS receiver and release its pin (safe when none runs)."""
+    await _call(lambda: SESSION.require().disable_gps())
+    return m.StopResult()
+
+
+@mcp.tool(annotations=_ann("Emulated GPS status", read_only=True))
+async def gps_status() -> m.DeviceReply:
+    """The GPS receiver's session (tx, baud, rate, epochs, overruns) and the fix it prints."""
+    return m.DeviceReply(reply=await _call(lambda: SESSION.require().gps_status()) or {})
 
 
 # -- bias resistors ---------------------------------------------------------------------

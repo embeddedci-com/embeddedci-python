@@ -209,12 +209,25 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `enable_i2c_sensor` | Make the pod act as a BMP280 for the DUT to read (engage pull-ups first). | `sda`, `scl`, `address`, `temperature_c`, `pressure_pa` |
-| `set_i2c_sensor` | Change the temperature or pressure the emulated sensor reports. | `temperature_c`, `pressure_pa` |
+| `enable_i2c_sensor` | Make the pod act as an I2C sensor for the DUT to read (engage pull-ups first): `sensor` is `bmp280`, `bme280`, `sht4x` or `mpu6050`. | `sda`, `scl`, `address`, `temperature_c`, `pressure_pa`, `sensor="bmp280"`, `values` (readings by key, e.g. `{"humidity_pct": 55}`) |
+| `set_i2c_sensor` | Change what the emulated sensor reports; the reply lists every reading. | `temperature_c`, `pressure_pa`, `values` |
+| `i2c_sensor_types` | The models the pod emulates, with their addresses and readings (key, unit, range, default). | none |
 | `disable_i2c_sensor` | Disarm the emulated sensor. | none |
 | `i2c_sensor_status` | Sensor state and bus activity counters: did the DUT talk to it? | none |
 | `i2c_sensor_regs` | Read the emulated sensor's register image. | `start=0`, `length=256` |
 | `i2c_sensor_capture` | Capture and decode the sensor's I2C bus into a transaction trace. | `samples=4096`, `sample_rate_hz=500000`, `address`, `register` |
+
+### Emulated GPS receiver
+
+NMEA sentences (u-blox style: RMC VTG GGA GSA GSV GLL) on one LA channel for the DUT's UART, from
+the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gps` capability).
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `enable_gps` | Start the receiver on `tx`, the channel wired to the DUT's RX. The position moves along `course_deg` at `speed_kmh` between fixes. | `tx`, `baud=9600`, `rate_hz=1`, `sentences`, `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`, `hdop`, `fix`, `utc` (default now) |
+| `set_gps` | Change the fix (any subset); `fix=0` drops the lock. | `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`, `hdop`, `fix`, `utc` |
+| `disable_gps` | Stop the receiver and release its pin. | none |
+| `gps_status` | The session (tx, baud, rate, epochs, overruns) and the fix it prints. | none |
 
 ### Pull resistors
 

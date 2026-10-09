@@ -184,6 +184,11 @@ class Capabilities:
     analog: Optional[bool] = None
     #: Output limits on the DAC paths (``{"cmd":"dac_limits"}``).
     dac_limits: bool = False
+    #: The emulated I2C sensor models beyond the BMP280 (BME280, SHT4x, MPU-6050) and
+    #: :meth:`BenchPod.i2c_sensor_types`.
+    sensor_types: bool = False
+    #: The emulated GPS receiver on UART2 (gateware >= v48): :meth:`BenchPod.enable_gps`.
+    gps: bool = False
 
     # firmware updates and policies
     #: Internal flash of the pod's MCU in KiB (2048 or 1024); 0 when not reported.
@@ -309,6 +314,8 @@ class Capabilities:
                 ("can", "can"),
                 ("pod_current", "pod_current"),
                 ("dac_limits", "dac_limits"),
+                ("sensor_types", "sensor_types"),
+                ("gps", "gps"),
                 *((f, f) for f in _STATUS_FLAGS),
             ):
                 if name in names and hasattr(c, attr):
@@ -364,6 +371,7 @@ class Capabilities:
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
             ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
+            ("sensor_types", "cap.sensor_types"), ("gps", "cap.gps"),
             ("dac_limits", "cap.dac_limits"),
             ("ws_auth_v2", "cap.ws_auth_v2"),
             *((f, f"cap.{f}") for f in _STATUS_FLAGS),
