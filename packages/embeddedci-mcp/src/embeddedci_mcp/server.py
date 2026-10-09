@@ -238,7 +238,8 @@ def _status() -> m.StatusResult:
     if not SESSION.connected and not SESSION.reconnectable:
         default = SESSION.default_connection
         hint = (f"call connect (the server default is {default!r})" if default
-                else "call connect with a host, /dev/tty…, 'usb' or 'embeddedci:<device>'")
+                else "call connect: without a connection it finds the one pod on the LAN over mDNS; "
+                     "else pass a host, 'usb' or 'embeddedci:<device>'")
         return m.StatusResult(connected=False, warnings=[f"not connected — {hint}"])
     pod = SESSION.require()
     firmware = pod.status()
@@ -272,7 +273,8 @@ def _status() -> m.StatusResult:
 async def connect(
     connection: Annotated[Optional[str], Field(description=(
         "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), "
-        "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit for the server default."))] = None,
+        "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
+        "(--connection or BENCHPOD_CONNECTION), else to find the one pod on the LAN over mDNS."))] = None,
     la_voltage: Annotated[Optional[Literal[1.8, 3.3]], Field(description=(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage)."))] = None,
     lease_wait: Annotated[float, Field(ge=0, le=3600, description=(

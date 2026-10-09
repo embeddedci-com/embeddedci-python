@@ -1,5 +1,14 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `connect` without a connection, `--connection` or `BENCHPOD_CONNECTION` now looks for the pod
+  on the LAN over mDNS (as `discover` does) instead of failing with "no connection given", so
+  `BENCHPOD_CONNECTION` is optional for a single pod on your network. When discovery finds no pod
+  or several, the error lists the pods it heard (name and address) and what to pass instead:
+  `host[:port]`, `usb`, or `embeddedci:<device>` (from `cloud_list_devices`).
+- The `connect` description, the `status` hint and the server instructions say so.
+
 ## 2.9.0
 
 - Requires `embeddedci` 2.9.0 (pin raised).
