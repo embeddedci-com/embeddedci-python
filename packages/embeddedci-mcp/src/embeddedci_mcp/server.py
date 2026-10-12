@@ -14,6 +14,7 @@ Results are pydantic models, so every tool publishes an output schema and return
 content. No protocol, flash or decode logic lives here — it all comes from the SDK.
 """
 
+import inspect
 import os
 import re
 import time
@@ -721,8 +722,16 @@ async def flash(
     normal result (ok=false): read target_unreachable (unpowered, mis-wired or held in reset),
     stalled, and the log tails to decide what to change; `artifact` says which build was flashed.
     """
+    from_build = {k: v for k, v in (("build", build), ("repo", repo), ("ref", ref),
+                                    ("artifact", artifact)) if v}
+    if server_side is not None:
+        from_build["server_side"] = server_side
+
     def op() -> m.FlashResult:
         pod = SESSION.require()
+        if from_build and "build" not in inspect.signature(pod.flash).parameters:
+            raise ValueError("flashing an uploaded build (build/repo/ref/artifact) needs a newer "
+                             "embeddedci SDK; upgrade embeddedci, or pass file= with a local image")
         result = pod.flash(
             swclk=_channel(pod, swclk, "swd_swclk"), swdio=_channel(pod, swdio, "swd_swdio"),
             nreset=pod.wiring.swd_nreset if nreset is None else nreset,
@@ -731,9 +740,9 @@ async def flash(
             connect_under_reset=connect_under_reset, extra_configs=tuple(extra_configs or ()),
             extra_args=tuple(extra_args or ()), timeout=timeout,
             connect_attempts=connect_attempts, check=False,
-            build=build, repo=repo, ref=ref, artifact=artifact, server_side=server_side,
+            **from_build,
         )
-        art = result.artifact
+        art = getattr(result, "artifact", None)
         return m.FlashResult(ok=result.ok, returncode=result.returncode,
                              target_unreachable=result.target_unreachable, stalled=result.stalled,
                              stdout_tail=clip(result.stdout, 4000)[-4000:],

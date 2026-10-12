@@ -265,11 +265,26 @@ def test_flash_returns_outcome_not_error(connected, monkeypatch):
     assert len(result["stderr_tail"]) <= 4000
 
 
+def test_flash_passes_no_build_arguments_for_a_file(connected, monkeypatch):
+    seen = {}
+
+    def fake_flash(**kwargs):  # an SDK older than flash(build=...) would refuse them
+        seen.update(kwargs)
+        return FlashResult(ok=True, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    result = call("flash", swclk=11, swdio=12, target="target/stm32f4x.cfg", file="a.elf")
+    assert not {"build", "repo", "ref", "artifact", "server_side"} & set(seen)
+    assert result["artifact"] is None
+
+
+@pytest.mark.skipif("artifact" not in getattr(FlashResult, "__dataclass_fields__", {}),
+                    reason="needs embeddedci with flash(build=...)")
 def test_flash_an_uploaded_build(connected, monkeypatch):
     seen = {}
 
-    def fake_flash(**kwargs):
-        seen.update(kwargs)
+    def fake_flash(*, build="", repo="", ref="", artifact="", server_side=None, **kwargs):
+        seen.update(kwargs, build=build, repo=repo, ref=ref, server_side=server_side)
         return FlashResult(ok=True, returncode=0, stdout="Verified OK", stderr="",
                            artifact={"job_id": "job-1", "pack_id": "p", "name": "fw.elf",
                                      "repo": "acme/fw", "ref": "main", "sha": "abc"})
