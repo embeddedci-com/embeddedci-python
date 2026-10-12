@@ -930,7 +930,7 @@ Terminal J9 is a two-wire 4-20 mA transmitter. `current_out` holds a current on 
 ```python
 out = bp.current_out(0.012)                # CurrentOutput(current, code, min_current, max_current)
 print(out.current)                         # 0.012: the current actually held (16-bit, 0.25 µA steps)
-print(out.min_current, out.max_current)    # 0.004056 0.020094 on a rev3 pod: what the output can do
+print(out.min_current, out.max_current)    # 0.004055 0.020094 on a rev3 pod: what the output can do
 
 bp.current_out(0.004)                      # back to the live zero
 print(bp.current_out_range().max_current)  # the range only, nothing moves
