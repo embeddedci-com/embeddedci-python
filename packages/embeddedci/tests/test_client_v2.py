@@ -244,6 +244,10 @@ def test_dac_output_reports_achieved_volts():
     # The firmware names the analog path (dac_5v); the result uses dac_output's own vocabulary.
     assert DacOutput.from_reply({"path": "dac_5v", "mv": 2502, "code": 128}).path == "5v"
     assert DacOutput.from_reply({"path": "off", "mv": 0, "code": -1}).path == "off"
+    # Firmware that drives the full 16 bits answers in microvolts too.
+    fine = DacOutput.from_reply({"path": "dac_5v", "mv": 2500, "uv": 2499985, "code": 128, "code16": 32723})
+    assert fine.voltage == pytest.approx(2.499985, abs=1e-9) and fine.code == 128 and fine.code16 == 32723
+    assert out.code16 is None
     with pytest.raises(ValueError):
         bp.dac_output("off", volts=1.0)
 

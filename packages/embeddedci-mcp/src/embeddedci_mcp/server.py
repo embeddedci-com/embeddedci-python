@@ -1206,7 +1206,7 @@ async def dac_output(
 ) -> m.DacOutputResult:
     """Route a DAC output (3v3, 5v, 12v = ±12 V, or off) and drive a calibrated DC voltage on it."""
     out = await _call(lambda: SESSION.require().dac_output(path, volts=volts))
-    return m.DacOutputResult(path=out.path, voltage=out.voltage, code=out.code)
+    return m.DacOutputResult(path=out.path, voltage=out.voltage, code=out.code, code16=out.code16)
 
 
 @mcp.tool(annotations=_ann("Set the 4-20 mA output current", destructive=True, idempotent=True))

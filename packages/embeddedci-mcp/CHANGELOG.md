@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `dac_output` returns `code16`, the 16-bit DAC code, next to the 8-bit `code` on firmware 3.9 and
+  later, and its `voltage` has microvolt resolution there.
+
 ## 2.10.0
 
 - `connect` without a connection now uses, in order: `--connection`, `BENCHPOD_CONNECTION`, the

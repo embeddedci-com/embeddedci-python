@@ -232,8 +232,11 @@ class DacOutput:
     #: The voltage the calibrated DAC actually produces (the nearest code to what was asked),
     #: or ``None`` when the call only routed the path.
     voltage: Optional[float]
-    #: The DAC code driving it, or ``None`` when only routed.
+    #: The DAC code driving it as an 8-bit level (0..255), or ``None`` when only routed.
     code: Optional[int]
+    #: The full 16-bit DAC code driving it, or ``None`` when only routed or on firmware that
+    #: drives ``dac_out`` at 8 bits (before 3.9).
+    code16: Optional[int] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -245,9 +248,12 @@ class DacOutput:
         # caller used (5v) so the result speaks the same vocabulary as dac_output's argument.
         path = str(d.get("path", ""))
         path = path[len("dac_"):] if path.startswith("dac_") else path
-        return cls(path=path,
-                   voltage=None if routed_only else (_opt_int(d, "mv") or 0) / 1000.0,
-                   code=None if routed_only else code, raw=d)
+        if routed_only:
+            return cls(path=path, voltage=None, code=None, raw=d)
+        # A 16-bit pod also answers in microvolts: one step is well under a millivolt.
+        uv = _opt_int(d, "uv")
+        voltage = uv / 1e6 if uv is not None else (_opt_int(d, "mv") or 0) / 1000.0
+        return cls(path=path, voltage=voltage, code=code, code16=_opt_int(d, "code16"), raw=d)
 
 
 @dataclass(frozen=True)

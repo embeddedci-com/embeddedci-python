@@ -323,7 +323,7 @@ def test_pulls(connected):
 def test_analog_tools(connected):
     assert call("analog_path", path="cal1") == {"path": "cal1"}
     out = call("dac_output", path="5v", volts=2.5)
-    assert out == {"path": "5v", "voltage": 2.5, "code": 128}
+    assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": None}
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
     assert call("adc_read", source="ext")["offset"] is None
