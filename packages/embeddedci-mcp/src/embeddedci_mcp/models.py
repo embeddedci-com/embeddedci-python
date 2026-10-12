@@ -394,7 +394,7 @@ class DacOutputResult(BaseModel):
     voltage: Optional[float] = Field(description="Voltage produced; null when only routing.")
     code: Optional[int] = Field(description="The DAC level as an 8-bit code (0..255); null when only routing.")
     code16: Optional[int] = Field(default=None, description=(
-        "The full 16-bit DAC code (firmware 3.9 and later); null when only routing or on older firmware."))
+        "The full 16-bit DAC code (firmware 3.8.1 and later); null when only routing or on older firmware."))
 
 
 class CurrentOutResult(BaseModel):

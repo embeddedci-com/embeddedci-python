@@ -896,7 +896,7 @@ print(bp.adc_read("ext").voltage)          # the true front-SMA voltage (the ÷1
 ```
 
 `dac_output` takes calibrated volts (`"3v3"`, `"5v"`, `"12v"`, or `"off"`); without `volts` it only
-routes. From firmware 3.9 the pod drives the DAC at its full 16 bits: `voltage` then has
+routes. From firmware 3.8.1 the pod drives the DAC at its full 16 bits: `voltage` then has
 microvolt resolution (about 76 µV a step on `"5v"`) and `code16` is the 16-bit code, while `code`
 stays the nearest 8-bit level. On older firmware `code16` is `None` and the steps are 8-bit. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"current_in"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).

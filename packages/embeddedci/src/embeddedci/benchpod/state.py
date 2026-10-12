@@ -235,7 +235,7 @@ class DacOutput:
     #: The DAC code driving it as an 8-bit level (0..255), or ``None`` when only routed.
     code: Optional[int]
     #: The full 16-bit DAC code driving it, or ``None`` when only routed or on firmware that
-    #: drives ``dac_out`` at 8 bits (before 3.9).
+    #: drives ``dac_out`` at 8 bits (before 3.8.1).
     code16: Optional[int] = None
     raw: Dict[str, Any] = _raw()
 
