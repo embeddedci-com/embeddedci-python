@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `flash` can flash a build uploaded to embeddedci.com instead of a `file`: new `build` (id or
+  `latest`), `repo`, `ref`, `artifact` and `server_side` arguments. On an `embeddedci:<pod>`
+  connection embeddedci.com runs OpenOCD; on LAN/USB the file is downloaded and flashed locally.
+  The result's new `artifact` says which build was flashed.
 - `dac_output` returns `code16`, the 16-bit DAC code, next to the 8-bit `code` on firmware 3.9 and
   later, and its `voltage` has microvolt resolution there.
 

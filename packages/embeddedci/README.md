@@ -559,7 +559,7 @@ SWD) carrying OpenOCD's output. Pass `check=False` to get the `FlashResult` and 
 ```python
 result = bp.flash(file="build/app.bin", load_address="0x08000000",
                   target="target/stm32f4x.cfg", swclk=PIN11, swdio=PIN12, check=False)
-assert result.ok, result.stderr     # also: returncode, stdout, target_unreachable, stalled
+assert result.ok, result.stderr     # also: returncode, stdout, target_unreachable, stalled, artifact
 ```
 
 * `nreset` is a flag, not a pin. With it, `connect_under_reset` defaults to `True`; without it,
@@ -572,6 +572,32 @@ assert result.ok, result.stderr     # also: returncode, stdout, target_unreachab
 * `extra_configs` adds `-c` commands and `extra_args` raw OpenOCD arguments; `clear_reset_events=True`
   empties the target config's clock-boost reset events, which otherwise race the SWD link.
 * OpenOCD runs on the machine running the test, on every transport including the cloud.
+
+### Flashing a build uploaded to embeddedci.com
+
+A build uploaded with the `upload-artifact` GitHub action or the `build_report` fixture can be
+flashed by naming it instead of passing `file`:
+
+```python
+bp.flash(build="latest", repo="acme/firmware", ref="main")   # newest build of that branch
+bp.flash(build="3f9c2a1e-...")                               # the build_id the upload printed
+res = bp.flash(build="3f9c2a1e-...", artifact="app.hex", check=False)
+print(res.artifact["name"], res.artifact.get("sha"))         # which file was flashed
+```
+
+* `build` is the build id (`"latest"` or empty: the newest build that matches the rest), `repo` is
+  `owner/name` (or `name`), `ref` a branch or tag, and `artifact` a file name in the build. Without
+  `artifact` the build's .elf is used, else its .hex, else its .bin; a build with two of the same
+  type needs `artifact`.
+* On a cloud connection (`embeddedci:<device>`) embeddedci.com runs OpenOCD through the pod: nothing
+  to install on the runner, and a GitHub Actions OIDC session is enough. Such a flash always
+  verifies and resets and takes no `openocd_bin`, `extra_configs` or `extra_args`.
+* On a LAN or USB connection the file is downloaded to a temp file and flashed by the local OpenOCD
+  as above. Downloading needs an API key (`BENCHPOD_API_KEY`) or `benchpod login`.
+* `server_side=False` flashes a cloud pod with the local OpenOCD instead; `server_side=True` asks for
+  the server on a pod connected some other way (it must be registered on embeddedci.com).
+* `FlashResult.artifact` holds the build's `job_id`, `name`, `repo`, `ref` and `sha` (`None` for a
+  local `file`). An omitted `target` falls back to the target the build recorded.
 
 ## SPI flash and SPI devices
 
@@ -1491,7 +1517,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
 | `LaPinState` | `la_pins`, `configure_gpio` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
-| `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled` |
+| `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled`, `artifact` (the uploaded build, for `flash(build=...)`) |
 | `SpiSession` (class) | `open_spi` | `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
 | `SpiFlashInfo` | `SpiSession.flash_id` | `jedec_id`, `present`, `size`, `status` |
 | `SpiFlashResult` | `spi_flash`, `SpiSession.flash_program` | `jedec_id`, `addr`, `length`, `erased`, `verified`, `seconds` |
@@ -1576,7 +1602,10 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 | `dual_capture_start(device_id, *, adc_samples, adc_rate_mhz, la_samples, la_rate_mhz)` | start a server-side ADC + LA capture; returns its id |
 | `capture_snapshot(capture_id)` | fetch a server-side capture |
 | `replay_start(payload)` | arm a server-side DAC replay (`POST /dac/replay/start`) |
-| `request(method, path, *, query=None, json_body=None, raw_body=None, content_type=None, parse_json=True)` | any other endpoint; returns `(status, body)` |
+| `build_artifact(*, build="", repo="", ref="", artifact="")` | resolve an uploaded build to the file a flash would use (`job_id`, `pack_id`, `name`, `repo`, `ref`, `sha`, `wiring_defaults`) |
+| `download_build_artifact(art)` | download that file's bytes |
+| `flash_build(device_id, body, *, timeout=360.0)` | have embeddedci.com flash an uploaded build through a cloud pod (`POST /benchpod/devices/{id}/flash`) |
+| `request(method, path, *, query=None, json_body=None, raw_body=None, content_type=None, parse_json=True, timeout=None)` | any other endpoint; returns `(status, body)` |
 
 ### Functions, constants and modules
 

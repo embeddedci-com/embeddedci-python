@@ -281,6 +281,15 @@ class PowerProfileStartResult(BaseModel):
 
 # -- flash + UART ------------------------------------------------------------------
 
+class FlashedBuild(BaseModel):
+    """The uploaded build a flash used (flash with build/repo/ref)."""
+    build: str
+    name: str
+    repo: Optional[str] = None
+    ref: Optional[str] = None
+    sha: Optional[str] = None
+
+
 class FlashResult(BaseModel):
     ok: bool
     returncode: int
@@ -288,6 +297,7 @@ class FlashResult(BaseModel):
     stalled: bool
     stdout_tail: str
     stderr_tail: str
+    artifact: Optional[FlashedBuild] = None
 
 
 class SpiFlashInfoResult(BaseModel):

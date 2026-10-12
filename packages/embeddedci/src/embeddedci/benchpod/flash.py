@@ -22,7 +22,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import IO, List, Optional, Sequence
+from typing import IO, Any, Dict, List, Optional, Sequence
 
 from .errors import FlashError, TargetUnreachableError
 from .transport.base import RawLink, Transport
@@ -69,6 +69,9 @@ class FlashResult:
     stderr: str
     target_unreachable: bool = False
     stalled: bool = False  # bridge saw no frame traffic for stall_timeout
+    #: The uploaded build that was flashed (``job_id``, ``name``, ``repo``, ``ref``, ``sha``, …) when
+    #: the image came from embeddedci.com (``flash(build=...)``); None for a local file.
+    artifact: Optional[Dict[str, Any]] = None
 
 
 def find_openocd(explicit: Optional[str] = None) -> str:

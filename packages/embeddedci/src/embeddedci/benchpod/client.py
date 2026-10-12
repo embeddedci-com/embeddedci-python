@@ -698,6 +698,11 @@ class BenchPod:
         timeout: float = 300.0,
         connect_attempts: int = 5,
         check: bool = True,
+        build: str = "",
+        repo: str = "",
+        ref: str = "",
+        artifact: str = "",
+        server_side: Optional[bool] = None,
     ) -> FlashResult:
         """Flash an SWD target through the pod's CMSIS-DAP probe and report the result.
 
@@ -708,11 +713,25 @@ class BenchPod:
         ``benchpod.INTERNAL``/``EXTERNAL`` powers the target first. Omitted ``swclk``, ``swdio``,
         ``nreset`` and ``target`` come from the wiring profile (:attr:`wiring`).
 
-        OpenOCD runs on THIS machine and needs the ``cmsis_dap_tcp`` backend (newer than 0.12.0).
-        By default (``check=True``) a failed flash raises :class:`FlashError` /
+        Instead of ``file``, flash a build uploaded to embeddedci.com (the ``upload-artifact``
+        action or the ``build_report`` fixture): ``build`` is the build id the upload printed
+        (``"latest"``: the newest one), ``repo`` (``owner/name``) and ``ref`` (branch or tag) pick
+        the newest build of that repo/ref, and ``artifact`` names a file when the build holds
+        several (else its .elf, then .hex, then .bin). On a cloud connection
+        (``embeddedci:<device>``) embeddedci.com runs OpenOCD (nothing to install here); on a LAN or
+        USB connection the file is downloaded and flashed by the local OpenOCD, which needs an API
+        key or ``benchpod login``. ``server_side`` forces one or the other. A server-side flash
+        always verifies and resets, and takes no OpenOCD extras. :attr:`FlashResult.artifact` says
+        which build was flashed; ``target`` falls back to the target the build recorded.
+
+        Local OpenOCD runs on THIS machine and needs the ``cmsis_dap_tcp`` backend (newer than
+        0.12.0). By default (``check=True``) a failed flash raises :class:`FlashError` /
         :class:`TargetUnreachableError`; pass ``check=False`` to get the :class:`FlashResult` and
         ``assert result.ok`` yourself.
         """
+        from_build = bool(build or repo or ref or artifact)
+        if from_build and file:
+            raise ValueError("pass either file or a build (build/repo/ref/artifact), not both")
         swclk_i = self._wired(swclk, "swd_swclk")
         swdio_i = self._wired(swdio, "swd_swdio")
         if swclk_i == swdio_i:
@@ -722,10 +741,95 @@ class BenchPod:
         target = target or self.wiring.swd_target
         power = coerce_efuse(target_power) if target_power is not None else None
 
+        art: Optional[Dict[str, Any]] = None
+        tmpdir = ""
+        if from_build:
+            api = self._require_server_api()
+            art = api.build_artifact(build=build, repo=repo, ref=ref, artifact=artifact)
+            if not target:
+                target = str((art.get("wiring_defaults") or {}).get("target") or "")
+            use_server = bool(self._device_name) if server_side is None else server_side
+            if use_server:
+                result = self._flash_build_on_server(
+                    api, art, swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset), target=target,
+                    load_address=load_address, power=power, verify=verify, reset=reset,
+                    connect_under_reset=connect_under_reset, openocd_bin=openocd_bin,
+                    extra_configs=extra_configs, extra_args=extra_args, timeout=timeout)
+                if check:
+                    _flash.raise_for_result(result)
+                return result
+            import tempfile
+
+            tmpdir = tempfile.mkdtemp(prefix="benchpod-build-")
+            file = os.path.join(tmpdir, os.path.basename(str(art["name"])))
+            with open(file, "wb") as fh:
+                fh.write(api.download_build_artifact(art))
+            _log.info("flash: %s from build %s (%s)", art.get("name"), art.get("job_id"),
+                     " ".join(str(art[k]) for k in ("repo", "ref", "sha") if art.get(k)))
+
+        try:
+            result = self._flash_local(
+                swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset), target=target, file=file,
+                load_address=load_address, power=power, verify=verify, reset=reset,
+                connect_under_reset=connect_under_reset, clear_reset_events=clear_reset_events,
+                openocd_bin=openocd_bin, extra_configs=extra_configs, extra_args=extra_args,
+                timeout=timeout, connect_attempts=connect_attempts)
+        finally:
+            if tmpdir:
+                import shutil
+
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        result.artifact = art
+        if check:
+            _flash.raise_for_result(result)
+        return result
+
+    def _flash_build_on_server(
+        self, api: "ServerApi", art: Dict[str, Any], *, swclk: int, swdio: int, nreset: bool,
+        target: str, load_address: str, power: Optional[Efuse], verify: bool, reset: bool,
+        connect_under_reset: Optional[bool], openocd_bin: Optional[str],
+        extra_configs: Sequence[str], extra_args: Sequence[str], timeout: float,
+    ) -> FlashResult:
+        """Have embeddedci.com flash an uploaded build through this (cloud) pod."""
+        if not self._device_name:
+            raise BenchPodError(
+                "a server-side flash needs a pod registered on embeddedci.com: connect with "
+                "'embeddedci:<device>', or pass server_side=False to flash with the local OpenOCD")
+        unsupported = [name for name, given in (
+            ("verify=False", not verify), ("reset=False", not reset),
+            ("openocd_bin", bool(openocd_bin)), ("extra_configs", bool(extra_configs)),
+            ("extra_args", bool(extra_args))) if given]
+        if unsupported:
+            raise ValueError(
+                f"{', '.join(unsupported)} only apply to the local OpenOCD; pass server_side=False "
+                "to flash this build from this machine")
+        if not target:
+            raise ValueError("target is required (an OpenOCD config such as target/stm32f4x.cfg): "
+                             "pass target= or set swd_target in the wiring profile")
+        body: Dict[str, Any] = {
+            "job_id": art["job_id"], "pack_id": art["pack_id"], "artifact_name": art["name"],
+            "target": target, "load_addr": load_address, "swclk": swclk, "swdio": swdio,
+            "nreset": nreset, "efuse": int(power) if power is not None else 0,
+        }
+        if connect_under_reset is not None:
+            body["connect_under_reset"] = bool(connect_under_reset)
+        _log.info("flash: embeddedci.com flashes %s from build %s", art.get("name"), art.get("job_id"))
+        data = api.flash_build(api.resolve_device_id(self._device_name), body,
+                               timeout=timeout + 60.0)
+        ok = bool(data.get("ok"))
+        return FlashResult(ok=ok, returncode=0 if ok else 1, stdout=str(data.get("output") or ""),
+                           stderr=str(data.get("error") or ""),
+                           target_unreachable=bool(data.get("target_unreachable")), artifact=art)
+
+    def _flash_local(self, *, swclk: int, swdio: int, nreset: bool, target: str, file: str,
+                     load_address: str, power: Optional[Efuse], verify: bool, reset: bool,
+                     connect_under_reset: Optional[bool], clear_reset_events: bool,
+                     openocd_bin: Optional[str], extra_configs: Sequence[str],
+                     extra_args: Sequence[str], timeout: float, connect_attempts: int) -> FlashResult:
         with _classified_errors():
-            result = _flash.flash(
+            return _flash.flash(
                 self._transport,
-                swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset),
+                swclk=swclk, swdio=swdio, nreset=nreset,
                 target=target, file=file, load_address=load_address,
                 target_power=power, verify=verify, reset=reset,
                 connect_under_reset=connect_under_reset,
@@ -734,9 +838,6 @@ class BenchPod:
                 extra_configs=extra_configs, extra_args=extra_args,
                 timeout=timeout, connect_attempts=connect_attempts,
             )
-        if check:
-            _flash.raise_for_result(result)
-        return result
 
     # -- LA bias resistors (LA1-8) ------------------------------------------
     # LA1-LA6 carry a pull-UP, LA7/LA8 a pull-DOWN (see constants.PULL_OHMS). The resistors are
