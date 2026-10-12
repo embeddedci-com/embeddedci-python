@@ -178,10 +178,15 @@ def test_current_out_holds_a_current_and_the_dac_follows(pod):
         low = pod.current_out(0.004)                      # under the live zero: the lowest it does
         assert low.code == 0 and low.current == pytest.approx(rng.min_current)
 
+        # The pod's line (a fit per board revision) from two of its own replies above the floor.
+        # min_current is not the line's zero: the lowest codes all give a floor above it.
+        q, top = pod.current_out(0.008), pod.current_out(0.020)
+        per_code = (top.current - q.current) / (top.code - q.code)
+        assert per_code == pytest.approx(0.016 / 65535, rel=0.03), per_code
+
         mid = pod.current_out(0.012)
-        # The code follows the pod's own range (a fit per board revision), good to a few codes
-        # because the range is reported in whole microamps.
-        want_code = (0.012 - rng.min_current) / (rng.max_current - rng.min_current) * 65535
+        # Good to a few codes, because the replies are in whole microamps.
+        want_code = q.code + (0.012 - q.current) / per_code
         assert mid.current == pytest.approx(0.012, abs=2e-6) and abs(mid.code - want_code) <= 4, mid
         time.sleep(0.1)
         readback = pod.adc_read("cal1").voltage           # routes the 5 V output: about 2.49 V

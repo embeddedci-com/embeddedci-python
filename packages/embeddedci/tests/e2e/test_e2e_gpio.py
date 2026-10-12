@@ -97,7 +97,7 @@ def test_uart_is_refused_on_a_gpio_pin_until_released(gpio_pod, bench):
     with pytest.raises(PinConflictError) as ei:
         gpio_pod.open_uart(rx=rx, tx=tx)
     assert (ei.value.la, ei.value.function) == (tx, "gpio")
-    assert '"mode":"off"' in str(ei.value)
+    assert f"release it with bp.release_gpio({tx})" in str(ei.value)   # the SDK's own hint
     gpio_pod.release_gpio(tx)
     with gpio_pod.open_uart(rx=rx, tx=tx):
         assert {_function(gpio_pod, rx).function, _function(gpio_pod, tx).function} == {"uart_rx", "uart_tx"}
