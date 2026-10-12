@@ -83,7 +83,7 @@
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
-    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True) -> 'FlashResult'",
+    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None) -> 'FlashResult'",
     "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'DacPath' = '5v', duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
     "get_la_voltage": "(self) -> 'LaVoltage'",
@@ -409,7 +409,8 @@
       "stdout",
       "stderr",
       "target_unreachable",
-      "stalled"
+      "stalled",
+      "artifact"
     ]
   },
   "FpgaImage": {
@@ -722,13 +723,16 @@
   },
   "ServerApi": {
     "__init__": "(self, *, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, token_provider: 'Optional[Callable[[], str]]' = None, timeout: 'float' = 60.0, lease_id: 'Optional[str]' = None) -> 'None'",
+    "build_artifact": "(self, *, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '') -> 'Dict[str, Any]'",
     "capture_snapshot": "(self, capture_id: 'str') -> 'Dict[str, Any]'",
     "device_parameters": "(self, name_or_id: 'str') -> 'Dict[str, Any]'",
+    "download_build_artifact": "(self, art: 'Dict[str, Any]') -> 'bytes'",
     "dual_capture_start": "(self, device_id: 'str', *, adc_samples: 'int', adc_rate_mhz: 'float', la_samples: 'int', la_rate_mhz: 'float') -> 'str'",
+    "flash_build": "(self, device_id: 'str', body: 'Dict[str, Any]', *, timeout: 'float' = 360.0) -> 'Dict[str, Any]'",
     "list_devices": "(self) -> 'List[Dict[str, Any]]'",
     "put_wiring": "(self, device_id: 'str', wiring: 'Dict[str, Any]') -> 'Dict[str, Any]'",
     "replay_start": "(self, payload: 'Dict[str, Any]') -> 'Dict[str, Any]'",
-    "request": "(self, method: 'str', path: 'str', *, query: 'Optional[Dict[str, Any]]' = None, json_body: 'Any' = None, raw_body: 'Optional[bytes]' = None, content_type: 'Optional[str]' = None, parse_json: 'bool' = True) -> 'Tuple[int, Any]'",
+    "request": "(self, method: 'str', path: 'str', *, query: 'Optional[Dict[str, Any]]' = None, json_body: 'Any' = None, raw_body: 'Optional[bytes]' = None, content_type: 'Optional[str]' = None, parse_json: 'bool' = True, timeout: 'Optional[float]' = None) -> 'Tuple[int, Any]'",
     "resolve_device_id": "(self, name: 'str') -> 'str'",
     "scope_capture_start": "(self, device_id: 'str', *, samples: 'int' = 256, sample_rate_mhz: 'float' = 1.0) -> 'str'",
     "wiring_profile": "(self, device_id: 'str') -> 'Dict[str, Any]'"

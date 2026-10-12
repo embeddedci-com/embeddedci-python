@@ -1664,6 +1664,18 @@
     },
     "input": {
       "properties": {
+        "artifact": {
+          "default": "",
+          "description": "With build: the file to flash when the build holds several (default: its .elf, then .hex, then .bin).",
+          "title": "Artifact",
+          "type": "string"
+        },
+        "build": {
+          "default": "",
+          "description": "Flash a build uploaded to embeddedci.com instead of a file: its build id (the upload's build_id output), or 'latest' for the newest one that matches repo/ref.",
+          "title": "Build",
+          "type": "string"
+        },
         "connect_attempts": {
           "default": 5,
           "maximum": 20,
@@ -1715,7 +1727,7 @@
         },
         "file": {
           "default": "",
-          "description": "Firmware image path on the machine running this server.",
+          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact).",
           "title": "File",
           "type": "string"
         },
@@ -1738,10 +1750,35 @@
           "description": "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. Omit for the profile's swd_nreset.",
           "title": "Nreset"
         },
+        "ref": {
+          "default": "",
+          "description": "With build: the branch or tag of the uploaded build, e.g. 'main'.",
+          "title": "Ref",
+          "type": "string"
+        },
+        "repo": {
+          "default": "",
+          "description": "With build: the GitHub repository of the uploaded build, 'owner/name'.",
+          "title": "Repo",
+          "type": "string"
+        },
         "reset": {
           "default": true,
           "title": "Reset",
           "type": "boolean"
+        },
+        "server_side": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With build: true has embeddedci.com run OpenOCD (the default on an 'embeddedci:<pod>' connection), false downloads the file and runs OpenOCD here (the default on LAN/USB).",
+          "title": "Server Side"
         },
         "swclk": {
           "anyOf": [

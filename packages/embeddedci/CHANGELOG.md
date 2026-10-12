@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `flash` can flash a build uploaded to embeddedci.com (the `upload-artifact` action or the
+  `build_report` fixture) instead of a local file: `flash(build="<build id>" | "latest", repo=,
+  ref=, artifact=)`. On a cloud connection embeddedci.com runs OpenOCD (no local install); on a LAN
+  or USB connection the file is downloaded and flashed by the local OpenOCD. `server_side=` picks
+  one explicitly. New `FlashResult.artifact` (which build was flashed) and `ServerApi` methods
+  `build_artifact`, `download_build_artifact`, `flash_build`; `ServerApi.request` takes `timeout=`.
+  Needs the embeddedci.com server from the same release.
 - `dac_output` reads the full 16-bit DAC level on firmware 3.9 and later: `DacOutput.voltage` has
   microvolt resolution (the pod's new `uv` field) and the new `DacOutput.code16` is the 16-bit
   code. `code` stays the nearest 8-bit level; on older firmware `code16` is `None`.

@@ -36,7 +36,7 @@ Typical flows:
 
 Units are volts, amps, seconds and hertz. A tool that cannot do what was asked fails with an error that names the cause (for example "FirmwareError: la voltage not set; call set_la_voltage first ..." or "NotConnectedError: ..."). A completed operation with a negative outcome is a normal result: flash returns ok=false with its logs, a UART capture returns matched=false. Policy refusals have their own names: PodLockedError (the pod's LAN policy keeps the command for the cloud or USB), PodLeasedError (a cloud job holds the pod; wait and retry), PermissionDeniedError (the credential needs an owner/admin role or access to the device). UnsupportedFeatureError means this pod cannot do it at all (its firmware or gateware lacks the feature, or it is the digital-only board without the analog front end): check the capabilities in status instead of retrying.
 
-flash runs OpenOCD on the machine hosting this server and reads `file` from that machine's filesystem. Over the cloud the device is shared: connect takes an exclusive lease, released by disconnect or after the server's idle timeout (the next call reconnects).
+flash runs OpenOCD on the machine hosting this server and reads `file` from that machine's filesystem. To flash a build uploaded to embeddedci.com (GitHub Actions upload-artifact or the pytest build_report fixture), pass `build` (its id, or 'latest') and/or `repo`/`ref` instead of `file`: on an 'embeddedci:<pod>' connection embeddedci.com runs OpenOCD itself, on LAN/USB the file is downloaded and flashed here (needs BENCHPOD_API_KEY or `benchpod login`). Over the cloud the device is shared: connect takes an exclusive lease, released by disconnect or after the server's idle timeout (the next call reconnects).
 """
 
 WIRING = """\

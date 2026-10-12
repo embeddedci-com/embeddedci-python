@@ -17,7 +17,8 @@ maps to SDK calls, so anything an agent discovers interactively can become a pyt
   status, LA voltage and power only: the STM32 pod's USB console has no JSON mode.)
 - For `flash`: OpenOCD with the `cmsis_dap_tcp` backend (newer than 0.12.0 — e.g.
   `brew install --HEAD open-ocd`, or the xPack build) on the machine running the server. The
-  firmware `file` is read from that machine too.
+  firmware `file` is read from that machine too. Flashing a build uploaded to embeddedci.com
+  (`build`/`repo`/`ref`) over a cloud connection needs neither: embeddedci.com runs OpenOCD.
 
 ## Set up your client
 
@@ -203,7 +204,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `flash` | Program the DUT over SWD through the pod's CMSIS-DAP probe (OpenOCD runs next to the server). | `swclk`, `swdio`, `target`, `file`, `nreset`, `load_address`, `target_power`, `verify=true`, `reset=true`, `connect_under_reset`, `extra_configs`, `extra_args`, `timeout=300`, `connect_attempts=5` |
+| `flash` | Program the DUT over SWD through the pod's CMSIS-DAP probe: a local `file` (OpenOCD runs next to the server), or a build uploaded to embeddedci.com (`build` id or `latest`, `repo`, `ref`; embeddedci.com runs OpenOCD on a cloud connection, LAN/USB downloads it). | `swclk`, `swdio`, `target`, `file`, `nreset`, `load_address`, `target_power`, `verify=true`, `reset=true`, `connect_under_reset`, `extra_configs`, `extra_args`, `timeout=300`, `connect_attempts=5`, `build`, `repo`, `ref`, `artifact`, `server_side` |
 
 ### SPI flash and SPI devices
 

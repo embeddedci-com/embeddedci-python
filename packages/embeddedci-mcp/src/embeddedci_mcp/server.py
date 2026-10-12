@@ -14,6 +14,7 @@ Results are pydantic models, so every tool publishes an output schema and return
 content. No protocol, flash or decode logic lives here — it all comes from the SDK.
 """
 
+import inspect
 import os
 import re
 import time
@@ -681,7 +682,9 @@ async def flash(
         "LA channel (or wiring name) wired to the DUT's SWDIO; omit for the profile's swd_swdio."))] = None,
     target: Annotated[str, Field(description=(
         "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target."))] = "",
-    file: Annotated[str, Field(description="Firmware image path on the machine running this server.")] = "",
+    file: Annotated[str, Field(description=(
+        "Firmware image path on the machine running this server. Leave empty to flash an uploaded "
+        "build instead (build/repo/ref/artifact)."))] = "",
     nreset: Annotated[Optional[bool], Field(description=(
         "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
         "Omit for the profile's swd_nreset."))] = None,
@@ -695,16 +698,40 @@ async def flash(
     extra_args: Optional[List[str]] = None,
     timeout: Annotated[float, Field(gt=0, le=3600)] = 300.0,
     connect_attempts: Annotated[int, Field(ge=1, le=20)] = 5,
+    build: Annotated[str, Field(description=(
+        "Flash a build uploaded to embeddedci.com instead of a file: its build id (the upload's "
+        "build_id output), or 'latest' for the newest one that matches repo/ref."))] = "",
+    repo: Annotated[str, Field(description=(
+        "With build: the GitHub repository of the uploaded build, 'owner/name'."))] = "",
+    ref: Annotated[str, Field(description=(
+        "With build: the branch or tag of the uploaded build, e.g. 'main'."))] = "",
+    artifact: Annotated[str, Field(description=(
+        "With build: the file to flash when the build holds several (default: its .elf, then .hex, "
+        "then .bin)."))] = "",
+    server_side: Annotated[Optional[bool], Field(description=(
+        "With build: true has embeddedci.com run OpenOCD (the default on an 'embeddedci:<pod>' "
+        "connection), false downloads the file and runs OpenOCD here (the default on LAN/USB)."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
-    """Program the DUT over SWD through the pod's CMSIS-DAP probe (OpenOCD runs on this server's host).
+    """Program the DUT over SWD through the pod's CMSIS-DAP probe.
 
-    The SWD pins, the reset flag and the target config come from the wiring profile when omitted.
-    A failed flash is a normal result (ok=false): read target_unreachable (unpowered, mis-wired or
-    held in reset), stalled, and the log tails to decide what to change.
+    Give either `file` (a path on this server's host) or an uploaded build (`build`, or
+    `repo`/`ref` for the newest build of a branch). OpenOCD runs on this server's host, except for
+    an uploaded build on a cloud connection, which embeddedci.com flashes itself. The SWD pins, the
+    reset flag and the target config come from the wiring profile when omitted. A failed flash is a
+    normal result (ok=false): read target_unreachable (unpowered, mis-wired or held in reset),
+    stalled, and the log tails to decide what to change; `artifact` says which build was flashed.
     """
+    from_build = {k: v for k, v in (("build", build), ("repo", repo), ("ref", ref),
+                                    ("artifact", artifact)) if v}
+    if server_side is not None:
+        from_build["server_side"] = server_side
+
     def op() -> m.FlashResult:
         pod = SESSION.require()
+        if from_build and "build" not in inspect.signature(pod.flash).parameters:
+            raise ValueError("flashing an uploaded build (build/repo/ref/artifact) needs a newer "
+                             "embeddedci SDK; upgrade embeddedci, or pass file= with a local image")
         result = pod.flash(
             swclk=_channel(pod, swclk, "swd_swclk"), swdio=_channel(pod, swdio, "swd_swdio"),
             nreset=pod.wiring.swd_nreset if nreset is None else nreset,
@@ -713,11 +740,17 @@ async def flash(
             connect_under_reset=connect_under_reset, extra_configs=tuple(extra_configs or ()),
             extra_args=tuple(extra_args or ()), timeout=timeout,
             connect_attempts=connect_attempts, check=False,
+            **from_build,
         )
+        art = getattr(result, "artifact", None)
         return m.FlashResult(ok=result.ok, returncode=result.returncode,
                              target_unreachable=result.target_unreachable, stalled=result.stalled,
                              stdout_tail=clip(result.stdout, 4000)[-4000:],
-                             stderr_tail=clip(result.stderr, 4000)[-4000:])
+                             stderr_tail=clip(result.stderr, 4000)[-4000:],
+                             artifact=m.FlashedBuild(
+                                 build=str(art.get("job_id") or ""), name=str(art.get("name") or ""),
+                                 repo=art.get("repo"), ref=art.get("ref"), sha=art.get("sha"),
+                             ) if art else None)
 
     return await _call_reporting(ctx, "flashing", op)
 

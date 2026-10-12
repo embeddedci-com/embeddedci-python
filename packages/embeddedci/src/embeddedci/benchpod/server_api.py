@@ -85,6 +85,7 @@ class ServerApi:
         raw_body: Optional[bytes] = None,
         content_type: Optional[str] = None,
         parse_json: bool = True,
+        timeout: Optional[float] = None,
     ) -> Tuple[int, Any]:
         """Issue one request. Returns ``(status, parsed)``; raises :class:`ServerApiError` on 4xx/5xx."""
         url = self.api_base + "/api" + path
@@ -107,7 +108,7 @@ class ServerApi:
             headers["X-Benchpod-Lease"] = self.lease_id
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
                 raw = resp.read()
                 if not parse_json:
                     return resp.status, raw
@@ -166,6 +167,45 @@ class ServerApi:
     def put_wiring(self, device_id: str, wiring: Dict[str, Any]) -> Dict[str, Any]:
         """Store a device's wiring profile (the server validates it; errors name the fields)."""
         _, data = self.request("PUT", f"/benchpod/devices/{device_id}/wiring", json_body=wiring)
+        return data or {}
+
+    # -- uploaded builds (flash by build) -----------------------------------
+
+    def build_artifact(self, *, build: str = "", repo: str = "", ref: str = "",
+                       artifact: str = "") -> Dict[str, Any]:
+        """Resolve an uploaded build to the one file a flash would use.
+
+        ``build`` is the build id the upload printed (``""`` or ``"latest"``: the newest build that
+        matches the rest), ``repo`` is ``owner/name`` or ``name``, ``ref`` a branch or tag and
+        ``artifact`` a file name in the build. Returns the artifact (``job_id``, ``pack_id``,
+        ``name``, ``repo``, ``ref``, ``sha``, ``wiring_defaults``, …); raises
+        :class:`ServerApiError` (404 nothing matches, 409 several candidate files).
+        """
+        _, data = self.request("GET", "/benchpod/builds/artifact", query={
+            "build": build or None, "repo": repo or None, "ref": ref or None,
+            "artifact": artifact or None})
+        art = (data or {}).get("artifact")
+        if not isinstance(art, dict):
+            raise ServerApiError("the server returned no artifact for this build")
+        return art
+
+    def download_build_artifact(self, art: Dict[str, Any]) -> bytes:
+        """Download a file :meth:`build_artifact` returned."""
+        path = "/benchpod/builds/{}/packs/{}/artifacts/{}".format(
+            urllib.parse.quote(str(art["job_id"]), safe=""),
+            urllib.parse.quote(str(art["pack_id"]), safe=""),
+            urllib.parse.quote(str(art["name"]), safe="/"))
+        _, raw = self.request("GET", path, parse_json=False, timeout=max(self.timeout, 300.0))
+        return raw
+
+    def flash_build(self, device_id: str, body: Dict[str, Any], *,
+                    timeout: float = 360.0) -> Dict[str, Any]:
+        """``POST /benchpod/devices/{id}/flash``: embeddedci.com flashes an uploaded build with its own
+        OpenOCD through the pod. ``body`` names the artifact (``job_id``/``pack_id``/
+        ``artifact_name``, or a ``build``/``repo``/``ref``/``artifact`` selector) and the SWD
+        settings. Returns ``{"ok", "output", "error"?, "target_unreachable"?, "artifact"}``."""
+        _, data = self.request("POST", f"/benchpod/devices/{device_id}/flash", json_body=body,
+                               timeout=timeout)
         return data or {}
 
     # -- server-orchestrated capture (fallback path) ------------------------
