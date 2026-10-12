@@ -344,6 +344,7 @@
       "path",
       "voltage",
       "code",
+      "code16",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'DacOutput'\""

@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `dac_output` reads the full 16-bit DAC level on firmware 3.9 and later: `DacOutput.voltage` has
+  microvolt resolution (the pod's new `uv` field) and the new `DacOutput.code16` is the 16-bit
+  code. `code` stays the nearest 8-bit level; on older firmware `code16` is `None`.
+
 ## 2.10.0
 
 - One wiring profile everywhere. A LAN or USB `BenchPod` now uses the wiring profile stored on
