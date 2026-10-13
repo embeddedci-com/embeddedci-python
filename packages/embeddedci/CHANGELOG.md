@@ -3,7 +3,7 @@
 ## 2.12.0
 
 - Firmware 3.9.0 keeps ST's USB id `0483:5740` (pre-release builds used `1209:0001`); auto-detect
-  ranks both vendor ids. Docs: Windows computers with ST's VCP driver installed.
+  ranks both vendor ids.
 - `BenchPod.usb_network(on=None)`: read the pod's USB network setting (firmware 3.9.0+), or turn
   the adapter off over the USB link (`False`). Ethernet, Wi-Fi and the cloud get
   `PodLockedError`; turning it back on is `benchpod usb-network on` on the USB console.

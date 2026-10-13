@@ -213,11 +213,7 @@ macOS under a locked screen); it logs which one it picked. An explicit device pa
 
 The USB network adapter works with the in-box drivers of macOS, Linux and Windows 11 (tested).
 Windows 10 (1903 or newer) is supported but not tested: if the adapter shows up without a driver,
-update its driver in Device Manager and pick "UsbNcm Host Device". On a Windows computer with
-ST's Virtual COM Port driver installed, that driver can claim the whole pod (it keeps ST's id
-`0483:5740`), which then shows up as one COM port without the network adapter: uninstall the
-driver for the pod in Device Manager (steps in the firmware's `docs/usb-serial-interface.md`,
-"Windows with ST's VCP driver"), or use Ethernet.
+update its driver in Device Manager and pick "UsbNcm Host Device".
 
 **Turning the adapter off.** The pod keeps a USB network setting, on by default and separate from
 its external LAN policy. `bp.usb_network()` reads it (`True` = on) over any connection;
