@@ -141,6 +141,15 @@ def test_connect_usb_name_reports_usb_net(fake_open, fake_transport, monkeypatch
     assert connection_kind("USB:baea06") == "serial"
 
 
+def test_connect_usb_falling_back_to_the_lan_reports_tcp_and_warns(fake_open, fake_transport, monkeypatch):
+    # 'usb' on firmware 3.9.0+ with USB networking off: the SDK went to the pod's network address.
+    monkeypatch.setattr(fake_transport, "usb_lan_fallback",
+                        "the pod's USB network is off (Wi-Fi is configured) or down", raising=False)
+    assert call("connect", connection="usb", la_voltage=3.3)["kind"] == "tcp"
+    warnings = " | ".join(call("status")["warnings"])
+    assert "network address" in warnings and "clear-wifi" in warnings
+
+
 def test_connect_rolls_back_when_the_pod_does_not_answer(fake_open, fake_transport, monkeypatch):
     from embeddedci.benchpod.errors import TransportError
 

@@ -7,6 +7,10 @@
   that says to connect with `usb` or the pod's network address (the console answers those with a
   "moved to the network API" line, which the SDK recognizes).
 - README: a compatibility table (SDK version x firmware generation) and the Windows 10 note.
+- Connection `usb` on firmware 3.9.0+ whose USB networking is off (Wi-Fi configured) or down now
+  uses the pod's Ethernet or Wi-Fi address from its console `status` when it answers on port 8080
+  (its console no longer has LA voltage or power), with a warning that names the address; the new
+  `TcpTransport.usb_lan_fallback` says why. Firmware before 3.9.0 keeps the console.
 - Connection `usb` (and `serial`) uses the pod's USB network adapter on firmware 3.9.0 and later:
   the SDK finds the pod's USB console as before, reads the pod's address on the USB link
   (`10.237.x.y`) from its `status`, and when the link is up and port 8080 answers it returns a

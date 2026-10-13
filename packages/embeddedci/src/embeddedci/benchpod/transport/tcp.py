@@ -90,6 +90,9 @@ class TcpTransport(Transport):
     #: The USB console's device path when connection ``usb`` resolved to the pod's USB network
     #: adapter (firmware 3.9.0+) instead of the console; ``""`` for a network connection.
     usb_console: str = ""
+    #: Why connection ``usb`` went to the pod's Ethernet or Wi-Fi address instead (firmware 3.9.0+
+    #: with its USB network off or down); ``""`` otherwise.
+    usb_lan_fallback: str = ""
 
     def __init__(self, addr: str, *, timeout: float = 30.0,
                  dial_timeout: float = DEFAULT_DIAL_TIMEOUT) -> None:

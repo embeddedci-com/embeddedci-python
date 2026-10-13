@@ -20,6 +20,7 @@ USB_DOWN = "net on pod 10.237.8.85 host 10.237.8.86 link down rx 0 (drop 0) tx 0
 
 STATUS = (
     "  device : benchpod\r\n"
+    "  ip     : 192.168.1.215\r\n"
     "  board  : stm32h563  fw v3.9.0  rev v3  nrst_pin=yes  usb_cc=yes\r\n"
     "  adc    : 16-bit x1, 4096 mV full-scale\r\n"
 )
@@ -98,7 +99,8 @@ def usb(monkeypatch):
 
     def probe(host, port, timeout=transport_mod.USB_NET_PROBE_TIMEOUT):
         probes.append((host, port, timeout))
-        return cfg["reachable"]
+        r = cfg["reachable"]
+        return host in r if isinstance(r, (set, frozenset)) else r
 
     monkeypatch.setattr(serial_mod, "SerialTransport", make_console)
     monkeypatch.setattr(transport_mod, "_tcp_reachable", probe)
@@ -135,9 +137,31 @@ def test_serial_keyword_also_upgrades(usb):
     assert isinstance(open_transport(parse_connection("serial")), TcpTransport)
 
 
-@pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN, None])
-def test_usb_keeps_the_console_when_net_off_link_down_or_old_firmware(usb, line):
+@pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN])
+def test_usb_falls_back_to_the_pods_network_address_on_3_9(usb, line, caplog):
+    """3.9.0+ with USB networking off or down: its console has no la-voltage or power any more,
+    so the way in is the pod's Ethernet or Wi-Fi address from its status."""
     usb["status"] = _status(line)
+    with caplog.at_level("WARNING", logger="embeddedci.benchpod"):
+        t = open_transport(parse_connection("usb"))
+    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8080"
+    assert t.usb_lan_fallback and not t.usb_console
+    assert FakeConsole.instances[0].closed
+    assert "192.168.1.215:8080" in caplog.text and "clear-wifi" in caplog.text
+
+
+@pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN])
+def test_usb_keeps_the_console_when_no_network_address_answers(usb, line):
+    usb["status"] = _status(line)
+    usb["reachable"] = False
+    t = open_transport(parse_connection("usb"))
+    assert isinstance(t, FakeConsole) and not t.closed
+    assert [p[0] for p in usb["probes"]] == ["192.168.1.215"]
+
+
+def test_usb_keeps_the_console_on_firmware_before_3_9(usb):
+    """Older firmware has every command on its console: no network fallback, nothing probed."""
+    usb["status"] = _status(None)
     t = open_transport(parse_connection("usb"))
     assert isinstance(t, FakeConsole) and not t.closed
     assert usb["probes"] == []
@@ -148,7 +172,14 @@ def test_usb_keeps_the_console_when_the_port_does_not_answer(usb):
     usb["reachable"] = False
     t = open_transport(parse_connection("usb"))
     assert isinstance(t, FakeConsole) and not t.closed
-    assert len(usb["probes"]) == 1
+    assert [p[0] for p in usb["probes"]] == ["10.237.8.85", "192.168.1.215"]
+
+
+def test_usb_network_not_answering_falls_back_to_the_lan(usb):
+    usb["status"] = _status(USB_ON)
+    usb["reachable"] = {"192.168.1.215"}
+    t = open_transport(parse_connection("usb"))
+    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8080"
 
 
 def test_usb_keeps_the_console_when_status_fails(usb):

@@ -217,7 +217,7 @@ console `status`), never from its own version:
 
 | | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
 |---|---|---|
-| **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up, the console otherwise. |
+| **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why); else the console. |
 | **An older SDK (2.11.x)** | Unchanged. | `usb` is the console. Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
 
 **Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for

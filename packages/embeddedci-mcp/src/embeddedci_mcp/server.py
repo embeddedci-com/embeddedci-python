@@ -315,6 +315,11 @@ def _status() -> m.StatusResult:
     if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
         warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
                         "the cloud ('embeddedci:<device>') or the USB console")
+    fallback = getattr(pod.transport, "usb_lan_fallback", "")
+    if isinstance(fallback, str) and fallback:
+        warnings.append(f"connection 'usb' went to the pod's network address because {fallback}; the "
+                        "pod's external LAN policy applies there (`benchpod clear-wifi` turns USB "
+                        "networking back on)")
     usb = firmware.get("usb") if isinstance(firmware, dict) else None
     if isinstance(usb, dict) and usb.get("source") == "default":
         warnings.append("the USB port powering the pod offers only default USB power (500 mA), which may "

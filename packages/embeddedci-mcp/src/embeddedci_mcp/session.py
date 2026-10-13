@@ -63,8 +63,11 @@ def transport_kind(connection: str, pod: Any) -> str:
     ``usb:<name>``) resolved to the pod's USB network adapter (firmware 3.9.0+) rather than its
     console."""
     kind = connection_kind(connection)
-    if kind == "serial" and getattr(getattr(pod, "transport", None), "usb_console", ""):
+    transport = getattr(pod, "transport", None)
+    if kind == "serial" and getattr(transport, "usb_console", ""):
         return "usb_net"
+    if kind == "serial" and getattr(transport, "usb_lan_fallback", ""):
+        return "tcp"  # USB networking off or down: the pod's Ethernet or Wi-Fi address
     return kind
 
 
