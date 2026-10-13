@@ -14,6 +14,9 @@
   is still identified by probing its console.
 - The console's text `status` parses the `usb` line into the JSON status's shape:
   `{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}`.
+- mDNS discovery (`connection="discover"`, `discover()`) keeps every address a pod answers from
+  (it advertises on each of its interfaces) and `DiscoveredPod.addr` prefers the pod's USB network
+  link (`10.237.0.0/16`) over the LAN when this computer hears it there. New `DiscoveredPod.on_usb`.
 
 ## 2.11.0
 

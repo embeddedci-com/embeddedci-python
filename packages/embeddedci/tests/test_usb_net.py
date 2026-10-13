@@ -171,3 +171,16 @@ def test_tcp_reachable_against_a_real_listener():
 
 def test_plain_network_transport_has_no_usb_console():
     assert TcpTransport("192.168.1.220:8080").usb_console == ""
+
+
+def test_discovered_pod_prefers_the_usb_link():
+    from embeddedci.benchpod.discovery import DiscoveredPod
+
+    both = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local",
+                         addresses=["192.168.1.221", "10.237.8.85"])
+    assert both.addr == "10.237.8.85:8080" and both.on_usb
+    lan = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local",
+                        addresses=["192.168.1.221"])
+    assert lan.addr == "192.168.1.221:8080" and not lan.on_usb
+    none = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local")
+    assert none.addr == "benchpod-baea06.local:8080"

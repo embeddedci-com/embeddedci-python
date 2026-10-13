@@ -16,6 +16,7 @@ it is imported lazily so the rest of the package works without it.
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -42,11 +43,30 @@ class DiscoveredPod:
     def addr(self) -> str:
         """A ``host:port`` string ready for :func:`parse_connection`.
 
-        Prefers a numeric address (avoids depending on the OS mDNS resolver),
-        falling back to the ``.local`` hostname if no address was resolved.
+        Prefers a numeric address (avoids depending on the OS mDNS resolver), and of those the
+        pod's USB network link (firmware 3.9.0+) when this computer heard it there: a pod
+        advertises itself on each of its interfaces. Falls back to the ``.local`` hostname if no
+        address was resolved.
         """
-        host = self.addresses[0] if self.addresses else self.hostname
+        usb = [a for a in self.addresses if _on_usb_link(a)]
+        host = (usb or self.addresses or [self.hostname])[0]
         return f"{host}:{self.port}"
+
+    @property
+    def on_usb(self) -> bool:
+        """True when this computer reaches the pod over its USB network link."""
+        return any(_on_usb_link(a) for a in self.addresses)
+
+
+#: Where a pod's USB network adapter lives: a /30 per pod, derived from its unique ID.
+USB_LINK_NET = ipaddress.IPv4Network("10.237.0.0/16")
+
+
+def _on_usb_link(addr: str) -> bool:
+    try:
+        return ipaddress.ip_address(addr) in USB_LINK_NET
+    except ValueError:
+        return False
 
 
 def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
@@ -74,10 +94,14 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
             k.decode(errors="replace"): (v or b"").decode(errors="replace")
             for k, v in (info.properties or {}).items()
         }
+        # An update may come from another interface: keep every address heard.
+        prev = found.get(name)
+        addresses = list(prev.addresses) if prev else []
+        addresses += [a for a in info.parsed_addresses() if a not in addresses]
         found[name] = DiscoveredPod(
             name=name.removesuffix("." + SERVICE_TYPE),
             hostname=(info.server or "").rstrip("."),
-            addresses=list(info.parsed_addresses()),
+            addresses=addresses,
             port=info.port or 8080,
             pod_id=txt.get("id", ""),
         )
