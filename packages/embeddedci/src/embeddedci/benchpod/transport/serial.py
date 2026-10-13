@@ -28,11 +28,10 @@ from ..errors import (
 from .base import RawLink, Transport
 
 # USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
-# the RP2350 pod), 0x0483 (STMicroelectronics, the STM32H563 pod up to firmware
-# 3.8, which uses ST's stock CDC VID/PID 0483:5740 so the host binds its in-box
-# driver) and 0x1209 (the STM32H563 pod from firmware 3.9.0: a composite device
-# with the CDC-ACM console plus a CDC-NCM network adapter: pid.codes 1209:EC10, or
-# the pid.codes test id 1209:0001 on builds made before EC10 was assigned).
+# the RP2350 pod), 0x0483 (STMicroelectronics: the STM32H563 pod, which uses ST's
+# stock CDC VID/PID 0483:5740 on every firmware, from 3.9.0 as a composite device
+# with the CDC-ACM console plus a CDC-NCM network adapter) and 0x1209 (pre-release
+# 3.9.0 builds, under the pid.codes test id 1209:0001).
 #
 # None of these ids is exclusive to a bench pod (0x2E8A is shared with the
 # CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench

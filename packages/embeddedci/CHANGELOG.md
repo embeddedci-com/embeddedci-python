@@ -2,8 +2,8 @@
 
 ## 2.12.0
 
-- Docs: the pod's USB id from firmware 3.9.0 is the pid.codes `1209:EC10` (`1209:0001` on builds
-  made before EC10 was assigned); auto-detect goes by vendor id `0x1209`, so it finds either.
+- Firmware 3.9.0 keeps ST's USB id `0483:5740` (pre-release builds used `1209:0001`); auto-detect
+  ranks both vendor ids. Docs: Windows computers with ST's VCP driver installed.
 - `BenchPod.usb_network(on=None)`: read the pod's USB network setting (firmware 3.9.0+), or turn
   the adapter off over the USB link (`False`). Ethernet, Wi-Fi and the cloud get
   `PodLockedError`; turning it back on is `benchpod usb-network on` on the USB console.
@@ -42,7 +42,7 @@
   pods raise `ConnectionConfigError` listing both, and the same pod seen on two ports (macOS
   `/dev/cu.*` and `/dev/tty.*`) counts once. The selected pod then upgrades to its USB network
   as with `usb`. `autodetect_port(name="")` takes the name.
-- USB auto-detect ranks the new USB id `1209:0001` (firmware 3.9.0) with the older pod ids; a pod
+- USB auto-detect ranks the pre-release 3.9.0 USB id `1209:0001` with the older pod ids; a pod
   is still identified by probing its console.
 - The console's text `status` parses the `usb` line into the JSON status's shape:
   `{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}`.

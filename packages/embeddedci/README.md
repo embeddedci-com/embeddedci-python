@@ -195,8 +195,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
 
 **USB network (firmware 3.9.0 and later).** The STM32 pod's USB port is a composite device
-(USB id `1209:EC10`, or `1209:0001` on builds made before EC10 was assigned; older firmware
-uses `0483:5740`): the console plus a USB network adapter
+(ST's USB id `0483:5740`, as on older firmware; pre-release 3.9.0 builds used `1209:0001`): the console plus a USB network adapter
 (CDC-NCM) that carries the same JSON API as the LAN. The link is a point-to-point `/30` in
 `10.237.0.0/16` (the pod is the first address, your computer the second, handed out by the pod's
 DHCP server). With connection `usb` the SDK first looks at this computer's own interfaces (Linux
@@ -214,7 +213,11 @@ macOS under a locked screen); it logs which one it picked. An explicit device pa
 
 The USB network adapter works with the in-box drivers of macOS, Linux and Windows 11 (tested).
 Windows 10 (1903 or newer) is supported but not tested: if the adapter shows up without a driver,
-update its driver in Device Manager and pick "UsbNcm Host Device".
+update its driver in Device Manager and pick "UsbNcm Host Device". On a Windows computer with
+ST's Virtual COM Port driver installed, that driver can claim the whole pod (it keeps ST's id
+`0483:5740`), which then shows up as one COM port without the network adapter: uninstall the
+driver for the pod in Device Manager (steps in the firmware's `docs/usb-serial-interface.md`,
+"Windows with ST's VCP driver"), or use Ethernet.
 
 **Turning the adapter off.** The pod keeps a USB network setting, on by default and separate from
 its external LAN policy. `bp.usb_network()` reads it (`True` = on) over any connection;
@@ -230,8 +233,7 @@ console `status`), never from its own version:
 | | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
 |---|---|---|
 | **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why); else the console. |
-| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console: its auto-detect probes every USB serial port, so it finds a 3.9.0 pod under its new USB id `1209:EC10` or `1209:0001` (tested with 0001; it probes by
-port, not by product id). Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
+| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console: its auto-detect probes every USB serial port, so it finds a 3.9.0 pod (same USB id `0483:5740`; tested). Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
 
 **Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
 `benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
