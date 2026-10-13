@@ -94,7 +94,8 @@ def test_finds_stm32_pod_under_st_vendor_id(monkeypatch):
 
 
 def test_pid_codes_vendor_id_ranks_as_a_pod_port(monkeypatch):
-    # Firmware 3.9.0 enumerates as 1209:0001 (console + USB network adapter). It ranks with the
+    # Pre-release 3.9.0 builds enumerated as 1209:0001 (console + USB network adapter); any
+    # pid.codes product id (VID 0x1209) ranks with the
     # other pod vendor ids, ahead of an unknown port, but is still identified by probing.
     infos = [PortInfo("/dev/cu.aaa-other", vid=0x1234), PortInfo("/dev/cu.zzz-pod", vid=0x1209)]
     opened = install(monkeypatch, infos, {"/dev/cu.aaa-other": "not a pod\n> ",
