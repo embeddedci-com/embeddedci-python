@@ -24,7 +24,7 @@ EXPECTED_TOOLS = {
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
     "i2c_sensor_regs", "i2c_sensor_capture", "i2c_sensor_types",
     "enable_gps", "set_gps", "disable_gps", "gps_status",
-    "set_pull", "pull_status",
+    "set_pull", "pull_status", "usb_network",
     "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
@@ -605,3 +605,13 @@ def test_la_step_and_command(connected):
     assert call("command", request={"cmd": "adc_read", "source": "cal1"})["reply"]["source"] == "cal1"
     with pytest.raises(ToolError):
         call("command", request={"samples": 1})
+
+
+def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch):
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+    seen = []
+    monkeypatch.setattr(pod, "usb_network", lambda on=None: seen.append(on) or (on is not False), raising=False)
+    assert call("usb_network")["setting"] == "on"
+    res = call("usb_network", set="off")
+    assert res["setting"] == "off" and "usb-network on" in res["note"] and seen == [None, False]

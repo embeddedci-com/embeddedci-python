@@ -1075,6 +1075,28 @@ async def set_pull(
     return await _call(op)
 
 
+@mcp.tool(annotations=_ann("USB network setting", destructive=True))
+async def usb_network(
+    set: Annotated[Optional[Literal["off"]], Field(description=(
+        'Omit to read the setting. "off" turns the pod\'s USB network adapter off (only over the '
+        "pod's USB network link: connection 'usb'); the pod then re-enumerates as its USB console "
+        "only and this connection ends. Turning it back on needs the USB console: the user runs "
+        "`benchpod usb-network on`."))] = None,
+) -> m.UsbNetworkResult:
+    """Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off. Only the device
+    changes it: Ethernet, Wi-Fi and the cloud may only read it."""
+    def op() -> m.UsbNetworkResult:
+        pod = SESSION.require()
+        on = pod.usb_network(None if set is None else False)
+        note = ""
+        if set == "off":
+            note = ("The pod re-enumerates as its USB console only; this connection ends. Ask the user to run "
+                    "`benchpod usb-network on` over the USB console to turn it back on.")
+        return m.UsbNetworkResult(setting="on" if on else "off", note=note)
+
+    return await _call(op)
+
+
 @mcp.tool(annotations=_ann("Pull resistor status", read_only=True))
 async def pull_status() -> m.PullStatusResult:
     """State, direction and value of the bias resistor on LA1-LA8."""

@@ -2,6 +2,13 @@
 
 ## 2.12.0
 
+- `BenchPod.usb_network(on=None)`: read the pod's USB network setting (firmware 3.9.0+), or turn
+  the adapter off over the USB link (`False`). Ethernet, Wi-Fi and the cloud get
+  `PodLockedError`; turning it back on is `benchpod usb-network on` on the USB console.
+- Connection `usb` finds the pod from this computer's own end of its USB network link (Linux and
+  macOS, `getifaddrs`) before opening the console, so it works for a Linux user outside the
+  `dialout` group; `usb:<name>` picks among several links by identity. `TcpTransport.usb_net`
+  marks a USB network transport.
 - On firmware 3.9.0 and later the USB console no longer has `la-voltage` or `power` (they are JSON
   commands, reached over the USB network adapter): a serial device path then fails with an error
   that says to connect with `usb` or the pod's network address (the console answers those with a

@@ -292,3 +292,18 @@ def test_local_usb_links_reads_this_computers_interfaces():
     from embeddedci.benchpod.transport.usblink import local_usb_links
     for host, pod in local_usb_links():  # whatever this machine has; each is a /30 in 10.237/16
         assert host.startswith("10.237.") and pod.startswith("10.237.")
+
+
+def test_usb_network_method_reads_and_turns_off():
+    from embeddedci.benchpod import BenchPod
+    sent = []
+
+    class T:
+        def command(self, req, **kw):
+            sent.append(req)
+            return {"setting": "off" if req.get("set") == "off" else "on"}
+
+    pod = BenchPod.__new__(BenchPod)
+    pod.command = T().command  # the method only needs command()
+    assert pod.usb_network() is True and sent[-1] == {"cmd": "usb_network"}
+    assert pod.usb_network(False) is False and sent[-1] == {"cmd": "usb_network", "set": "off"}

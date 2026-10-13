@@ -654,3 +654,9 @@ class StepResult(BaseModel):
     steps: int
     delay: float
     status: str = "started"
+
+
+class UsbNetworkResult(BaseModel):
+    """The pod's USB network setting (firmware 3.9.0+)."""
+    setting: str = Field(description='"on" or "off": whether the pod\'s USB port is also a network adapter.')
+    note: str = Field("", description="What happens next, after a change.")

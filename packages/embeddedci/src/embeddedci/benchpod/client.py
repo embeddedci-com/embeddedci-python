@@ -676,6 +676,22 @@ class BenchPod:
         """The pod's USB-C cable orientation and the current the upstream source advertises (rev3)."""
         return UsbCcStatus.from_reply(self.command({"cmd": "usb_cc"}))
 
+    def usb_network(self, on: Optional[bool] = None) -> bool:
+        """The pod's USB network setting (firmware 3.9.0+): whether its USB port is also a network
+        adapter. Returns the stored setting (``True`` = on).
+
+        ``on=False`` turns the adapter off. Only the device may change it: this works over the
+        pod's USB network link itself (connection ``usb``); over Ethernet, Wi-Fi or the cloud the
+        pod refuses with :class:`PodLockedError`. The pod replies, then re-enumerates as its USB
+        console only, which ends this connection. Turning it back on needs the USB console:
+        ``benchpod usb-network on``.
+        """
+        req: Dict[str, Any] = {"cmd": "usb_network"}
+        if on is not None:
+            req["set"] = "on" if on else "off"
+        data = self.command(req)
+        return isinstance(data, dict) and data.get("setting") == "on"
+
     # -- flash --------------------------------------------------------------
 
     def flash(

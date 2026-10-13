@@ -261,6 +261,7 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | --- | --- | --- |
 | `set_pull` | Engage or release the bias resistors: LA1-LA6 pull up, LA7/LA8 pull down. | **`las`**, **`enabled`** |
 | `pull_status` | State, direction and value of the bias resistor on LA1-LA8. | none |
+| `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
 
 ### GPIO on the LA pins
 
