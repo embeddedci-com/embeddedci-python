@@ -147,6 +147,14 @@ def test_status_warns_about_a_cloud_lease_and_a_locked_lan(connected):
     assert "LAN policy is locked" in warnings
 
 
+def test_status_warns_about_a_weak_usb_port(connected):
+    real = connected.status
+    connected.status = lambda: dict(real(), usb={"net": "on", "link": True, "source": "default", "source_ma": 500})
+    assert any("default USB power (500 mA)" in w for w in call("status")["warnings"])
+    connected.status = lambda: dict(real(), usb={"net": "on", "link": True, "source": "3.0A", "source_ma": 3000})
+    assert not any("USB power" in w for w in call("status")["warnings"])
+
+
 def test_capabilities_report_the_policy_flags(fake_open, fake_transport):
     real = fake_transport.status
     fake_transport.status = lambda: dict(real(), lan_policy="open", ota_sig=True,

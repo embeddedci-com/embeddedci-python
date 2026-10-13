@@ -9,6 +9,8 @@
 - New connection form `usb:<name>` picks one of several pods plugged into one computer, by name
   (`usb:baea06`, `usb:benchpod-baea06`). Plain `usb` with several pods errors and lists them.
   `connect`'s `connection` description lists it.
+- `status` warns when the USB-C port powering the pod advertises only default USB power (500 mA,
+  firmware 3.9.0's `status.usb.source`): it may not carry the pod plus a DUT on the internal 5 V rail.
 
 ## 2.11.0
 

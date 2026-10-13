@@ -315,6 +315,11 @@ def _status() -> m.StatusResult:
     if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
         warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
                         "the cloud ('embeddedci:<device>') or the USB console")
+    usb = firmware.get("usb") if isinstance(firmware, dict) else None
+    if isinstance(usb, dict) and usb.get("source") == "default":
+        warnings.append("the USB port powering the pod offers only default USB power (500 mA), which may "
+                        "not carry the pod plus a DUT on the internal 5 V rail: use a USB-C port or "
+                        "charger with 1.5 A or more, or power the DUT externally")
     try:
         wiring_source: Optional[str] = pod.wiring.source
     except (BenchPodError, ValueError, OSError):
