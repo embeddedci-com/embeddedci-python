@@ -4,8 +4,11 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 
 * ``host`` or ``host:port``        -> TCP/wifi (default port 8080)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
-* ``usb``                          -> USB console, auto-detected by probing the ports
-                                      (``serial`` is accepted as a legacy spelling)
+* ``usb``                          -> USB pod, auto-detected by probing the ports
+                                      (``serial`` is accepted as a legacy spelling); on
+                                      firmware 3.9.0+ the transport is the pod's USB network
+                                      adapter when it answers, else the console (see
+                                      :func:`~embeddedci.benchpod.transport.open_transport`)
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (an API key
                                       anywhere, or GitHub Actions OIDC)

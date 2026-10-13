@@ -53,7 +53,8 @@ Connection forms (all **direct**, never cloud):
 | Form | Example |
 | --- | --- |
 | TCP `host[:port]` | `benchpod_plug("192.168.1.50:8080")` |
-| Serial device path | `benchpod_plug("/dev/ttyACM0")` / `benchpod_plug("COM5")` |
+| USB, auto-detected | `benchpod_plug("usb")` (the pod's USB network adapter on firmware 3.9.0+, else its console) |
+| Serial device path | `benchpod_plug("/dev/ttyACM0")` / `benchpod_plug("COM5")` (the console only) |
 | `BENCHPOD_CONNECTION` env | `benchpod_plug()` (unbound) |
 | OpenHTF config | `htf.conf.load(benchpod_connection="...")` then `@htf.plug(bench=BenchPodPlug)` |
 
@@ -94,7 +95,7 @@ unset for analog-only tests that don't touch the LA bank.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, or `serial` |
+| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, `usb`, or `serial` |
 | `benchpod_timeout` | `30.0` | Transport timeout in seconds |
 | `benchpod_la_voltage` | `None` → `BENCHPOD_LA_VOLTAGE` | LA I/O-bank voltage in volts (`1.8` or `3.3`) |
 
@@ -236,9 +237,10 @@ Notes:
   `current_out_phase` switches them off, and a voltage waveform also moves the loop.
   `signal_generate_phase` and `dac_replay_phase` take `dac_path="current_out"` for a waveform in
   amps. Needs firmware 3.4.0.
-- Use a TCP connection. The STM32 pod's USB serial console is a text shell without a JSON
-  mode, so over serial only `power_phase`, status and the LA voltage work; flashing, UART,
-  analog and replay phases need TCP (or the cloud).
+- Use a TCP connection, or `usb` on firmware 3.9.0 and later (it reaches the pod's USB network
+  adapter, which carries the full API, unless Wi-Fi is configured on the pod). The STM32 pod's
+  USB serial console is a text shell without a JSON mode, so over the console only `power_phase`,
+  status and the LA voltage work; flashing, UART, analog and replay phases need TCP (or the cloud).
 
 The low-level helpers take a connected `BenchPod` or the injected plug:
 `signal_generate`, `signal_stop`, `analog_path`, `dac_output`, `current_out`, `adc_read`,

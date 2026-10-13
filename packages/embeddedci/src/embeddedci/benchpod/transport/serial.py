@@ -29,14 +29,17 @@ from ..protocol import encode_request, parse_reply, raise_for_status
 from .base import RawLink, Transport, request_timeout
 
 # USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
-# the RP2350 pod) and 0x0483 (STMicroelectronics, the STM32H563 pod, which uses
-# ST's stock CDC VID/PID 0483:5740 so the host binds its in-box driver).
+# the RP2350 pod), 0x0483 (STMicroelectronics, the STM32H563 pod up to firmware
+# 3.8, which uses ST's stock CDC VID/PID 0483:5740 so the host binds its in-box
+# driver) and 0x1209 (the STM32H563 pod from firmware 3.9.0: a composite device
+# with the CDC-ACM console plus a CDC-NCM network adapter, for now under the
+# pid.codes test VID/PID 1209:0001).
 #
-# Neither id is exclusive to a bench pod — 0x2E8A is shared with the CMSIS-DAP
-# probe's CDC and 0483:5740 with every ST Virtual COM Port on the bench — so
-# these only ORDER the ports to probe. Identification is by probing for
-# BENCHPOD_MARKER, never by vendor id alone.
-POD_VIDS = (0x2E8A, 0x0483)
+# None of these ids is exclusive to a bench pod (0x2E8A is shared with the
+# CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench
+# and 1209:0001 is a shared test id), so they only ORDER the ports to probe.
+# Identification is by probing for BENCHPOD_MARKER, never by vendor id alone.
+POD_VIDS = (0x2E8A, 0x0483, 0x1209)
 RP_VID = 0x2E8A  # deprecated alias, kept for callers that imported it
 
 # The substring the firmware's ``status`` prints to identify itself
@@ -111,7 +114,32 @@ def parse_text_status(raw: str) -> Dict[str, Any]:
     out["safe_reason"] = safe[len("safe mode:"):].strip() if safe.startswith("safe mode:") else safe
     if "crash" in out:
         out["last_crash"] = out["crash"]
+    # The USB network adapter (firmware 3.9.0+), under the JSON status's "usb" shape:
+    # "usb : net on pod 10.237.8.85 host 10.237.8.86 link up rx 2946 (drop 0) tx ..."
+    usb = parse_usb_status_line(str(out.get("usb", "")))
+    if usb is not None:
+        out["usb"] = usb
     return out
+
+
+_IPV4 = r"(\d{1,3}(?:\.\d{1,3}){3})"
+
+
+def parse_usb_status_line(value: str) -> Optional[Dict[str, Any]]:
+    """Parse the value of the console status's ``usb`` line into the JSON status's ``usb`` dict
+    (``{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}``), or None when the line
+    does not describe the USB network adapter (older firmware)."""
+    m = re.search(r"\bnet (on|off)\b", value)
+    if not m:
+        return None
+    usb: Dict[str, Any] = {"net": m.group(1)}
+    link = re.search(r"\blink (up|down)\b", value)
+    usb["link"] = bool(link and link.group(1) == "up")
+    if ip := re.search(r"\bpod " + _IPV4, value):
+        usb["ip"] = ip.group(1)
+    if host := re.search(r"\bhost " + _IPV4, value):
+        usb["host_ip"] = host.group(1)
+    return usb
 
 
 def _import_serial():
@@ -390,7 +418,9 @@ class SerialTransport(Transport):
     def _unsupported(what: str) -> str:
         return (f"{what!r} is not available over this pod's USB console, which only answers "
                 "text commands (status, ping, LA voltage, target power); connect over the network "
-                "(host[:port]) or the cloud (embeddedci:<device>) for it")
+                "(host[:port]) or the cloud (embeddedci:<device>) for it. On firmware 3.9.0 and "
+                "later, connection 'usb' reaches the full API over the pod's USB network adapter "
+                "(off while Wi-Fi is configured on the pod)")
 
     def _enter_json(self, cmd: Any = "json") -> None:
         if not self._probe_json():

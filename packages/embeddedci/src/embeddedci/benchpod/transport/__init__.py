@@ -3,13 +3,22 @@
 :class:`TcpTransport` talks to a pod over the network; :class:`SerialTransport`
 over its USB serial console. Use :func:`open_transport` to build the right one
 from a resolved :class:`~embeddedci.benchpod.connection.ConnSpec`.
+
+Connection ``usb`` (an auto-detected USB pod) prefers the pod's USB network adapter
+(firmware 3.9.0+): the console's ``status`` names the pod's address on that link, and when
+the link is up and the API port answers, the result is a :class:`TcpTransport` to it (with
+``usb_console`` set to the console's device path). Otherwise it is the console, as before.
+An explicit device path always stays the console.
 """
 
 from __future__ import annotations
 
-from typing import Callable
+import ipaddress
+import logging
+import socket
+from typing import Any, Callable, Optional
 
-from ..connection import ConnSpec
+from ..connection import DEFAULT_PORT, ConnSpec
 from ..errors import ConnectionConfigError
 from .base import RawLink, Transport
 
@@ -43,9 +52,7 @@ def open_transport(
 
         return TcpTransport(spec.addr, timeout=timeout)
     if spec.is_serial():
-        from .serial import SerialTransport
-
-        return SerialTransport(spec.device, timeout=timeout)
+        return _open_usb(spec.device, timeout=timeout)
     if spec.is_cloud():
         from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE
         from .cloud import CloudTransport
@@ -60,6 +67,79 @@ def open_transport(
             user_token=user_token,
         )
     raise ConnectionConfigError(f"unknown connection kind {spec.kind!r}")
+
+
+_log = logging.getLogger("embeddedci.benchpod")
+
+#: Budget for the TCP connect that checks the pod's API answers on its USB network address.
+USB_NET_PROBE_TIMEOUT = 1.5
+#: Budget for reading the console's ``status`` while choosing between USB network and console.
+_USB_STATUS_TIMEOUT = 5.0
+
+
+def usb_net_address(status: Any) -> Optional[str]:
+    """The pod's IPv4 address on its USB network link, from a ``status`` reply (JSON, or the
+    console's text status parsed by :func:`~.serial.parse_text_status`), or None when USB
+    networking is off, its link is down, or the firmware has no USB network (before 3.9.0)."""
+    usb = status.get("usb") if isinstance(status, dict) else None
+    if not isinstance(usb, dict) or usb.get("net") != "on" or usb.get("link") is not True:
+        return None
+    try:
+        ip = ipaddress.IPv4Address(str(usb.get("ip", "")))
+    except ValueError:
+        return None
+    return None if ip.is_unspecified else str(ip)
+
+
+def _tcp_reachable(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT) -> bool:
+    """Whether a TCP connect to ``host:port`` succeeds within ``timeout`` (then closed at once)."""
+    try:
+        socket.create_connection((host, port), timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
+def _open_usb(device: str, *, timeout: float) -> Transport:
+    """Open a USB pod: the console at ``device``, or for ``""`` (connection ``usb``) the
+    auto-detected pod, reached over its USB network adapter when that works, else its console.
+
+    The console's ``status`` names the pod's USB network address; the network is used when it is
+    on, its link is up and the API port answers a TCP connect within
+    :data:`USB_NET_PROBE_TIMEOUT`. Anything else (firmware before 3.9.0, Wi-Fi configured on the
+    pod, link down, the host has not configured the interface) keeps the console.
+    """
+    from .serial import SerialTransport
+
+    console = SerialTransport(device, timeout=timeout)
+    if device:
+        return console  # an explicit device path is the console, never upgraded
+    try:
+        console.timeout = min(timeout, _USB_STATUS_TIMEOUT)
+        try:
+            ip = usb_net_address(console.status())
+        finally:
+            console.timeout = timeout
+    except Exception as exc:  # noqa: BLE001 - any failure keeps the console, as before
+        _log.info("usb: could not read the pod's USB network address on %s (%s); using the "
+                  "USB console", console.device, exc)
+        return console
+    if ip is None:
+        _log.info("usb: the pod's USB network is off, down or absent; using the USB console %s",
+                  console.device)
+        return console
+    if not _tcp_reachable(ip, DEFAULT_PORT):
+        _log.info("usb: the pod's USB network address %s:%d does not answer (is the host's "
+                  "interface configured?); using the USB console %s", ip, DEFAULT_PORT,
+                  console.device)
+        return console
+    from .tcp import TcpTransport
+
+    tcp = TcpTransport(f"{ip}:{DEFAULT_PORT}", timeout=timeout)
+    tcp.usb_console = console.device
+    console.close()
+    _log.info("usb: using the pod's USB network at %s (console %s)", tcp.addr, console.device)
+    return tcp
 
 
 def __getattr__(name: str):

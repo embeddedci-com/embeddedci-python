@@ -25,6 +25,9 @@ def usb(benchpod_la_voltage):
     if not device:
         pytest.skip("set BENCHPOD_E2E_USB to the pod's USB console (a device path or 'usb')")
     with BenchPod(device, la_voltage=benchpod_la_voltage, timeout=10) as pod:
+        if type(pod.transport).__name__ != "SerialTransport":
+            pytest.skip("'usb' reached the pod's USB network adapter (firmware 3.9.0+), not the "
+                        "console; set BENCHPOD_E2E_USB to the console's device path")
         yield pod
 
 

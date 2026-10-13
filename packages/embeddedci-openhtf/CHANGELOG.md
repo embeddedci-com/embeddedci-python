@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-openhtf`
 
+## Unreleased
+
+- Docs: connection `usb` reaches the pod's USB network adapter (full API) on firmware 3.9.0 and
+  later, through the `embeddedci` SDK of the same release; a serial device path stays the console.
+
 ## 2.2.0
 
 - Persistent plugs (`benchpod_plug(..., persistent=True)`) are pooled by their connection

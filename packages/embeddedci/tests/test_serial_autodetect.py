@@ -82,6 +82,18 @@ def test_finds_stm32_pod_under_st_vendor_id(monkeypatch):
     assert serial_mod.autodetect_port() == "/dev/cu.usbmodem-stm"
 
 
+def test_pid_codes_vendor_id_ranks_as_a_pod_port(monkeypatch):
+    # Firmware 3.9.0 enumerates as 1209:0001 (console + USB network adapter). It ranks with the
+    # other pod vendor ids, ahead of an unknown port, but is still identified by probing.
+    infos = [PortInfo("/dev/cu.aaa-other", vid=0x1234), PortInfo("/dev/cu.zzz-pod", vid=0x1209)]
+    opened = install(monkeypatch, infos, {"/dev/cu.aaa-other": "not a pod\n> ",
+                                          "/dev/cu.zzz-pod": POD_STATUS})
+    assert 0x1209 in serial_mod.POD_VIDS
+    assert serial_mod._candidate_ports() == ["/dev/cu.zzz-pod", "/dev/cu.aaa-other"]
+    assert serial_mod.autodetect_port() == "/dev/cu.zzz-pod"
+    assert opened == ["/dev/cu.zzz-pod"]
+
+
 def test_finds_pod_even_with_unknown_vendor_id(monkeypatch):
     # Ranking is not filtering: a port no rule recognises is still probed.
     infos = [PortInfo("/dev/cu.mystery", vid=0x1234)]

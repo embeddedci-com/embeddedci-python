@@ -1,5 +1,20 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Connection `usb` (and `serial`) uses the pod's USB network adapter on firmware 3.9.0 and later:
+  the SDK finds the pod's USB console as before, reads the pod's address on the USB link
+  (`10.237.x.y`) from its `status`, and when the link is up and port 8080 answers it returns a
+  `TcpTransport` to that address, so the full API works over USB. The transport's new
+  `usb_console` attribute names the console's device path. It falls back to the console (status,
+  ping, LA voltage, power) on older firmware, when Wi-Fi is configured on the pod (that turns USB
+  networking off), when the link is down, or when the computer has not configured the adapter. An
+  explicit device path (`/dev/ttyACM0`, `COM3`) always stays the console.
+- USB auto-detect ranks the new USB id `1209:0001` (firmware 3.9.0) with the older pod ids; a pod
+  is still identified by probing its console.
+- The console's text `status` parses the `usb` line into the JSON status's shape:
+  `{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}`.
+
 ## 2.11.0
 
 - `flash` can flash a build uploaded to embeddedci.com (the `upload-artifact` action or the
