@@ -105,6 +105,11 @@ def usb(monkeypatch):
         return host in r if isinstance(r, (set, frozenset)) else r
 
     monkeypatch.setattr(serial_mod, "SerialTransport", make_console)
+    from embeddedci.benchpod.transport import usblink
+    cfg["links"] = []
+    cfg["ids"] = {}
+    monkeypatch.setattr(usblink, "local_usb_links", lambda: list(cfg["links"]))
+    monkeypatch.setattr(usblink, "_short_id", lambda host, port, timeout: cfg["ids"].get(host, ""))
     monkeypatch.setattr(transport_mod, "_tcp_reachable", probe)
     monkeypatch.setattr(transport_mod, "_api_answers", probe)
     cfg["probes"] = probes
@@ -250,3 +255,40 @@ def test_api_answers_needs_a_pong():
 
     assert transport_mod._api_answers("127.0.0.1", serve(b'{"status":"ok","data":"pong"}\n'))
     assert not transport_mod._api_answers("127.0.0.1", serve(b""))
+
+
+def test_usb_takes_the_local_usb_link_without_the_console(usb):
+    # A Linux user outside the dialout group cannot open the console: this computer's own end of
+    # the pod's USB link names the pod's address.
+    usb["links"] = [("10.237.8.86", "10.237.8.85")]
+    t = open_transport(parse_connection("usb"))
+    assert isinstance(t, TcpTransport) and t.addr == "10.237.8.85:8080"
+    assert t.usb_net and t.usb_console == ""
+    assert FakeConsole.instances == []  # the console was never opened
+
+
+def test_usb_name_picks_its_link_by_identity(usb):
+    usb["links"] = [("10.237.1.2", "10.237.1.1"), ("10.237.8.86", "10.237.8.85")]
+    usb["ids"] = {"10.237.1.1": "aaaaaa", "10.237.8.85": "baea06"}
+    t = open_transport(parse_connection("usb:benchpod-baea06"))
+    assert isinstance(t, TcpTransport) and t.addr == "10.237.8.85:8080" and not FakeConsole.instances
+
+
+def test_two_links_and_no_name_use_the_console(usb):
+    # The console's auto-detect then lists both pods (or picks the one it finds).
+    usb["links"] = [("10.237.1.2", "10.237.1.1"), ("10.237.8.86", "10.237.8.85")]
+    usb["status"] = _status(USB_ON)
+    open_transport(parse_connection("usb"))
+    assert FakeConsole.instances
+
+
+def test_explicit_device_path_ignores_the_local_links(usb):
+    usb["links"] = [("10.237.8.86", "10.237.8.85")]
+    t = open_transport(parse_connection("/dev/ttyACM0"))
+    assert isinstance(t, FakeConsole)
+
+
+def test_local_usb_links_reads_this_computers_interfaces():
+    from embeddedci.benchpod.transport.usblink import local_usb_links
+    for host, pod in local_usb_links():  # whatever this machine has; each is a /30 in 10.237/16
+        assert host.startswith("10.237.") and pod.startswith("10.237.")

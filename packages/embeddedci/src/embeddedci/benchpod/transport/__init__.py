@@ -142,7 +142,22 @@ def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
     :data:`USB_NET_PROBE_TIMEOUT`. Anything else (firmware before 3.9.0, Wi-Fi configured on the
     pod, link down, the host has not configured the interface) keeps the console.
     """
-    from .serial import SerialTransport
+    from .serial import SerialTransport, normalize_pod_name
+
+    if not device:
+        # This computer's own end of the pod's USB network link names the pod's address with no
+        # console: a Linux user outside the dialout group cannot open the console device.
+        from .usblink import local_usb_links, pick_usb_pod
+
+        links = local_usb_links()
+        addr = pick_usb_pod(links, normalize_pod_name(pod), DEFAULT_PORT, USB_NET_PROBE_TIMEOUT) if links else None
+        if addr and _tcp_reachable(addr, DEFAULT_PORT):
+            from .tcp import TcpTransport
+
+            tcp = TcpTransport(f"{addr}:{DEFAULT_PORT}", timeout=timeout)
+            tcp.usb_net = True
+            _log.info("usb: using the pod's USB network at %s (this computer's USB link)", tcp.addr)
+            return tcp
 
     console = SerialTransport(device, timeout=timeout, pod=pod)
     if device:
@@ -179,6 +194,7 @@ def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
         return console
 
     tcp = TcpTransport(f"{ip}:{DEFAULT_PORT}", timeout=timeout)
+    tcp.usb_net = True
     tcp.usb_console = console.device
     console.close()
     _log.info("usb: using the pod's USB network at %s (console %s)", tcp.addr, console.device)

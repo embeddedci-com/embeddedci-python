@@ -64,7 +64,7 @@ def transport_kind(connection: str, pod: Any) -> str:
     console."""
     kind = connection_kind(connection)
     transport = getattr(pod, "transport", None)
-    if kind == "serial" and getattr(transport, "usb_console", ""):
+    if kind == "serial" and (getattr(transport, "usb_net", False) is True or getattr(transport, "usb_console", "")):
         return "usb_net"
     if kind == "serial" and getattr(transport, "usb_lan_fallback", ""):
         return "tcp"  # USB networking off or down: the pod's Ethernet or Wi-Fi address

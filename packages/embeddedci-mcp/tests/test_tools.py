@@ -133,6 +133,12 @@ def test_connect_usb_over_the_usb_network_reports_usb_net(fake_open, fake_transp
     assert transport_kind("192.168.1.50", console) == "tcp"
 
 
+def test_connect_usb_over_the_local_usb_link_reports_usb_net(fake_open, fake_transport, monkeypatch):
+    # 'usb' that found the pod from this computer's end of its USB link: no console was opened.
+    monkeypatch.setattr(fake_transport, "usb_net", True, raising=False)
+    assert call("connect", connection="usb", la_voltage=3.3)["kind"] == "usb_net"
+
+
 def test_connect_usb_name_reports_usb_net(fake_open, fake_transport, monkeypatch):
     # usb:<name> picks one of several pods on USB; it upgrades to the USB network like 'usb'.
     monkeypatch.setattr(fake_transport, "usb_console", "/dev/cu.usbmodemPOD", raising=False)

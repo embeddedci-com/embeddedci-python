@@ -198,11 +198,14 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 (USB id `1209:0001`; older firmware uses `0483:5740`): the console plus a USB network adapter
 (CDC-NCM) that carries the same JSON API as the LAN. The link is a point-to-point `/30` in
 `10.237.0.0/16` (the pod is the first address, your computer the second, handed out by the pod's
-DHCP server). With connection `usb` the SDK finds the pod's console, reads the pod's address on
-that link from its `status`, and when the link is up and port 8080 answers within 1.5 s it talks
-to `<pod address>:8080` over TCP: everything works as on the LAN. The transport is then a
-`TcpTransport` whose `usb_console` attribute names the console's device path
-(`bp.transport.usb_console`). The SDK falls back to the console, as on older firmware, when the
+DHCP server). With connection `usb` the SDK first looks at this computer's own interfaces (Linux
+and macOS): one address in `10.237.0.0/16` with a `/30` mask names the pod's address without
+opening the console, so it works for a Linux user outside the `dialout` group (with several such
+links, `usb:<name>` picks the pod by its identity). Otherwise it finds the pod's console and reads
+the pod's address on that link from its `status`. When the link is up and port 8080 answers within
+1.5 s it talks to `<pod address>:8080` over TCP: everything works as on the LAN. The transport is
+then a `TcpTransport` with `usb_net` set, and `usb_console` naming the console's device path when
+the console was used (`bp.transport.usb_console`). The SDK falls back to the console, as on older firmware, when the
 pod's firmware is older than 3.9.0, when Wi-Fi is configured on the pod (that turns USB networking
 off), when the link is down, or when the computer has not configured the adapter (for example
 macOS under a locked screen); it logs which one it picked. An explicit device path such as

@@ -87,8 +87,11 @@ class _SocketRawLink:
 class TcpTransport(Transport):
     """Talks to the pod over JSON/TCP."""
 
-    #: The USB console's device path when connection ``usb`` resolved to the pod's USB network
-    #: adapter (firmware 3.9.0+) instead of the console; ``""`` for a network connection.
+    #: Whether connection ``usb`` resolved to the pod's USB network adapter (firmware 3.9.0+).
+    usb_net: bool = False
+    #: The USB console's device path when connection ``usb`` found the USB network through the
+    #: console; ``""`` for a network connection, or when this computer's own end of the USB link
+    #: named the pod's address and the console was never opened.
     usb_console: str = ""
     #: Why connection ``usb`` went to the pod's Ethernet or Wi-Fi address instead (firmware 3.9.0+
     #: with its USB network off or down); ``""`` otherwise.
