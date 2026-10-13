@@ -69,7 +69,9 @@ class TextConsolePort:
         elif argv[0] == "ping":
             self._reply(echo + "  PING ok  version=0x1f\r\n")
         elif self.trimmed and argv[0] in ("la-voltage", "power"):
-            self._reply(echo + f"  unknown command '{argv[0]}' (try 'help')\r\n")
+            self._reply(echo + f"{argv[0]}: moved to the network API (JSON la_voltage) in firmware 3.9.0; "
+                               "update the benchpod CLI to 0.6.0 or later (or embeddedci to 2.12.0), which "
+                               "uses it over USB\r\n")
         elif argv[0] == "la-voltage":
             if len(argv) > 1:
                 if argv[1] == "1800" and self.rev == "v2":

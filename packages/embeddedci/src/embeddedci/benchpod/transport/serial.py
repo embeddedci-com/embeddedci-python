@@ -61,6 +61,8 @@ _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
 _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
 JSON_PROBE_TIMEOUT = 3.0  # how long to wait for the console to answer the `json` mode switch
 UNKNOWN_COMMAND = "unknown command"
+#: Firmware 3.9.0 answers a console command it moved to the JSON API with this marker instead.
+MOVED_TO_NETWORK = "moved to the network API"
 
 #: JSON commands the text console can answer itself when the firmware has no JSON mode on USB
 #: (the STM32 pod's console is a text shell: status, ping, la-voltage, power, diagnostics).
@@ -682,7 +684,7 @@ class SerialTransport(Transport):
     def _text_la_voltage(self, req: dict) -> Dict[str, Any]:
         line = "la-voltage" + (f" {int(req['mv'])}" if req.get("mv") is not None else "")
         out = self._send_command(line)
-        if UNKNOWN_COMMAND in out:
+        if MOVED_TO_NETWORK in out:
             raise self._moved_to_json("la-voltage")
         if "needs a v3 pod" in out or "usage:" in out:
             msg = next((ln.strip() for ln in out.replace("\r", "\n").split("\n")
@@ -698,9 +700,9 @@ class SerialTransport(Transport):
             raise TransportError("the pod's USB console cannot schedule a delayed power change; "
                                  "use delay=None, or a network/cloud connection")
         out = self._send_command(f"power {int(efuse)} {'on' if on else 'off'}")
-        if UNKNOWN_COMMAND in out:
+        if MOVED_TO_NETWORK in out:
             raise self._moved_to_json("power")
-        if "bad eFuse" in out or "ERROR:" in out:
+        if UNKNOWN_COMMAND in out or "bad eFuse" in out or "ERROR:" in out:
             raise TransportError(f"firmware rejected power {efuse}: {out.strip()!r}")
 
     def _console_raw_handshake(

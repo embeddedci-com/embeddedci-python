@@ -208,6 +208,18 @@ off), when the link is down, or when the computer has not configured the adapter
 macOS under a locked screen); it logs which one it picked. An explicit device path such as
 `/dev/ttyACM0` is always the console.
 
+The USB network adapter works with the in-box drivers of macOS, Linux and Windows 11 (tested).
+Windows 10 (1903 or newer) is supported but not tested: if the adapter shows up without a driver,
+update its driver in Device Manager and pick "UsbNcm Host Device".
+
+**Compatibility.** The SDK decides per pod, from what the pod reports (the `usb` line of its
+console `status`), never from its own version:
+
+| | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
+|---|---|---|
+| **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up, the console otherwise. |
+| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console. Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
+
 **Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
 `benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
 with that name and raises `ConnectionConfigError` listing the pods it found when none matches.
