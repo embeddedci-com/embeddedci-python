@@ -1,7 +1,9 @@
 # Changelog — `embeddedci-openhtf`
 
-## Unreleased
+## 2.3.0
 
+- Needs `embeddedci` 2.12.0 or later (was 2.4), the SDK whose `usb` connection reaches the USB
+  network adapter these docs describe.
 - Docs: connection `usb` reaches the pod's USB network adapter (full API) on firmware 3.9.0 and
   later, through the `embeddedci` SDK of the same release; a serial device path stays the console.
 

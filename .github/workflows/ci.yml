@@ -68,7 +68,14 @@ jobs:
         run: |
           MIN=$(python scripts/min_sdk_version.py packages/embeddedci-mcp/pyproject.toml)
           echo "minimum embeddedci: $MIN"
-          python -m pip install "embeddedci[cloud,discovery,analysis]==$MIN"
+          # A minimum this repository is about to release is not on PyPI yet: test the in-repo SDK,
+          # which is that version (the release publishes the SDK before the MCP server).
+          if ! python -m pip install "embeddedci[cloud,discovery,analysis]==$MIN"; then
+            LOCAL=$(python -c "import sys; sys.path.insert(0, 'scripts'); import check_release_tag as c; print(c.pyproject_version('embeddedci'))")
+            if [ "$LOCAL" != "$MIN" ]; then echo "embeddedci $MIN is neither on PyPI nor in this repository ($LOCAL)"; exit 1; fi
+            echo "embeddedci $MIN is not on PyPI yet: using the in-repo package"
+            python -m pip install -e "packages/embeddedci[cloud,discovery,analysis]"
+          fi
           python -m pip install -e "packages/embeddedci-mcp[dev]"
           python -c "import embeddedci, sys; v = embeddedci.__version__; print('testing against embeddedci', v, embeddedci.__file__); sys.exit(v != '$MIN')"
       - name: Run the MCP tests

@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.12.0
 
 - On firmware 3.9.0 and later the USB console no longer has `la-voltage` or `power` (they are JSON
   commands, reached over the USB network adapter): a serial device path then fails with an error
