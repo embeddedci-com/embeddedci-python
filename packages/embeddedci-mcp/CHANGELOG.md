@@ -1,5 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- Connection `usb` reaches the full API over the pod's USB network adapter on firmware 3.9.0 and
+  later (through the `embeddedci` SDK of the same release), unless Wi-Fi is configured on the pod;
+  otherwise it falls back to the USB console as before. `connect`/`status` report the new kind
+  `usb_net` when the USB network is in use. A serial device path stays the console.
+
 ## 2.11.0
 
 - `flash` can flash a build uploaded to embeddedci.com instead of a `file`: new `build` (id or

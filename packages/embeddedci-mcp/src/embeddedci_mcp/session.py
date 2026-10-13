@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from embeddedci.benchpod import (
     BenchPod,
@@ -56,6 +56,15 @@ def connection_kind(connection: str) -> str:
     if s.lower() in DISCOVER_KEYWORDS:
         return "discover"
     return "tcp"
+
+
+def transport_kind(connection: str, pod: Any) -> str:
+    """:func:`connection_kind`, except ``"usb_net"`` when a USB connection (``usb``) resolved to
+    the pod's USB network adapter (firmware 3.9.0+) rather than its console."""
+    kind = connection_kind(connection)
+    if kind == "serial" and getattr(getattr(pod, "transport", None), "usb_console", ""):
+        return "usb_net"
+    return kind
 
 
 def cloud_user_token(connection: str) -> Optional[Callable[[], str]]:
@@ -166,7 +175,7 @@ class Session:
             la = self.default_la_voltage if la_voltage is None else la_voltage
             wait = self.lease_wait if lease_wait is None else lease_wait
             self._pod = self._open(conn, la, wait)
-            self.connection, self.kind = conn, connection_kind(conn)
+            self.connection, self.kind = conn, transport_kind(conn, self._pod)
             self._reconnect = (conn, la, wait)
             self._touch()
             return self._pod
@@ -179,6 +188,7 @@ class Session:
                     raise NotConnectedError("not connected to a BenchPod — call the `connect` tool first")
                 conn, la, wait = self._reconnect  # type: ignore[misc]
                 self._pod = self._open(conn, la, wait)
+                self.kind = transport_kind(conn, self._pod)
                 self._idle_closed = False
             self._touch()
             return self._pod

@@ -332,7 +332,9 @@ def _status() -> m.StatusResult:
 @mcp.tool(annotations=_ann("Connect to a BenchPod", idempotent=True, cloud=True))
 async def connect(
     connection: Annotated[Optional[str], Field(description=(
-        "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), "
+        "host[:port] (TCP, default port 8080), a serial device path (the USB console only), 'usb' "
+        "(auto-detect: the pod's USB network adapter with the full API on firmware 3.9.0+, else "
+        "its console), "
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
         "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
         "set-connection`), else to find the one pod on the LAN over mDNS."))] = None,

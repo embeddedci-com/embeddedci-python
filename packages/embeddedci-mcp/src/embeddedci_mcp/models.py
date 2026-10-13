@@ -98,7 +98,9 @@ class SessionInfo(BaseModel):
 class StatusResult(BaseModel):
     connected: bool
     connection: Optional[str] = None
-    kind: Optional[str] = Field(None, description="tcp, serial, discover or embeddedci (cloud).")
+    kind: Optional[str] = Field(None, description=(
+        "tcp, serial (USB console), usb_net ('usb' reached the pod's USB network adapter), "
+        "discover or embeddedci (cloud)."))
     leased: bool = False
     la_voltage: Optional[float] = Field(None, description="Selected LA bank voltage; null = not set.")
     capabilities: Optional[CapabilitiesInfo] = None

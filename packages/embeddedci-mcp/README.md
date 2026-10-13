@@ -13,8 +13,11 @@ maps to SDK calls, so anything an agent discovers interactively can become a pyt
 ## Requirements
 
 - Python 3.10+ and [uv](https://docs.astral.sh/uv/) (for `uvx`), or `pip`.
-- A BenchPod reachable over the network or the embeddedci.com cloud. (A USB connection works for
-  status, LA voltage and power only: the STM32 pod's USB console has no JSON mode.)
+- A BenchPod reachable over the network, the embeddedci.com cloud, or USB. With firmware 3.9.0
+  and later, connection `usb` reaches the full API over the pod's USB network adapter (unless
+  Wi-Fi is configured on the pod, which turns USB networking off); `status` then reports kind
+  `usb_net`. A serial device path, or `usb` on older firmware, is the USB console: status, LA
+  voltage and power only, since the STM32 pod's console has no JSON mode.
 - For `flash`: OpenOCD with the `cmsis_dap_tcp` backend (newer than 0.12.0 — e.g.
   `brew install --HEAD open-ocd`, or the xPack build) on the machine running the server. The
   firmware `file` is read from that machine too. Flashing a build uploaded to embeddedci.com
