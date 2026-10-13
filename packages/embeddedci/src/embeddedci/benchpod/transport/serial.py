@@ -31,12 +31,12 @@ from .base import RawLink, Transport
 # the RP2350 pod), 0x0483 (STMicroelectronics, the STM32H563 pod up to firmware
 # 3.8, which uses ST's stock CDC VID/PID 0483:5740 so the host binds its in-box
 # driver) and 0x1209 (the STM32H563 pod from firmware 3.9.0: a composite device
-# with the CDC-ACM console plus a CDC-NCM network adapter, for now under the
-# pid.codes test VID/PID 1209:0001).
+# with the CDC-ACM console plus a CDC-NCM network adapter: pid.codes 1209:EC10, or
+# the pid.codes test id 1209:0001 on builds made before EC10 was assigned).
 #
 # None of these ids is exclusive to a bench pod (0x2E8A is shared with the
 # CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench
-# and 1209:0001 is a shared test id), so they only ORDER the ports to probe.
+# and 0x1209 is every pid.codes device), so they only ORDER the ports to probe.
 # Identification is by probing for BENCHPOD_MARKER, never by vendor id alone.
 POD_VIDS = (0x2E8A, 0x0483, 0x1209)
 RP_VID = 0x2E8A  # deprecated alias, kept for callers that imported it

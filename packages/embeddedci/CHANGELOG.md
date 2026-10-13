@@ -2,6 +2,8 @@
 
 ## 2.12.0
 
+- Docs: the pod's USB id from firmware 3.9.0 is the pid.codes `1209:EC10` (`1209:0001` on builds
+  made before EC10 was assigned); auto-detect goes by vendor id `0x1209`, so it finds either.
 - `BenchPod.usb_network(on=None)`: read the pod's USB network setting (firmware 3.9.0+), or turn
   the adapter off over the USB link (`False`). Ethernet, Wi-Fi and the cloud get
   `PodLockedError`; turning it back on is `benchpod usb-network on` on the USB console.
