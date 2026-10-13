@@ -225,7 +225,7 @@ console `status`), never from its own version:
 with that name and raises `ConnectionConfigError` listing the pods it found when none matches.
 Plain `usb` with two pods plugged in raises `ConnectionConfigError` naming both, for example
 `2 pods on USB (benchpod-aaaaaa on /dev/cu.usbmodemA, benchpod-bbbbbb on /dev/cu.usbmodemB)`;
-with one pod it works as before. macOS lists each pod twice (`/dev/cu.*` and `/dev/tty.*`); the
+with one pod it works as before. Two pods on one computer have not been tested on hardware yet. macOS lists each pod twice (`/dev/cu.*` and `/dev/tty.*`); the
 same name on two ports counts as one pod. `SerialTransport.identity()` reads the name of the pod
 on an open console.
 
