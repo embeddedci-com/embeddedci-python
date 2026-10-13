@@ -122,7 +122,7 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         default=None,
         dest="benchpod_connection",
         help="BenchPod connection: host[:port], a serial device path, 'usb' (auto-detect), "
-        "'discover' (mDNS), 'embeddedci:<device-name>' to drive a named device through "
+        "'usb:<name>' (one of several USB pods), 'discover' (mDNS), 'embeddedci:<device-name>' to drive a named device through "
         "embeddedci.com, or 'saved' for the default connection benchpod-cli saved "
         f"(never used unless asked for). Falls back to the {ENV_VAR} env var.",
     )

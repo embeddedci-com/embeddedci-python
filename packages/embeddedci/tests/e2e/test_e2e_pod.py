@@ -634,9 +634,13 @@ def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
 def test_la_sample_rate_matches_the_host_clock(pod, bench):
     np = pytest.importorskip("numpy")
     ch = bench.free_la[0]
+    # Every event must land inside the 4 s acquisition: one sent after it queues behind the
+    # read-back, and the queued ones then go out back to back, where a fast link (the USB
+    # network) can send a step while the previous 1 ms train still holds the pin. 18 events
+    # end at ~3.8 s.
     la, stamps = events_during(lambda: pod.capture_la(4_000_000, sample_rate_hz=1_000_000),
                                lambda k: pod.la_step(ch, steps=1, delay=0.001),
-                               count=25, interval=0.2)
+                               count=18, interval=0.2)
     bits = np.asarray(la.channel(ch), dtype=np.int8)
     rate = host_clock_rate(np.flatnonzero(np.diff(bits) == 1) + 1, stamps)
     assert rate == pytest.approx(la.sample_rate_hz, rel=0.005), (

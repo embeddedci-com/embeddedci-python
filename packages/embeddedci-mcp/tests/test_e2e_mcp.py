@@ -41,7 +41,8 @@ def connected(benchpod_connection):
 
 def test_status_and_typed_state(connected):
     assert connected["capabilities"]["board"]
-    assert connected["warnings"] == []
+    # A bench pod on a computer's USB port is told about its 500 mA port; nothing else may warn.
+    assert [w for w in connected["warnings"] if "default USB power" not in w] == []
     assert "internal" in call("power_status")
     channels = call("pull_status")["channels"]
     assert [c["direction"] for c in channels] == ["up"] * 6 + ["down"] * 2

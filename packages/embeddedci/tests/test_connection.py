@@ -24,6 +24,34 @@ def test_parse_connection(raw, kind, addr, device):
     assert spec.device == device
 
 
+@pytest.mark.parametrize(
+    "raw",
+    ["usb:baea06", "usb:benchpod-baea06", "USB:BenchPod-BAEA06", "usb:BenchPod baea06",
+     "usb:benchpod-baea06.local", "usb: baea06 "],
+)
+def test_parse_usb_name(raw):
+    spec = parse_connection(raw)
+    assert spec.is_serial() and spec.device == "" and spec.pod == "baea06"
+
+
+def test_plain_usb_has_no_pod():
+    assert parse_connection("usb").pod == ""
+
+
+@pytest.mark.parametrize("raw", ["usb:", "usb:  ", "usb:benchpod-"])
+def test_usb_without_a_name_is_an_error(raw):
+    with pytest.raises(ConnectionConfigError, match="usb:benchpod-a1b2c3"):
+        parse_connection(raw)
+
+
+def test_normalize_pod_name():
+    from embeddedci.benchpod.connection import normalize_pod_name
+
+    assert normalize_pod_name("BenchPod-BAEA06.local") == "baea06"
+    assert normalize_pod_name("benchpod baea06") == "baea06"
+    assert normalize_pod_name("baea06") == "baea06"
+
+
 def test_resolve_prefers_explicit_over_env(monkeypatch):
     monkeypatch.setenv(ENV_VAR, "/dev/ttyACM0")
     spec = resolve_connection("192.168.1.5")

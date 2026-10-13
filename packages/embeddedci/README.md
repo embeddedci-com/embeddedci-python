@@ -188,24 +188,63 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 |---|---|
 | `192.168.1.213`, `host:8080`, `[fe80::1]:8080` | network (JSON over TCP, port 8080 by default) |
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
-| `usb` | USB console, auto-detected by probing the serial ports (`serial` also accepted) |
+| `usb` | USB pod, auto-detected by probing the serial ports (`serial` also accepted): its USB network adapter on firmware 3.9.0 and later (full API), else its USB console |
+| `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key or a user token anywhere, or GitHub Actions OIDC) |
 | `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
 
-**Use the network (or the cloud) for testing.** The STM32 pod's USB console is a text shell for
-setup and diagnostics with no JSON mode, so over USB the SDK can only read `status()`, `ping()`,
-select the LA voltage and switch target power (without `delay`). Everything else — flashing, UART,
-analog, captures, I2C-sensor emulation, CAN — raises a `TransportError` right away that points at
-the network connection. (On firmware whose console does have a JSON mode, the SDK uses it
-automatically.)
+**USB network (firmware 3.9.0 and later).** The STM32 pod's USB port is a composite device
+(USB id `1209:0001`; older firmware uses `0483:5740`): the console plus a USB network adapter
+(CDC-NCM) that carries the same JSON API as the LAN. The link is a point-to-point `/30` in
+`10.237.0.0/16` (the pod is the first address, your computer the second, handed out by the pod's
+DHCP server). With connection `usb` the SDK first looks at this computer's own interfaces (Linux
+and macOS): one address in `10.237.0.0/16` with a `/30` mask names the pod's address without
+opening the console, so it works for a Linux user outside the `dialout` group (with several such
+links, `usb:<name>` picks the pod by its identity). Otherwise it finds the pod's console and reads
+the pod's address on that link from its `status`. When the link is up and port 8080 answers within
+1.5 s it talks to `<pod address>:8080` over TCP: everything works as on the LAN. The transport is
+then a `TcpTransport` with `usb_net` set, and `usb_console` naming the console's device path when
+the console was used (`bp.transport.usb_console`). The SDK falls back to the console, as on older firmware, when the
+pod's firmware is older than 3.9.0, when Wi-Fi is configured on the pod (that turns USB networking
+off), when the link is down, or when the computer has not configured the adapter (for example
+macOS under a locked screen); it logs which one it picked. An explicit device path such as
+`/dev/ttyACM0` is always the console.
 
-| | TCP | USB (STM32 pod) | Cloud |
-|---|---|---|---|
-| `status`, `ping`, LA voltage, target power on/off | yes | yes | yes |
-| Scheduled power changes (`delay=`), flashing, UART, analog, captures, I2C sensor, CAN, control loop | yes | no | yes |
-| `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | no | yes |
-| Device lease | — | — | yes |
+The USB network adapter works with the in-box drivers of macOS, Linux and Windows 11 (tested).
+Windows 10 (1903 or newer) is supported but not tested: if the adapter shows up without a driver,
+update its driver in Device Manager and pick "UsbNcm Host Device".
+
+**Compatibility.** The SDK decides per pod, from what the pod reports (the `usb` line of its
+console `status`), never from its own version:
+
+| | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
+|---|---|---|
+| **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why); else the console. |
+| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console. Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
+
+**Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
+`benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
+with that name and raises `ConnectionConfigError` listing the pods it found when none matches.
+Plain `usb` with two pods plugged in raises `ConnectionConfigError` naming both, for example
+`2 pods on USB (benchpod-aaaaaa on /dev/cu.usbmodemA, benchpod-bbbbbb on /dev/cu.usbmodemB)`;
+with one pod it works as before. Two pods on one computer have not been tested on hardware yet. macOS lists each pod twice (`/dev/cu.*` and `/dev/tty.*`); the
+same name on two ports counts as one pod. `SerialTransport.identity()` reads the name of the pod
+on an open console.
+
+**Otherwise use the network (or the cloud) for testing.** The STM32 pod's USB console is a text
+shell for setup and diagnostics with no JSON mode, so over the console the SDK can only read
+`status()`, `ping()`, select the LA voltage and switch target power (without `delay`). Everything
+else (flashing, UART, analog, captures, I2C-sensor emulation, CAN) raises a `TransportError` right
+away that points at the network connection. (On firmware 3.9.0 and later the LA voltage and target
+power moved to the network too; see the compatibility table above.)
+
+| | TCP | USB network (`usb`, firmware 3.9.0+) | USB console (STM32 pod) | Cloud |
+|---|---|---|---|---|
+| `status`, `ping`, LA voltage, target power on/off | yes | yes | yes | yes |
+| Scheduled power changes (`delay=`), flashing, UART, analog, captures, I2C sensor, CAN, control loop | yes | yes | no | yes |
+| `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | yes | no | yes |
+| Device lease | — | — | — | yes |
 
 ### Environment variables
 

@@ -1,5 +1,21 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.12.0
+
+- Needs `embeddedci` 2.12.0 or later (was 2.9): its `usb` connection is what reaches the USB
+  network adapter the instructions describe.
+- Connection `usb` reaches the full API over the pod's USB network adapter on firmware 3.9.0 and
+  later (through the `embeddedci` SDK of the same release), unless Wi-Fi is configured on the pod;
+  otherwise it falls back to the USB console as before. `connect`/`status` report the new kind
+  `usb_net` when the USB network is in use. A serial device path stays the console.
+- New connection form `usb:<name>` picks one of several pods plugged into one computer, by name
+  (`usb:baea06`, `usb:benchpod-baea06`). Plain `usb` with several pods errors and lists them.
+  `connect`'s `connection` description lists it.
+- `status` warns when the USB-C port powering the pod advertises only default USB power (500 mA,
+  firmware 3.9.0's `status.usb.source`): it may not carry the pod plus a DUT on the internal 5 V rail.
+- A `usb` connection that went to the pod's network address (3.9.0+ with USB networking off or
+  down) reports kind `tcp`, and `status` warns which way it went.
+
 ## 2.11.0
 
 - `flash` can flash a build uploaded to embeddedci.com instead of a `file`: new `build` (id or

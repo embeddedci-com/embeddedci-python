@@ -315,6 +315,16 @@ def _status() -> m.StatusResult:
     if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
         warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
                         "the cloud ('embeddedci:<device>') or the USB console")
+    fallback = getattr(pod.transport, "usb_lan_fallback", "")
+    if isinstance(fallback, str) and fallback:
+        warnings.append(f"connection 'usb' went to the pod's network address because {fallback}; the "
+                        "pod's external LAN policy applies there (`benchpod clear-wifi` turns USB "
+                        "networking back on)")
+    usb = firmware.get("usb") if isinstance(firmware, dict) else None
+    if isinstance(usb, dict) and usb.get("source") == "default":
+        warnings.append("the USB port powering the pod offers only default USB power (500 mA), which may "
+                        "not carry the pod plus a DUT on the internal 5 V rail: use a USB-C port or "
+                        "charger with 1.5 A or more, or power the DUT externally")
     try:
         wiring_source: Optional[str] = pod.wiring.source
     except (BenchPodError, ValueError, OSError):
@@ -332,7 +342,9 @@ def _status() -> m.StatusResult:
 @mcp.tool(annotations=_ann("Connect to a BenchPod", idempotent=True, cloud=True))
 async def connect(
     connection: Annotated[Optional[str], Field(description=(
-        "host[:port] (TCP, default port 8080), a serial device path, 'usb' (auto-detect), "
+        "host[:port] (TCP, default port 8080), a serial device path (the USB console only), 'usb' "
+        "(auto-detect: the pod's USB network adapter with the full API on firmware 3.9.0+, else "
+        "its console), 'usb:<name>' (one of several pods on USB, by name: 'usb:benchpod-baea06'), "
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
         "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
         "set-connection`), else to find the one pod on the LAN over mDNS."))] = None,

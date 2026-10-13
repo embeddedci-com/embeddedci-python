@@ -386,39 +386,17 @@ def test_a_text_frame_from_the_tunnel_is_treated_as_bytes(monkeypatch):
     assert sock.recv(4096) == b'{"status":"ok","data":"pong"}\n'
 
 
-# -- serial: stale replies before every kind of request ----------------------------------------
+# -- serial: the console is a text shell (no JSON mode) -----------------------------------------
 
-def _serial():
-    from test_serial_json import FakeConsolePort
+def test_streamed_commands_over_the_console_name_the_network_way():
+    from test_serial_text_console import TextConsolePort
 
-    t = SerialTransport(port=FakeConsolePort(), timeout=1)
-    t.command({"cmd": "ping"})  # enter JSON mode
-    return t
-
-
-def test_a_stale_error_reply_does_not_fail_the_next_request():
-    t = _serial()
-    t._port._emit('{"status":"error","message":"busy: capture running"}\n')
-    assert t.command({"cmd": "ping"}) == "pong"
-
-
-def test_several_stale_lines_and_a_half_line_are_all_dropped():
-    t = _serial()
-    t._port._emit('{"status":"ok","data":"old1"}\n[cmd] <- x\n{"status":"ok","data":"old2"}\n{"sta')
-    assert t.command({"cmd": "status"})["version"] == "2.0.0"
-
-
-def test_a_stale_chunk_is_dropped_before_a_sample_stream():
-    t = _serial()
-    t._port._emit('{"status":"ok","data":[9,9,9],"more":true}\n')
-    assert t.samples({"cmd": "sensor_regs"}) == [88, 0, 1]
-
-
-def test_a_stale_chunk_is_dropped_before_a_streamed_command():
-    t = _serial()
-    t._port._emit('{"status":"ok","data":[7],"more":false}\n')
-    chunks = list(t.stream_chunks({"cmd": "sensor_regs"}))
-    assert [c["data"] for c in chunks] == [[88, 0], [1]]
+    t = SerialTransport(port=TextConsolePort(), timeout=1)
+    with pytest.raises(TransportError, match="network"):
+        t.samples({"cmd": "sensor_regs"})
+    with pytest.raises(TransportError, match="usb"):
+        list(t.stream_chunks({"cmd": "power_profile", "duration_ms": 1000}))
+    assert t._port.lines == []  # nothing was sent to the pod
 
 
 # -- a long blocking measure_power ----------------------------------------------------------------
@@ -454,15 +432,3 @@ def test_measure_power_over_the_cloud_tunnel_waits_for_its_duration(monkeypatch)
     monkeypatch.setattr(t, "_open_tunnel", lambda *_a: sock)
     list(t.stream_chunks({"cmd": "power_profile", "efuse": 1, "duration_ms": 600_000}))
     assert ws.timeout == pytest.approx(630)
-
-
-def test_measure_power_over_serial_waits_for_its_duration(monkeypatch):
-    from embeddedci.benchpod.transport import base, serial
-
-    t = _serial()
-    waited = []
-    real = base.request_timeout
-    monkeypatch.setattr(serial, "request_timeout", lambda req, b: waited.append(real(req, b)) or 0.5)
-    t._port._process = lambda line: t._port._emit('{"status":"ok","data":{"stats":{}},"more":false}\n')
-    list(t.stream_chunks({"cmd": "power_profile", "duration_ms": 120_000}))
-    assert waited == [pytest.approx(121)]

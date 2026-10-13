@@ -24,12 +24,13 @@ STATUS = (
 class TextConsolePort:
     """Emulates the STM32 console: echo, text replies, '> ' prompt, no JSON mode."""
 
-    def __init__(self, rev: str = "v2") -> None:
+    def __init__(self, rev: str = "v2", trimmed: bool = False) -> None:
         self._in = bytearray()
         self._line = bytearray()
         self.lines: list = []
         self.la_mv = 0
         self.rev = rev
+        self.trimmed = trimmed  # firmware 3.9.0+: no la-voltage / power on the console
         self.timeout = 0.25
 
     def write(self, data: bytes):
@@ -67,6 +68,10 @@ class TextConsolePort:
             self._reply(echo + STATUS)
         elif argv[0] == "ping":
             self._reply(echo + "  PING ok  version=0x1f\r\n")
+        elif self.trimmed and argv[0] in ("la-voltage", "power"):
+            self._reply(echo + f"{argv[0]}: moved to the network API (JSON la_voltage) in firmware 3.9.0; "
+                               "update the benchpod CLI to 0.6.0 or later (or embeddedci to 2.12.0), which "
+                               "uses it over USB\r\n")
         elif argv[0] == "la-voltage":
             if len(argv) > 1:
                 if argv[1] == "1800" and self.rev == "v2":
@@ -148,3 +153,43 @@ def test_flash_and_uart_proxy_fail_fast_with_a_hint():
     with pytest.raises(TransportError, match="network"):
         t.uart_proxy_start(5, 4, 115200)
     assert time.monotonic() - start < 3
+
+
+def test_trimmed_console_points_at_the_usb_network():
+    """Firmware 3.9.0 moved la-voltage and power off the console to the JSON API."""
+    bp = BenchPod(transport=_transport(trimmed=True), la_voltage=None)
+    with pytest.raises(TransportError, match="'usb'"):
+        bp.get_la_voltage()
+    with pytest.raises(TransportError, match="USB network"):
+        bp.transport.target_power(1, True)
+
+
+def test_no_json_mode_probe():
+    """The console is a text shell: opening it never sends the old `json` mode switch."""
+    t = _transport()
+    t.status()
+    t.ping()
+    assert "json" not in t._port.lines
+    assert t.json_supported is False
+
+
+def test_an_unplugged_port_is_a_transport_error():
+    from embeddedci.benchpod.errors import ConnectionClosedError
+
+    t = _transport()
+
+    def gone(n=1):
+        raise OSError(6, "Device not configured")
+
+    t._port.read = gone
+    with pytest.raises(ConnectionClosedError, match="USB serial link failed"):
+        t.ping()
+
+
+def test_a_silent_console_is_a_timeout():
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = SerialTransport(port=TextConsolePort(), timeout=0.2)
+    t._port._process = lambda line: None  # the pod stops answering
+    with pytest.raises(TransportTimeout):
+        t.ping()

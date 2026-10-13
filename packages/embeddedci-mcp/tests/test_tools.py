@@ -118,6 +118,44 @@ def test_connect_without_la_voltage_warns(fake_open):
     assert any("set_la_voltage" in w for w in result["warnings"])
 
 
+def test_connect_usb_over_the_usb_network_reports_usb_net(fake_open, fake_transport, monkeypatch):
+    # 'usb' that resolved to the pod's USB network adapter (firmware 3.9.0+): the SDK hands back a
+    # TCP transport whose usb_console names the console it found.
+    monkeypatch.setattr(fake_transport, "usb_console", "/dev/cu.usbmodemPOD", raising=False)
+    assert call("connect", connection="usb", la_voltage=3.3)["kind"] == "usb_net"
+    assert call("status")["kind"] == "usb_net"
+    # Without usb_console (the console, or a LAN pod) the kind is the connection string's.
+    from embeddedci_mcp.session import transport_kind
+    console = type("Console", (), {"transport": object()})()
+    assert transport_kind("/dev/ttyACM0", console) == "serial"
+    assert transport_kind("usb", console) == "serial"
+    assert transport_kind("usb:benchpod-baea06", console) == "serial"
+    assert transport_kind("192.168.1.50", console) == "tcp"
+
+
+def test_connect_usb_over_the_local_usb_link_reports_usb_net(fake_open, fake_transport, monkeypatch):
+    # 'usb' that found the pod from this computer's end of its USB link: no console was opened.
+    monkeypatch.setattr(fake_transport, "usb_net", True, raising=False)
+    assert call("connect", connection="usb", la_voltage=3.3)["kind"] == "usb_net"
+
+
+def test_connect_usb_name_reports_usb_net(fake_open, fake_transport, monkeypatch):
+    # usb:<name> picks one of several pods on USB; it upgrades to the USB network like 'usb'.
+    monkeypatch.setattr(fake_transport, "usb_console", "/dev/cu.usbmodemPOD", raising=False)
+    assert call("connect", connection="usb:benchpod-baea06", la_voltage=3.3)["kind"] == "usb_net"
+    from embeddedci_mcp.session import connection_kind
+    assert connection_kind("USB:baea06") == "serial"
+
+
+def test_connect_usb_falling_back_to_the_lan_reports_tcp_and_warns(fake_open, fake_transport, monkeypatch):
+    # 'usb' on firmware 3.9.0+ with USB networking off: the SDK went to the pod's network address.
+    monkeypatch.setattr(fake_transport, "usb_lan_fallback",
+                        "the pod's USB network is off (Wi-Fi is configured) or down", raising=False)
+    assert call("connect", connection="usb", la_voltage=3.3)["kind"] == "tcp"
+    warnings = " | ".join(call("status")["warnings"])
+    assert "network address" in warnings and "clear-wifi" in warnings
+
+
 def test_connect_rolls_back_when_the_pod_does_not_answer(fake_open, fake_transport, monkeypatch):
     from embeddedci.benchpod.errors import TransportError
 

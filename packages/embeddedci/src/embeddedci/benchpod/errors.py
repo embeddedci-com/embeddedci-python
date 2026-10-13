@@ -169,8 +169,9 @@ class TriggerTimeout(FirmwareError):
 
 class PodLockedError(FirmwareError):
     """The pod refused a command on its LAN connection: its LAN policy is ``locked`` (or the
-    command changes a policy), so the command needs the cloud (``embeddedci:<device>``) or the
-    USB console. Firmware text: ``locked: <cmd> needs the cloud or the USB console``."""
+    command changes a policy), so the command needs the cloud (``embeddedci:<device>``) or USB.
+    Firmware text: ``locked: <cmd> needs the cloud or USB`` (before 3.9.0: ``... or the USB
+    console``)."""
 
 
 class PodBusyError(FirmwareError):
@@ -222,6 +223,7 @@ _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
 _LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
 #: Policy changes the LAN may not make (pod_policy.c).
 _POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
+                     "change it from the cloud or over USB",
                      "only the USB console can loosen")
 #: Older firmware's answer to a command it does not have (command_handler.c).
 _UNKNOWN_CMD = "unknown cmd"

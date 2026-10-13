@@ -18,6 +18,7 @@ is the same thing your own tests will use. Without a connection configured the w
 """
 
 import os
+import time
 
 import pytest
 
@@ -60,7 +61,13 @@ def test_target_power_switches(benchpod):
         assert status.efuse(rail).enabled, status
         assert not status.efuse(rail).fault, "the eFuse tripped when the rail came up"
 
-        monitor = benchpod.power_status().rail(rail)
+        # The rail takes ~20 ms to come up; a fast link (the USB network) can read it sooner.
+        deadline = time.monotonic() + 0.5
+        while True:
+            monitor = benchpod.power_status().rail(rail)
+            if not monitor.ok or 4.0 < monitor.bus_voltage or time.monotonic() > deadline:
+                break
+            time.sleep(0.02)
         if monitor.ok:
             assert 4.0 < monitor.bus_voltage < 5.5, f"rail reads {monitor.bus_voltage:.2f} V"
     finally:

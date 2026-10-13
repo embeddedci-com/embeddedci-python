@@ -13,8 +13,13 @@ maps to SDK calls, so anything an agent discovers interactively can become a pyt
 ## Requirements
 
 - Python 3.10+ and [uv](https://docs.astral.sh/uv/) (for `uvx`), or `pip`.
-- A BenchPod reachable over the network or the embeddedci.com cloud. (A USB connection works for
-  status, LA voltage and power only: the STM32 pod's USB console has no JSON mode.)
+- A BenchPod reachable over the network, the embeddedci.com cloud, or USB. With firmware 3.9.0
+  and later, connection `usb` reaches the full API over the pod's USB network adapter (unless
+  Wi-Fi is configured on the pod, which turns USB networking off); `status` then reports kind
+  `usb_net`. A serial device path, or `usb` on older firmware, is the USB console: status, LA
+  voltage and power only, since the STM32 pod's console has no JSON mode. With several pods
+  plugged into one computer, `usb` errors and lists them by name; pick one with `usb:<name>`
+  (for example `usb:benchpod-baea06`).
 - For `flash`: OpenOCD with the `cmsis_dap_tcp` backend (newer than 0.12.0 — e.g.
   `brew install --HEAD open-ocd`, or the xPack build) on the machine running the server. The
   firmware `file` is read from that machine too. Flashing a build uploaded to embeddedci.com
@@ -121,7 +126,7 @@ chat never blocks CI on that pod.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], serial device, `usb`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
+| `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], serial device, `usb`, `usb:<name>`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |

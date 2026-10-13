@@ -1,5 +1,46 @@
 # Changelog — `embeddedci`
 
+## 2.12.0
+
+- On firmware 3.9.0 and later the USB console no longer has `la-voltage` or `power` (they are JSON
+  commands, reached over the USB network adapter): a serial device path then fails with an error
+  that says to connect with `usb` or the pod's network address (the console answers those with a
+  "moved to the network API" line, which the SDK recognizes).
+- The serial transport no longer probes the console for a `json` mode (up to 3 s per open) or
+  carries the JSON-over-serial code: the STM32 pod's console never had that mode (it was the retired
+  RP2350 firmware's). JSON goes over the network, also over USB through the USB network adapter.
+  `SerialTransport.json_supported` is always `False`; `samples` and `stream_chunks` over the
+  console raise a `TransportError` naming the network ways in.
+- README: a compatibility table (SDK version x firmware generation) and the Windows 10 note.
+- Connection `usb` on firmware 3.9.0+ whose USB networking is off (Wi-Fi configured) or down now
+  uses the pod's Ethernet or Wi-Fi address from its console `status` when it answers on port 8080
+  (its console no longer has LA voltage or power), with a warning that names the address; the new
+  `TcpTransport.usb_lan_fallback` says why. Firmware before 3.9.0 keeps the console.
+- Connection `usb` (and `serial`) uses the pod's USB network adapter on firmware 3.9.0 and later:
+  the SDK finds the pod's USB console as before, reads the pod's address on the USB link
+  (`10.237.x.y`) from its `status`, and when the link is up and port 8080 answers it returns a
+  `TcpTransport` to that address, so the full API works over USB. The transport's new
+  `usb_console` attribute names the console's device path. It falls back to the console (status,
+  ping, LA voltage, power) on older firmware, when Wi-Fi is configured on the pod (that turns USB
+  networking off), when the link is down, or when the computer has not configured the adapter. An
+  explicit device path (`/dev/ttyACM0`, `COM3`) always stays the console.
+- New connection form `usb:<name>` for one of several pods plugged into one computer:
+  `usb:baea06`, `usb:benchpod-baea06` or `usb:BenchPod baea06` (any case, optional `.local`) all
+  pick the pod whose identity short id is `baea06` (`ConnSpec.pod`). Auto-detect now reads each
+  pod's identity from its console (`identity` command; new `SerialTransport.identity()`). With
+  a name it opens that pod, else raises `ConnectionConfigError` listing the pods found. Without a
+  name, after the first pod it keeps probing the ports with a pod's USB vendor id: two different
+  pods raise `ConnectionConfigError` listing both, and the same pod seen on two ports (macOS
+  `/dev/cu.*` and `/dev/tty.*`) counts once. The selected pod then upgrades to its USB network
+  as with `usb`. `autodetect_port(name="")` takes the name.
+- USB auto-detect ranks the new USB id `1209:0001` (firmware 3.9.0) with the older pod ids; a pod
+  is still identified by probing its console.
+- The console's text `status` parses the `usb` line into the JSON status's shape:
+  `{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}`.
+- mDNS discovery (`connection="discover"`, `discover()`) keeps every address a pod answers from
+  (it advertises on each of its interfaces) and `DiscoveredPod.addr` prefers the pod's USB network
+  link (`10.237.0.0/16`) over the LAN when this computer hears it there. New `DiscoveredPod.on_usb`.
+
 ## 2.11.0
 
 - `flash` can flash a build uploaded to embeddedci.com (the `upload-artifact` action or the

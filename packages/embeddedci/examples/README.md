@@ -26,7 +26,8 @@ pytest examples/test_bmp280.py \
     --benchpod-firmware=path/to/your_app.elf
 ```
 
-`--benchpod-connection` also accepts `usb` (auto-detect the USB console), a serial device
+`--benchpod-connection` also accepts `usb` (auto-detect the USB pod: its USB network adapter on
+firmware 3.9.0 and later, else its console), a serial device
 path such as `/dev/ttyACM0`, `discover` (mDNS), or `embeddedci:<device-name>` for a pod
 reached through embeddedci.com (see the package README for cloud authentication).
 
@@ -72,7 +73,8 @@ referenced to 3V3, so the pod will not engage them while the LA bank is at 1.8 V
 
 ### Notes
 
-- **USB vs network.** Flashing works over every transport, but over the USB console each
+- **USB vs network.** Over the USB network adapter (connection `usb`, firmware 3.9.0 and later)
+  flashing runs over TCP, as on the LAN. Over the USB console each
   CMSIS-DAP packet round-trips the serial link, so a large image is noticeably slower than
   over TCP. `verify=False` keeps flashing snappy either way (programming is reliable; the
   read-back verify is the slow part).

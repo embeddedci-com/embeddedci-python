@@ -30,9 +30,11 @@ from embeddedci.benchpod.transport.cloud import CloudTransport
 
 @pytest.mark.parametrize("text", [
     "locked: generate needs the cloud or the USB console",
+    "locked: generate needs the cloud or USB",
     "sig_policy: change it from the cloud or the USB console",
     "lan_policy: change it from the cloud or the USB console",
     "cloud_ca: change it from the cloud or the USB console",
+    "cloud_proxy: change it from the cloud or over USB",
     "sig_policy: only the USB console can loosen the policy (now required)",
 ])
 def test_locked(text):
