@@ -2,8 +2,9 @@
 
     BENCHPOD_E2E_USB=/dev/cu.usbmodem… pytest packages/embeddedci/tests/e2e/test_e2e_usb.py
 
-On the STM32 pod the USB console is a text shell: status, ping, LA voltage and power work; every
-other operation must fail at once with a hint to use the network.
+On the STM32 pod the USB console is a text shell: status and ping work everywhere; LA voltage and
+power work on firmware before 3.9.0 and, from 3.9.0 (which moved them to the JSON API), fail with
+the hint to use the network; every other operation fails at once with that hint too.
 """
 
 from __future__ import annotations
@@ -24,11 +25,18 @@ def usb(benchpod_la_voltage):
     device = os.environ.get("BENCHPOD_E2E_USB")
     if not device:
         pytest.skip("set BENCHPOD_E2E_USB to the pod's USB console (a device path or 'usb')")
-    with BenchPod(device, la_voltage=benchpod_la_voltage, timeout=10) as pod:
+    with BenchPod(device, la_voltage=None, timeout=10) as pod:
         if type(pod.transport).__name__ != "SerialTransport":
             pytest.skip("'usb' reached the pod's USB network adapter (firmware 3.9.0+), not the "
                         "console; set BENCHPOD_E2E_USB to the console's device path")
+        if not _moved(pod):
+            pod.set_la_voltage(benchpod_la_voltage)
         yield pod
+
+
+def _moved(pod) -> bool:
+    """Firmware 3.9.0+ (its console status has a usb line): LA voltage and power are JSON-only."""
+    return isinstance(pod.status().get("usb"), dict)
 
 
 def test_status_is_a_dict(usb):
@@ -39,11 +47,15 @@ def test_status_is_a_dict(usb):
 
 def test_ping_and_la_voltage(usb):
     assert usb.ping()
+    if _moved(usb):
+        with pytest.raises(TransportError, match="network command"):
+            usb.get_la_voltage()
+        return
     assert usb.get_la_voltage().voltage == 3.3
 
 
 def test_1v8_on_a_v2_board(usb):
-    if usb.status().get("board_rev") != "v2":
+    if _moved(usb) or usb.status().get("board_rev") != "v2":
         pytest.skip("rev3 pods accept 1.8 V")
     try:
         with pytest.raises(FirmwareError, match="v3"):
@@ -53,6 +65,10 @@ def test_1v8_on_a_v2_board(usb):
 
 
 def test_power_off(usb):
+    if _moved(usb):
+        with pytest.raises(TransportError, match="network command"):
+            usb.power_off(1)
+        return
     usb.power_off(1)
     with pytest.raises(TransportError, match="delayed"):
         usb.power_on(1, delay=0.5)
