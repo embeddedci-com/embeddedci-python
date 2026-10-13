@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- On firmware 3.9.0 and later the USB console no longer has `la-voltage` or `power` (they are JSON
+  commands, reached over the USB network adapter): a serial device path then fails with an error
+  that says to connect with `usb` or the pod's network address.
 - Connection `usb` (and `serial`) uses the pod's USB network adapter on firmware 3.9.0 and later:
   the SDK finds the pod's USB console as before, reads the pod's address on the USB link
   (`10.237.x.y`) from its `status`, and when the link is up and port 8080 answers it returns a

@@ -672,9 +672,18 @@ class SerialTransport(Transport):
             raise TransportError(f"the pod did not answer ping: {out.strip()!r}")
         return "pong"
 
+    def _moved_to_json(self, what: str) -> TransportError:
+        """Firmware 3.9.0 moved the instrument commands off the console to the JSON API."""
+        return TransportError(
+            f"this pod's firmware (3.9.0 or later) has no {what} on its USB console: connect with "
+            f"'usb' (the pod's USB network adapter) or its network address instead of the console "
+            f"device {self.device or ''}".rstrip())
+
     def _text_la_voltage(self, req: dict) -> Dict[str, Any]:
         line = "la-voltage" + (f" {int(req['mv'])}" if req.get("mv") is not None else "")
         out = self._send_command(line)
+        if UNKNOWN_COMMAND in out:
+            raise self._moved_to_json("la-voltage")
         if "needs a v3 pod" in out or "usage:" in out:
             msg = next((ln.strip() for ln in out.replace("\r", "\n").split("\n")
                         if "needs a v3 pod" in ln or "usage:" in ln), out.strip())
@@ -689,7 +698,9 @@ class SerialTransport(Transport):
             raise TransportError("the pod's USB console cannot schedule a delayed power change; "
                                  "use delay=None, or a network/cloud connection")
         out = self._send_command(f"power {int(efuse)} {'on' if on else 'off'}")
-        if UNKNOWN_COMMAND in out or "bad eFuse" in out or "ERROR:" in out:
+        if UNKNOWN_COMMAND in out:
+            raise self._moved_to_json("power")
+        if "bad eFuse" in out or "ERROR:" in out:
             raise TransportError(f"firmware rejected power {efuse}: {out.strip()!r}")
 
     def _console_raw_handshake(
