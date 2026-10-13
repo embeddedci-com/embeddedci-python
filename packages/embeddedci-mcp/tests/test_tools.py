@@ -129,7 +129,16 @@ def test_connect_usb_over_the_usb_network_reports_usb_net(fake_open, fake_transp
     console = type("Console", (), {"transport": object()})()
     assert transport_kind("/dev/ttyACM0", console) == "serial"
     assert transport_kind("usb", console) == "serial"
+    assert transport_kind("usb:benchpod-baea06", console) == "serial"
     assert transport_kind("192.168.1.50", console) == "tcp"
+
+
+def test_connect_usb_name_reports_usb_net(fake_open, fake_transport, monkeypatch):
+    # usb:<name> picks one of several pods on USB; it upgrades to the USB network like 'usb'.
+    monkeypatch.setattr(fake_transport, "usb_console", "/dev/cu.usbmodemPOD", raising=False)
+    assert call("connect", connection="usb:benchpod-baea06", la_voltage=3.3)["kind"] == "usb_net"
+    from embeddedci_mcp.session import connection_kind
+    assert connection_kind("USB:baea06") == "serial"
 
 
 def test_connect_rolls_back_when_the_pod_does_not_answer(fake_open, fake_transport, monkeypatch):

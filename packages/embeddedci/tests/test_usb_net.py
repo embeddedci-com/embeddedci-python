@@ -65,8 +65,9 @@ class FakeConsole:
 
     instances: list = []
 
-    def __init__(self, device="", *, timeout=30.0, status=None, error=None):
+    def __init__(self, device="", *, timeout=30.0, status=None, error=None, pod=""):
         self.device = device or "/dev/cu.usbmodemPOD"
+        self.pod = pod
         self.timeout = timeout
         self._status = status
         self._error = error
@@ -91,8 +92,9 @@ def usb(monkeypatch):
     probes: list = []
     cfg = {"status": None, "error": None, "reachable": True}
 
-    def make_console(device="", *, timeout=30.0):
-        return FakeConsole(device, timeout=timeout, status=cfg["status"], error=cfg["error"])
+    def make_console(device="", *, timeout=30.0, pod=""):
+        return FakeConsole(device, timeout=timeout, status=cfg["status"], error=cfg["error"],
+                           pod=pod)
 
     def probe(host, port, timeout=transport_mod.USB_NET_PROBE_TIMEOUT):
         probes.append((host, port, timeout))
@@ -118,6 +120,13 @@ def test_usb_picks_the_network_when_link_up_and_port_answers(usb):
     assert console.closed  # the console is released once the network is chosen
     assert console.status_timeouts == [5.0] and console.timeout == 12  # short status read, restored
     assert usb["probes"] == [("10.237.8.85", 8080, 1.5)]
+
+
+def test_usb_name_selects_the_pod_and_upgrades(usb):
+    usb["status"] = _status(USB_ON)
+    t = open_transport(parse_connection("usb:BenchPod-BAEA06"))
+    assert isinstance(t, TcpTransport) and t.addr == "10.237.8.85:8080"
+    assert FakeConsole.instances[0].pod == "baea06"  # the console was auto-detected by name
 
 
 def test_serial_keyword_also_upgrades(usb):

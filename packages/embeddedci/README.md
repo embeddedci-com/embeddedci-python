@@ -189,6 +189,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `192.168.1.213`, `host:8080`, `[fe80::1]:8080` | network (JSON over TCP, port 8080 by default) |
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
 | `usb` | USB pod, auto-detected by probing the serial ports (`serial` also accepted): its USB network adapter on firmware 3.9.0 and later (full API), else its USB console |
+| `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key or a user token anywhere, or GitHub Actions OIDC) |
 | `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
@@ -206,6 +207,15 @@ pod's firmware is older than 3.9.0, when Wi-Fi is configured on the pod (that tu
 off), when the link is down, or when the computer has not configured the adapter (for example
 macOS under a locked screen); it logs which one it picked. An explicit device path such as
 `/dev/ttyACM0` is always the console.
+
+**Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
+`benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
+with that name and raises `ConnectionConfigError` listing the pods it found when none matches.
+Plain `usb` with two pods plugged in raises `ConnectionConfigError` naming both, for example
+`2 pods on USB (benchpod-aaaaaa on /dev/cu.usbmodemA, benchpod-bbbbbb on /dev/cu.usbmodemB)`;
+with one pod it works as before. macOS lists each pod twice (`/dev/cu.*` and `/dev/tty.*`); the
+same name on two ports counts as one pod. `SerialTransport.identity()` reads the name of the pod
+on an open console.
 
 **Otherwise use the network (or the cloud) for testing.** The STM32 pod's USB console is a text
 shell for setup and diagnostics with no JSON mode, so over the console the SDK can only read

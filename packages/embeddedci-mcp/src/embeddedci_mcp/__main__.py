@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="'stdio' (default, launched by an MCP client) or 'http' (streamable HTTP).")
     parser.add_argument("--connection", default=None,
                         help="Default connection for the connect tool: host[:port], a serial device, "
-                             "'usb', or 'embeddedci:<device>'. Falls back to BENCHPOD_CONNECTION.")
+                             "'usb', 'usb:<name>', or 'embeddedci:<device>'. Falls back to BENCHPOD_CONNECTION.")
     parser.add_argument("--la-voltage", type=float, choices=[1.8, 3.3], default=None,
                         help="LA I/O voltage applied on connect. Falls back to BENCHPOD_LA_VOLTAGE.")
     parser.add_argument("--lease-wait", type=float, default=30.0,

@@ -10,6 +10,15 @@
   ping, LA voltage, power) on older firmware, when Wi-Fi is configured on the pod (that turns USB
   networking off), when the link is down, or when the computer has not configured the adapter. An
   explicit device path (`/dev/ttyACM0`, `COM3`) always stays the console.
+- New connection form `usb:<name>` for one of several pods plugged into one computer:
+  `usb:baea06`, `usb:benchpod-baea06` or `usb:BenchPod baea06` (any case, optional `.local`) all
+  pick the pod whose identity short id is `baea06` (`ConnSpec.pod`). Auto-detect now reads each
+  pod's identity from its console (`identity` command; new `SerialTransport.identity()`). With
+  a name it opens that pod, else raises `ConnectionConfigError` listing the pods found. Without a
+  name, after the first pod it keeps probing the ports with a pod's USB vendor id: two different
+  pods raise `ConnectionConfigError` listing both, and the same pod seen on two ports (macOS
+  `/dev/cu.*` and `/dev/tty.*`) counts once. The selected pod then upgrades to its USB network
+  as with `usb`. `autodetect_port(name="")` takes the name.
 - USB auto-detect ranks the new USB id `1209:0001` (firmware 3.9.0) with the older pod ids; a pod
   is still identified by probing its console.
 - The console's text `status` parses the `usb` line into the JSON status's shape:

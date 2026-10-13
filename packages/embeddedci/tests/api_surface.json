@@ -305,7 +305,8 @@
       "kind",
       "addr",
       "device",
-      "device_name"
+      "device_name",
+      "pod"
     ],
     "is_cloud": "(self) -> 'bool'",
     "is_serial": "(self) -> 'bool'",

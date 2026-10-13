@@ -51,7 +51,7 @@ def connection_kind(connection: str) -> str:
     s = connection.strip()
     if s.lower().startswith(CLOUD_PREFIX):
         return "embeddedci"
-    if s.lower() in ("usb", "serial") or _is_device_path(s):
+    if s.lower() in ("usb", "serial") or s.lower().startswith("usb:") or _is_device_path(s):
         return "serial"
     if s.lower() in DISCOVER_KEYWORDS:
         return "discover"
@@ -59,8 +59,9 @@ def connection_kind(connection: str) -> str:
 
 
 def transport_kind(connection: str, pod: Any) -> str:
-    """:func:`connection_kind`, except ``"usb_net"`` when a USB connection (``usb``) resolved to
-    the pod's USB network adapter (firmware 3.9.0+) rather than its console."""
+    """:func:`connection_kind`, except ``"usb_net"`` when a USB connection (``usb`` or
+    ``usb:<name>``) resolved to the pod's USB network adapter (firmware 3.9.0+) rather than its
+    console."""
     kind = connection_kind(connection)
     if kind == "serial" and getattr(getattr(pod, "transport", None), "usb_console", ""):
         return "usb_net"

@@ -9,6 +9,8 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
                                       firmware 3.9.0+ the transport is the pod's USB network
                                       adapter when it answers, else the console (see
                                       :func:`~embeddedci.benchpod.transport.open_transport`)
+* ``usb:<name>``                   -> the USB pod with that name, when several are plugged in
+                                      (``usb:baea06``, ``usb:benchpod-baea06``)
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (an API key
                                       anywhere, or GitHub Actions OIDC)
@@ -33,6 +35,7 @@ DEFAULT_PORT = 8080
 ENV_VAR = "BENCHPOD_CONNECTION"
 CLOUD_PREFIX = "embeddedci:"
 DISCOVER_KEYWORDS = ("discover", "mdns", "auto")
+USB_PREFIX = "usb:"
 
 _COM_RE = re.compile(r"^COM[0-9]+$", re.IGNORECASE)
 
@@ -45,6 +48,7 @@ class ConnSpec:
     addr: str = ""  # "host:port" when kind == "tcp"
     device: str = ""  # device path when kind == "serial"; "" means auto-detect
     device_name: str = ""  # named device when kind == "embeddedci"
+    pod: str = ""  # usb:<name>: the pod's identity short id ("baea06") among several on USB
 
     def is_wifi(self) -> bool:
         return self.kind == "tcp"
@@ -54,6 +58,19 @@ class ConnSpec:
 
     def is_cloud(self) -> bool:
         return self.kind == "embeddedci"
+
+
+def normalize_pod_name(name: str) -> str:
+    """Turn the ways a pod is named into its identity short id: ``"baea06"``,
+    ``"benchpod-baea06"`` (its embeddedci.com and mDNS host name), ``"BenchPod baea06"`` (its mDNS
+    instance), any case, with an optional ``.local`` suffix, all give ``"baea06"``."""
+    s = name.strip().lower()
+    for prefix in ("benchpod-", "benchpod "):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+    if s.endswith(".local"):
+        s = s[: -len(".local")]
+    return s.strip()
 
 
 def _is_device_path(s: str) -> bool:
@@ -101,6 +118,13 @@ def parse_connection(raw: str) -> ConnSpec:
         return parse_connection(saved)
     if s.lower() in ("usb", "serial"):
         return ConnSpec(kind="serial", device="")
+    if s.lower().startswith(USB_PREFIX):
+        pod = normalize_pod_name(s[len(USB_PREFIX):])
+        if not pod:
+            raise ConnectionConfigError(
+                f"connection {s!r} needs the pod's name, e.g. usb:benchpod-a1b2c3"
+            )
+        return ConnSpec(kind="serial", device="", pod=pod)
     if s.lower() in DISCOVER_KEYWORDS:
         return _discover_one()
     if _is_device_path(s):

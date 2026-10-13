@@ -15,11 +15,13 @@ import json
 import re
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from ..connection import normalize_pod_name
 from ..errors import (
     BenchPodError,
     ConnectionClosedError,
+    ConnectionConfigError,
     FirmwareError,
     TransportError,
     TransportTimeout,
@@ -155,10 +157,17 @@ def _import_serial():
 
 
 def _candidate_ports() -> List[str]:
-    """USB serial ports to probe, most likely to be a pod first.
+    """USB serial ports to probe, most likely to be a pod first (see :func:`_candidate_ports_vid`)."""
+    return [device for device, _ in _candidate_ports_vid()]
+
+
+def _candidate_ports_vid() -> List[Tuple[str, Optional[int]]]:
+    """USB serial ports to probe with each one's USB vendor id (None when the enumerator does not
+    list it, as for macOS's ``/dev/tty.*`` twin of a ``/dev/cu.*`` port), most likely to be a pod
+    first.
 
     Ordering, not filtering: a pod is identified by probing (see
-    :func:`_is_benchpod`), so an adapter this ranking puts last is still tried.
+    :func:`_probe_pod`), so an adapter this ranking puts last is still tried.
     Ranking by vendor id alone is not enough — both pod vendor ids are shared
     with other hardware — so a product/manufacturer string that names the pod
     outranks a bare vendor-id match.
@@ -175,15 +184,41 @@ def _candidate_ports() -> List[str]:
 
     ports = [p for p in list_ports.comports() if getattr(p, "device", None)]
     ports.sort(key=lambda p: (rank(p), p.device))
-    return [p.device for p in ports]
+    return [(p.device, getattr(p, "vid", None)) for p in ports]
 
 
-def _is_benchpod(device: str, timeout: float = PROBE_TIMEOUT) -> bool:
-    """Open ``device``, run ``status``, and report whether a pod answered.
+_IDENTITY_RE = re.compile(r"\bidentity[ \t]+(\S+)")
 
-    Anything that goes wrong — the port is held by another process, it is not a
-    console, it never prints a prompt — means "not a pod here", so every failure
-    is swallowed and the caller moves on to the next candidate.
+
+def parse_identity(text: str) -> str:
+    """The pod's identity short id (``"baea06"``) from the console's ``identity`` reply
+    (``identity <shortid> <pubkey-base64url>``), or ``""`` when the pod has none
+    (``identity unknown <why>``) or the firmware has no ``identity`` command."""
+    for line in text.replace("\r", "\n").split("\n"):
+        m = _IDENTITY_RE.search(line)
+        if m and m.group(1).lower() != "unknown":
+            return m.group(1).lower()
+    return ""
+
+
+def _read_to_prompt(port: Any, deadline: float, buf: bytearray) -> bool:
+    """Read ``port`` into ``buf`` until the console prompt or ``deadline``; whether it came."""
+    while time.monotonic() < deadline:
+        if buf.decode("utf-8", errors="replace").rstrip(" \t").endswith(">"):
+            return True
+        chunk = port.read(256)
+        if chunk:
+            buf.extend(chunk)
+    return buf.decode("utf-8", errors="replace").rstrip(" \t").endswith(">")
+
+
+def _probe_pod(device: str, timeout: float = PROBE_TIMEOUT) -> Optional[str]:
+    """Open ``device``, run ``status`` and then ``identity``, and close it again.
+
+    Returns None when no pod answered, else the pod's identity short id (``""`` when it reports
+    none). Anything that goes wrong (the port is held by another process, it is not a console, it
+    never prints a prompt) means "not a pod here", so every failure is swallowed and the caller
+    moves on to the next candidate. ``status`` and ``identity`` each get ``timeout``.
     """
     serial_mod, _ = _import_serial()
     port = None
@@ -195,15 +230,29 @@ def _is_benchpod(device: str, timeout: float = PROBE_TIMEOUT) -> bool:
         port.write(b"status\n")
         deadline = time.monotonic() + timeout
         buf = bytearray()
+        is_pod = False
         while time.monotonic() < deadline:
             chunk = port.read(256)
             if chunk:
                 buf.extend(chunk)
                 if BENCHPOD_MARKER in buf.decode("utf-8", errors="replace").lower():
-                    return True
-        return False
+                    is_pod = True
+                    break
+        if not is_pod:
+            return None
+        try:
+            _read_to_prompt(port, deadline, buf)  # let the rest of the status report drain
+            port.write(b"\r")
+            time.sleep(0.03)
+            port.reset_input_buffer()
+            port.write(b"identity\n")
+            reply = bytearray()
+            _read_to_prompt(port, time.monotonic() + timeout, reply)
+            return parse_identity(reply.decode("utf-8", errors="replace"))
+        except Exception:
+            return ""  # a pod, but its name could not be read
     except Exception:
-        return False
+        return None
     finally:
         if port is not None:
             try:
@@ -212,27 +261,72 @@ def _is_benchpod(device: str, timeout: float = PROBE_TIMEOUT) -> bool:
                 pass
 
 
-def autodetect_port() -> str:
-    """Return the device path of the first port that answers as a BenchPod.
+def _is_benchpod(device: str, timeout: float = PROBE_TIMEOUT) -> bool:
+    """Whether a pod answers ``status`` on ``device`` (see :func:`_probe_pod`)."""
+    return _probe_pod(device, timeout) is not None
+
+
+def _pod_label(short_id: str) -> str:
+    return f"benchpod-{short_id}" if short_id else "a pod with no identity"
+
+
+def _list_found(found: List[Tuple[str, str]]) -> str:
+    if not found:
+        return "none"
+    return ", ".join(f"{_pod_label(sid)} on {device}" for device, sid in found)
+
+
+def autodetect_port(name: str = "") -> str:
+    """Return the device path of the pod's USB console.
 
     Every USB serial port is probed (best candidates first) rather than trusting
     a vendor-id match, because the pod's vendor ids are shared with other
     hardware and differ between pod generations — an STM32 pod enumerates under
     ST's generic CDC id, so a vendor-id filter would miss it entirely.
+
+    Several pods may be plugged in. With ``name`` (``"baea06"``, ``"benchpod-baea06"``: connection
+    ``usb:<name>``) the port of the pod with that identity is returned. Without, the only pod's;
+    once one pod is found, only the remaining ports with a pod's USB vendor id are probed for
+    another, and two different pods raise :class:`ConnectionConfigError` listing them. The same
+    identity on two ports is one pod (macOS lists each pod as ``/dev/cu.*`` and ``/dev/tty.*``).
+    Every probed console is closed again; the caller opens the returned path.
     """
-    candidates = _candidate_ports()
+    want = normalize_pod_name(name)
+    candidates = _candidate_ports_vid()
     if not candidates:
         raise TransportError(
             "no USB serial ports found — is the BenchPod plugged in, and does the "
             "cable carry data (many USB cables are charge-only)? "
             "Pass an explicit device path to override."
         )
-    for device in candidates:
-        if _is_benchpod(device):
+    found: List[Tuple[str, str]] = []  # (device, identity short id)
+    for device, vid in candidates:
+        # Once one pod is found, only the ports with a pod's USB vendor id can hold another.
+        if found and vid not in POD_VIDS:
+            continue
+        short_id = _probe_pod(device)
+        if short_id is None:
+            continue
+        if want and short_id == want:
             return device
+        if short_id and any(short_id == sid for _, sid in found):
+            continue  # the same pod on its second device node
+        found.append((device, short_id))
+    if want:
+        raise ConnectionConfigError(
+            f"no pod named {want} on USB (found: {_list_found(found)})"
+        )
+    if len(found) == 1:
+        return found[0][0]
+    if len(found) > 1:
+        example = next((sid for _, sid in found if sid), "a1b2c3")
+        raise ConnectionConfigError(
+            f"{len(found)} pods on USB ({_list_found(found)}): pick one with connection "
+            f"usb:<name>, e.g. usb:benchpod-{example}"
+        )
     raise TransportError(
         "no BenchPod found among the USB serial ports probed ("
-        + ", ".join(candidates)
+        + ", ".join(device for device, _ in candidates)
         + "). Is the pod powered? A pod with no firmware never opens a console — "
         "flash it with `benchpod flash-self`. Pass an explicit device path to override."
     )
@@ -304,9 +398,10 @@ class SerialTransport(Transport):
     """Talks to the pod over the USB serial console."""
 
     def __init__(self, device: str = "", *, timeout: float = 30.0,
-                 port: Optional[Any] = None) -> None:
+                 port: Optional[Any] = None, pod: str = "") -> None:
         # ``port`` is a test seam: pass a pyserial-like object to skip opening a
-        # real device (and pyserial autodetect).
+        # real device (and pyserial autodetect). ``pod`` picks the pod by name (its identity
+        # short id) when ``device`` is auto-detected and several pods are plugged in.
         self.timeout = timeout
         self._json_mode = False  # console "json" mode active?
         #: Whether the firmware's console has a JSON mode at all (None = not probed yet). The
@@ -318,7 +413,7 @@ class SerialTransport(Transport):
             return
         serial, _ = _import_serial()
         self._serial_mod = serial
-        self.device = device or autodetect_port()
+        self.device = device or autodetect_port(pod)
         self._port = serial.Serial(self.device, BAUD, timeout=0.25)
 
     # -- console plumbing ---------------------------------------------------
@@ -560,6 +655,11 @@ class SerialTransport(Transport):
 
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
+
+    def identity(self) -> str:
+        """The pod's identity short id (``"baea06"``, from the console's ``identity`` command),
+        or ``""`` when the pod has none or its firmware has no ``identity`` command."""
+        return parse_identity(self._send_command("identity"))
 
     # -- text-console equivalents (firmware without a JSON mode on USB) ------
 

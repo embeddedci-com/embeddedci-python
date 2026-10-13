@@ -6,6 +6,9 @@
   later (through the `embeddedci` SDK of the same release), unless Wi-Fi is configured on the pod;
   otherwise it falls back to the USB console as before. `connect`/`status` report the new kind
   `usb_net` when the USB network is in use. A serial device path stays the console.
+- New connection form `usb:<name>` picks one of several pods plugged into one computer, by name
+  (`usb:baea06`, `usb:benchpod-baea06`). Plain `usb` with several pods errors and lists them.
+  `connect`'s `connection` description lists it.
 
 ## 2.11.0
 

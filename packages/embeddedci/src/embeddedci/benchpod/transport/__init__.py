@@ -8,7 +8,8 @@ Connection ``usb`` (an auto-detected USB pod) prefers the pod's USB network adap
 (firmware 3.9.0+): the console's ``status`` names the pod's address on that link, and when
 the link is up and the API port answers, the result is a :class:`TcpTransport` to it (with
 ``usb_console`` set to the console's device path). Otherwise it is the console, as before.
-An explicit device path always stays the console.
+An explicit device path always stays the console. Connection ``usb:<name>`` does the same for the
+pod with that name when several are plugged in (see :func:`~.serial.autodetect_port`).
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ def open_transport(
 
         return TcpTransport(spec.addr, timeout=timeout)
     if spec.is_serial():
-        return _open_usb(spec.device, timeout=timeout)
+        return _open_usb(spec.device, timeout=timeout, pod=spec.pod)
     if spec.is_cloud():
         from ..cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE
         from .cloud import CloudTransport
@@ -100,9 +101,10 @@ def _tcp_reachable(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT)
         return False
 
 
-def _open_usb(device: str, *, timeout: float) -> Transport:
+def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
     """Open a USB pod: the console at ``device``, or for ``""`` (connection ``usb``) the
-    auto-detected pod, reached over its USB network adapter when that works, else its console.
+    auto-detected pod (``pod``, from ``usb:<name>``, picks one of several by name), reached over
+    its USB network adapter when that works, else its console.
 
     The console's ``status`` names the pod's USB network address; the network is used when it is
     on, its link is up and the API port answers a TCP connect within
@@ -111,7 +113,7 @@ def _open_usb(device: str, *, timeout: float) -> Transport:
     """
     from .serial import SerialTransport
 
-    console = SerialTransport(device, timeout=timeout)
+    console = SerialTransport(device, timeout=timeout, pod=pod)
     if device:
         return console  # an explicit device path is the console, never upgraded
     try:
