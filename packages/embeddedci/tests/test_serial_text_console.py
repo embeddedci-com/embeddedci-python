@@ -162,3 +162,34 @@ def test_trimmed_console_points_at_the_usb_network():
         bp.get_la_voltage()
     with pytest.raises(TransportError, match="USB network"):
         bp.transport.target_power(1, True)
+
+
+def test_no_json_mode_probe():
+    """The console is a text shell: opening it never sends the old `json` mode switch."""
+    t = _transport()
+    t.status()
+    t.ping()
+    assert "json" not in t._port.lines
+    assert t.json_supported is False
+
+
+def test_an_unplugged_port_is_a_transport_error():
+    from embeddedci.benchpod.errors import ConnectionClosedError
+
+    t = _transport()
+
+    def gone(n=1):
+        raise OSError(6, "Device not configured")
+
+    t._port.read = gone
+    with pytest.raises(ConnectionClosedError, match="USB serial link failed"):
+        t.ping()
+
+
+def test_a_silent_console_is_a_timeout():
+    from embeddedci.benchpod.errors import TransportTimeout
+
+    t = SerialTransport(port=TextConsolePort(), timeout=0.2)
+    t._port._process = lambda line: None  # the pod stops answering
+    with pytest.raises(TransportTimeout):
+        t.ping()

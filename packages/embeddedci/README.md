@@ -233,8 +233,8 @@ on an open console.
 shell for setup and diagnostics with no JSON mode, so over the console the SDK can only read
 `status()`, `ping()`, select the LA voltage and switch target power (without `delay`). Everything
 else (flashing, UART, analog, captures, I2C-sensor emulation, CAN) raises a `TransportError` right
-away that points at the network connection. (On firmware whose console does have a JSON mode, the
-SDK uses it automatically.)
+away that points at the network connection. (On firmware 3.9.0 and later the LA voltage and target
+power moved to the network too; see the compatibility table above.)
 
 | | TCP | USB network (`usb`, firmware 3.9.0+) | USB console (STM32 pod) | Cloud |
 |---|---|---|---|---|

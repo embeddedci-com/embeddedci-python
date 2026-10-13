@@ -11,7 +11,6 @@ it at import time.
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from contextlib import contextmanager
@@ -25,10 +24,8 @@ from ..errors import (
     FirmwareError,
     TransportError,
     TransportTimeout,
-    firmware_error,
 )
-from ..protocol import encode_request, parse_reply, raise_for_status
-from .base import RawLink, Transport, request_timeout
+from .base import RawLink, Transport
 
 # USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
 # the RP2350 pod), 0x0483 (STMicroelectronics, the STM32H563 pod up to firmware
@@ -59,12 +56,11 @@ UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to e
 CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
 _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
-JSON_PROBE_TIMEOUT = 3.0  # how long to wait for the console to answer the `json` mode switch
 UNKNOWN_COMMAND = "unknown command"
 #: Firmware 3.9.0 answers a console command it moved to the JSON API with this marker instead.
 MOVED_TO_NETWORK = "moved to the network API"
 
-#: JSON commands the text console can answer itself when the firmware has no JSON mode on USB
+#: JSON commands the text console answers through its text equivalents (it has no JSON mode)
 #: (the STM32 pod's console is a text shell: status, ping, la-voltage, power, diagnostics).
 TEXT_CONSOLE_COMMANDS = ("status", "ping", "la_voltage")
 
@@ -405,10 +401,9 @@ class SerialTransport(Transport):
         # real device (and pyserial autodetect). ``pod`` picks the pod by name (its identity
         # short id) when ``device`` is auto-detected and several pods are plugged in.
         self.timeout = timeout
-        self._json_mode = False  # console "json" mode active?
-        #: Whether the firmware's console has a JSON mode at all (None = not probed yet). The
-        #: STM32 pod's USB console does not: only the text commands work over USB there.
-        self.json_supported: Optional[bool] = None
+        #: The STM32 pod's USB console is a text shell: it never had a JSON mode (that was the
+        #: retired RP2350 firmware). JSON goes over the network, also over USB (firmware 3.9.0+).
+        self.json_supported = False
         if port is not None:
             self.device = device
             self._port = port
@@ -450,66 +445,9 @@ class SerialTransport(Transport):
 
     def _send_command(self, line: str) -> str:
         with _port_errors(line.split()[0] if line else "console"):
-            self._ensure_text()
             deadline = time.monotonic() + self.timeout
             self._write_line(line)
             return self._read_until_prompt(deadline)
-
-    # -- console "json" mode (TCP-style JSON API over serial) ---------------
-
-    def _read_json_reply(self, deadline: float):
-        """Read lines until a JSON object reply; skip echoed/debug log lines.
-
-        In JSON mode the firmware interleaves ``[...]`` debug prints with the
-        JSON reply on the same stream, so anything not starting with ``{`` is
-        ignored. Yields each decoded ``Reply`` (caller decides when to stop).
-        """
-        buf = bytearray()
-        while time.monotonic() < deadline:
-            chunk = self._port.read(256)
-            if chunk:
-                buf.extend(chunk)
-            while b"\n" in buf:
-                raw_line, _, rest = buf.partition(b"\n")
-                buf = bytearray(rest)
-                s = raw_line.decode("utf-8", errors="replace").strip()
-                if not s or not s.startswith("{"):
-                    continue  # echo, prompt, or [subsystem] debug line
-                yield parse_reply(s.encode("utf-8"))
-        raise TransportTimeout("timed out waiting for a JSON reply over serial")
-
-    def _probe_json(self) -> bool:
-        """Ask the console to switch to JSON mode once and remember whether it can.
-
-        A console without the mode answers ``unknown command 'json'`` straight away, so the probe
-        costs a round trip, not a timeout.
-        """
-        if self.json_supported is not None:
-            return self.json_supported
-        self._write_line("json")
-        deadline = time.monotonic() + min(self.timeout, JSON_PROBE_TIMEOUT)
-        buf = bytearray()
-        supported = False
-        while time.monotonic() < deadline:
-            chunk = self._port.read(256)
-            if chunk:
-                buf.extend(chunk)
-            if UNKNOWN_COMMAND in buf.decode("utf-8", errors="replace"):
-                break
-            lines = buf.split(b"\n")[:-1]  # complete lines only
-            replies = [ln.strip() for ln in lines if ln.strip().startswith(b"{")]
-            if replies:
-                raise_for_status(parse_reply(replies[0]), cmd="json")
-                supported = True
-                self._json_mode = True
-                break
-        if not supported:
-            try:
-                self._port.reset_input_buffer()
-            except Exception:
-                pass
-        self.json_supported = supported
-        return supported
 
     @staticmethod
     def _unsupported(what: str) -> str:
@@ -519,127 +457,21 @@ class SerialTransport(Transport):
                 "later, connection 'usb' reaches the full API over the pod's USB network adapter "
                 "(off while Wi-Fi is configured on the pod)")
 
-    def _enter_json(self, cmd: Any = "json") -> None:
-        if not self._probe_json():
-            raise TransportError(self._unsupported(cmd))
-        if self._json_mode:
-            return
-        deadline = time.monotonic() + self.timeout
-        self._write_line("json")
-        for reply in self._read_json_reply(deadline):
-            raise_for_status(reply, cmd="json")
-            self._json_mode = True
-            return
-
-    def _exit_json(self) -> None:
-        if not self._json_mode:
-            return
-        deadline = time.monotonic() + self.timeout
-        self._port.write(b'{"cmd":"json_exit"}\n')
-        self._port.flush()
-        try:
-            for _reply in self._read_json_reply(deadline):
-                break  # got the exit ack
-        except TransportError:
-            pass
-        self._json_mode = False
-        try:
-            self._port.reset_input_buffer()
-        except Exception:
-            pass
-
-    def _ensure_text(self) -> None:
-        """Leave JSON mode so a text console command can run."""
-        self._exit_json()
-
     def command(self, req: dict) -> Any:
-        """Send one JSON command over the console's JSON mode and return its data.
-
-        When the firmware has no JSON mode on USB, the commands in :data:`TEXT_CONSOLE_COMMANDS`
-        are answered through their text-console equivalents; any other command raises a
-        :class:`TransportError` naming the network/cloud alternative.
-        """
+        """Answer a JSON command through its text-console equivalent: the commands in
+        :data:`TEXT_CONSOLE_COMMANDS`. Any other command raises a :class:`TransportError` naming
+        the network, USB network and cloud alternatives."""
         cmd = req.get("cmd")
         with _port_errors(str(cmd)):
-            if not self._probe_json():
-                if cmd not in TEXT_CONSOLE_COMMANDS:
-                    raise TransportError(self._unsupported(cmd))
-                return getattr(self, f"_text_{cmd}")(req)
-            self._enter_json(cmd)
-            deadline = time.monotonic() + request_timeout(req, self.timeout)
-            self._send_json(req)
-            for reply in self._read_json_reply(deadline):
-                raise_for_status(reply, cmd=req.get("cmd"))
-                return reply.data
-        raise TransportError("no JSON reply over serial")
-
-    def _send_json(self, req: dict) -> None:
-        """Write one JSON request, dropping whatever is still unread first: a reply to an earlier
-        request that timed out would otherwise be taken as this one's."""
-        try:
-            self._port.reset_input_buffer()
-        except OSError:
-            raise
-        except Exception:
-            pass
-        self._port.write(encode_request(req))
-        self._port.flush()
+            if cmd not in TEXT_CONSOLE_COMMANDS:
+                raise TransportError(self._unsupported(cmd))
+            return getattr(self, f"_text_{cmd}")(req)
 
     def samples(self, req: dict) -> List[int]:
-        """Send a command whose reply is a chunked sample array (json mode)."""
-        with _port_errors(str(req.get("cmd"))):
-            self._enter_json(req.get("cmd"))
-            deadline = time.monotonic() + request_timeout(req, self.timeout)
-            self._send_json(req)
-            out: List[int] = []
-            for reply in self._read_json_reply(deadline):
-                raise_for_status(reply, cmd=req.get("cmd"))
-                if isinstance(reply.data, list):
-                    out.extend(reply.data)
-                if not reply.more:
-                    return out
-        raise TransportError("incomplete chunked JSON reply over serial")
-
-    def _read_json_objects(self, idle_timeout: float) -> Iterator[Dict[str, Any]]:
-        """Yield each JSON object line; the timeout restarts whenever bytes arrive, so a long
-        streamed capture is bounded by silence rather than by its total length."""
-        buf = bytearray()
-        deadline = time.monotonic() + idle_timeout
-        while time.monotonic() < deadline:
-            chunk = self._port.read(256)
-            if chunk:
-                buf.extend(chunk)
-                deadline = time.monotonic() + idle_timeout
-            while b"\n" in buf:
-                raw_line, _, rest = buf.partition(b"\n")
-                buf = bytearray(rest)
-                s = raw_line.decode("utf-8", errors="replace").strip()
-                if not s.startswith("{"):
-                    continue  # echo, prompt, or [subsystem] debug line
-                try:
-                    obj = json.loads(s)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(obj, dict):
-                    yield obj
-        raise TransportTimeout("timed out waiting for a streamed JSON reply over serial")
+        raise TransportError(self._unsupported(req.get("cmd")))
 
     def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
-        """Send a streaming command and yield each raw chunk object until ``more`` is false.
-
-        The serial counterpart of :meth:`TcpTransport.stream_chunks`: callers see every chunk's
-        extra fields (achieved rates, the RLE LA frames), which :meth:`samples` flattens away.
-        """
-        cmd = req.get("cmd")
-        with _port_errors(str(cmd)):
-            self._enter_json(cmd)
-            self._send_json(req)
-            for obj in self._read_json_objects(request_timeout(req, self.timeout)):
-                if obj.get("status") == "error":
-                    raise firmware_error(obj.get("message") or "streamed command failed", cmd=cmd)
-                yield obj
-                if not bool(obj.get("more", False)):
-                    return
+        raise TransportError(self._unsupported(req.get("cmd")))
 
     @staticmethod
     def _clean(raw: str, cmd: str) -> str:
@@ -663,7 +495,7 @@ class SerialTransport(Transport):
         or ``""`` when the pod has none or its firmware has no ``identity`` command."""
         return parse_identity(self._send_command("identity"))
 
-    # -- text-console equivalents (firmware without a JSON mode on USB) ------
+    # -- text-console equivalents ---------------------------------------------
 
     def _text_status(self, req: dict) -> Dict[str, Any]:
         return parse_text_status(self._send_command("status"))
@@ -722,7 +554,6 @@ class SerialTransport(Transport):
             return self._console_raw_handshake_inner(cmd, ready, quit_byte)
 
     def _console_raw_handshake_inner(self, cmd: str, ready: str, quit_byte: bytes) -> RawLink:
-        self._ensure_text()
         # Recover from a previous raw session that didn't cleanly exit (e.g. a
         # stalled flash whose Q got dropped on a flaky link): send the quit byte
         # so the pod leaves raw mode, then this command is parsed by the console
@@ -786,10 +617,6 @@ class SerialTransport(Transport):
         )
 
     def close(self) -> None:
-        try:
-            self._exit_json()
-        except Exception:
-            pass
         try:
             self._port.close()
         except Exception:

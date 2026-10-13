@@ -6,6 +6,11 @@
   commands, reached over the USB network adapter): a serial device path then fails with an error
   that says to connect with `usb` or the pod's network address (the console answers those with a
   "moved to the network API" line, which the SDK recognizes).
+- The serial transport no longer probes the console for a `json` mode (up to 3 s per open) or
+  carries the JSON-over-serial code: the STM32 pod's console never had that mode (it was the retired
+  RP2350 firmware's). JSON goes over the network, also over USB through the USB network adapter.
+  `SerialTransport.json_supported` is always `False`; `samples` and `stream_chunks` over the
+  console raise a `TransportError` naming the network ways in.
 - README: a compatibility table (SDK version x firmware generation) and the Windows 10 note.
 - Connection `usb` on firmware 3.9.0+ whose USB networking is off (Wi-Fi configured) or down now
   uses the pod's Ethernet or Wi-Fi address from its console `status` when it answers on port 8080
