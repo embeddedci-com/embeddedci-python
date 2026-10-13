@@ -677,9 +677,11 @@ class SerialTransport(Transport):
     def _moved_to_json(self, what: str) -> TransportError:
         """Firmware 3.9.0 moved the instrument commands off the console to the JSON API."""
         return TransportError(
-            f"this pod's firmware (3.9.0 or later) has no {what} on its USB console: connect with "
-            f"'usb' (the pod's USB network adapter) or its network address instead of the console "
-            f"device {self.device or ''}".rstrip())
+            f"this pod's firmware (3.9.0 or later) has no {what} on its USB console "
+            f"{self.device or ''}: it is a network command. Connect with 'usb', which uses the "
+            "pod's USB network adapter (Wi-Fi configured on the pod turns it off; `benchpod "
+            "clear-wifi` turns it back on) or else the pod's network address (refused while its "
+            "external LAN policy is off), or pass that address".replace("  ", " "))
 
     def _text_la_voltage(self, req: dict) -> Dict[str, Any]:
         line = "la-voltage" + (f" {int(req['mv'])}" if req.get("mv") is not None else "")

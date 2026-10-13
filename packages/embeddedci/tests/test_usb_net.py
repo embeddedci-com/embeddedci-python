@@ -4,6 +4,8 @@ faked."""
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from embeddedci.benchpod import transport as transport_mod
@@ -104,6 +106,7 @@ def usb(monkeypatch):
 
     monkeypatch.setattr(serial_mod, "SerialTransport", make_console)
     monkeypatch.setattr(transport_mod, "_tcp_reachable", probe)
+    monkeypatch.setattr(transport_mod, "_api_answers", probe)
     cfg["probes"] = probes
     return cfg
 
@@ -224,3 +227,26 @@ def test_discovered_pod_prefers_the_usb_link():
     assert lan.addr == "192.168.1.221:8080" and not lan.on_usb
     none = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local")
     assert none.addr == "benchpod-baea06.local:8080"
+
+
+def test_api_answers_needs_a_pong():
+    """The LAN fallback pings: a pod whose external LAN policy is off accepts and resets."""
+    import threading
+
+    def serve(reply):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def run():
+            c, _ = srv.accept()
+            c.recv(64)
+            if reply:
+                c.sendall(reply)
+            c.close()
+            srv.close()
+        threading.Thread(target=run, daemon=True).start()
+        return srv.getsockname()[1]
+
+    assert transport_mod._api_answers("127.0.0.1", serve(b'{"status":"ok","data":"pong"}\n'))
+    assert not transport_mod._api_answers("127.0.0.1", serve(b""))

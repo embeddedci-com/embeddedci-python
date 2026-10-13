@@ -114,6 +114,24 @@ def _tcp_reachable(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT)
         return False
 
 
+def _api_answers(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT) -> bool:
+    """Whether the pod answers a JSON ``ping`` at ``host:port``. A TCP connect is not enough on the
+    pod's external LAN: with the LAN policy ``off`` it accepts the connection and resets it."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.settimeout(timeout)
+            s.sendall(b'{"cmd":"ping"}\n')
+            buf = b""
+            while b"\n" not in buf:
+                chunk = s.recv(256)
+                if not chunk:
+                    return False
+                buf += chunk
+            return b'"pong"' in buf
+    except OSError:
+        return False
+
+
 def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
     """Open a USB pod: the console at ``device``, or for ``""`` (connection ``usb``) the
     auto-detected pod (``pod``, from ``usb:<name>``, picks one of several by name), reached over
@@ -149,7 +167,7 @@ def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
         # USB network the way in is the pod's Ethernet or Wi-Fi address when this computer reaches
         # it (the pod's external LAN policy applies there).
         lan = usb_lan_fallback_address(status)
-        if lan and _tcp_reachable(lan, DEFAULT_PORT):
+        if lan and _api_answers(lan, DEFAULT_PORT):
             tcp = TcpTransport(f"{lan}:{DEFAULT_PORT}", timeout=timeout)
             tcp.usb_lan_fallback = why
             console.close()
