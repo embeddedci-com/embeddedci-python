@@ -18,7 +18,6 @@ is the same thing your own tests will use. Without a connection configured the w
 """
 
 import os
-
 import time
 
 import pytest
