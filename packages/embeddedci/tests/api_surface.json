@@ -136,6 +136,7 @@
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
     "usb_cc": "(self) -> 'UsbCcStatus'",
+    "usb_network": "(self, on: 'Optional[bool]' = None) -> 'bool'",
     "wait_for_level": "(self, la: 'Union[Pin, int, str]', level: 'int', *, timeout: 'float', poll: 'float' = 0.005) -> 'bool'",
     "waveforms": "property",
     "wiring": "property"

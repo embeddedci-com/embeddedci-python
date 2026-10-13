@@ -2,6 +2,8 @@
 
 ## 2.12.0
 
+- New tool `usb_network`: read the pod's USB network setting, or turn the adapter off over the USB
+  link (`set="off"`). Turning it back on is `benchpod usb-network on` on the USB console.
 - Needs `embeddedci` 2.12.0 or later (was 2.9): its `usb` connection is what reaches the USB
   network adapter the instructions describe.
 - Connection `usb` reaches the full API over the pod's USB network adapter on firmware 3.9.0 and

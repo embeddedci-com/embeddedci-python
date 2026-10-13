@@ -35,6 +35,7 @@ from embeddedci.benchpod.transport.cloud import CloudTransport
     "lan_policy: change it from the cloud or the USB console",
     "cloud_ca: change it from the cloud or the USB console",
     "cloud_proxy: change it from the cloud or over USB",
+    "usb_network: change it on the device (the USB console, or over the USB link)",
     "sig_policy: only the USB console can loosen the policy (now required)",
 ])
 def test_locked(text):

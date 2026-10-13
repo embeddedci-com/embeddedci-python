@@ -4411,6 +4411,35 @@
       "type": "object"
     }
   },
+  "usb_network": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "USB network setting"
+    },
+    "input": {
+      "properties": {
+        "set": {
+          "anyOf": [
+            {
+              "const": "off",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omit to read the setting. \"off\" turns the pod's USB network adapter off (only over the pod's USB network link: connection 'usb'); the pod then re-enumerates as its USB console only and this connection ends. Turning it back on needs the USB console: the user runs `benchpod usb-network on`.",
+          "title": "Set"
+        }
+      },
+      "title": "usb_networkArguments",
+      "type": "object"
+    }
+  },
   "wiring": {
     "annotations": {
       "idempotentHint": false,

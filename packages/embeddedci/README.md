@@ -215,13 +215,21 @@ The USB network adapter works with the in-box drivers of macOS, Linux and Window
 Windows 10 (1903 or newer) is supported but not tested: if the adapter shows up without a driver,
 update its driver in Device Manager and pick "UsbNcm Host Device".
 
+**Turning the adapter off.** The pod keeps a USB network setting, on by default and separate from
+its external LAN policy. `bp.usb_network()` reads it (`True` = on) over any connection;
+`bp.usb_network(False)` turns the adapter off, which only works over the USB link itself: the pod
+replies, then re-enumerates as its USB console only, which ends the connection. Over Ethernet,
+Wi-Fi or the cloud the pod refuses the change (`PodLockedError`). Turning it back on needs the USB
+console: `benchpod usb-network on`. Status reports it as `usb.setting` and, when the adapter is
+off, `usb.off_reason` (`"setting"` or `"wifi"`).
+
 **Compatibility.** The SDK decides per pod, from what the pod reports (the `usb` line of its
 console `status`), never from its own version:
 
 | | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
 |---|---|---|
 | **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why); else the console. |
-| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console. Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
+| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console: its auto-detect probes every USB serial port, so it finds a 3.9.0 pod under its new USB id `1209:0001` (tested). Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
 
 **Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
 `benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
@@ -1520,7 +1528,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()` |
+| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
