@@ -45,7 +45,16 @@ def _run(*phases):
     return record, failed
 
 
+def _require_analog(connection: str) -> None:
+    from embeddedci.benchpod import BenchPod
+
+    with BenchPod(connection, lease=False) as probe:
+        if not probe.can_analog:
+            pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
+
+
 def test_analog_phases_against_the_pod(benchpod_connection):
+    _require_analog(benchpod_connection)
     bench = benchpod_plug(benchpod_connection, la_voltage=LA_VOLTAGE)
     record, failed = _run(
         dac_output_phase(bench, path="5v", volts=2.5),
@@ -62,6 +71,8 @@ def test_current_loop_phases_against_the_pod(benchpod_connection):
     from embeddedci.benchpod import BenchPod
 
     with BenchPod(benchpod_connection, lease=False) as probe:
+        if not probe.can_analog:
+            pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
         if not probe.capabilities.current_out:
             pytest.skip("this pod's firmware has no current_out command")
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":

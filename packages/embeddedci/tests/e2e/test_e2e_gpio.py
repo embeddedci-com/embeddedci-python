@@ -23,6 +23,8 @@ from embeddedci.benchpod import (
     Wiring,
 )
 
+from e2e_helpers import ANALOG
+
 pytestmark = pytest.mark.hardware
 
 
@@ -194,6 +196,7 @@ def test_trigger_timeout_aborts_and_later_captures_are_untriggered(trigger_pod, 
     assert time.monotonic() - start < 5.0
 
 
+@ANALOG
 def test_triggered_adc_capture(trigger_pod, bench):
     ch = bench.free_la[0]
     pin = trigger_pod.gpio(ch, "output", level=0)
@@ -211,6 +214,7 @@ def test_triggered_adc_capture(trigger_pod, bench):
     assert len(result["capture"]) == 8192 and result["capture"].trigger.la == ch
 
 
+@ANALOG
 def test_triggered_capture_of_the_current_input(trigger_pod, bench):
     """An LA edge starts a capture of the 4-20 mA input (J8) like any other: amps, t = 0 on the
     edge, alone and together with the logic channels."""

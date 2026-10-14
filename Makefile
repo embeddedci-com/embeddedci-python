@@ -1,7 +1,7 @@
 # Developer shortcuts. Unit tests need no hardware; the e2e targets drive a real BenchPod.
 #
 #   make test
-#   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…] [REV=v3]
+#   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…] [REV=v3] [BOARD=digital]
 #   BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
 #
 # The board's LA voltage is set once in packages/embeddedci/tests/conftest.py; the bench wiring in
@@ -13,13 +13,17 @@ FIRMWARE ?=
 USB ?=
 CLOUD_DEVICE ?=
 REV ?=
+BOARD ?=
 # 1 (default): clear the pod's DAC output limits for the run and restore them afterwards
 # (pytest_plugin._benchpod_lift_dac_limits).  LIFT_DAC_LIMITS=0 when an output stage is live.
 LIFT_DAC_LIMITS ?= 1
 
 FIRMWARE_OPT = $(if $(FIRMWARE),--benchpod-firmware=$(abspath $(FIRMWARE)),)
 # REV=v3 makes a pod that reports another board revision fail instead of taking the v2 branches.
-REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),) BENCHPOD_LIFT_DAC_LIMITS=$(LIFT_DAC_LIMITS)
+# BOARD=analog|digital fails the run on the other board: a digital pod skips every analog test, so
+# an analog pod whose front end went undetected would otherwise pass green.
+REV_ENV = $(if $(REV),BENCHPOD_E2E_BOARD_REV=$(REV),) $(if $(BOARD),BENCHPOD_EXPECT_BOARD=$(BOARD),) \
+	BENCHPOD_LIFT_DAC_LIMITS=$(LIFT_DAC_LIMITS)
 
 .PHONY: test e2e e2e-cloud check-sdk
 
@@ -36,7 +40,7 @@ check-sdk:
 	@$(PYTHON) scripts/check_sdk.py
 
 e2e: check-sdk
-	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…] [REV=v3]"; exit 2; }
+	@test -n "$(POD)" || { echo "usage: make e2e POD=<pod host> [FIRMWARE=app.elf] [USB=/dev/…] [REV=v3] [BOARD=digital]"; exit 2; }
 	# tests/examples too: it is the first thing a new user runs, so it must not rot.
 	$(REV_ENV) BENCHPOD_E2E_USB="$(USB)" $(PYTHON) -m pytest -v -rs \
 		packages/embeddedci/tests/e2e packages/embeddedci/tests/examples \
@@ -48,6 +52,6 @@ e2e: check-sdk
 
 e2e-cloud:
 	@test -n "$(CLOUD_DEVICE)" || { echo "usage: BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=<name>"; exit 2; }
-	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" BENCHPOD_LIFT_DAC_LIMITS=$(LIFT_DAC_LIMITS) \
+	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" $(REV_ENV) \
 		$(PYTHON) -m pytest -v -rs packages/embeddedci/tests/e2e/test_e2e_cloud.py \
 		--benchpod-connection=embeddedci:$(CLOUD_DEVICE)

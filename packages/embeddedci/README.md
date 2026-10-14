@@ -451,6 +451,9 @@ nothing changes.
   `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources`, `dac_cotrig`, …). For the
   image-bound `dac_control_loop` and `dac_deep_replay` it switches the pod's gateware image instead
   of skipping, when the pod carries both images (see [Gateware images](#gateware-images)).
+  `benchpod_capability("analog")` skips only on the digital-only board (no DAC, ADC or 4-20 mA);
+  firmware that does not announce the flag ran on analog boards only and counts as analog, like
+  `BenchPod.can_analog`.
 
 ## Wiring profile
 

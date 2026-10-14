@@ -18,7 +18,8 @@ import pytest
 
 from embeddedci import benchpod as bp
 
-pytestmark = pytest.mark.hardware
+# Every test here drives the DAC (and reads the ADC): none runs on the digital-only board.
+pytestmark = [pytest.mark.hardware, pytest.mark.benchpod_capability("analog")]
 
 
 def _ensure_loop_image(device) -> bool:

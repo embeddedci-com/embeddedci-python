@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `@pytest.mark.benchpod_capability("analog")` skips a test on the digital-only board and runs it
+  on firmware that does not announce the flag, as `BenchPod.can_analog` does (it used to skip
+  there too).
+- On the digital-only board, `current_out` and `calibrate` raise `UnsupportedFeatureError` that
+  names the missing analog front end (`feature="analog"`) instead of asking for newer firmware.
+
 ## 2.12.0
 
 - Firmware 3.9.0 keeps ST's USB id `0483:5740` (pre-release builds used `1209:0001`); auto-detect

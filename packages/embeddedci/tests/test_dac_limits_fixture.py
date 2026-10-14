@@ -16,7 +16,8 @@ LIMITS = {"enabled": True, "path": "5v", "inverted": True, "min_mv": 300, "max_m
 @pytest.fixture
 def pod(monkeypatch) -> Dict[str, Any]:
     """A fake BenchPod recording every dac_limits command across all the connections it opens."""
-    state: Dict[str, Any] = {"limits": dict(LIMITS), "sent": [], "opened": 0, "refuse": False}
+    state: Dict[str, Any] = {"limits": dict(LIMITS), "sent": [], "opened": 0, "refuse": False,
+                             "analog": True}
 
     class FakePod:
         def __init__(self, connection, **kwargs):
@@ -32,6 +33,10 @@ def pod(monkeypatch) -> Dict[str, Any]:
 
         def close(self):
             pass
+
+        @property
+        def can_analog(self):
+            return state["analog"]
 
         def command(self, req):
             sent: List[dict] = state["sent"]
@@ -111,6 +116,16 @@ def test_firmware_without_dac_limits_does_not_stop_the_run(pytester, pod, monkey
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*BENCHPOD_LIFT_DAC_LIMITS: could not read/clear DAC limits*"])
     assert pod["sent"] == [{"cmd": "dac_limits"}]  # nothing to restore
+
+
+def test_the_digital_board_is_not_asked(pytester, pod, monkeypatch):
+    monkeypatch.setenv(pytest_plugin.LIFT_DAC_LIMITS_ENV, "1")
+    pod["analog"] = False
+    pytester.makepyfile("def test_x():\n    pass\n")
+    result = pytester.runpytest("-s", "--benchpod-connection=10.0.0.1")
+    result.assert_outcomes(passed=1)
+    assert pod["sent"] == []  # no DAC: nothing to lift, and no refusal in the output
+    assert "could not read/clear" not in result.stdout.str()
 
 
 def test_the_api_key_option_reaches_its_connection(pytester, pod, monkeypatch):

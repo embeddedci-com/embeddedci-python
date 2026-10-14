@@ -3,6 +3,12 @@
 The LA voltage comes from ``tests/conftest.py`` (3.3 V). The bench wiring below matches the
 EmbeddedCI bench (NUCLEO-F446RE running examples/scenario-sensors-stm32); override any of it with
 ``BENCHPOD_E2E_*`` environment variables for another bench.
+
+On the digital-only board (no analog front end) the analog tests skip: they carry
+``ANALOG`` (``@pytest.mark.benchpod_capability("analog")``) or call ``require_analog`` (both in
+e2e_helpers.py).
+``BENCHPOD_EXPECT_BOARD=analog|digital`` makes the run fail when the pod reports the other board,
+so a pod whose analog section went undetected cannot skip half the suite and pass green.
 """
 
 from __future__ import annotations
@@ -14,6 +20,8 @@ from typing import Optional, Tuple
 import pytest
 
 from embeddedci.benchpod import BenchPod, BenchPodError, FpgaImage
+
+from e2e_helpers import check_expected_board, require_analog
 
 
 def pytest_report_header(config):
@@ -81,7 +89,8 @@ def bench() -> Bench:
 
 def quiesce(pod: BenchPod) -> None:
     """Stop every output a test may have left running (never raises)."""
-    for step in (pod.dac_stop, lambda: pod.analog_path("off"), pod.disable_i2c_sensor,
+    for step in (pod.dac_stop, lambda: pod.analog_path("off") if pod.can_analog else None,
+                 pod.disable_i2c_sensor,
                  pod.can_respond_clear, pod.can_disable,
                  lambda: pod.release_gpio() if pod.capabilities.la_pins else None):
         try:
@@ -94,6 +103,7 @@ def quiesce(pod: BenchPod) -> None:
 def pod(benchpod: BenchPod):
     """The session's pod; the gateware image it started on is restored at the end."""
     started_on_loop = benchpod.refresh_capabilities().dac_control_loop
+    check_expected_board(benchpod)
     yield benchpod
     quiesce(benchpod)
     try:
@@ -111,6 +121,7 @@ def _leave_the_pod_quiet(request):
 
 
 def _on_image(pod: BenchPod, image: FpgaImage, flag: str) -> BenchPod:
+    require_analog(pod)  # both images are for the DAC; the digital board has neither feature
     if not getattr(pod.refresh_capabilities(), flag):
         try:
             pod.fpga_image(image)
