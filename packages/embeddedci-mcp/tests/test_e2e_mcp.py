@@ -4,7 +4,9 @@
         [--benchpod-firmware=<scenario-sensors.elf>]
 
 Skips without a connection. The DUT part expects the examples/scenario-sensors-stm32 app with its
-UART on BENCHPOD_E2E_UART_RX/TX (default LA3/LA4) and SWD on LA11/LA12.
+UART on BENCHPOD_E2E_UART_RX/TX (default LA3/LA4) and SWD on LA11/LA12. On the digital-only board
+the analog tests skip and test_digital_board_refuses_the_analog_tools runs instead;
+BENCHPOD_EXPECT_BOARD=analog|digital fails the run on the other board.
 """
 
 from __future__ import annotations
@@ -30,13 +32,24 @@ def _pin(name: str, default: int) -> int:
 def connected(benchpod_connection):
     status = call("connect", connection=benchpod_connection, la_voltage=LA_VOLTAGE)
     assert status["connected"] and status["la_voltage"] == LA_VOLTAGE, status
+    board = "digital" if status["capabilities"].get("analog") is False else "analog"
+    want = os.environ.get("BENCHPOD_EXPECT_BOARD", "").strip().lower()
+    if want and want != board:
+        pytest.fail(f"the pod reports the {board} board, the bench expects {want} (BENCHPOD_EXPECT_BOARD)")
     yield status
-    for tool, args in (("dac_stop", {}), ("analog_path", {"path": "off"}), ("can_close", {}),
-                       ("disable_i2c_sensor", {}), ("disconnect", {})):
+    cleanup = [("dac_stop", {}), ("can_close", {}), ("disable_i2c_sensor", {}), ("disconnect", {})]
+    if board == "analog":
+        cleanup.insert(1, ("analog_path", {"path": "off"}))
+    for tool, args in cleanup:
         try:
             call(tool, **args)
         except ToolError:
             pass
+
+
+def _require_analog(connected) -> None:
+    if connected["capabilities"].get("analog") is False:
+        pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
 
 
 def test_status_and_typed_state(connected):
@@ -49,6 +62,7 @@ def test_status_and_typed_state(connected):
 
 
 def test_analog_round_trip(connected):
+    _require_analog(connected)
     out = call("dac_output", path="5v", volts=2.5)
     assert out["path"] == "5v" and abs(out["voltage"] - 2.5) < 0.05
     reading = call("adc_read", source="cal1")
@@ -59,6 +73,7 @@ def test_current_loop_terminals(connected):
     """The 4-20 mA tools with nothing wired: a held current and a waveform in amps reach the DAC
     (read back on the 5 V loopback), and the open input is captured in amps with the logic
     channels. Loop current itself needs the bench fixture."""
+    _require_analog(connected)
     if not connected["capabilities"].get("current_out"):
         pytest.skip("this pod's firmware has no current_out command")
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
@@ -93,6 +108,7 @@ def test_current_loop_terminals(connected):
 
 
 def test_generate_capture_summary_and_replay(connected):
+    _require_analog(connected)
     pytest.importorskip("numpy")
     call("analog_path", path="cal1")
     call("generate", waveform="sine", freq_hz=200, amplitude=0.8, offset=1.5, route=False)
@@ -102,6 +118,18 @@ def test_generate_capture_summary_and_replay(connected):
     call("dac_stop")
     replay = call("replay", from_last_capture=True, dac_path="5v", route=False)
     assert replay["samples"] == 2000 and not replay["deep"]
+
+
+def test_digital_board_refuses_the_analog_tools(connected):
+    if connected["capabilities"].get("analog") is not False:
+        pytest.skip("analog board: the digital-only checks do not apply")
+    assert not connected["capabilities"].get("scope")
+    for tool, args in (("dac_output", {"path": "5v", "volts": 1.0}), ("adc_read", {"source": "cal1"}),
+                       ("current_out", {"current": 0.012}), ("capture_adc", {"samples": 1024})):
+        with pytest.raises(ToolError, match=r"UnsupportedFeatureError: .*digital-only board"):
+            call(tool, **args)
+    call("dac_stop")  # the cleanup every agent runs still works
+    assert "internal" in call("power_status")
 
 
 def test_logic_capture_and_decode(connected):

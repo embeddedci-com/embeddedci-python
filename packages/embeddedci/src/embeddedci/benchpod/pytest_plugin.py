@@ -338,7 +338,8 @@ def _benchpod_lift_dac_limits(pytestconfig: "pytest.Config") -> Iterator[None]:
     kwargs = _cloud_kwargs(pytestconfig)
     try:
         with BenchPod(conn, **kwargs) as pod:
-            limits = pod.command({"cmd": "dac_limits"})
+            # The digital-only board has no DAC (and refuses dac_limits): nothing to lift.
+            limits = pod.command({"cmd": "dac_limits"}) if pod.can_analog else None
             if isinstance(limits, dict) and limits.get("enabled"):
                 pod.command({"cmd": "dac_limits", "enabled": False})
                 saved = limits
