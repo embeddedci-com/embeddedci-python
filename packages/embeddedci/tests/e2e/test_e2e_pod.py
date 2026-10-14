@@ -36,7 +36,7 @@ from embeddedci.benchpod.constants import ANALOG_PATHS
 from embeddedci.benchpod.control_loop import CURVE_POINTS
 from embeddedci.benchpod.decode import decode_uart
 
-from e2e_helpers import SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
+from e2e_helpers import ANALOG, SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
 
 pytestmark = pytest.mark.hardware
 
@@ -49,7 +49,9 @@ def test_status_and_capabilities(pod):
     caps = pod.refresh_capabilities()
     assert caps.board == status["board"]
     if caps.board == "stm32h563":
-        assert caps.adc_bits == 16 and caps.scope and caps.analyzer
+        assert caps.analyzer
+        if pod.can_analog:
+            assert caps.adc_bits == 16 and caps.scope
 
 
 def test_la_voltage_is_selected_from_conftest(pod):
@@ -118,6 +120,7 @@ def test_firmware_errors_surface_as_firmware_error(pod):
 
 # -- analog ----------------------------------------------------------------------------
 
+@ANALOG
 @pytest.mark.parametrize("path", [p for p in ANALOG_PATHS if p != "dac_12v"])
 def test_analog_path_applies(pod, path):
     state = pod.analog_path(path)
@@ -129,6 +132,7 @@ def test_analog_path_applies(pod, path):
         (pod.analog_path(path).dac_mux_register, pod.analog_path(path).cal_relay_register)
 
 
+@ANALOG
 def test_analog_paths_are_not_all_the_same_switch_setting(pod):
     """Distinct paths must drive distinct hardware, not just return distinct names."""
     settings = {p: (s.dac_mux_register, s.cal_relay_register)
@@ -137,6 +141,7 @@ def test_analog_paths_are_not_all_the_same_switch_setting(pod):
     assert len(set(settings.values())) > 1, f"every path set the same registers: {settings}"
 
 
+@ANALOG
 def test_dac_output_codes_match_the_sdk_volts_mapping(pod, bench):
     rows = []
     points = [("3v3", 0.5), ("3v3", 1.5), ("5v", 1.0), ("5v", min(2.5, bench.dac_max_v))]
@@ -152,6 +157,7 @@ def test_dac_output_codes_match_the_sdk_volts_mapping(pod, bench):
     assert all(abs(achieved - volts) < 0.06 for _, volts, achieved, _, _ in rows), rows
 
 
+@ANALOG
 def test_dac_output_reads_back_through_the_adc(pod):
     for volts in (1.0, 2.5):
         pod.dac_output("5v", volts=volts)
@@ -160,6 +166,7 @@ def test_dac_output_reads_back_through_the_adc(pod):
         assert abs(reading.voltage - volts) < 0.1, (volts, reading)
 
 
+@ANALOG
 def test_current_out_holds_a_current_and_the_dac_follows(pod):
     """The 4-20 mA output (J9) with nothing wired: the replies, and the DAC behind them.
 
@@ -205,6 +212,7 @@ def test_current_out_holds_a_current_and_the_dac_follows(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_waveforms_on_the_current_output_reach_the_dac(pod):
     """generate and replay on ``current_out`` with nothing wired: the levels asked for in amps are
     what the DAC holds, read back through the internal 5 V loopback (up to 2.5 V on the 5 V
@@ -239,6 +247,7 @@ def test_waveforms_on_the_current_output_reach_the_dac(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_capture_of_the_current_input_is_in_amps(pod):
     """A capture of J8 with nothing wired: amps, about zero, from the pod's own fit."""
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
@@ -267,6 +276,7 @@ def _mean(values) -> float:
     return sum(values) / len(values)
 
 
+@ANALOG
 def test_current_input_is_captured_with_the_logic_channels(pod):
     """ADC + LA off one trigger, with the analog half on J8: amps next to the logic words."""
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
@@ -283,6 +293,7 @@ def test_current_input_is_captured_with_the_logic_channels(pod):
     assert ext.source == "ext" and ext.currents == []
 
 
+@ANALOG
 def test_slow_captures_of_the_open_input_stay_within_the_documented_shift(pod):
     """Below 400 kS/s the input stage reads a little higher. The docs say 10 to 20 uA; this pins
     it under 60 uA at the slowest rate the Capture tab offers."""
@@ -297,6 +308,7 @@ def test_slow_captures_of_the_open_input_stay_within_the_documented_shift(pod):
     assert -10e-6 < means[80_000] - means[400_000] < 40e-6, means
 
 
+@ANALOG
 def test_a_current_waveform_starts_on_the_capture_t0(pod):
     """The DAC co-trigger on the 4-20 mA output: armed, the waveform's first sample lands on the
     capture's t0, so the capture opens on the first level and steps to the second."""
@@ -320,6 +332,7 @@ def test_a_current_waveform_starts_on_the_capture_t0(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_stop_dac_after_freezes_the_loop_current(pod):
     """The capture-timed DAC cut on the 4-20 mA output: the waveform runs, then the DAC freezes,
     so the loop HOLDS a current from the waveform. It does not fall back to 4 mA by itself."""
@@ -345,6 +358,7 @@ def test_stop_dac_after_freezes_the_loop_current(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_dac_stop_alone_leaves_the_loop_where_it_was(pod):
     """`dac_stop` stops the DAC engine and nothing else: a held current stays. Going back to
     4 mA takes `current_out(0.004)`, which is what the handles and the web Stop do."""
@@ -363,6 +377,7 @@ def test_dac_stop_alone_leaves_the_loop_where_it_was(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_a_current_switches_the_voltage_outputs_off(pod):
     """One DAC: the voltage outputs would follow the current, so setting one switches them off,
     and it leaves the ADC relays alone (J8 stays routed)."""
@@ -380,6 +395,7 @@ def test_a_current_switches_the_voltage_outputs_off(pod):
         pod.analog_path("off")
 
 
+@ANALOG
 def test_current_in_reads_zero_with_j8_open(pod):
     """The 4-20 mA input (J8) with nothing wired: about 0 mA, and the current matches the voltage."""
     if os.environ.get("BENCHPOD_E2E_J8_WIRED") == "1":
@@ -393,6 +409,7 @@ def test_current_in_reads_zero_with_j8_open(pod):
     assert abs(reading.current) < limit, f"J8 open reads {reading.current * 1e6:.0f} uA: is something connected?"
 
 
+@ANALOG
 def test_generate_levels_are_volts(pod):
     pod.analog_path("cal1")
     with pod.generate("square", freq_hz=2, amplitude=0.8, offset=1.5, dac_path="5v", route=False):
@@ -403,6 +420,7 @@ def test_generate_levels_are_volts(pod):
     assert abs(hi - 2.3) < 0.15 and abs(lo - 0.7) < 0.15, (hi, lo, readings)
 
 
+@ANALOG
 def test_generate_on_the_bipolar_12v_path_centres_on_zero(pod, bench):
     if not bench.allow_12v:
         pytest.skip("set BENCHPOD_E2E_ALLOW_12V=1 when nothing is wired to the 12v output")
@@ -414,6 +432,7 @@ def test_generate_on_the_bipolar_12v_path_centres_on_zero(pod, bench):
     assert abs(hi - 1.04) < 0.2 and abs(lo + 1.0) < 0.2, (hi, lo)
 
 
+@ANALOG
 def test_route_false_keeps_a_loopback_and_route_true_reroutes(pod):
     pytest.importorskip("numpy")
     pod.analog_path("cal1")
@@ -427,6 +446,7 @@ def test_route_false_keeps_a_loopback_and_route_true_reroutes(pod):
         assert pod.lowlevel.cal_switch_status()["cal1"] == 0  # dac_out re-routed the output
 
 
+@ANALOG
 def test_capture_adc_source_routes_the_input(pod):
     pod.analog_path("off")
     cap = pod.capture_adc(256, source="cal1")
@@ -434,6 +454,7 @@ def test_capture_adc_source_routes_the_input(pod):
     assert pod.lowlevel.cal_switch_status()["cal1"] == 1
 
 
+@ANALOG
 def test_replay_volts_on_the_loopback(pod):
     pytest.importorskip("numpy")
     pod.analog_path("cal1")
@@ -444,6 +465,7 @@ def test_replay_volts_on_the_loopback(pod):
     assert abs(cap.dominant_frequency() - 100) < 5 and p2p(cap) > 800
 
 
+@ANALOG
 def test_co_triggered_replay_arms_on_the_capture(pod):
     if not pod.capabilities.dac_cotrig:
         pytest.skip("the running gateware has no DAC co-trigger")
@@ -454,6 +476,7 @@ def test_co_triggered_replay_arms_on_the_capture(pod):
     assert p2p(cc.adc) > 800
 
 
+@ANALOG
 def test_stop_dac_after_cuts_the_output_mid_capture(pod):
     pod.analog_path("cal1")
     pod.generate("square", freq_hz=200, amplitude=0.8, offset=1.5, route=False)
@@ -465,6 +488,7 @@ def test_stop_dac_after_cuts_the_output_mid_capture(pod):
     assert max(late) - min(late) < 300, "the DAC was still toggling after stop_dac_after"
 
 
+@ANALOG
 def test_a_restarted_dac_plays_the_new_waveform_from_its_first_sample(pod):
     # Gateware <= v32 ran the first pass of a DAC start at the PREVIOUS waveform's length, so a
     # 5 kHz square (181 samples) after a 200 Hz one (2034) played ~2 ms of stale 200 Hz levels.
@@ -485,6 +509,7 @@ def test_a_restarted_dac_plays_the_new_waveform_from_its_first_sample(pod):
     assert flat.size == 0, f"the square stalled in blocks {flat.tolist()} (spreads {spread.tolist()})"
 
 
+@ANALOG
 def test_generated_frequency_matches_the_adc_clock(pod):
     # The firmware picks the DAC divider and period from its model of what one DAC sample costs
     # in the gateware (max(divider, 3) + 51 clk48).  If the gateware's frame sequencing drifts
@@ -517,6 +542,7 @@ def _measure(pod, waveform: str, samples: int):
     return np.array([pod.capabilities.counts_to_volts(c) for c in counts])
 
 
+@ANALOG
 def test_measure_captures_one_period_of_the_played_waveform(pod):
     # measure ties the DAC period to the capture count (gateware MEASURE), so the capture holds
     # exactly one period. It does not route the analog path: without cal1 it reads the idle SMA.
@@ -564,6 +590,7 @@ def test_measure_captures_one_period_of_the_played_waveform(pod):
 
 # -- captures ----------------------------------------------------------------------------
 
+@ANALOG
 def test_capture_adc_shallow_and_deep(pod):
     shallow = pod.capture_adc(4096, sample_rate_hz=100_000)
     deep = pod.capture_adc(100_000, sample_rate_hz=400_000)   # above 32768: streams from PSRAM
@@ -571,9 +598,13 @@ def test_capture_adc_shallow_and_deep(pod):
     assert len(deep) == 100_000 and deep.duration == pytest.approx(100_000 / deep.sample_rate_hz)
 
 
-def test_capture_la_and_correlated(pod):
+def test_capture_la(pod):
     la = pod.capture_la(65536, sample_rate_hz=1_000_000)
     assert len(la) == 65536 and la.sample_rate_hz == pytest.approx(1e6, rel=0.05)
+
+
+@ANALOG
+def test_capture_correlated(pod):
     cc = pod.capture_correlated(adc_samples=4096, adc_sample_rate_hz=100_000,
                                 la_samples=4096, la_sample_rate_hz=1_000_000)
     assert len(cc.adc) == 4096 and len(cc.la) == 4096
@@ -648,6 +679,7 @@ def test_la_sample_rate_matches_the_host_clock(pod, bench):
         f"{la.sample_rate_hz:.0f} Hz)")
 
 
+@ANALOG
 def test_adc_sample_rate_matches_the_host_clock(pod):
     np = pytest.importorskip("numpy")
     pod.analog_path("cal1")
@@ -676,12 +708,14 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
 
 # -- DAC replay depth vs gateware image ----------------------------------------------------
 
+@ANALOG
 def test_deep_replay_is_refused_on_the_loop_image_without_switching(loop_image):
     with pytest.raises(BenchPodError, match="DEEP_REPLAY"):
         loop_image.replay([1.0] * 4096, dac_path="5v", route=False, switch_image=False)
     assert loop_image.refresh_capabilities().dac_control_loop  # still on the loop image
 
 
+@ANALOG
 def test_deep_replay_switches_to_the_deep_replay_image(loop_image):
     np = pytest.importorskip("numpy")
     pod = loop_image
@@ -696,6 +730,7 @@ def test_deep_replay_switches_to_the_deep_replay_image(loop_image):
     assert abs(adc.dominant_frequency() - 100) < 5 and int(np.ptp(adc.counts)) > 800
 
 
+@ANALOG
 def test_control_loop_switches_to_the_loop_image(deep_image):
     pod = deep_image
     if not pod.capabilities.dac_loop_sources:
@@ -708,12 +743,14 @@ def test_control_loop_switches_to_the_loop_image(deep_image):
     assert pod.refresh_capabilities().dac_control_loop
 
 
+@ANALOG
 def test_control_loop_without_switching_is_refused_on_the_deep_replay_image(deep_image):
     with pytest.raises(BenchPodError, match="switch_image"):
         deep_image.control_loop(curve=build_linear_curve(30000), switch_image=False)
     assert deep_image.refresh_capabilities().dac_deep_replay  # still on the deep-replay image
 
 
+@ANALOG
 def test_control_loop_fixed_input_indexes_the_curve(loop_image):
     pod = loop_image
     if not pod.capabilities.dac_loop_sources:
@@ -729,6 +766,7 @@ def test_control_loop_fixed_input_indexes_the_curve(loop_image):
             assert pt.loop_input == code and abs(pt.v - curve_output_at(curve, code)) < 1500, (code, pt)
 
 
+@ANALOG
 def test_control_loop_sweep_advances(loop_image):
     pod = loop_image
     if not pod.capabilities.dac_loop_sources:
@@ -740,6 +778,7 @@ def test_control_loop_sweep_advances(loop_image):
         assert loop.probe().loop_input != first
 
 
+@ANALOG
 def test_control_loop_input_map(loop_image):
     pod = loop_image
     if not pod.capabilities.dac_loop_input_map:
@@ -757,6 +796,7 @@ def _regulator_curve(setpoint_v, lo, hi, n=CURVE_POINTS):
             for i in range(n)]
 
 
+@ANALOG
 def test_control_loop_regulates_through_the_external_wire(loop_image, bench):
     # The loop closed through real wiring: DAC 0-5 V output -> ADC front SMA.  The input map puts
     # the curve on a 0-5 V axis, so the loop must hold the SMA at the setpoint; then again at a
@@ -790,6 +830,7 @@ def test_control_loop_regulates_through_the_external_wire(loop_image, bench):
             assert pod.status().get("loop_tripped") is True
 
 
+@ANALOG
 def test_deep_replay_plays_while_capturing(deep_image):
     pytest.importorskip("numpy")
     pod = deep_image
@@ -802,6 +843,7 @@ def test_deep_replay_plays_while_capturing(deep_image):
     assert abs(adc.dominant_frequency() - 100) < 5 and p2p(adc) > 800
 
 
+@ANALOG
 def test_fpga_image_round_trip(pod):
     started_on_loop = pod.refresh_capabilities().dac_control_loop
     other = FpgaImage.DEEP_REPLAY if started_on_loop else FpgaImage.LOOP

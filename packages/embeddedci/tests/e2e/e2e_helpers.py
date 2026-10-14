@@ -2,11 +2,38 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
+import pytest
+
 from embeddedci.benchpod import BenchPod, FirmwareError
+
+#: Marks a test that needs the analog front end (DAC, ADC, 4-20 mA): it skips on the digital board.
+ANALOG = pytest.mark.benchpod_capability("analog")
+
+
+def require_analog(pod: BenchPod) -> None:
+    """Skip on the digital-only board, for tests on a pod the ``ANALOG`` marker does not see (the
+    cloud tier's own connection)."""
+    if not pod.can_analog:
+        pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
+
+
+def check_expected_board(pod: BenchPod) -> None:
+    """Fail when ``BENCHPOD_EXPECT_BOARD`` (analog or digital) names the other board."""
+    want = os.environ.get("BENCHPOD_EXPECT_BOARD", "").strip().lower()
+    if not want:
+        return
+    if want not in ("analog", "digital"):
+        pytest.fail(f"BENCHPOD_EXPECT_BOARD={want!r}: use analog or digital")
+    got = "analog" if pod.can_analog else "digital"
+    if got != want:
+        pytest.fail(f"the pod reports the {got} board (status analog={pod.capabilities.analog!r}), "
+                    f"the bench expects {want} (BENCHPOD_EXPECT_BOARD)")
+
 
 #: Seconds for relays and a freshly started DAC output to settle before a capture.
 SETTLE = 0.3

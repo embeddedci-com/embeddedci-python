@@ -25,6 +25,16 @@ pytestmark = pytest.mark.skipif(not HW, reason="set BENCHPOD_HW_ADDR to run agai
 np = pytest.importorskip("numpy")  # the FFT path needs numpy
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _analog_board():
+    """The loopback needs the DAC and the ADC: skip on the digital-only board."""
+    from embeddedci.benchpod import BenchPod
+
+    with BenchPod(HW, lease=False) as pod:
+        if not pod.can_analog:
+            pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
+
+
 def _load_tool():
     path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "adc_fft_capture.py"
     spec = importlib.util.spec_from_file_location("adc_fft_capture", path)

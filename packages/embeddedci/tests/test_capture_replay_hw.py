@@ -19,6 +19,7 @@ import pytest
 pytestmark = pytest.mark.hardware
 
 
+@pytest.mark.benchpod_capability("analog")
 def test_capture_adc_returns_volts(benchpod):
     cap = benchpod.capture_adc(256, sample_rate_hz=1e6)
     assert len(cap) == 256, f"asked for 256 samples, got {len(cap)}"
@@ -38,6 +39,7 @@ def test_raw_la_capture(benchpod):
     assert all(0 <= w < (1 << 12) for w in la.words), "LA words must be 12-bit"
 
 
+@pytest.mark.benchpod_capability("analog")
 def test_correlated_adc_la_capture(benchpod):
     ac = benchpod.capture_correlated(adc_samples=256, adc_sample_rate_hz=400_000,
                                      la_samples=256, la_sample_rate_hz=1e6)
@@ -46,12 +48,14 @@ def test_correlated_adc_la_capture(benchpod):
     assert ac.la.sample_rate_hz == pytest.approx(1e6, rel=0.05), ac.la.sample_rate_hz
 
 
+@pytest.mark.benchpod_capability("analog")
 def test_deep_adc_capture_streams_from_psram(benchpod):
     """Above the 32768-sample single-shot buffer, capture_adc switches to the PSRAM stream."""
     cap = benchpod.capture_adc(65536, sample_rate_hz=400_000)
     assert len(cap) == 65536
 
 
+@pytest.mark.benchpod_capability("analog")
 @pytest.mark.benchpod_capability("dac_replay")
 def test_save_recording_and_replay(benchpod, benchpod_waveforms):
     """Capture → save to library → replay from the library → stop (the headline flow)."""
@@ -70,6 +74,7 @@ def test_save_recording_and_replay(benchpod, benchpod_waveforms):
         handle.stop()
 
 
+@pytest.mark.benchpod_capability("analog")
 @pytest.mark.benchpod_capability("dac_deep_replay")
 def test_replay_while_capturing_concurrently(benchpod_dac):
     """gateware v18: a looping deep replay runs WHILE an LA capture streams (shared PSRAM bus)."""
