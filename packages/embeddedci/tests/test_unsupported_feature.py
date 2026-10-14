@@ -94,6 +94,19 @@ def test_can_analog_is_false_only_on_the_digital_board():
     assert not BenchPod(transport=CapsPod([], analog=False), lease=False).can_analog
 
 
+@pytest.mark.parametrize("call", [lambda p: p.current_out(0.012), lambda p: p.calibrate()],
+                         ids=["current_out", "calibrate"])
+def test_digital_board_names_the_missing_front_end_not_old_firmware(call):
+    pod = BenchPod(transport=CapsPod([], analog=False), lease=False)
+    with pytest.raises(UnsupportedFeatureError, match="digital-only board") as err:
+        call(pod)
+    assert err.value.feature == "analog" and "newer" not in str(err.value)
+    assert pod._transport.commands == []
+    # Older firmware on an analog board still gets the update hint.
+    with pytest.raises(UnsupportedFeatureError, match="newer pod firmware"):
+        call(BenchPod(transport=CapsPod([]), lease=False))
+
+
 @pytest.mark.parametrize("analog,outcome", [(True, "passed"), (None, "passed"), (False, "skipped")],
                          ids=["analog board", "older firmware", "digital board"])
 def test_analog_capability_marker_skips_only_on_the_digital_board(pytester, analog, outcome):

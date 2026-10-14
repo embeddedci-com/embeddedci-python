@@ -138,6 +138,11 @@ _CURRENT_OUT_ZERO_UA = 4000
 
 _log = logging.getLogger("embeddedci.benchpod")
 
+#: Capability flags only the analog board announces: the digital-only board lacks them whatever its
+#: firmware (cloud_caps_hw.c).
+_ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_control_loop", "dac_cotrig",
+                           "dac_loop_sources", "dac_loop_input_map", "calibrate", "current_out"})
+
 #: The capability flag and FPGA_FEATURES bit each gateware image carries.
 _IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay"}
 _IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02}
@@ -426,6 +431,12 @@ class BenchPod:
     def _require_capability(self, flag: str, what: str) -> None:
         if not self.supports(flag):
             fw = self.capabilities.firmware_version or "unknown"
+            if flag in _ANALOG_FLAGS and not self.can_analog:
+                # The digital board drops these flags: newer firmware would not bring them back.
+                raise UnsupportedFeatureError(
+                    f"{what} need the analog front end: this is the digital-only board (no DAC, "
+                    f"ADC or 4-20 mA)", feature="analog",
+                    firmware_version=self.capabilities.firmware_version)
             raise UnsupportedFeatureError(
                 f"{what} need newer pod firmware (the {flag!r} capability is missing; "
                 f"this pod runs firmware {fw})",
