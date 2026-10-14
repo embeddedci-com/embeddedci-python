@@ -5,6 +5,7 @@ analog refusal (cmd_gate.c cmd_gate_check)."""
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -91,3 +92,35 @@ def test_can_analog_is_false_only_on_the_digital_board():
     assert BenchPod(transport=CapsPod([], analog=True), lease=False).can_analog
     assert BenchPod(transport=CapsPod([]), lease=False).can_analog  # older firmware: analog boards
     assert not BenchPod(transport=CapsPod([], analog=False), lease=False).can_analog
+
+
+@pytest.mark.parametrize("analog,outcome", [(True, "passed"), (None, "passed"), (False, "skipped")],
+                         ids=["analog board", "older firmware", "digital board"])
+def test_analog_capability_marker_skips_only_on_the_digital_board(pytester, analog, outcome):
+    tests_dir = os.path.dirname(__file__)
+    pytester.makeconftest(f"""
+import sys
+
+import pytest
+
+sys.path.insert(0, {tests_dir!r})
+from test_unsupported_feature import CapsPod
+from embeddedci.benchpod import BenchPod
+
+
+@pytest.fixture(scope="session")
+def benchpod():
+    return BenchPod(transport=CapsPod([], analog={analog!r}), lease=False)
+""")
+    pytester.makepyfile("""
+import pytest
+
+
+@pytest.mark.benchpod_capability("analog")
+def test_needs_the_analog_front_end(benchpod):
+    pass
+""")
+    result = pytester.runpytest("-p", "no:cacheprovider", "-rs")
+    result.assert_outcomes(**{outcome: 1})
+    if outcome == "skipped":
+        result.stdout.fnmatch_lines(["*digital-only board*"])

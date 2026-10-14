@@ -222,7 +222,8 @@ def pytest_configure(config: "pytest.Config") -> None:
         "markers",
         "benchpod_capability(name): skip the test unless the connected device advertises the "
         "given capability (e.g. 'scope', 'analyzer', 'dac_replay'); 'dac_control_loop' and "
-        "'dac_deep_replay' switch the gateware image when the pod carries both.",
+        "'dac_deep_replay' switch the gateware image when the pod carries both; 'analog' skips "
+        "on the digital-only board (firmware that does not say counts as analog).",
     )
 
 
@@ -239,6 +240,7 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
     ``benchpod`` device and skips on any capability it lacks — except an image-bound one
     (``dac_control_loop`` / ``dac_deep_replay``) on a pod that carries both gateware images, which
     is switched to the right image instead, as the SDK does for ``control_loop`` / ``replay``.
+    ``analog`` follows :attr:`BenchPod.can_analog`: only the digital-only board skips it.
     """
     if request.node.get_closest_marker("hardware") and not _resolve_connection(request.config):
         pytest.skip(f"hardware test: no BenchPod connection configured (--benchpod-connection / {ENV_VAR})")
@@ -251,6 +253,10 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
     caps = pod.capabilities
     for mark in marks:
         for name in map(str, mark.args):
+            if name == "analog":
+                if not pod.can_analog:
+                    pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
+                continue
             if getattr(caps, name, False):
                 continue
             image = _IMAGE_CAPABILITIES.get(name)
