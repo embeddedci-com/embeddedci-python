@@ -1630,7 +1630,7 @@ class BenchPod:
                  on_capture: bool = False, route: bool = True) -> DacHandle:
         """Generate a parametric waveform (``sine``/``square``/``sawtooth``) on a DAC output path.
 
-        ``amplitude`` is the peak in volts and ``offset`` the centre in volts (default: the middle
+        ``amplitude`` is the peak in volts and ``offset`` the center in volts (default: the middle
         of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). On firmware 3.9.1+
         (:attr:`Capabilities.generate16`) the pod takes the volts, converts them with its per-path
         calibration and plays the waveform at the DAC's full 16 bits; both peaks must then be on

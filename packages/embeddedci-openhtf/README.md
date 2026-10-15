@@ -191,7 +191,7 @@ from embeddedci_openhtf import (
 bench = benchpod_plug("192.168.1.50:8080")
 
 test = htf.Test(
-    # drive a 1 V-peak sine centred on 2.5 V (5V DAC path), capture the front ADC SMA
+    # drive a 1 V-peak sine centered on 2.5 V (5V DAC path), capture the front ADC SMA
     # while it runs, stop the DAC, and assert the round trip in volts
     loopback_measure_phase(bench, waveform="sine", freq_hz=100, amplitude=1.0,
                            samples=4096, sample_rate_hz=50_000,

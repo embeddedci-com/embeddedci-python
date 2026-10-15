@@ -1550,7 +1550,7 @@ async def generate(
     freq_hz: Annotated[float, Field(gt=0)],
     amplitude: Annotated[float, Field(gt=0, description="Peak volts. On dac_path current_out: peak AMPS (0.006 = 6 mA).")],
     offset: Annotated[Optional[float], Field(description=(
-        "Centre volts; default mid-range of dac_path. On current_out: centre AMPS (0.012 = 12 mA)."))] = None,
+        "Center volts; default mid-range of dac_path. On current_out: center AMPS (0.012 = 12 mA)."))] = None,
     dac_path: Annotated[Optional[DacPath], Field(description=(
         "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
         "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,

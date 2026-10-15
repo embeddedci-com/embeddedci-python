@@ -1172,7 +1172,7 @@ with bp.replay(ramp, dac_path="3v3", sample_rate_hz=10_000,
 
 * `generate(waveform, *, freq_hz, amplitude, offset=None, dac_path=None, duration=None,
   sample_rate_hz=None, on_capture=False)` — `sine`, `square` or `sawtooth`. `amplitude` is the peak
-  and `offset` the centre (default: mid-range of the path). The firmware builds the waveform from
+  and `offset` the center (default: mid-range of the path). The firmware builds the waveform from
   8-bit levels, so volts are quantised to full-scale / 255.
 * `replay(source, *, dac_path=None, mapping="faithful", sample_rate_hz=None, deep=None, fault=None,
   are_codes=False, on_capture=False)` — `source` is a `Capture` (its volts, at its own sample rate

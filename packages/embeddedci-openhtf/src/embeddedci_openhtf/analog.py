@@ -97,7 +97,7 @@ def signal_generate(bench: Any, *, waveform: Waveshape, freq_hz: float, amplitud
                     sample_rate_hz: Optional[float] = None) -> DacHandle:
     """Start a parametric DAC waveform (``sine``/``square``/``sawtooth``) on ``dac_path``.
 
-    ``amplitude`` is the peak and ``offset`` the centre, both in **volts** (``offset`` defaults to
+    ``amplitude`` is the peak and ``offset`` the center, both in **volts** (``offset`` defaults to
     the middle of the path's range). ``duration`` (seconds) stops it by itself; omitted, it runs
     until :func:`signal_stop` or the returned handle's ``stop()``. See
     :meth:`BenchPod.generate <embeddedci.benchpod.BenchPod.generate>`.
@@ -380,7 +380,7 @@ def loopback_measure_phase(plug: type, *, waveform: Waveshape = "sine", freq_hz:
        ``_rms_v`` / ``_min_v`` / ``_max_v``.
 
     Wire the DAC output SMA to the front ADC SMA (directly, or through the DUT whose response you
-    are checking) and keep ``source="ext"``. E.g. a 1 V-peak sine centred on 2.5 V straight back
+    are checking) and keep ``source="ext"``. E.g. a 1 V-peak sine centered on 2.5 V straight back
     in: ``pp_range=(1.8, 2.2), mean_range=(2.4, 2.6)``.
     """
     _check_source(source)

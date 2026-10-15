@@ -43,7 +43,7 @@ def build_test(pod: str) -> htf.Test:
     return htf.Test(
         htf.PhaseGroup(
             main=[
-                # 1) loopback: a 100 Hz, 1 V-peak sine centred on 2.5 V (5V path),
+                # 1) loopback: a 100 Hz, 1 V-peak sine centered on 2.5 V (5V path),
                 #    captured while it runs; expect ~2 V peak-to-peak around 2.5 V.
                 loopback_measure_phase(
                     bench, waveform="sine", freq_hz=100, amplitude=1.0, offset=2.5,
