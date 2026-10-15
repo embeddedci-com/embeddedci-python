@@ -515,6 +515,8 @@ class GenerateResult(BaseModel):
     freq_hz: float
     dac_path: str
     cotrig: bool
+    bits: int = Field(default=8, description=(
+        "16 when the pod played the calibrated 16-bit waveform (firmware 3.9.1+), 8 for 8-bit levels."))
 
 
 class StopResult(BaseModel):

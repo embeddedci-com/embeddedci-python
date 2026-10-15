@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `generate` plays the calibrated 16-bit waveform on firmware 3.9.1+ (through the SDK's
+  `generate16`), and its result says which form ran: `bits` 16 or 8.
+
 ## 2.12.0
 
 - New tool `usb_network`: read the pod's USB network setting, or turn the adapter off over the USB

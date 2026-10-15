@@ -526,7 +526,7 @@ def test_capture_correlated(connected):
 
 def test_generate_and_stop(connected):
     result = call("generate", waveform="sine", freq_hz=1000, amplitude=1.0, on_capture=True)
-    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "5v", "cotrig": True}
+    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "5v", "cotrig": True, "bits": 8}
     assert connected.requests[-2] == {"cmd": "dac_out", "path": "5v"}
     assert connected.requests[-1]["amplitude"] == 51
     assert call("dac_stop") == {"stopped": True}

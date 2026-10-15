@@ -1550,17 +1550,22 @@ async def generate(
         "Route dac_path first. false = keep the current analog path (e.g. after analog_path('cal1') "
         "for a DAC-to-ADC loopback); dac_path then only sets the volts scaling."))] = True,
 ) -> m.GenerateResult:
-    """Drive a sine, square or sawtooth on a DAC output (built from 8-bit levels).
+    """Drive a sine, square or sawtooth on a DAC output.
+
+    On firmware 3.9.1+ the pod takes the volts, calibrates them for dac_path and plays the waveform
+    at the DAC's full 16 bits (bits=16 in the result); both peaks must then be on the path. Older firmware builds it from 8-bit levels (bits=8): 256 steps over the path.
 
     dac_path current_out plays it as a current on the 4-20 mA output (J9), with amplitude and offset
-    in amps and steps of about 63 uA. See current_out for the wiring it needs. The DAC voltage
+    in amps and steps of about 0.25 uA (63 uA on older firmware). See current_out for the wiring it needs. The DAC voltage
     outputs are switched off for it. dac_stop then leaves the loop where the waveform stopped: call
     current_out(0.004) to go back to 4 mA.
     """
     handle = await _call(lambda: SESSION.require().generate(
         waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, dac_path=dac_path,
         duration=duration, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
-    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=dac_path, cotrig=handle.cotrig)
+    bits = 16 if (handle.data or {}).get("bits") == 16 else 8
+    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=dac_path, cotrig=handle.cotrig,
+                            bits=bits)
 
 
 @mcp.tool(annotations=_ann("Stop the DAC", idempotent=True))

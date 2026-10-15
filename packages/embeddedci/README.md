@@ -1017,7 +1017,8 @@ print(max(loop.currents))                  # a capture of J8 carries the loop cu
 bp.replay(loop, dac_path="current_out")    # play the captured loop back on J9
 ```
 
-- `generate` builds 8-bit levels: steps of about 63 µA. `replay` is 16-bit.
+- `generate` steps are about 0.25 µA on firmware 3.9.1+ (`capabilities.generate16`, 16-bit) and
+  63 µA on older firmware (8-bit levels). `replay` is 16-bit.
 - Stopping the returned handle returns the loop to 4 mA. A bare `dac_stop()` does not.
 - A capture or recording of a voltage has no current to reproduce: on `current_out` it needs
   `mapping="fit"`, which stretches its shape over the output's range. The same holds for a
@@ -1144,7 +1145,15 @@ from embeddedci.benchpod import Fault
 
 # A parametric waveform, in volts: 0-3.3 V square wave that stops by itself after 5 s.
 bp.generate("square", freq_hz=10, amplitude=1.65, offset=1.65, dac_path="3v3", duration=5.0)
+```
 
+On firmware 3.9.1+ (`capabilities.generate16`) the pod takes the volts, applies its own per-path
+calibration and plays the waveform at the DAC's full 16 bits (about 50 µV a step on `3v3`); both
+peaks must be on the path (0 to 3.3 V works: the pod clamps a peak just past an end it cannot quite
+reach). Older firmware builds it from 8-bit levels: 256 steps
+over the path (about 13 mV on `3v3`).
+
+```python
 golden = bp.capture_adc(16_384, sample_rate_hz=100_000, source="ext")
 
 with bp.replay(golden, dac_path="5v"):                   # loops until the block exits
@@ -1627,7 +1636,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 |---|---|
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
-| DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
+| DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
 | Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
