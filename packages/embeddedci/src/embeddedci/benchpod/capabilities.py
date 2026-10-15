@@ -285,7 +285,11 @@ class Capabilities:
         caps = status.get("caps")
         if isinstance(caps, (list, tuple)):
             names = {str(x).lower() for x in caps}
-            c.scope = c.scope or ("signal" in names or "scope" in names)
+            # "signal" stood for the scope on firmware that predates the analog flag. Current
+            # firmware lists it on every board, the digital-only one included, and names "scope"
+            # itself, so it only counts when the status has no analog flag.
+            legacy = _as_bool(status, "analog") is None
+            c.scope = c.scope or "scope" in names or (legacy and "signal" in names)
             c.analyzer = c.analyzer or ("la" in names or "analyzer" in names)
             c.serial = c.serial or ("uart" in names or "serial" in names)
             # The DAC/gateware features. Firmware advertises these in status.caps[] built from
