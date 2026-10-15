@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.13.0
 
 - `generate()` on firmware 3.9.1+ (`Capabilities.generate16`) sends the volts (or microamps on
   `current_out`) and the pod plays the waveform calibrated at the DAC's full 16 bits, instead of
