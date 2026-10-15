@@ -1,5 +1,10 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `Capabilities.scope` is False on the digital-only board. Current firmware lists `signal` on every
+  board; it only stands for the scope on firmware without the `analog` flag.
+
 ## 2.13.0
 
 - `generate()` on firmware 3.9.1+ (`Capabilities.generate16`) sends the volts (or microamps on
