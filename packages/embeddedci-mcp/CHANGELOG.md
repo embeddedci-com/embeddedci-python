@@ -1,9 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.0
 
 - `generate` plays the calibrated 16-bit waveform on firmware 3.9.1+ (through the SDK's
   `generate16`), and its result says which form ran: `bits` 16 or 8.
+- Requires embeddedci 2.13.0.
 
 ## 2.12.0
 
