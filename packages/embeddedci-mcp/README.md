@@ -300,9 +300,9 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `generate` | Drive a sine, square or sawtooth on a DAC output (volts, or amps on `current_out`). | **`waveform`**, **`freq_hz`**, **`amplitude`**, `offset`, `dac_path=5v`, `duration`, `sample_rate_hz`, `on_capture=false`, `route=true` |
+| `generate` | Drive a sine, square or sawtooth on a DAC output (volts, or amps on `current_out`). | **`waveform`**, **`freq_hz`**, **`amplitude`**, `offset`, `dac_path=3v3`, `duration`, `sample_rate_hz`, `on_capture=false`, `route=true` |
 | `dac_stop` | Stop any DAC output: generator, replay or control loop. | none |
-| `replay` | Loop your own samples, or the last ADC capture, out of the DAC. | `volts`, `from_last_capture=false`, `dac_path=5v`, `mapping=faithful`, `sample_rate_hz`, `fault`, `on_capture=false`, `route=true`, `switch_image=true` |
+| `replay` | Loop your own samples, or the last ADC capture, out of the DAC. | `volts`, `from_last_capture=false`, `dac_path=3v3`, `mapping=faithful`, `sample_rate_hz`, `fault`, `on_capture=false`, `route=true`, `switch_image=true` |
 | `list_waveforms` | The organization's cloud waveform library. | none |
 | `replay_waveform` | Loop a cloud-library waveform out of the DAC. | **`waveform_id`**, `dac_path`, `mapping=faithful`, `sample_rate_hz`, `window_start=0`, `window_len=0`, `target_samples=0`, `fault`, `on_capture=false`, `switch_image=true` |
 | `save_capture_as_recording` | Save the last ADC capture to the cloud waveform library. | **`name`**, `full_scale_v` |

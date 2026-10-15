@@ -526,14 +526,19 @@ def test_capture_correlated(connected):
 
 def test_generate_and_stop(connected):
     result = call("generate", waveform="sine", freq_hz=1000, amplitude=1.0, on_capture=True)
-    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "5v", "cotrig": True, "bits": 8}
-    assert connected.requests[-2] == {"cmd": "dac_out", "path": "5v"}
-    assert connected.requests[-1]["amplitude"] == 51
+    # No dac_path: the 3.3 V output, the lowest voltage one.
+    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "3v3", "cotrig": True, "bits": 8}
+    assert connected.requests[-2] == {"cmd": "dac_out", "path": "3v3"}
+    assert connected.requests[-1]["amplitude"] == 77
     assert call("dac_stop") == {"stopped": True}
-    # route=false keeps a loopback set up with analog_path: no dac_out before the generator.
+    # route=false keeps a loopback set up with analog_path: no dac_out before the generator, and
+    # the volts scale for the routed DAC (cal1 is the 5 V one).
     call("analog_path", path="cal1")
-    call("generate", waveform="square", freq_hz=100, amplitude=1.0, route=False)
+    res = call("generate", waveform="square", freq_hz=100, amplitude=1.0, route=False)
     assert [r["cmd"] for r in connected.requests[-2:]] == ["analog_path", "generate"]
+    assert res["dac_path"] == "5v" and connected.requests[-1]["amplitude"] == 51
+    res = call("generate", waveform="sine", freq_hz=100, amplitude=1.0, dac_path="12v")
+    assert res["dac_path"] == "12v" and connected.requests[-2] == {"cmd": "dac_out", "path": "12v"}
 
 
 def test_replay_sources(connected):

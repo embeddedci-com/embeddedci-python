@@ -231,7 +231,7 @@ def recording_to_replay_codes(
     raw: bytes,
     *,
     src_full_scale_v: float,
-    dac_path: str = "5v",
+    dac_path: str = "3v3",
     mapping: str = FAITHFUL,
     window_start: int = 0,
     window_len: int = 0,

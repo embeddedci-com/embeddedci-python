@@ -43,7 +43,7 @@ def build_test(pod: str) -> htf.Test:
     return htf.Test(
         htf.PhaseGroup(
             main=[
-                # 1) loopback: a 100 Hz, 1 V-peak sine centred on 2.5 V (5V path),
+                # 1) loopback: a 100 Hz, 1 V-peak sine centered on 2.5 V (5V path),
                 #    captured while it runs; expect ~2 V peak-to-peak around 2.5 V.
                 loopback_measure_phase(
                     bench, waveform="sine", freq_hz=100, amplitude=1.0, offset=2.5,
@@ -52,7 +52,7 @@ def build_test(pod: str) -> htf.Test:
                 ),
                 # 2) free-run a square wave for 2 s, then snapshot the ADC on its own.
                 signal_generate_phase(bench, waveform="square", freq_hz=100, amplitude=1.0,
-                                      duration=2.0),
+                                      dac_path="5v", duration=2.0),
                 adc_capture_phase(bench, samples=4096, sample_rate_hz=ADC_RATE_HZ,
                                   source="ext", pp_range=(1.8, 2.2)),
             ],

@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-openhtf`
 
+## Unreleased
+
+- `signal_generate`, `signal_generate_phase` and `loopback_measure_phase` default to
+  `dac_path="3v3"` instead of `"5v"`; `dac_replay_phase` now defaults to the path stored with the
+  waveform, else `"3v3"`. Pass `dac_path="5v"` to keep the old output.
+
 ## 2.3.0
 
 - Needs `embeddedci` 2.12.0 or later (was 2.4), the SDK whose `usb` connection reaches the USB

@@ -4,6 +4,11 @@
 
 - `Capabilities.scope` is False on the digital-only board. Current firmware lists `signal` on every
   board; it only stands for the scope on firmware without the `analog` flag.
+- `generate`, `replay`, `Waveforms.preview` and `replay_waveform` (for a waveform stored without
+  a path) default to `dac_path="3v3"` instead of `"5v"`, so a call that leaves the output out can
+  no longer put 5 V on a 3.3 V pin. Pass `dac_path="5v"` to keep the old output. With
+  `route=False` (a loopback set up with `analog_path`), `generate` and `replay` scale for the
+  output this connection last routed (`cal1` = 5 V, `cal2` = 12 V), else `5v` as before.
 
 ## 2.13.0
 

@@ -1910,15 +1910,23 @@
           "type": "number"
         },
         "dac_path": {
-          "default": "5v",
-          "enum": [
-            "3v3",
-            "5v",
-            "12v",
-            "current_out"
+          "anyOf": [
+            {
+              "enum": [
+                "3v3",
+                "5v",
+                "12v",
+                "current_out"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Dac Path",
-          "type": "string"
+          "default": null,
+          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
+          "title": "Dac Path"
         },
         "duration": {
           "anyOf": [
@@ -1948,7 +1956,7 @@
             }
           ],
           "default": null,
-          "description": "Centre volts; default mid-range of dac_path. On current_out: centre AMPS (0.012 = 12 mA).",
+          "description": "Center volts; default mid-range of dac_path. On current_out: center AMPS (0.012 = 12 mA).",
           "title": "Offset"
         },
         "on_capture": {
@@ -3085,15 +3093,23 @@
       },
       "properties": {
         "dac_path": {
-          "default": "5v",
-          "enum": [
-            "3v3",
-            "5v",
-            "12v",
-            "current_out"
+          "anyOf": [
+            {
+              "enum": [
+                "3v3",
+                "5v",
+                "12v",
+                "current_out"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Dac Path",
-          "type": "string"
+          "default": null,
+          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
+          "title": "Dac Path"
         },
         "fault": {
           "anyOf": [
@@ -3249,7 +3265,7 @@
             }
           ],
           "default": null,
-          "description": "Output path; default the waveform's own (else 5v).",
+          "description": "Output path; default the waveform's own, else 3v3.",
           "title": "Dac Path"
         },
         "fault": {

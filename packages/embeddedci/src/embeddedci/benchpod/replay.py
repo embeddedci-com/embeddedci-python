@@ -5,7 +5,7 @@ pod a *deep* replay streams from PSRAM and — with gateware v18 — an ADC/LA c
 the same time**. :class:`DacHandle` / :class:`ReplayHandle` model a running output so a test can
 express "drive this while I capture" as a context manager::
 
-    with bp.replay(recording, dac_path="5v"):
+    with bp.replay(recording, dac_path="3v3"):
         la = bp.capture_la(8192, sample_rate_hz=1e6)   # runs concurrently
     # DAC stopped on exit
 

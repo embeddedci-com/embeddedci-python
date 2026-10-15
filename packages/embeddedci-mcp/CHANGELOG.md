@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `generate` and `replay` default to `dac_path` 3v3 instead of 5v, so an agent that leaves the
+  output out can no longer put 5 V on a 3.3 V pin. With `route=false` they scale for the output
+  last routed (`analog_path` cal1 = 5v, cal2 = 12v), else 5v. `replay_waveform` falls back to 3v3
+  for a waveform stored without a path. The instructions tell agents to pick the output the DUT
+  pin tolerates. `generate` reports the output it used.
+
 ## 2.13.0
 
 - `generate` plays the calibrated 16-bit waveform on firmware 3.9.1+ (through the SDK's

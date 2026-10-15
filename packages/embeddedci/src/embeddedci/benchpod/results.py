@@ -113,7 +113,7 @@ class Capture:
         return math.sqrt(sum(v * v for v in self.volts) / len(self.volts))
 
     def rms_ac(self) -> float:
-        """RMS about the mean (the AC component) — a clean amplitude for a centred waveform."""
+        """RMS about the mean (the AC component) — a clean amplitude for a centered waveform."""
         if not self.volts:
             return 0.0
         m = self.mean()

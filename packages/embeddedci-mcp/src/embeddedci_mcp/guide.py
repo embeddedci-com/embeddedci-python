@@ -64,6 +64,8 @@ LA I/O bank: 1.8 V or 3.3 V (set_la_voltage), matching the DUT's I/O voltage.
 
 Analog:
   DAC outputs  '3v3', '5v', '12v' (bipolar +/-12 V)   — dac_output, generate, replay
+               generate and replay default to 3v3: pass the output the DUT pin tolerates (5v and 12v
+               can damage a 3.3 V pin; ask the user which SMA is wired if unsure).
   ADC sources  'ext' front SMA (true volts, the /12 divider is applied), 'cal1' (5 V DAC loopback),
                'cal2' (12 V DAC loopback), 'current_in' (4-20 mA input, J8)   — adc_read, capture_adc
   4-20 mA      output J9 (current_out): loop powered, pin 1 plus to an external floating supply (8 V plus
