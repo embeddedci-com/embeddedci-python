@@ -101,7 +101,7 @@ class WaveformLibrary:
         )
         return raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
 
-    def preview(self, waveform_id: str, *, mapping: str = "faithful", dac_path: str = "5v",
+    def preview(self, waveform_id: str, *, mapping: str = "faithful", dac_path: str = "3v3",
                 points: int = 4096) -> Dict[str, Any]:
         """Server-downsampled, output-mapped preview of a recording (what the DAC will emit)."""
         _, data = self._api.request(

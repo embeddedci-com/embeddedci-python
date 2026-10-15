@@ -1535,6 +1535,15 @@ async def la_timing(
 
 # -- DAC ------------------------------------------------------------------------------
 
+def _dac_path_arg(dac_path: Optional[str], route: bool) -> Dict[str, Any]:
+    """The dac_path keyword for generate/replay. Left out and routed: 3v3, the lowest voltage
+    output, passed explicitly so an older SDK (whose default is 5v) plays there too. Left out with
+    route false: omitted, so the SDK scales for the output already routed (cal1 = 5v)."""
+    if dac_path is not None:
+        return {"dac_path": dac_path}
+    return {"dac_path": "3v3"} if route else {}
+
+
 @mcp.tool(annotations=_ann("Generate a waveform", destructive=True))
 async def generate(
     waveform: Waveshape,
@@ -1542,7 +1551,9 @@ async def generate(
     amplitude: Annotated[float, Field(gt=0, description="Peak volts. On dac_path current_out: peak AMPS (0.006 = 6 mA).")],
     offset: Annotated[Optional[float], Field(description=(
         "Centre volts; default mid-range of dac_path. On current_out: centre AMPS (0.012 = 12 mA)."))] = None,
-    dac_path: DacPath = "5v",
+    dac_path: Annotated[Optional[DacPath], Field(description=(
+        "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
+        "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
     duration: Annotated[Optional[float], Field(description="Seconds; omit to run until dac_stop.")] = None,
     sample_rate_hz: RateHz = None,
     on_capture: Annotated[bool, Field(description="Start on the next capture's hardware t0 (phase-locked).")] = False,
@@ -1561,10 +1572,10 @@ async def generate(
     current_out(0.004) to go back to 4 mA.
     """
     handle = await _call(lambda: SESSION.require().generate(
-        waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, dac_path=dac_path,
+        waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, **_dac_path_arg(dac_path, route),
         duration=duration, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
     bits = 16 if (handle.data or {}).get("bits") == 16 else 8
-    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=dac_path, cotrig=handle.cotrig,
+    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=handle.dac_path, cotrig=handle.cotrig,
                             bits=bits)
 
 
@@ -1597,7 +1608,9 @@ async def replay(
     volts: Annotated[Optional[List[float]], Field(description=(
         "Waveform in volts, one value per sample. On dac_path current_out the values are AMPS (0.004 to 0.020)."))] = None,
     from_last_capture: Annotated[bool, Field(description="Replay the last capture_adc instead of volts.")] = False,
-    dac_path: DacPath = "5v",
+    dac_path: Annotated[Optional[DacPath], Field(description=(
+        "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
+        "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
     mapping: Annotated[ReplayMapping, Field(description="faithful = reproduce volts (clip); fit = auto-scale.")] = "faithful",
     sample_rate_hz: Annotated[Optional[float], Field(description="Replay rate; defaults to the capture's own rate.")] = None,
     fault: Optional[m.FaultSpec] = None,
@@ -1623,7 +1636,7 @@ async def replay(
             if SESSION.last_adc is None:
                 raise SessionStateError("no ADC capture yet — run capture_adc first")
             source = SESSION.last_adc
-        return _replay_result(pod.replay(source, dac_path=dac_path, mapping=mapping,
+        return _replay_result(pod.replay(source, **_dac_path_arg(dac_path, route), mapping=mapping,
                                          sample_rate_hz=sample_rate_hz, fault=_fault(fault),
                                          on_capture=on_capture, route=route,
                                          switch_image=switch_image))
@@ -1677,7 +1690,7 @@ async def cloud_list_devices() -> m.CloudDeviceList:
 @mcp.tool(annotations=_ann("Replay a library waveform", destructive=True, cloud=True))
 async def replay_waveform(
     waveform_id: str,
-    dac_path: Annotated[Optional[DacPath], Field(description="Output path; default the waveform's own (else 5v).")] = None,
+    dac_path: Annotated[Optional[DacPath], Field(description="Output path; default the waveform's own, else 3v3.")] = None,
     mapping: ReplayMapping = "faithful",
     sample_rate_hz: RateHz = None,
     window_start: Annotated[int, Field(ge=0, description="First recording sample to replay.")] = 0,

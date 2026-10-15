@@ -55,6 +55,7 @@ from .constants import (
     DAC_OUTPUT_PATHS,
     DAC_PATHS,
     DECODE_PROTOCOLS,
+    DEFAULT_DAC_PATH,
     GPIO_MODES,
     LA_STEP_MAX_DELAY_US,
     LA_STEP_MAX_STEPS,
@@ -131,6 +132,9 @@ _WIRING_LOOKUP_TIMEOUT = 3.0
 _GENERATOR_MAX_CODE = 255
 #: The 4-20 mA output (J9) as a waveform output path. Levels on it are amps.
 _CURRENT_OUT = "current_out"
+# The DAC output each named analog path drives (cal1/cal2 loop the 5 V / 12 V DAC back to the ADC).
+_ANALOG_PATH_DAC = {"dac_3v3": "3v3", "dac_5v": "5v", "dac_12v": "12v", "cal1": "5v", "cal2": "12v",
+                    "current_out": _CURRENT_OUT}
 #: The sense resistor on the 4-20 mA input (J8): ``current_in`` reads the voltage across it.
 _CURRENT_IN_SENSE_OHMS = 249.0
 #: The live zero a stopped current waveform returns to (microamps).
@@ -252,6 +256,9 @@ class BenchPod:
         self._wiring: Optional[Wiring] = Wiring.coerce(wiring) if wiring is not None else None
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
+        # The DAC output this connection last routed (dac_output, analog_path, a routed waveform),
+        # so a waveform played with route=False and no dac_path scales for it. None = unknown.
+        self._routed_dac_path: Optional[str] = None
         self._api_base = api_base or os.environ.get(API_BASE_ENV)
         self._api_key = api_key or os.environ.get(API_KEY_ENV)
         self._cloud_user_token = cloud_user_token
@@ -1062,7 +1069,12 @@ class BenchPod:
         for a waveform played as a current (:meth:`current_out` does it for a held level).
         """
         check_choice(path, ANALOG_PATHS, "path")
-        return AnalogPathState.from_reply(self.command({"cmd": "analog_path", "path": path}))
+        state = AnalogPathState.from_reply(self.command({"cmd": "analog_path", "path": path}))
+        if path in _ANALOG_PATH_DAC:
+            self._routed_dac_path = _ANALOG_PATH_DAC[path]
+        elif path == "off":
+            self._routed_dac_path = None  # adc_ext / current_in only move the ADC side
+        return state
 
     def dac_output(self, path: DacOutputPath, *, volts: Optional[float] = None) -> DacOutput:
         """Route a DAC output path and, with ``volts``, drive that CALIBRATED DC voltage.
@@ -1076,7 +1088,9 @@ class BenchPod:
             if path == "off":
                 raise ValueError("volts cannot be set on the 'off' path")
             req["volts"] = float(volts)
-        return DacOutput.from_reply(self.command(req))
+        out = DacOutput.from_reply(self.command(req))
+        self._routed_dac_path = None if path == "off" else path
+        return out
 
     # -- the 4-20 mA output (J9) ------------------------------------------------
     # An XTR116 two-wire transmitter. The pod owns the conversion (firmware `current_out`); the
@@ -1585,6 +1599,19 @@ class BenchPod:
             self.command({"cmd": "analog_path", "path": _CURRENT_OUT})
         else:
             self.command({"cmd": "dac_out", "path": dac_path})
+        self._routed_dac_path = dac_path
+
+    def _default_dac_path(self, route: bool) -> str:
+        """The output a waveform plays on when ``dac_path`` is left out.
+
+        Routed (the default): ``3v3``, the lowest voltage output, so a call that leaves the output
+        out cannot put 5 V on a 3.3 V pin. With ``route=False`` nothing is switched and the path
+        only sets the volts scaling, so it follows what this connection last routed (``cal1`` is
+        the 5 V DAC, ``cal2`` the 12 V one), else ``5v``, the cal1 loopback's scaling.
+        """
+        if route:
+            return DEFAULT_DAC_PATH
+        return self._routed_dac_path or "5v"
 
     def _stop_current_out(self) -> None:
         """Stop a waveform on the 4-20 mA output and return the loop to its live zero. ``dac_stop``
@@ -1598,7 +1625,7 @@ class BenchPod:
     # -- DAC generate / stop ----------------------------------------------------
 
     def generate(self, waveform: Waveshape = "sine", *, freq_hz: float, amplitude: float,
-                 offset: Optional[float] = None, dac_path: DacPath = "5v",
+                 offset: Optional[float] = None, dac_path: Optional[DacPath] = None,
                  duration: Optional[float] = None, sample_rate_hz: Optional[float] = None,
                  on_capture: bool = False, route: bool = True) -> DacHandle:
         """Generate a parametric waveform (``sine``/``square``/``sawtooth``) on a DAC output path.
@@ -1622,8 +1649,14 @@ class BenchPod:
         By default the output path is routed first. ``route=False`` keeps the current analog
         switching — e.g. after ``analog_path("cal1")`` for a DAC→ADC loopback, which routing the
         output would undo — and ``dac_path`` then only sets the volts scaling.
+
+        ``dac_path`` left out is ``3v3``, the lowest voltage output: pass the output your DUT pin
+        tolerates. With ``route=False`` it is the output this connection last routed instead
+        (``cal1`` → ``5v``, ``cal2`` → ``12v``), else ``5v``.
         """
         check_choice(waveform, WAVESHAPES, "waveform")
+        if dac_path is None:
+            dac_path = self._default_dac_path(route)  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
@@ -1702,6 +1735,8 @@ class BenchPod:
         if not route:
             req["route"] = False
         d = _dict(self.command(req))
+        if route:
+            self._routed_dac_path = dac_path  # the pod routed it
         return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
                          cotrig=bool(d.get("cotrig", False)), data=d)
 
@@ -1942,14 +1977,15 @@ class BenchPod:
                             switched_image=switched)
 
     def replay(self, source: Union[Capture, Sequence[float], Sequence[int]], *,
-               dac_path: DacPath = "5v", mapping: ReplayMapping = "faithful",
+               dac_path: Optional[DacPath] = None, mapping: ReplayMapping = "faithful",
                sample_rate_hz: Optional[float] = None, deep: Optional[bool] = None,
                fault: Union[Fault, Dict[str, Any], None] = None,
                are_codes: bool = False, on_capture: bool = False,
                route: bool = True, switch_image: bool = True) -> ReplayHandle:
         """Replay a waveform on the DAC, streaming it to the device over the transport.
 
-        ``route=False`` keeps the current analog switching (see :meth:`generate`).
+        ``route=False`` keeps the current analog switching (see :meth:`generate`). ``dac_path``
+        left out is ``3v3``, or with ``route=False`` the output last routed (see :meth:`generate`).
 
         ``source`` is a :class:`Capture` (its volts are replayed), a sequence of volts, or — with
         ``are_codes=True`` — raw DAC codes. Volts map to codes for ``dac_path`` (``faithful``
@@ -1960,7 +1996,7 @@ class BenchPod:
         The replay LOOPS until the returned :class:`ReplayHandle` is stopped,
         so it can run concurrently with a capture (gateware v18)::
 
-            with bp.replay(cap, dac_path="5v"):
+            with bp.replay(cap, dac_path="3v3"):
                 la = bp.capture_la(8192, sample_rate_hz=1e6)
 
         ``on_capture=True`` arms the DAC to start on the NEXT capture's hardware t0 (gateware
@@ -1973,6 +2009,8 @@ class BenchPod:
         over the output's range. Stopping the handle returns the loop to 4 mA. See
         :meth:`current_out` for the wiring.
         """
+        if dac_path is None:
+            dac_path = self._default_dac_path(route)  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         bits = self._replay_bits()
@@ -2010,7 +2048,7 @@ class BenchPod:
         """Load a **cloud-stored** waveform from the library and replay it on the DAC.
 
         ``waveform`` is a waveform id or a :class:`~embeddedci.benchpod.waveforms.Waveform`.
-        ``dac_path`` defaults to the path stored with the waveform (else ``5v``).
+        ``dac_path`` defaults to the path stored with the waveform (else ``3v3``).
         ``window_start``/``window_len`` select a slice of a recording; ``target_samples``
         downsamples a shallow replay. By default this uses the server's replay DSP when the device
         is cloud-connected; otherwise it fetches the recording and replays it over the device
@@ -2033,7 +2071,7 @@ class BenchPod:
         lib = self.waveforms
         wf = lib.get(wid)  # type: ignore[arg-type]
         if dac_path is None:
-            dac_path = wf.dac_path if wf.dac_path in DAC_PATHS else "5v"  # type: ignore[assignment]
+            dac_path = wf.dac_path if wf.dac_path in DAC_PATHS else DEFAULT_DAC_PATH  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")  # type: ignore[arg-type]
         path_unit = "mA" if dac_path == _CURRENT_OUT else "V"
         wf_unit = getattr(wf, "unit", "V") or "V"

@@ -442,7 +442,7 @@ def test_route_false_keeps_a_loopback_and_route_true_reroutes(pod):
         cap = pod.capture_adc(8192, sample_rate_hz=20_000)
     assert abs(cap.dominant_frequency() - 200) < 5 and p2p(cap) > 800, (cap.dominant_frequency(), p2p(cap))
     pod.analog_path("cal1")
-    with pod.generate("sine", freq_hz=200, amplitude=0.8, offset=1.5):
+    with pod.generate("sine", freq_hz=200, amplitude=0.8, offset=1.5, dac_path="5v"):
         assert pod.lowlevel.cal_switch_status()["cal1"] == 0  # dac_out re-routed the output
 
 

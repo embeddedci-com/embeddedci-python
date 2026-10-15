@@ -1138,7 +1138,12 @@ v35+ (`Capabilities.capture_trigger`).
 
 Every DAC output keeps running until stopped. The returned `DacHandle` / `ReplayHandle` is a
 context manager that stops it on exit; `bp.dac_stop()` stops any output (generator, replay or
-control loop). DAC paths are `"3v3"`, `"5v"` and `"12v"`.
+control loop). DAC paths are `"3v3"`, `"5v"` and `"12v"`. `generate`, `replay` and
+`replay_waveform` (for a waveform stored without a path) default to `"3v3"`, the lowest voltage
+output: pass the output your DUT pin tolerates, since `"5v"` and `"12v"` can drive more than a
+3.3 V pin takes. With `route=False` nothing is switched and the path only scales the volts, so the
+default is the output this connection last routed (`analog_path("cal1")` is the 5 V DAC,
+`"cal2"` the 12 V one), else `"5v"`.
 
 ```python
 from embeddedci.benchpod import Fault
@@ -1165,11 +1170,11 @@ with bp.replay(ramp, dac_path="3v3", sample_rate_hz=10_000,
     print(r.samples, r.sample_rate_hz, r.deep)
 ```
 
-* `generate(waveform, *, freq_hz, amplitude, offset=None, dac_path="5v", duration=None,
+* `generate(waveform, *, freq_hz, amplitude, offset=None, dac_path=None, duration=None,
   sample_rate_hz=None, on_capture=False)` — `sine`, `square` or `sawtooth`. `amplitude` is the peak
   and `offset` the centre (default: mid-range of the path). The firmware builds the waveform from
   8-bit levels, so volts are quantised to full-scale / 255.
-* `replay(source, *, dac_path="5v", mapping="faithful", sample_rate_hz=None, deep=None, fault=None,
+* `replay(source, *, dac_path=None, mapping="faithful", sample_rate_hz=None, deep=None, fault=None,
   are_codes=False, on_capture=False)` — `source` is a `Capture` (its volts, at its own sample rate
   by default), a sequence of volts, or raw DAC codes with `are_codes=True`. `mapping="faithful"`
   reproduces the voltage (clipping outside the path's range), `"fit"` auto-scales. Above 2048 samples

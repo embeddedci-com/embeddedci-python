@@ -132,6 +132,9 @@ GpioMode = Literal["input", "output", "open_drain"]
 TriggerEdge = Literal["rising", "falling", "high", "low"]
 
 DAC_PATHS: Tuple[str, ...] = get_args(DacPath)
+#: The DAC output a waveform plays on when ``dac_path`` is left out: the lowest voltage output,
+#: so a call that leaves it out cannot put 5 V on a 3.3 V pin.
+DEFAULT_DAC_PATH = "3v3"
 DAC_OUTPUT_PATHS: Tuple[str, ...] = get_args(DacOutputPath)
 ANALOG_PATHS: Tuple[str, ...] = get_args(AnalogPath)
 ADC_SOURCES: Tuple[str, ...] = get_args(AdcSource)

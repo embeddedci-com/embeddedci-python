@@ -65,11 +65,11 @@ def test_signal_generate_phase_converts_volts_through_generate():
                                      freq_hz=1000, amplitude=1.0, duration=0.5))
     assert rec.outcome == tr.Outcome.PASS
     i = _cmds(tx).index("generate")
-    # generate routes the DAC path first, then sends 8-bit generator codes:
-    # 1.0 V / (5 V / 255) = 51, offset defaults to mid-range 2.5 V -> 128.
-    assert tx.commands[i - 1] == {"cmd": "dac_out", "path": "5v"}
+    # generate routes the DAC path first (3v3 when none is given), then sends 8-bit generator
+    # codes: 1.0 V / (3.3 V / 255) = 77, offset defaults to mid-range 1.65 V -> 127.
+    assert tx.commands[i - 1] == {"cmd": "dac_out", "path": "3v3"}
     assert tx.commands[i] == {"cmd": "generate", "waveform": "sine", "freq": 1000.0,
-                              "amplitude": 51, "offset": 128, "duration_ms": 500}
+                              "amplitude": 77, "offset": 127, "duration_ms": 500}
 
 
 def test_signal_generate_helper_path_offset_and_rate():
@@ -169,8 +169,9 @@ def test_loopback_measure_phase_generates_captures_then_stops():
     assert rec.outcome == tr.Outcome.PASS
     # DAC first (its path re-applies and would open a loopback relay), then route the ADC.
     assert _cmds(tx) == ["dac_out", "generate", "analog_path", "capture", "dac_stop"]
+    assert tx.commands[0] == {"cmd": "dac_out", "path": "3v3"}
     assert tx.commands[1] == {"cmd": "generate", "waveform": "sine", "freq": 100.0,
-                              "amplitude": 51, "offset": 128}
+                              "amplitude": 77, "offset": 127}
     assert tx.commands[2] == {"cmd": "analog_path", "path": "adc_ext"}
     assert tx.commands[3] == {"cmd": "capture", "samples": 8, "sample_rate_mhz": 0.05}
     p = _phase(rec, "loopback_measure")

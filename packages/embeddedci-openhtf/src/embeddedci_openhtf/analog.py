@@ -92,7 +92,7 @@ _ADC_SOURCE_PATH: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "c
 # -- low-level helpers (operate on a BenchPod or BenchPodPlug) ---------------
 
 def signal_generate(bench: Any, *, waveform: Waveshape, freq_hz: float, amplitude: float,
-                    offset: Optional[float] = None, dac_path: DacPath = "5v",
+                    offset: Optional[float] = None, dac_path: DacPath = "3v3",
                     duration: Optional[float] = None,
                     sample_rate_hz: Optional[float] = None) -> DacHandle:
     """Start a parametric DAC waveform (``sine``/``square``/``sawtooth``) on ``dac_path``.
@@ -223,7 +223,7 @@ def _record_volts(test: Any, cap: Capture, *, prefix: str, attachment: Optional[
 # -- phase factories ---------------------------------------------------------
 
 def signal_generate_phase(plug: type, *, waveform: Waveshape, freq_hz: float, amplitude: float,
-                          offset: Optional[float] = None, dac_path: DacPath = "5v",
+                          offset: Optional[float] = None, dac_path: DacPath = "3v3",
                           duration: Optional[float] = None,
                           sample_rate_hz: Optional[float] = None,
                           name: str = "signal_generate") -> object:
@@ -362,7 +362,7 @@ def adc_capture_phase(plug: type, *, samples: int = 4096, sample_rate_hz: Option
 
 def loopback_measure_phase(plug: type, *, waveform: Waveshape = "sine", freq_hz: float,
                            amplitude: float, offset: Optional[float] = None,
-                           dac_path: DacPath = "5v", samples: int = 4096,
+                           dac_path: DacPath = "3v3", samples: int = 4096,
                            sample_rate_hz: Optional[float] = None,
                            source: Optional[AdcSource] = "ext", settle: float = 0.1,
                            prefix: str = "adc", mean_range: _Range = None,
@@ -454,12 +454,13 @@ def control_loop_phase(plug: type, *, voc_code: Optional[int] = None, sharpness:
     return _loop
 
 
-def dac_replay_phase(plug: type, *, waveform_id: str, dac_path: DacPath = "5v",
+def dac_replay_phase(plug: type, *, waveform_id: str, dac_path: Optional[DacPath] = None,
                      mapping: ReplayMapping = "faithful", target_samples: int = 4096,
                      stop_after: bool = False, switch_image: bool = True,
                      name: str = "dac_replay") -> object:
     """A phase that loads a cloud-stored waveform and replays it (looping) on the DAC.
 
+    ``dac_path`` left out is the path stored with the waveform, else ``3v3``.
     Needs server access (``BENCHPOD_API_KEY``). By default the replay keeps looping after the
     phase (so a later capture phase can observe it); set ``stop_after=True`` to stop it at the end
     of this phase. A replay that needs the deep-replay gateware image switches the pod to it first
@@ -474,7 +475,7 @@ def dac_replay_phase(plug: type, *, waveform_id: str, dac_path: DacPath = "5v",
         if handle.switched_image is not None:
             test.logger.warning("switched the FPGA to the deep-replay gateware image")
         test.logger.info("replaying waveform %s on %s (%d samples)",
-                         waveform_id, dac_path, handle.samples)
+                         waveform_id, handle.dac_path, handle.samples)
         if stop_after:
             handle.stop()
 
