@@ -4,6 +4,11 @@
 
 - `Capabilities.scope` is False on the digital-only board. Current firmware lists `signal` on every
   board; it only stands for the scope on firmware without the `analog` flag.
+- `generate`, `replay`, `Waveforms.preview` and `replay_waveform` (for a waveform stored without
+  a path) default to `dac_path="3v3"` instead of `"5v"`, so a call that leaves the output out can
+  no longer put 5 V on a 3.3 V pin. Pass `dac_path="5v"` to keep the old output. With
+  `route=False` (a loopback set up with `analog_path`), `generate` and `replay` scale for the
+  output this connection last routed (`cal1` = 5 V, `cal2` = 12 V), else `5v` as before.
 
 ## 2.13.0
 
@@ -12,11 +17,6 @@
   8-bit levels (256 steps: about 13 mV on `3v3`, 63 µA on the 4-20 mA output). Both peaks must be
   on the path. Older firmware keeps the 8-bit levels. `route=False` still keeps the analog
   switching.
-- `generate`, `replay`, `Waveforms.preview` and `replay_waveform` (for a waveform stored without
-  a path) default to `dac_path="3v3"` instead of `"5v"`, so a call that leaves the output out can
-  no longer put 5 V on a 3.3 V pin. Pass `dac_path="5v"` to keep the old output. With
-  `route=False` (a loopback set up with `analog_path`), `generate` and `replay` scale for the
-  output this connection last routed (`cal1` = 5 V, `cal2` = 12 V), else `5v` as before.
 - `@pytest.mark.benchpod_capability("analog")` skips a test on the digital-only board and runs it
   on firmware that does not announce the flag, as `BenchPod.can_analog` does (it used to skip
   there too).
