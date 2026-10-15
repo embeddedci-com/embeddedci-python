@@ -135,6 +135,10 @@ class Capabilities:
     #: DAC↔capture co-trigger: a replay can be armed to fire on the next capture's hardware t0
     #: (phase-locked, gateware >= v27). See ``replay_waveform(on_capture=True)``.
     dac_cotrig: bool = False
+    #: ``generate`` takes the waveform in volts (or amps on the 4-20 mA output) and plays it at
+    #: the DAC's full 16 bits, calibrated (firmware 3.9.1+). Without it the generator works in
+    #: 8-bit levels: 256 steps over the output's range.
+    generate16: bool = False
     dac_bits: int = 8
     dac_replay_bits: int = 8
     dac_replay_max_samples: int = 4096
@@ -295,6 +299,7 @@ class Capabilities:
                 ("dac_deep_replay", "dac_deep_replay"),
                 ("dac_control_loop", "dac_control_loop"),
                 ("dac_cotrig", "dac_cotrig"),
+                ("generate16", "generate16"),
                 ("dac_loop_sources", "dac_loop_sources"),
                 ("dac_loop_input_map", "dac_loop_input_map"),
                 ("ota", "ota"),
@@ -355,6 +360,7 @@ class Capabilities:
             c.dac_fullscale_mv = v
         if (v := _as_int(params, "cap.dac_channels")) is not None and v > 0:
             c.dac_channels = v
+        c.generate16 = _as_int(params, "cap.generate_bits") == 16
         for attr, key in (
             ("dac", "cap.dac"), ("dac_dc", "cap.dac_dc"), ("dac_replay", "cap.dac_replay"),
             ("dac_deep_replay", "cap.dac_deep_replay"),

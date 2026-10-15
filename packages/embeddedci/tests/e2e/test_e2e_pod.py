@@ -96,7 +96,7 @@ def test_reset_line_and_usb_cc(pod, rev3):
     lambda p: p.enable_pullup(7),
     lambda p: p.enable_pulldown(1),
     lambda p: p.set_la_voltage(5),
-    lambda p: p.generate("sine", freq_hz=100, amplitude=0.0001),
+    lambda p: p.generate("sine", freq_hz=100, amplitude=0.0),
     lambda p: p.capture_adc(0),
     lambda p: p.capture_la(64, sample_rate_hz=0),
     lambda p: p.replay([1.0], dac_path="24v"),
@@ -106,7 +106,7 @@ def test_reset_line_and_usb_cc(pod, rev3):
     lambda p: p.decode([0, 1], "can"),
     lambda p: p.control_loop(vmin=50000, vmax=1000),
 ], ids=["analog_path alias", "volts on off", "adc source", "pullup on LA7", "pulldown on LA1",
-        "la voltage", "tiny amplitude", "zero samples", "zero rate", "dac path", "fpga image",
+        "la voltage", "zero amplitude", "zero samples", "zero rate", "dac path", "fpga image",
         "zero steps", "9 CAN bytes", "protocol", "inverted clamp"])
 def test_invalid_arguments_raise_before_touching_the_pod(pod, bad_call):
     with pytest.raises(ValueError):

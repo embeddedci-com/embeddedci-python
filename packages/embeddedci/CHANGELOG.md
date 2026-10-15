@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `generate()` on firmware 3.9.1+ (`Capabilities.generate16`) sends the volts (or microamps on
+  `current_out`) and the pod plays the waveform calibrated at the DAC's full 16 bits, instead of
+  8-bit levels (256 steps: about 13 mV on `3v3`, 63 µA on the 4-20 mA output). Both peaks must be
+  on the path. Older firmware keeps the 8-bit levels. `route=False` still keeps the analog
+  switching.
 - `@pytest.mark.benchpod_capability("analog")` skips a test on the digital-only board and runs it
   on firmware that does not announce the flag, as `BenchPod.can_analog` does (it used to skip
   there too).

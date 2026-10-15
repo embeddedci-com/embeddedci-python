@@ -223,6 +223,7 @@
       "dac_loop_sources",
       "dac_loop_input_map",
       "dac_cotrig",
+      "generate16",
       "dac_bits",
       "dac_replay_bits",
       "dac_replay_max_samples",

@@ -1604,13 +1604,15 @@ class BenchPod:
         """Generate a parametric waveform (``sine``/``square``/``sawtooth``) on a DAC output path.
 
         ``amplitude`` is the peak in volts and ``offset`` the centre in volts (default: the middle
-        of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). The firmware builds the
-        waveform from 8-bit levels, so volts are
+        of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). On firmware 3.9.1+
+        (:attr:`Capabilities.generate16`) the pod takes the volts, converts them with its per-path
+        calibration and plays the waveform at the DAC's full 16 bits; both peaks must then be on
+        the path (a peak within 5% of an end the pod cannot quite reach is clamped to it). Older firmware builds it from 8-bit levels, so volts are
         quantised to ``full_scale / 255`` using the same volts→code mapping as :meth:`replay`.
 
         ``dac_path="current_out"`` plays it as a current on the 4-20 mA output (J9):
         ``amplitude`` and ``offset`` are then AMPS (``amplitude=0.006, offset=0.012`` swings 6 to
-        18 mA, in steps of about 63 µA). The DAC voltage outputs are switched off, and stopping
+        18 mA, in steps of about 0.25 µA at 16 bits, 63 µA at 8 bits). The DAC voltage outputs are switched off, and stopping
         the handle returns the loop to 4 mA. See :meth:`current_out` for the wiring.
         ``duration`` (seconds) stops it by itself; omitted, it runs until :meth:`dac_stop` or the
         returned handle's ``stop()``. ``on_capture=True`` defers the start to the next capture's
@@ -1625,6 +1627,10 @@ class BenchPod:
         check_choice(dac_path, DAC_PATHS, "dac_path")
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
+        if self.capabilities.generate16:
+            return self._generate16(waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset,
+                                    dac_path=dac_path, duration=duration,
+                                    sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route)
         vmin, vmax = self._output_range(dac_path, generator=True)
         unit = "A" if dac_path == _CURRENT_OUT else "V"
         span = vmax - vmin
@@ -1654,6 +1660,47 @@ class BenchPod:
             req["on_capture"] = True
         if route:
             self._route_output(dac_path)
+        d = _dict(self.command(req))
+        return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
+                         cotrig=bool(d.get("cotrig", False)), data=d)
+
+    def _generate16(self, waveform: str, *, freq_hz: float, amplitude: float, offset: Optional[float],
+                    dac_path: str, duration: Optional[float], sample_rate_hz: Optional[float],
+                    on_capture: bool, route: bool) -> DacHandle:
+        """:meth:`generate` on firmware 3.9.1+: the calibrated 16-bit form. The pod routes the
+        output itself (unless ``route=False``) and refuses peaks it cannot reach."""
+        vmin, vmax = self._output_range(dac_path)
+        current = dac_path == _CURRENT_OUT
+        unit = "A" if current else "V"
+        amp = float(amplitude)
+        step = (vmax - vmin) / 65535.0
+        if not amp >= step:
+            raise ValueError(f"amplitude must be at least {step:.3g} {unit} (one 16-bit step) on the "
+                             f"{dac_path} path, got {amplitude!r}")
+        off = (vmin + vmax) / 2.0 if offset is None else float(offset)
+        # A little slack for the float edges of the range; the pod checks against its calibration.
+        slack = (vmax - vmin) * 1e-6
+        if off - amp < vmin - slack or off + amp > vmax + slack:
+            raise ValueError(f"the peaks {off - amp:.4g} to {off + amp:.4g} {unit} must stay within "
+                             f"{vmin:.4g}..{vmax:.4g} {unit} on the {dac_path} path")
+        req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq": float(freq_hz)}
+        if current:
+            req["amplitude_ua"] = round(amp * 1e6)
+            req["offset_ua"] = round(off * 1e6)
+        else:
+            req.update({"path": dac_path, "amplitude_v": amp, "offset_v": off})
+        if duration is not None:
+            ms = _seconds_to_ms(duration, "duration")
+            if ms <= 0:
+                raise ValueError("duration must be at least 1 ms; omit it to run until stopped")
+            req["duration_ms"] = ms
+        mhz = _capture.rate_mhz(sample_rate_hz)
+        if mhz is not None:
+            req["sample_rate_mhz"] = mhz
+        if on_capture:
+            req["on_capture"] = True
+        if not route:
+            req["route"] = False
         d = _dict(self.command(req))
         return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
                          cotrig=bool(d.get("cotrig", False)), data=d)
