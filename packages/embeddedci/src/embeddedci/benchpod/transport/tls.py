@@ -150,6 +150,7 @@ def get_pin(host: str, port: int = PLAIN_PORT) -> Optional[str]:
 
 def set_pin(host: str, sha256: str, port: int = PLAIN_PORT, subject: str = "") -> None:
     """Pin ``sha256`` for the pod at ``host`` (what ``benchpod lan-tls trust`` does)."""
+    _sessions.clear()
     with _lock:
         path = pin_store_path()
         data = _load(path)
@@ -198,41 +199,68 @@ def _check_pin(host: str, port: int, der: bytes) -> None:
 # -- the handshake ------------------------------------------------------------------------------
 
 
+#: One SSLContext per CA mode (a session can only resume on the context that made it), and the
+#: last session per pod address: the pod resumes TLS 1.2 sessions (by ticket or id), so later
+#: connections skip its ~460 ms ECDHE + ECDSA and take ~20 ms. A resumed session proves the same
+#: server as the full handshake whose certificate was pinned.
+_contexts: Dict[Tuple[Optional[str], bool], ssl.SSLContext] = {}
+_sessions: Dict[Tuple[str, int, Optional[str]], ssl.SSLSession] = {}
+
+
+def _context(ca: Optional[str], verify: bool) -> ssl.SSLContext:
+    key = (ca if verify else None, verify)
+    with _lock:
+        ctx = _contexts.get(key)
+        if ctx is None:
+            if ca and verify:
+                ctx = ssl.create_default_context(cafile=ca)
+            else:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE  # the pin is the check
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            _contexts[key] = ctx
+        return ctx
+
+
 def wrap(sock: socket.socket, host: str, port: int, *, ca: Optional[str] = None,
          pin: bool = True, timeout: float = 10.0) -> ssl.SSLSocket:
     """TLS over a connected socket to the pod at ``host:port``.
 
     With ``ca`` (a PEM file of CA certificates) the certificate chain and host name are verified.
     Otherwise the certificate is checked against (or, on first use, recorded as) the pin; with
-    ``pin=False`` any certificate is accepted (to show or trust it)."""
+    ``pin=False`` any certificate is accepted (to show or trust it) and no session is reused."""
     is_ip = True
     try:
         ipaddress.ip_address(host)
     except ValueError:
         is_ip = False
-    if ca and pin:
-        ctx = ssl.create_default_context(cafile=ca)
-        check_name = True
-    else:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE  # the pin below is the check
-        check_name = False
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    verify = bool(ca and pin)
+    ctx = _context(ca, verify)
+    skey = (host, port, ca if verify else None)
+    session = _sessions.get(skey) if pin else None
     old = sock.gettimeout()
     sock.settimeout(timeout)
-    tls = ctx.wrap_socket(sock, server_hostname=host if (check_name or not is_ip) else None)
+    tls = ctx.wrap_socket(sock, server_hostname=host if (verify or not is_ip) else None, session=session)
     try:
-        if not ca and pin:
+        if not verify and pin:
             der = tls.getpeercert(binary_form=True)
             if not der:
                 raise ssl.SSLError("the pod sent no certificate")
             _check_pin(host, port, der)
     except BaseException:
+        _sessions.pop(skey, None)
         tls.close()
         raise
+    if pin and tls.session is not None:
+        _sessions[skey] = tls.session
     tls.settimeout(old)
     return tls
+
+
+def forget_sessions() -> None:
+    """Drop the resumable sessions (after a pin change, say)."""
+    _sessions.clear()
 
 
 def trust_lan_tls(host: str, port: int = PLAIN_PORT, *, sha256: Optional[str] = None,
