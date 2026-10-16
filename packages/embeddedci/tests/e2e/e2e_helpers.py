@@ -99,6 +99,14 @@ def events_during(capture: Callable[[], Any], fire: Callable[[int], Any], *, cou
     return result["capture"], stamps
 
 
+# How far the host-clock fit may stray from the reported rate. Over Ethernet or the USB network it
+# lands within 0.5%; over Wi-Fi, where packets queue and leave in bursts, it scattered to 0.983x
+# and 1.009x on a pod whose clock is fine (the same pod passed over the USB network). A capture
+# that really runs at another rate is off by 5-25% (firmware that reports the requested rate
+# instead of the achieved one), so 3% still catches that.
+HOST_CLOCK_REL = 0.03
+
+
 def host_clock_rate(event_samples: Sequence[int], stamps: Sequence[float]) -> float:
     """Real samples per second: fit the sample index of each event against the host time it was
     sent. The host fires at a fixed interval, so events are paired in order; events after the

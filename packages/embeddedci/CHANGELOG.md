@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.14.0
 
 - `Capabilities.scope` is False on the digital-only board. Current firmware lists `signal` on every
   board; it only stands for the scope on firmware without the `analog` flag.

@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-openhtf`
 
-## Unreleased
+## 2.4.0
 
 - `signal_generate`, `signal_generate_phase` and `loopback_measure_phase` default to
   `dac_path="3v3"` instead of `"5v"`; `dac_replay_phase` now defaults to the path stored with the
