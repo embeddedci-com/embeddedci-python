@@ -2572,6 +2572,40 @@
       "type": "object"
     }
   },
+  "lan_tls": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "LAN TLS"
+    },
+    "input": {
+      "properties": {
+        "https_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omit to read. True: the pod refuses plaintext port 8080 on Ethernet and Wi-Fi, so only TLS (8443) crosses the LAN; its USB link keeps 8080. False turns it back off, which the pod only takes over TLS, USB or the cloud.",
+          "title": "Https Only"
+        },
+        "regenerate": {
+          "default": false,
+          "description": "True: the pod makes a new key and self-signed certificate. Clients that pinned the old one must trust the new one (`benchpod lan-tls trust`); this server's pin follows.",
+          "title": "Regenerate",
+          "type": "boolean"
+        }
+      },
+      "title": "lan_tlsArguments",
+      "type": "object"
+    }
+  },
   "list_waveforms": {
     "annotations": {
       "idempotentHint": false,

@@ -1097,6 +1097,35 @@ async def usb_network(
     return await _call(op)
 
 
+@mcp.tool(annotations=_ann("LAN TLS", destructive=True))
+async def lan_tls(
+    https_only: Annotated[Optional[bool], Field(description=(
+        "Omit to read. True: the pod refuses plaintext port 8080 on Ethernet and Wi-Fi, so only TLS "
+        "(8443) crosses the LAN; its USB link keeps 8080. False turns it back off, which the pod "
+        "only takes over TLS, USB or the cloud."))] = None,
+    regenerate: Annotated[bool, Field(description=(
+        "True: the pod makes a new key and self-signed certificate. Clients that pinned the old one "
+        "must trust the new one (`benchpod lan-tls trust`); this server's pin follows."))] = False,
+) -> m.LanTlsResult:
+    """The pod's LAN API over TLS (firmware 3.9.3+): port 8443, HTTPS-only, and the certificate
+    clients pin (sha256). Connections to a network address use TLS by default when the pod has it.
+    Installing your own certificate: `benchpod lan-tls set-cert` or the SDK's set_lan_tls_cert."""
+    def op() -> m.LanTlsResult:
+        pod = SESSION.require()
+        if regenerate:
+            info = pod.regenerate_lan_tls()
+        elif https_only is not None:
+            info = pod.set_lan_tls_https_only(https_only)
+        else:
+            info = pod.lan_tls()
+        return m.LanTlsResult(port=info.port, https_only=info.https_only, sessions=info.sessions,
+                              origin=info.origin, key=info.key, subject=info.subject, san=list(info.san),
+                              not_after=info.not_after, sha256=info.sha256, error=info.error,
+                              connected_over_tls=bool(getattr(pod.transport, "last_tls", False)))
+
+    return await _call(op)
+
+
 @mcp.tool(annotations=_ann("Pull resistor status", read_only=True))
 async def pull_status() -> m.PullStatusResult:
     """State, direction and value of the bias resistor on LA1-LA8."""

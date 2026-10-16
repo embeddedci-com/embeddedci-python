@@ -658,6 +658,21 @@ class StepResult(BaseModel):
     status: str = "started"
 
 
+class LanTlsResult(BaseModel):
+    """The pod's LAN API over TLS (firmware 3.9.3+)."""
+    port: int = Field(description="The TLS port (8443).")
+    https_only: bool = Field(description="True: plaintext 8080 is refused on Ethernet and Wi-Fi (the USB link keeps it).")
+    sessions: int = Field(description="TLS connections open now (at most 2).")
+    origin: str = Field("", description='"generated" (the pod made it) or "user" (installed).')
+    key: str = Field("", description='The key type, e.g. "EC P-256".')
+    subject: str = Field("", description="The certificate's subject.")
+    san: List[str] = Field(default_factory=list, description="The certificate's DNS names.")
+    not_after: str = Field("", description="Valid until (YYYY-MM-DD).")
+    sha256: str = Field("", description="SHA-256 of the certificate: the value clients pin.")
+    connected_over_tls: bool = Field(False, description="Whether this MCP server's connection to the pod uses TLS.")
+    error: str = Field("", description="Why there is no certificate in use.")
+
+
 class UsbNetworkResult(BaseModel):
     """The pod's USB network setting (firmware 3.9.0+)."""
     setting: str = Field(description='"on" or "off": whether the pod\'s USB port is also a network adapter.')

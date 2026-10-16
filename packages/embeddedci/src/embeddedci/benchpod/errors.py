@@ -30,6 +30,24 @@ class ConnectionClosedError(TransportError):
     """The connection ended (EOF, reset or a closed tunnel) before the full reply arrived."""
 
 
+class TlsPinMismatchError(TransportError):
+    """The pod presented a TLS certificate other than the one pinned for it (LAN TLS, firmware
+    3.9.3+). Either its certificate was replaced or regenerated, or something is intercepting the
+    connection. :attr:`addr` is the pod's TLS address, :attr:`pinned` and :attr:`got` the two
+    SHA-256 fingerprints. Trust the new one with :func:`embeddedci.benchpod.trust_lan_tls` or
+    ``benchpod lan-tls trust``."""
+
+    def __init__(self, addr: str, pinned: str, got: str) -> None:
+        super().__init__(
+            f"the pod at {addr} presented TLS certificate sha256 {got[:16]}..., but "
+            f"{pinned[:16]}... is pinned for it. If its certificate was replaced or regenerated, "
+            f"trust the new one (`benchpod lan-tls trust`); otherwise something may be "
+            f"intercepting the connection")
+        self.addr = addr
+        self.pinned = pinned
+        self.got = got
+
+
 class DeviceBusyError(BenchPodError):
     """The shared cloud BenchPod is held by another consumer and did not free within the wait
     timeout. Raised when acquiring the device lease times out."""
@@ -223,6 +241,7 @@ _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
 _LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
 #: Policy changes the LAN may not make (pod_policy.c).
 _POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
+                     "change it over TLS (port 8443), over USB or from the cloud",
                      "change it from the cloud or over USB",
                      "change it on the device",
                      "only the USB console can loosen")

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from .constants import TRIGGER_EDGES, Edge, TriggerEdge
 
@@ -321,3 +321,35 @@ class CorrelatedCapture:
 
     def __len__(self) -> int:
         return max(len(self.adc), len(self.la))
+
+
+@dataclass(frozen=True)
+class LanTls:
+    """The pod's LAN API over TLS (:meth:`BenchPod.lan_tls`, firmware 3.9.3+)."""
+
+    port: int
+    https_only: bool
+    sessions: int
+    origin: str = ""        # "generated" or "user"
+    key: str = ""           # "EC P-256", "RSA 2048", ...
+    subject: str = ""       # "CN=benchpod-baea06"
+    san: Tuple[str, ...] = ()
+    not_after: str = ""     # "9999-12-31"
+    sha256: str = ""        # of the certificate (DER): the value clients pin
+    error: str = ""         # why there is no certificate in use
+
+    @classmethod
+    def from_reply(cls, data: Any) -> "LanTls":
+        d = data if isinstance(data, dict) else {}
+        return cls(
+            port=int(d.get("port") or 8443),
+            https_only=bool(d.get("https_only")),
+            sessions=int(d.get("sessions") or 0),
+            origin=str(d.get("origin") or ""),
+            key=str(d.get("key") or ""),
+            subject=str(d.get("subject") or ""),
+            san=tuple(str(x) for x in (d.get("san") or [])),
+            not_after=str(d.get("not_after") or ""),
+            sha256=str(d.get("sha256") or ""),
+            error=str(d.get("error") or ""),
+        )

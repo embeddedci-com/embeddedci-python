@@ -254,6 +254,36 @@ power moved to the network too; see the compatibility table above.)
 | `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | yes | no | yes |
 | Device lease | — | — | — | yes |
 
+### TLS on the LAN
+
+Pods with firmware 3.9.3 or later also serve the API on port 8443 with TLS. For a network address
+on the default port (`192.168.1.5`, `:8080`, a pod name) the SDK connects to 8443 first and falls
+back to plaintext 8080 only when the pod has no TLS port and nothing is pinned for it, so older
+pods keep working. `:8443` means TLS only; any other port and the USB network adapter (`usb`, a
+physical link) stay plaintext. `BENCHPOD_TLS=on|off` overrides (`auto` is the default).
+`bp.transport.last_tls` says which one the last connection used.
+
+The pod's certificate is its own, so the SDK pins its SHA-256 the first time (trust on first use)
+in `known_pods.json` next to `benchpod-cli`'s config; the CLI reads and writes the same file. A
+different certificate later raises `TlsPinMismatchError` (`addr`, `pinned`, `got`). After a
+deliberate change elsewhere, `trust_lan_tls(host, sha256=None)` pins the certificate the pod
+presents now (`sha256` only accepts that one) and `forget_lan_tls(host)` drops the pin. With
+`BENCHPOD_TLS_CA=ca.pem` the certificate and host name are verified against that CA instead (for a
+certificate you installed, signed by your own CA).
+
+```python
+bp = BenchPod("192.168.1.220")
+info = bp.lan_tls()            # LanTls: port, https_only, sessions, subject, san, sha256, ...
+bp.set_lan_tls_https_only(True)   # plaintext 8080 off on Ethernet and Wi-Fi (USB keeps it)
+bp.set_lan_tls_cert(open("pod.pem").read(), open("pod.key").read())
+bp.regenerate_lan_tls()
+```
+
+`set_lan_tls_https_only(False)`, `regenerate_lan_tls()` and `set_lan_tls_cert()` need a TLS, USB or
+cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedError`).
+`set_lan_tls_cert` needs a network connection (it uploads the bundle); after it and after
+`regenerate_lan_tls()` the SDK pins the new certificate for the address it used.
+
 ### Environment variables
 
 | Variable | Used when | Purpose |
@@ -266,6 +296,8 @@ power moved to the network too; see the compatibility table above.)
 | `BENCHPOD_WIRING` | no `wiring` argument / `--benchpod-wiring` / `benchpod_wiring` fixture | wiring profile file (`.json`/`.toml`), see [Wiring profile](#wiring-profile) |
 | `BENCHPOD_WIRING_SOURCE` | no `wiring_source` argument | `local` never asks embeddedci.com for the pod's stored wiring profile; `auto` (default) does, see [Wiring profile](#wiring-profile) |
 | `BENCHPOD_LIFT_DAC_LIMITS` | pytest sessions | `1` clears the pod's DAC output limits for the session and restores the same limits at the end, even when tests fail (only with the output stage switched off) |
+| `BENCHPOD_TLS` | network connections | `auto` (default), `on` or `off`: TLS to the pod's LAN API on 8443, see [TLS on the LAN](#tls-on-the-lan) |
+| `BENCHPOD_TLS_CA` | network connections over TLS | PEM file of CA certificates: verify the pod's certificate and host name instead of pinning it |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 
 ## API conventions and stability
@@ -1501,6 +1533,7 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `TransportError` | the pod or tunnel could not be reached / talked to | |
 | `TransportTimeout` (a `TransportError` and a `TimeoutError`) | the pod or tunnel did not answer in time | |
 | `ConnectionClosedError` (a `TransportError`) | the connection ended or reset before the reply | |
+| `TlsPinMismatchError` (a `TransportError`) | the pod's TLS certificate is not the one pinned for it (see [TLS on the LAN](#tls-on-the-lan)) | `addr`, `pinned`, `got` |
 | `FirmwareError` | the pod replied with an error (e.g. "la voltage not set"); a fix the firmware spells as a raw protocol command is rewritten into the SDK call in the message, and `firmware_message` keeps the pod's own text | `firmware_message`, `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
@@ -1545,7 +1578,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link) |
+| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
@@ -1577,6 +1610,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `PowerProfile` | `measure_power`, `PowerProfileSession.result` | see [Power profiles](#power-profiles) |
 | `PowerProfileSession` | `power_profile` (a context manager) | `start()`, `stop()`, `status()`, `result` |
 | `ResetState` | `reset_target`, `set_reset`, `reset_state` | `asserted`, `supported` |
+| `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
 | `LaPinState` | `la_pins`, `configure_gpio` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `in_use` |
@@ -1677,6 +1711,7 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 |---|---|
 | `parse_connection(raw)` | parse a connection string into a `ConnSpec` (raises `ConnectionConfigError`) |
 | `resolve_connection(connection=None)` | the same, falling back to `BENCHPOD_CONNECTION` |
+| `trust_lan_tls(host, port=8080, *, sha256=None)`, `forget_lan_tls(host, port=8080)` | pin the TLS certificate the pod presents now (returns its SHA-256), or drop the pin (see [TLS on the LAN](#tls-on-the-lan)) |
 | `make_build_reporter(*, api_base=None, audience=None, target="", name="")` | a `BuildReporter` inside GitHub Actions, else a `NoopBuildReporter` |
 | `build_panel_curve(voc_code, sharpness=4.0, points=256)`, `build_linear_curve(max_code, rising=True, points=256)`, `build_constant_curve(value_code, points=256)` | control-loop curves (see [In-fabric DAC control loop](#in-fabric-dac-control-loop)) |
 | `curve_output_at(curve, input_code)`, `input_percent_to_code(percent)` | evaluate a curve the way the gateware does; an input percentage as a code |
