@@ -36,7 +36,8 @@ from embeddedci.benchpod.constants import ANALOG_PATHS
 from embeddedci.benchpod.control_loop import CURVE_POINTS
 from embeddedci.benchpod.decode import decode_uart
 
-from e2e_helpers import ANALOG, SETTLE, adc_levels, events_during, host_clock_rate, p2p, split_levels
+from e2e_helpers import (ANALOG, HOST_CLOCK_REL, SETTLE, adc_levels, events_during, host_clock_rate, p2p,
+                         split_levels)
 
 pytestmark = pytest.mark.hardware
 
@@ -661,7 +662,8 @@ def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
 # The host clock is the independent reference for the capture clock: events sent at known host
 # times land at sample indices, and the fitted slope is the real sample rate. The drift a wrong
 # rate causes grows with the capture length (samples / 24 MHz regardless of rate: ~170 ms for
-# the LA test, ~80 ms for the ADC test), far above the few ms of network jitter.
+# the LA test, ~80 ms for the ADC test), far above the few ms of wired network jitter; Wi-Fi
+# needs the wider HOST_CLOCK_REL (e2e_helpers).
 def test_la_sample_rate_matches_the_host_clock(pod, bench):
     np = pytest.importorskip("numpy")
     ch = bench.free_la[0]
@@ -674,7 +676,7 @@ def test_la_sample_rate_matches_the_host_clock(pod, bench):
                                count=18, interval=0.2)
     bits = np.asarray(la.channel(ch), dtype=np.int8)
     rate = host_clock_rate(np.flatnonzero(np.diff(bits) == 1) + 1, stamps)
-    assert rate == pytest.approx(la.sample_rate_hz, rel=0.005), (
+    assert rate == pytest.approx(la.sample_rate_hz, rel=HOST_CLOCK_REL), (
         f"the LA really samples at {rate:.0f} Hz ({rate / la.sample_rate_hz:.4f}x the reported "
         f"{la.sample_rate_hz:.0f} Hz)")
 
@@ -701,7 +703,7 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
     active = (blocks.max(axis=1) - blocks.min(axis=1)) > 800
     edges = (np.flatnonzero(np.diff(active.astype(np.int8)) != 0) + 1) * block
     rate = host_clock_rate(edges, stamps)
-    assert rate == pytest.approx(cap.sample_rate_hz, rel=0.005), (
+    assert rate == pytest.approx(cap.sample_rate_hz, rel=HOST_CLOCK_REL), (
         f"the ADC really samples at {rate:.0f} Hz ({rate / cap.sample_rate_hz:.4f}x the reported "
         f"{cap.sample_rate_hz:.0f} Hz)")
 
