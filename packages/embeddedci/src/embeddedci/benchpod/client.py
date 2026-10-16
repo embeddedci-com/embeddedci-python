@@ -92,7 +92,7 @@ from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, normalize_fault
-from .results import Capture, CorrelatedCapture, LaCapture, Trigger
+from .results import Capture, CorrelatedCapture, LaCapture, LanTls, Trigger
 from .wiring import Signal, Wiring
 from .state import (
     AdcReading,
@@ -709,6 +709,88 @@ class BenchPod:
             req["set"] = "on" if on else "off"
         data = self.command(req)
         return isinstance(data, dict) and data.get("setting") == "on"
+
+    # -- LAN TLS ------------------------------------------------------------
+
+    def lan_tls(self) -> "LanTls":
+        """The pod's LAN API over TLS (firmware 3.9.3+): port 8443, the HTTPS-only setting and the
+        certificate in use (its SHA-256 is what clients pin). Raises
+        :class:`UnsupportedFeatureError` on older firmware."""
+        return LanTls.from_reply(self.command({"cmd": "lan_tls"}))
+
+    def set_lan_tls_https_only(self, on: bool) -> "LanTls":
+        """Turn HTTPS-only on (plaintext 8080 refused on Ethernet and Wi-Fi; the USB link keeps it)
+        or off. Turning it off needs a TLS, USB or cloud connection: over plaintext Ethernet or Wi-Fi
+        the pod refuses with :class:`PodLockedError`. On a cloud connection it needs an
+        organization owner or admin."""
+        return LanTls.from_reply(self.command({"cmd": "lan_tls", "https_only": bool(on)}))
+
+    def regenerate_lan_tls(self) -> "LanTls":
+        """Have the pod make a new key and self-signed certificate. Same transports as turning
+        HTTPS-only off. On a network connection this computer's pin follows."""
+        info = LanTls.from_reply(self.command({"cmd": "lan_tls", "regenerate": True}))
+        self._repin(info)
+        return info
+
+    def set_lan_tls_cert(self, cert_pem: Union[str, bytes], key_pem: Union[str, bytes]) -> "LanTls":
+        """Install a certificate (PEM, optionally followed by its chain) and its unencrypted private
+        key (EC P-256/P-384 or RSA) for port 8443. The pod checks both and that they match before it
+        stores them. Network connections only (TLS, or the USB network adapter); this computer's pin
+        follows."""
+        from .transport.tcp import TcpTransport
+
+        if not isinstance(self._transport, TcpTransport):
+            raise UnsupportedFeatureError(
+                "set_lan_tls_cert needs a network connection (TLS or the USB network adapter)",
+                cmd="lan_tls", feature="lan_tls")
+        c = cert_pem.encode() if isinstance(cert_pem, str) else bytes(cert_pem)
+        k = key_pem.encode() if isinstance(key_pem, str) else bytes(key_pem)
+        if b"ENCRYPTED" in k:
+            raise ValueError("the private key is encrypted; the pod needs it without a passphrase")
+        bundle = c.rstrip(b"\n") + b"\n" + k
+        if len(bundle) > 7664:
+            raise ValueError(f"certificate and key are {len(bundle)} bytes; the pod takes at most 7664")
+        import hashlib
+
+        reqs: List[Dict[str, Any]] = [
+            {"cmd": "lan_tls"},
+            {"cmd": "ota_begin", "size": len(bundle), "sha256": hashlib.sha256(bundle).hexdigest(),
+             "target": "tls"},
+        ]
+        for off in range(0, len(bundle), 768):
+            reqs.append({"cmd": "ota_data", "offset": off,
+                         "data": base64.urlsafe_b64encode(bundle[off:off + 768]).rstrip(b"=").decode()})
+        reqs += [{"cmd": "ota_end"}, {"cmd": "ota_commit"}, {"cmd": "lan_tls"}]
+        try:
+            replies = self._transport.command_sequence(reqs)
+        except FirmwareError:
+            try:
+                self.command({"cmd": "ota_abort"})
+            except BenchPodError:
+                pass
+            raise
+        for name, rep in (("ota_end", replies[-3]), ("ota_commit", replies[-2])):
+            state = rep.get("state") if isinstance(rep, dict) else None
+            want = "verified" if name == "ota_end" else "installed"
+            if state != want:
+                why = rep.get("error") if isinstance(rep, dict) else rep
+                raise FirmwareError(f"{name}: {why or state}", cmd=name)
+        info = LanTls.from_reply(replies[-1])
+        self._repin(info)
+        return info
+
+    def _repin(self, info: "LanTls") -> None:
+        """After this computer changed the pod's certificate: pin the new one for its address."""
+        from .transport import tls as _tls
+        from .transport.tcp import TcpTransport
+
+        t = self._transport
+        if not isinstance(t, TcpTransport) or not info.sha256:
+            return
+        host, port = t._split_addr()
+        if _tls.is_usb_link(host):
+            return
+        _tls.set_pin(host, info.sha256, port=port, subject=info.subject)
 
     # -- flash --------------------------------------------------------------
 

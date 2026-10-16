@@ -96,6 +96,7 @@
     "i2c_sensor_types": "(self) -> 'List[Dict[str, Any]]'",
     "la_pins": "(self) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
+    "lan_tls": "(self) -> \"'LanTls'\"",
     "leased": "property",
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
@@ -114,6 +115,7 @@
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "read_gpio": "(self, la: 'Union[Pin, int, str]') -> 'int'",
     "refresh_capabilities": "(self) -> 'Capabilities'",
+    "regenerate_lan_tls": "(self) -> \"'LanTls'\"",
     "release_gpio": "(self, *las: 'Union[Pin, int, str]') -> 'None'",
     "replay": "(self, source: 'Union[Capture, Sequence[float], Sequence[int]]', *, dac_path: 'Optional[DacPath]' = None, mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, deep: 'Optional[bool]' = None, fault: 'Union[Fault, Dict[str, Any], None]' = None, are_codes: 'bool' = False, on_capture: 'bool' = False, route: 'bool' = True, switch_image: 'bool' = True) -> 'ReplayHandle'",
     "replay_waveform": "(self, waveform: \"Union[str, 'Waveform']\", *, dac_path: 'Optional[DacPath]' = None, mapping: 'ReplayMapping' = 'faithful', sample_rate_hz: 'Optional[float]' = None, window_start: 'int' = 0, window_len: 'int' = 0, target_samples: 'int' = 0, fault: 'Union[Fault, Dict[str, Any], None]' = None, deep: 'Optional[bool]' = None, server_side: 'Optional[bool]' = None, on_capture: 'bool' = False, switch_image: 'bool' = True) -> 'ReplayHandle'",
@@ -126,6 +128,8 @@
     "set_gps": "(self, *, utc: 'Union[_dt.datetime, str, int, None]' = None, **fix: 'Any') -> 'Dict[str, Any]'",
     "set_i2c_sensor": "(self, *, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None, **values: 'float') -> 'Dict[str, Any]'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
+    "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
+    "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
     "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
@@ -524,6 +528,21 @@
     "from_reply": "(cls, reply: 'Any') -> \"'LaVoltage'\"",
     "is_set": "property"
   },
+  "LanTls": {
+    "__fields__": [
+      "port",
+      "https_only",
+      "sessions",
+      "origin",
+      "key",
+      "subject",
+      "san",
+      "not_after",
+      "sha256",
+      "error"
+    ],
+    "from_reply": "(cls, data: 'Any') -> \"'LanTls'\""
+  },
   "LoopInputMap": {
     "__fields__": [
       "mv_per_unit",
@@ -814,6 +833,9 @@
     "from_reply": "(cls, reply: 'Any') -> \"'TargetStatus'\""
   },
   "TargetUnreachableError": {},
+  "TlsPinMismatchError": {
+    "__init__": "(self, addr: 'str', pinned: 'str', got: 'str') -> 'None'"
+  },
   "TransportError": {},
   "TransportTimeout": {},
   "Trigger": {
@@ -1007,6 +1029,7 @@
     "LaCapture",
     "LaPinState",
     "LaVoltage",
+    "LanTls",
     "LoopInputMap",
     "LoopSource",
     "LoopState",
@@ -1055,6 +1078,7 @@
     "SpiStreamResult",
     "TargetStatus",
     "TargetUnreachableError",
+    "TlsPinMismatchError",
     "TransportError",
     "TransportTimeout",
     "Trigger",
@@ -1080,12 +1104,14 @@
     "decode",
     "dsp",
     "encode_curve_b64url",
+    "forget_lan_tls",
     "i2c",
     "input_percent_to_code",
     "make_build_reporter",
     "motor_emulator",
     "parse_connection",
-    "resolve_connection"
+    "resolve_connection",
+    "trust_lan_tls"
   ],
   "build_constant_curve": "(value_code: 'int', points: 'int' = 256) -> 'List[int]'",
   "build_linear_curve": "(max_code: 'int', rising: 'bool' = True, points: 'int' = 256) -> 'List[int]'",
@@ -1096,10 +1122,12 @@
   "decode": "module",
   "dsp": "module",
   "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
+  "forget_lan_tls": "(host: 'str', port: 'int' = 8080) -> 'bool'",
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
   "make_build_reporter": "(*, api_base: 'Optional[str]' = None, audience: 'Optional[str]' = None, target: 'str' = '', name: 'str' = '') -> 'Any'",
   "motor_emulator": "module",
   "parse_connection": "(raw: 'str') -> 'ConnSpec'",
-  "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'"
+  "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'",
+  "trust_lan_tls": "(host: 'str', port: 'int' = 8080, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
 }

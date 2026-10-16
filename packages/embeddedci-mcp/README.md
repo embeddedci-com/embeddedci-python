@@ -55,6 +55,12 @@ lists the pods it heard (name and address) and what to pass instead: `host[:port
 `claude mcp add benchpod -- uvx embeddedci-mcp` is enough for a single pod on your network: just
 ask the agent to connect.
 
+**TLS.** A network address uses TLS on port 8443 when the pod has it (firmware 3.9.3+) and pins
+the pod's certificate on first use, in the same `known_pods.json` as `benchpod-cli`; older pods
+stay on plaintext 8080. `BENCHPOD_TLS=on|off` and `BENCHPOD_TLS_CA` work as in the SDK. A changed
+certificate stops `connect` with both fingerprints: after a deliberate change, the user runs
+`benchpod lan-tls trust`. The `lan_tls` tool shows the certificate and switches HTTPS-only.
+
 ### Claude Desktop / Cursor
 
 `claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor):
@@ -261,6 +267,7 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | --- | --- | --- |
 | `set_pull` | Engage or release the bias resistors: LA1-LA6 pull up, LA7/LA8 pull down. | **`las`**, **`enabled`** |
 | `pull_status` | State, direction and value of the bias resistor on LA1-LA8. | none |
+| `lan_tls` | The pod's LAN API over TLS (firmware 3.9.3+): port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
 | `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
 
 ### GPIO on the LA pins

@@ -24,7 +24,7 @@ EXPECTED_TOOLS = {
     "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
     "i2c_sensor_regs", "i2c_sensor_capture", "i2c_sensor_types",
     "enable_gps", "set_gps", "disable_gps", "gps_status",
-    "set_pull", "pull_status", "usb_network",
+    "set_pull", "pull_status", "usb_network", "lan_tls",
     "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
@@ -610,6 +610,22 @@ def test_la_step_and_command(connected):
     assert call("command", request={"cmd": "adc_read", "source": "cal1"})["reply"]["source"] == "cal1"
     with pytest.raises(ToolError):
         call("command", request={"samples": 1})
+
+
+def test_lan_tls_reads_and_changes(fake_open, fake_transport, monkeypatch):
+    from embeddedci.benchpod import LanTls
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+    seen = []
+    info = LanTls(port=8443, https_only=False, sessions=0, sha256="ab" * 32, san=("benchpod-x",))
+    monkeypatch.setattr(pod, "lan_tls", lambda: seen.append("read") or info, raising=False)
+    monkeypatch.setattr(pod, "set_lan_tls_https_only", lambda on: seen.append(on) or info, raising=False)
+    monkeypatch.setattr(pod, "regenerate_lan_tls", lambda: seen.append("regen") or info, raising=False)
+    res = call("lan_tls")
+    assert res["port"] == 8443 and res["sha256"] == "ab" * 32 and res["san"] == ["benchpod-x"]
+    call("lan_tls", https_only=True)
+    call("lan_tls", regenerate=True)
+    assert seen == ["read", True, "regen"]
 
 
 def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch):

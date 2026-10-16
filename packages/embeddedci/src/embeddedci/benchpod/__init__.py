@@ -95,6 +95,7 @@ from .errors import (
     PodLockedError,
     PullConflictError,
     TargetUnreachableError,
+    TlsPinMismatchError,
     TransportError,
     TransportTimeout,
     TriggerTimeout,
@@ -109,7 +110,8 @@ from .lease import DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, Segment
-from .results import Capture, CorrelatedCapture, LaCapture, Trigger
+from .results import Capture, CorrelatedCapture, LaCapture, LanTls, Trigger
+from .transport.tls import delete_pin as forget_lan_tls, trust_lan_tls
 from .server_api import ServerApi, ServerApiError, ServerPermissionDeniedError
 from .state import (
     AdcReading,
@@ -190,6 +192,10 @@ __all__ = [
     "dsp",
     "Capabilities",
     "Capture",
+    "LanTls",
+    "TlsPinMismatchError",
+    "trust_lan_tls",
+    "forget_lan_tls",
     "LaCapture",
     "CorrelatedCapture",
     "Trigger",

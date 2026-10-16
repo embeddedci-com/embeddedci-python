@@ -1,4 +1,5 @@
-"""JSON-over-TCP transport (wifi/network), port 8080 by default.
+"""JSON-over-TCP transport (wifi/network), port 8080 by default, TLS on 8443 when the pod has it
+(firmware 3.9.3+, see :mod:`.tls`).
 
 Mirrors the Go ``tcpclient``: each command dials a fresh connection (the
 firmware serves one client at a time), disables Nagle, sends one JSON line and
@@ -10,6 +11,7 @@ byte at a time so no DAP bytes are swallowed.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import time
 from contextlib import contextmanager
@@ -24,6 +26,7 @@ from ..errors import (
 )
 from ..protocol import encode_request, parse_reply, raise_for_status
 from .base import RawLink, Transport, request_timeout
+from . import tls as _tls
 
 DEFAULT_DIAL_TIMEOUT = 10.0  # total budget to establish a connection
 _DIAL_ATTEMPT_TIMEOUT = 0.5
@@ -97,13 +100,22 @@ class TcpTransport(Transport):
     #: with its USB network off or down); ``""`` otherwise.
     usb_lan_fallback: str = ""
 
+    #: Whether the last connection used TLS (port 8443).
+    last_tls: bool = False
+
     def __init__(self, addr: str, *, timeout: float = 30.0,
-                 dial_timeout: float = DEFAULT_DIAL_TIMEOUT) -> None:
+                 dial_timeout: float = DEFAULT_DIAL_TIMEOUT, tls: Optional[str] = None,
+                 tls_ca: Optional[str] = None) -> None:
+        """``tls``: ``"auto"`` (default, also ``BENCHPOD_TLS``), ``"on"`` or ``"off"``;
+        ``tls_ca``: a PEM file of CA certificates to verify the pod's certificate against instead
+        of pinning it (also ``BENCHPOD_TLS_CA``). See :mod:`.tls`."""
         if not addr:
             raise TransportError("TCP transport requires a host:port address")
         self.addr = addr
         self.timeout = timeout
         self.dial_timeout = dial_timeout
+        self.tls = _tls.tls_mode(tls)
+        self.tls_ca = tls_ca if tls_ca is not None else (os.environ.get("BENCHPOD_TLS_CA") or None)
 
     # -- connection helpers -------------------------------------------------
 
@@ -124,20 +136,53 @@ class TcpTransport(Transport):
         ``"flash"``). The cloud transport passes it to the server so a UART console and a capture
         can share the pod as they do here; a LAN socket needs no such hint and ignores it."""
         host, port = self._split_addr()
-        deadline = time.monotonic() + self.dial_timeout
+        io_timeout = self.timeout if timeout is None else timeout
+        p = _tls.plan(host, port, self.tls)
+        tls_to = p.tls
+        if p.fallback and _tls.known_no_tls(p.plain) and not _tls.get_pin(host, port):
+            tls_to = None
+        if tls_to is None:
+            self.last_tls = False
+            return self._connect(p.plain, self.dial_timeout, io_timeout)
+        if p.fallback and not _tls.get_pin(host, port):
+            # One quick probe: a pod without LAN TLS answers 8443 with a reset.
+            try:
+                raw = self._connect(tls_to, _DIAL_ATTEMPT_TIMEOUT, io_timeout, retry=False)
+            except TransportError as exc:
+                if isinstance(exc.__cause__, ConnectionRefusedError):
+                    _tls.remember_no_tls(p.plain)
+                self.last_tls = False
+                return self._connect(p.plain, self.dial_timeout, io_timeout)
+        else:
+            raw = self._connect(tls_to, self.dial_timeout, io_timeout)
+        try:
+            sock = _tls.wrap(raw, tls_to[0], tls_to[1], ca=self.tls_ca)
+        except BenchPodError:
+            raw.close()
+            raise
+        except (OSError, ValueError) as exc:  # ssl.SSLError is an OSError
+            raw.close()
+            raise TransportError(f"TLS handshake with {tls_to[0]}:{tls_to[1]}: {exc}") from exc
+        self.last_tls = True
+        return sock
+
+    def _connect(self, addr: "tuple[str, int]", budget: float, io_timeout: Optional[float],
+                 *, retry: bool = True) -> socket.socket:
+        """A TCP connection to ``addr``, re-probing within ``budget`` seconds."""
+        deadline = time.monotonic() + budget
         last: Optional[Exception] = None
         while True:
             try:
-                sock = socket.create_connection((host, port), timeout=_DIAL_ATTEMPT_TIMEOUT)
+                sock = socket.create_connection(addr, timeout=_DIAL_ATTEMPT_TIMEOUT)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                sock.settimeout(self.timeout if timeout is None else timeout)
+                sock.settimeout(io_timeout)
                 return sock
             except OSError as exc:
                 last = exc
-                if time.monotonic() >= deadline:
+                if not retry or time.monotonic() >= deadline:
                     break
                 time.sleep(_DIAL_RETRY_BACKOFF)
-        raise TransportError(f"could not connect to {self.addr}: {last}")
+        raise TransportError(f"could not connect to {addr[0]}:{addr[1]}: {last}") from last
 
     @staticmethod
     def _recv_line(sock: socket.socket, buf: bytearray) -> bytes:
@@ -188,6 +233,25 @@ class TcpTransport(Transport):
             out.extend(b)
 
     # -- Transport API ------------------------------------------------------
+
+    def command_sequence(self, reqs: List[dict]) -> List[Any]:
+        """Send several JSON commands on ONE connection and return their ``data`` in order
+        (raises on the first error). For what the pod ties to a connection, such as an upload
+        (``ota_*``)."""
+        timeout = max((request_timeout(r, self.timeout) for r in reqs), default=self.timeout)
+        sock = self._dial(timeout)
+        out: List[Any] = []
+        buf = bytearray()
+        try:
+            for req in reqs:
+                with _io_errors(f"{req.get('cmd')}", timeout):
+                    sock.sendall(encode_request(req))
+                    reply = parse_reply(self._recv_line(sock, buf))
+                raise_for_status(reply, cmd=req.get("cmd"))
+                out.append(reply.data)
+            return out
+        finally:
+            sock.close()
 
     def command(self, req: dict) -> Any:
         """Send one JSON command and return its ``data`` (raises on error)."""
