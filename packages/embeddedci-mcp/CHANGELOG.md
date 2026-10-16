@@ -1,7 +1,9 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.1
 
+- Requires embeddedci 2.13.1: `Capabilities.scope` is False on the digital-only board, so `status`
+  no longer reports a scope there.
 - `generate` and `replay` default to `dac_path` 3v3 instead of 5v, so an agent that leaves the
   output out can no longer put 5 V on a 3.3 V pin. With `route=false` they scale for the output
   last routed (`analog_path` cal1 = 5v, cal2 = 12v), else 5v. `replay_waveform` falls back to 3v3
