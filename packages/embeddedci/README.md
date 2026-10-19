@@ -983,11 +983,12 @@ microvolt resolution (about 76 µV a step on `"5v"`) and `code16` is the 16-bit 
 stays the nearest 8-bit level. On older firmware `code16` is `None` and the steps are 8-bit. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"current_in"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).
 
-### Calibrating the 4-20 mA input
+### Calibrating the ADC offset
 
 `"current_in"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
-4.98 V. Each pod is off by a few mV there. The pod can measure that offset itself and keep it in
-its flash:
+4.98 V. Each pod's analog input has its own offset, from part tolerances: anywhere from a few mV
+to about 50 mV. With J8 open the terminal is at 0 V, so the pod can measure that offset itself and
+keep it in its flash:
 
 ```python
 cal = bp.calibrate()                       # disconnect J8 first. Calibration(source, calibrated, offset, a, b, ...)
@@ -1000,10 +1001,15 @@ bp.clear_calibration()                     # back to the built-in fit
 ```
 
 Calibrate once per pod: it survives a reboot and a firmware update. The pod refuses
-(`BenchPodError`) when something is driving J8 (more than 50 mV) and keeps what it had. `a` and `b`
-are the fit the pod now uses for `current_in` (`volts = a + b * count`). Only the offset of `current_in` is
-calibrated; the other sources use the built-in fits. Needs firmware 3.4.0 (capability
-`calibrate`, `Capabilities.calibrate`).
+(`BenchPodError`) when something is driving J8 (more than 150 mV; 50 mV before firmware 3.9.3)
+and keeps what it had. `a` and `b` are the fit the pod now uses for `current_in`
+(`volts = a + b * count`).
+
+Every ADC source shares the same front end after its input switch, so from firmware 3.9.3 the pod
+takes the offset out of all of them: `adc_read` on `ext`, `cal1` and `cal2`, and `capture_adc`,
+whose `volts` use the fit the pod reports (on the LAN in `status`, through embeddedci.com in its
+capabilities). Older firmware corrects `current_in` only. Only the offset is calibrated; the gain
+uses the built-in fits. Needs firmware 3.4.0 (capability `calibrate`, `Capabilities.calibrate`).
 
 ### The 4-20 mA output
 
