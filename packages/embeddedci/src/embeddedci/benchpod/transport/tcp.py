@@ -30,6 +30,9 @@ from . import tls as _tls
 
 DEFAULT_DIAL_TIMEOUT = 10.0  # total budget to establish a connection
 _DIAL_ATTEMPT_TIMEOUT = 0.5
+#: The 8443 probe outlasts the host's first SYN retransmit (1 s on macOS and Linux): a pod can let
+#: the first SYN go unanswered, and its reset (or TLS handshake) then comes at about 1 s.
+_TLS_PROBE_TIMEOUT = 1.5
 _DIAL_RETRY_BACKOFF = 0.1
 #: Floor for an upload's timeout (``load_bin``): the pod acknowledges a large upload slowly.
 _UPLOAD_TIMEOUT = 60.0
@@ -145,11 +148,13 @@ class TcpTransport(Transport):
             self.last_tls = False
             return self._connect(p.plain, self.dial_timeout, io_timeout)
         if p.fallback and not _tls.get_pin(host, port):
-            # One quick probe: a pod without LAN TLS answers 8443 with a reset.
+            # One probe per pod and process: a pod without LAN TLS answers 8443 with a reset. A
+            # probe that times out is remembered too, or every command would wait for it again.
             try:
-                raw = self._connect(tls_to, _DIAL_ATTEMPT_TIMEOUT, io_timeout, retry=False)
+                raw = self._connect(tls_to, _TLS_PROBE_TIMEOUT, io_timeout, retry=False,
+                                    attempt_timeout=_TLS_PROBE_TIMEOUT)
             except TransportError as exc:
-                if isinstance(exc.__cause__, ConnectionRefusedError):
+                if isinstance(exc.__cause__, (ConnectionRefusedError, TimeoutError)):
                     _tls.remember_no_tls(p.plain)
                 self.last_tls = False
                 return self._connect(p.plain, self.dial_timeout, io_timeout)
@@ -167,13 +172,14 @@ class TcpTransport(Transport):
         return sock
 
     def _connect(self, addr: "tuple[str, int]", budget: float, io_timeout: Optional[float],
-                 *, retry: bool = True) -> socket.socket:
+                 *, retry: bool = True,
+                 attempt_timeout: float = _DIAL_ATTEMPT_TIMEOUT) -> socket.socket:
         """A TCP connection to ``addr``, re-probing within ``budget`` seconds."""
         deadline = time.monotonic() + budget
         last: Optional[Exception] = None
         while True:
             try:
-                sock = socket.create_connection(addr, timeout=_DIAL_ATTEMPT_TIMEOUT)
+                sock = socket.create_connection(addr, timeout=attempt_timeout)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 sock.settimeout(io_timeout)
                 return sock

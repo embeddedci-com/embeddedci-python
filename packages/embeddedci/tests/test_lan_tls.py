@@ -122,3 +122,30 @@ def test_pin_key_for_the_default_port_is_the_tls_port():
     T.set_pin("192.168.1.5", "AB" * 32)
     assert T.get_pin("192.168.1.5", 8080) == "ab" * 32
     assert T.get_pin("192.168.1.5", 8443) == "ab" * 32
+
+
+@pytest.mark.parametrize("probe_error", [ConnectionRefusedError, TimeoutError])
+def test_a_pod_without_tls_is_probed_once_per_process(monkeypatch, probe_error):
+    """A pod without LAN TLS refuses 8443 or, when it lets the first SYN go unanswered, the probe
+    times out: either way it is probed once, not on every command (each one dials anew)."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    real = socket.create_connection
+    dialed = []
+
+    def fake_create_connection(addr, timeout=None):
+        dialed.append((addr[1], timeout))
+        if addr[1] == 8443:
+            raise probe_error("no TLS here")
+        return real(server.getsockname(), timeout=timeout)
+
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+    host = "192.0.2.%d" % (10 + [ConnectionRefusedError, TimeoutError].index(probe_error))
+    t = TcpTransport(f"{host}:8080")
+    for _ in range(3):
+        t._dial().close()
+    assert [port for port, _ in dialed] == [8443, 8080, 8080, 8080]
+    assert dialed[0][1] >= 1.2, "the probe must outlast the host's 1 s SYN retransmit"
+    assert not t.last_tls
+    server.close()

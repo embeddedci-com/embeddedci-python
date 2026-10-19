@@ -11,6 +11,9 @@
   `trust_lan_tls()`, `forget_lan_tls()`, `TcpTransport.last_tls`, `TcpTransport.command_sequence()`.
   The transport keeps the last TLS session per pod, so later connections resume in ~35 ms instead
   of the pod's ~0.46 s full handshake.
+  The 8443 probe waits 1.5 s, past the host's 1 s SYN retransmit (a pod can leave the first SYN
+  unanswered), and a probe that times out is remembered like a refusal, so a pod without LAN TLS
+  costs one probe per process instead of 0.5 s on every command.
 
 ## 2.13.1
 
