@@ -418,6 +418,13 @@ class AdcReadResult(BaseModel):
         "Loop current in amps on the 4-20 mA input (current_in only): 0.004 to 0.020 for a live loop."))
 
 
+class DacLineResult(BaseModel):
+    a: float = Field(description="Volts at 16-bit code 0 (volts = a + b * code16).")
+    b: float = Field(description="Volts per 16-bit code.")
+    offset: float = Field(description="Offset against the built-in line in volts (at 0 V on 12v, at code 0 on the others).")
+    gain_ppm: int = Field(description="Gain against the built-in line, ppm.")
+
+
 class CalibrationResult(BaseModel):
     source: str
     calibrated: bool = Field(description="True when the pod has its own calibration stored.")
@@ -427,6 +434,14 @@ class CalibrationResult(BaseModel):
     count: Optional[int] = Field(None, description="Mean raw count of the calibration measurement (only right after calibrating).")
     span: Optional[int] = Field(None, description="Its peak-to-peak spread in counts.")
     samples: Optional[int] = Field(None, description="Samples averaged.")
+    dac: Dict[str, Optional[DacLineResult]] = Field(default_factory=dict, description=(
+        "This pod's DMM line per DAC output (3v3, 5v, 12v); null = the built-in line. Empty before firmware 3.9.3."))
+    adc_gain_ppm: Dict[str, Optional[int]] = Field(default_factory=dict, description=(
+        "ADC gain correction per source (cal1, cal2, ext) in ppm; null = the built-in gain."))
+    dmm: bool = Field(False, description="True when any DMM-guided part is stored.")
+    measured: Optional[Dict[str, float]] = Field(None, description=(
+        "After calibrate_adc_gain: v1, v2 (what the DAC put out), r1, r2 (what the ADC read before the gain) "
+        "and residual (offset left after it), in volts."))
 
 
 class AdcCaptureResult(BaseModel):

@@ -25,7 +25,7 @@ EXPECTED_TOOLS = {
     "i2c_sensor_regs", "i2c_sensor_capture", "i2c_sensor_types",
     "enable_gps", "set_gps", "disable_gps", "gps_status",
     "set_pull", "pull_status", "usb_network", "lan_tls",
-    "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate",
+    "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
     "save_capture_as_recording",
@@ -476,6 +476,24 @@ def test_calibrate_tools(connected):
     cleared = call("calibrate", clear=True)
     assert not connected.current_in_calibrated
     assert cleared["calibrated"] is False and cleared["offset"] == 0.0
+
+
+def test_dmm_calibration_tools(connected):
+    done = call("calibrate_dac", path="5v", code1=13069, volts1=0.9959, code2=52374, volts2=3.9929)
+    assert connected.dac_lines["5v"]["_req"] == {"cmd": "calibrate", "dac": "5v", "code1": 13069, "uv1": 995900,
+                                                 "code2": 52374, "uv2": 3992900}
+    assert done["dac"]["5v"]["gain_ppm"] == -996 and done["dac"]["3v3"] is None and done["dmm"] is True
+    assert done["dac"]["5v"]["offset"] == pytest.approx(-3.127e-3)
+    gain = call("calibrate_adc_gain", source="cal1")
+    assert gain["adc_gain_ppm"]["cal1"] == 1850 and gain["measured"]["residual"] == pytest.approx(0.0012)
+    cleared = call("calibrate", clear=True, clear_part="dac")
+    assert cleared["dac"]["5v"] is None and cleared["adc_gain_ppm"]["cal1"] == 1850
+
+
+def test_dmm_calibration_needs_newer_firmware(connected):
+    without_caps(connected, "cal_dmm")
+    with pytest.raises(Exception, match="cal_dmm"):
+        call("calibrate_adc_gain", source="cal1")
 
 
 def test_calibrate_refusal_is_a_tool_error(connected):

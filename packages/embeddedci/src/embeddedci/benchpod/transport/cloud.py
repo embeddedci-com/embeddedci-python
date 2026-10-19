@@ -157,7 +157,8 @@ def _read_form(req: dict) -> bool:
     if cmd == "dac_limits":
         return "path" not in req and req.get("enabled") is not False
     if cmd == "calibrate":
-        return "source" not in req and req.get("clear") is not True
+        return (not any(k in req for k in ("source", "dac", "adc"))
+                and req.get("clear") in (None, False))
     if cmd in ("sig_policy", "lan_policy"):
         return "set" not in req
     if cmd in ("cloud_ca", "cloud_proxy"):

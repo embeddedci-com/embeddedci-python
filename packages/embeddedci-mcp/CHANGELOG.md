@@ -2,6 +2,9 @@
 
 ## 2.13.2
 
+- New tools `calibrate_dac` and `calibrate_adc_gain`: the DMM-guided calibration (firmware 3.9.3+).
+  `calibrate` takes `clear_part` (offset, dac or adc); `calibration` reports the DAC lines and
+  ADC gains.
 - `calibrate` and `calibration` describe the ADC offset calibration: from firmware 3.9.3 it corrects
   every ADC source, up to 150 mV.
 - Requires embeddedci 2.13.2.

@@ -29,7 +29,10 @@ from pydantic import Field
 from embeddedci.benchpod import (
     AdcSource,
     AnalogPath,
+    AdcGainSource,
     CalibrateSource,
+    CalibrationPart,
+    DacCalPath,
     CanMode,
     DacOutputPath,
     DacPath,
@@ -1346,15 +1349,19 @@ async def adc_read(source: AdcSource = "ext") -> m.AdcReadResult:
 
 
 def _calibration_result(c: Any) -> m.CalibrationResult:
+    dac = {k: (None if v is None else m.DacLineResult(a=v.a, b=v.b, offset=v.offset, gain_ppm=v.gain_ppm))
+           for k, v in (c.dac or {}).items()}
     return m.CalibrationResult(source=c.source, calibrated=c.calibrated, offset=c.offset, a=c.a, b=c.b,
-                               count=c.count, span=c.span, samples=c.samples)
+                               count=c.count, span=c.span, samples=c.samples, dac=dac,
+                               adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured)
 
 
 @mcp.tool(annotations=_ann("Read the pod's calibration", read_only=True))
 async def calibration() -> m.CalibrationResult:
-    """The ADC offset calibration the pod has stored (measured on current_in, terminal J8), and the fit it uses.
+    """The calibration the pod has stored: the ADC offset (measured on current_in, terminal J8) and the fit it uses,
+    and on firmware 3.9.3+ the DMM-guided parts (dac: a line per DAC output, adc_gain_ppm: a gain per ADC source).
 
-    calibrated=false means the pod was never calibrated: analog readings can be off by up to about 50 mV.
+    calibrated=false means the pod has no ADC offset: analog readings can be off by up to about 50 mV.
     """
     return _calibration_result(await _call(lambda: SESSION.require().calibration()))
 
@@ -1363,6 +1370,8 @@ async def calibration() -> m.CalibrationResult:
 async def calibrate(
     source: Annotated[CalibrateSource, Field(description="What to calibrate. Only current_in, the 4-20 mA input.")] = "current_in",
     clear: Annotated[bool, Field(description="True removes the stored calibration instead of measuring one.")] = False,
+    clear_part: Annotated[Optional[CalibrationPart], Field(description=(
+        "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.3+."))] = None,
 ) -> m.CalibrationResult:
     """Calibrate the pod's ADC offset on its 4-20 mA input (current_in, terminal J8) and store it on the pod.
 
@@ -1371,11 +1380,47 @@ async def calibrate(
     has it taken out, and on firmware 3.9.3+ every other ADC source and capture too (they share the front end).
     Once per pod is enough: it survives reboots and firmware updates.
     The pod refuses, and keeps what it had, when something is driving J8 (more than 150 mV; 50 mV before 3.9.3).
-    clear=true removes the stored calibration.
+    clear=true removes the stored calibration (all of it, or clear_part only).
     """
     if clear:
-        return _calibration_result(await _call(lambda: SESSION.require().clear_calibration()))
+        return _calibration_result(await _call(lambda: SESSION.require().clear_calibration(clear_part)))
     return _calibration_result(await _call(lambda: SESSION.require().calibrate(source)))
+
+
+@mcp.tool(annotations=_ann("Store a DAC output's DMM calibration", destructive=True, idempotent=True))
+async def calibrate_dac(
+    path: Annotated[DacCalPath, Field(description="The DAC output: 3v3, 5v or 12v.")],
+    code1: Annotated[int, Field(ge=0, le=65535, description="The 16-bit code of the first set point: code16 from dac_output.")],
+    volts1: Annotated[float, Field(description="What the DMM read at the first set point, in volts.")],
+    code2: Annotated[int, Field(ge=0, le=65535, description="The 16-bit code of the second set point.")],
+    volts2: Annotated[float, Field(description="What the DMM read at the second set point, in volts.")],
+) -> m.CalibrationResult:
+    """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.3+, cap cal_dmm).
+
+    The flow, with the user holding a bench DMM: ask them to disconnect the DUT from the output and put the DMM
+    (DC volts) on that output's SMA. Drive each set point with dac_output(path, volts) and keep its code16
+    (3v3: 0.5 and 3.0 V, 5v: 1.0 and 4.0 V, 12v: -5 and +5 V), ask the user what the DMM reads, then call this
+    with both points and switch the output off (dac_output path off). From then on dac_output, generate and
+    the DAC output limits use this line. The pod refuses, and keeps what it had, when the codes are too close,
+    a reading is far from what the output should give (DMM on the wrong SMA) or the gain is more than 2 % off.
+    """
+    return _calibration_result(await _call(
+        lambda: SESSION.require().calibrate_dac(path, [(code1, volts1), (code2, volts2)])))
+
+
+@mcp.tool(annotations=_ann("Measure an ADC gain through a loopback", destructive=True, idempotent=True))
+async def calibrate_adc_gain(
+    source: Annotated[AdcGainSource, Field(description=(
+        "cal1 (and current_in) through the 5 V output, cal2 through the ±12 V output, ext (the front SMA, "
+        "captures and the control loop) through an SMA cable from the ±12 V output to the ADC input."))],
+) -> m.CalibrationResult:
+    """Measure and store an ADC source's gain against a DMM-calibrated DAC output (firmware 3.9.3+).
+
+    Needs the ADC offset (calibrate) and the driving output's DMM line (calibrate_dac on 5v for cal1, 12v for
+    cal2 and ext). For ext, ask the user to connect the SMA cable first. The pod drives two set points itself
+    and switches the outputs off afterwards; measured says what it saw. Nothing to read on a DMM.
+    """
+    return _calibration_result(await _call(lambda: SESSION.require().calibrate_adc_gain(source)))
 
 
 @mcp.tool(annotations=_ann("Capture an ADC waveform"))

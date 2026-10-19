@@ -73,6 +73,24 @@
           "title": "Clear",
           "type": "boolean"
         },
+        "clear_part": {
+          "anyOf": [
+            {
+              "enum": [
+                "offset",
+                "dac",
+                "adc"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.3+.",
+          "title": "Clear Part"
+        },
         "source": {
           "const": "current_in",
           "default": "current_in",
@@ -82,6 +100,90 @@
         }
       },
       "title": "calibrateArguments",
+      "type": "object"
+    }
+  },
+  "calibrate_adc_gain": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Measure an ADC gain through a loopback"
+    },
+    "input": {
+      "properties": {
+        "source": {
+          "description": "cal1 (and current_in) through the 5 V output, cal2 through the \u00b112 V output, ext (the front SMA, captures and the control loop) through an SMA cable from the \u00b112 V output to the ADC input.",
+          "enum": [
+            "cal1",
+            "cal2",
+            "ext"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "calibrate_adc_gainArguments",
+      "type": "object"
+    }
+  },
+  "calibrate_dac": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Store a DAC output's DMM calibration"
+    },
+    "input": {
+      "properties": {
+        "code1": {
+          "description": "The 16-bit code of the first set point: code16 from dac_output.",
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Code1",
+          "type": "integer"
+        },
+        "code2": {
+          "description": "The 16-bit code of the second set point.",
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Code2",
+          "type": "integer"
+        },
+        "path": {
+          "description": "The DAC output: 3v3, 5v or 12v.",
+          "enum": [
+            "3v3",
+            "5v",
+            "12v"
+          ],
+          "title": "Path",
+          "type": "string"
+        },
+        "volts1": {
+          "description": "What the DMM read at the first set point, in volts.",
+          "title": "Volts1",
+          "type": "number"
+        },
+        "volts2": {
+          "description": "What the DMM read at the second set point, in volts.",
+          "title": "Volts2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "path",
+        "code1",
+        "volts1",
+        "code2",
+        "volts2"
+      ],
+      "title": "calibrate_dacArguments",
       "type": "object"
     }
   },
