@@ -1352,9 +1352,9 @@ def _calibration_result(c: Any) -> m.CalibrationResult:
 
 @mcp.tool(annotations=_ann("Read the pod's calibration", read_only=True))
 async def calibration() -> m.CalibrationResult:
-    """The calibration the pod has stored for its 4-20 mA input (current_in, terminal J8), and the fit it uses.
+    """The ADC offset calibration the pod has stored (measured on current_in, terminal J8), and the fit it uses.
 
-    calibrated=false means the pod was never calibrated: current_in readings can be off by a few mV.
+    calibrated=false means the pod was never calibrated: analog readings can be off by up to about 50 mV.
     """
     return _calibration_result(await _call(lambda: SESSION.require().calibration()))
 
@@ -1364,12 +1364,13 @@ async def calibrate(
     source: Annotated[CalibrateSource, Field(description="What to calibrate. Only current_in, the 4-20 mA input.")] = "current_in",
     clear: Annotated[bool, Field(description="True removes the stored calibration instead of measuring one.")] = False,
 ) -> m.CalibrationResult:
-    """Calibrate the pod's 4-20 mA input (current_in, terminal J8) and store the result on the pod.
+    """Calibrate the pod's ADC offset on its 4-20 mA input (current_in, terminal J8) and store it on the pod.
 
     Nothing may be connected to J8: ask the user to disconnect it and confirm before calling.
-    The pod reads its open input (0 V) and keeps that offset in flash; every later adc_read on current_in
-    has it taken out. Once per pod is enough: it survives reboots and firmware updates.
-    The pod refuses, and keeps what it had, when something is driving J8 (more than 50 mV).
+    The pod reads its open input (0 V) and keeps that offset in flash. Every later adc_read on current_in
+    has it taken out, and on firmware 3.9.3+ every other ADC source and capture too (they share the front end).
+    Once per pod is enough: it survives reboots and firmware updates.
+    The pod refuses, and keeps what it had, when something is driving J8 (more than 150 mV; 50 mV before 3.9.3).
     clear=true removes the stored calibration.
     """
     if clear:

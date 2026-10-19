@@ -2,6 +2,8 @@
 
 ## 2.13.2
 
+- `calibrate` and `calibration` describe the ADC offset calibration: from firmware 3.9.3 it corrects
+  every ADC source, up to 150 mV.
 - Requires embeddedci 2.13.2.
 - New tool `lan_tls`: the pod's LAN API over TLS (firmware 3.9.3+), HTTPS-only and regenerate.
   `connect` to a network address uses TLS when the pod has it and pins its certificate (from the

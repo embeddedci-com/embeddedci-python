@@ -2,6 +2,9 @@
 
 ## 2.13.2
 
+- Docs: `calibrate()` corrects every ADC source from firmware 3.9.3 (they share the front end) and
+  the pod accepts an offset up to 150 mV. On the LAN, `capture_adc` volts use the fit the pod now
+  reports in `status`, so they include the pod's calibrated offset.
 - The LAN API over TLS (pod firmware 3.9.3+): a network address on the default port connects to
   8443 with TLS when the pod has it and falls back to plaintext 8080 only when 8443 refuses and
   nothing is pinned. The pod's certificate is pinned on first use in `known_pods.json`, shared with

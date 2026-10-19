@@ -1237,11 +1237,14 @@ class BenchPod:
 
         ``current_in`` is the 4-20 mA input (J8) and the only source a pod can calibrate on its own.
         **Disconnect J8 first**: with nothing connected the terminal is at 0 V, so what the pod
-        reads is its offset. It takes about 0.3 s. Every later ``adc_read("current_in")`` has that
-        offset taken out. It survives a reboot and a firmware update.
+        reads is its ADC offset. It takes about 0.3 s. Every later ``adc_read("current_in")`` has
+        that offset taken out, and from firmware 3.9.3 every other source too (``ext``, ``cal1``,
+        ``cal2``, and ``capture_adc`` volts): they share the same front end. It survives a reboot
+        and a firmware update.
 
         Raises :class:`BenchPodError` when the pod refuses: something is driving J8 (more than
-        50 mV), or the input is still moving. The stored calibration is then unchanged.
+        150 mV; 50 mV before firmware 3.9.3), or the input is still moving. The stored calibration
+        is then unchanged.
         """
         check_choice(source, CALIBRATE_SOURCES, "source")
         self._require_capability("calibrate", "calibration")

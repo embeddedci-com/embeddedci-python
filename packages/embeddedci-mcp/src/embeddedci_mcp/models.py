@@ -53,7 +53,7 @@ class CapabilitiesInfo(BaseModel):
     power_profile: bool = Field(False, description="Power profiles (measure_power, power_profile_start).")
     nrst_pin: bool = Field(False, description="Dedicated target-reset pin (reset_target, flash nreset).")
     usb_cc: bool = Field(False, description='USB-C CC monitoring (command {"cmd": "usb_cc"}).')
-    calibrate: bool = Field(False, description="The pod calibrates its own 4-20 mA input (calibrate, calibration).")
+    calibrate: bool = Field(False, description="The pod calibrates its own ADC offset on the 4-20 mA input (calibrate, calibration).")
     current_out: bool = Field(False, description=(
         "4-20 mA output on terminal J9 (current_out, and dac_path current_out on generate and replay)."))
     can: bool = Field(False, description="Classic CAN on CAN+/CAN- (can_* tools).")
