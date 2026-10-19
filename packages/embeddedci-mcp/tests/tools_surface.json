@@ -88,7 +88,7 @@
             }
           ],
           "default": null,
-          "description": "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.3+.",
+          "description": "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.4+.",
           "title": "Clear Part"
         },
         "source": {

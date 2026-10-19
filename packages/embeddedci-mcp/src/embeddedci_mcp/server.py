@@ -1359,7 +1359,7 @@ def _calibration_result(c: Any) -> m.CalibrationResult:
 @mcp.tool(annotations=_ann("Read the pod's calibration", read_only=True))
 async def calibration() -> m.CalibrationResult:
     """The calibration the pod has stored: the ADC offset (measured on current_in, terminal J8) and the fit it uses,
-    and on firmware 3.9.3+ the DMM-guided parts (dac: a line per DAC output, adc_gain_ppm: a gain per ADC source).
+    and on firmware 3.9.4+ the DMM-guided parts (dac: a line per DAC output, adc_gain_ppm: a gain per ADC source).
 
     calibrated=false means the pod has no ADC offset: analog readings can be off by up to about 50 mV.
     """
@@ -1371,7 +1371,7 @@ async def calibrate(
     source: Annotated[CalibrateSource, Field(description="What to calibrate. Only current_in, the 4-20 mA input.")] = "current_in",
     clear: Annotated[bool, Field(description="True removes the stored calibration instead of measuring one.")] = False,
     clear_part: Annotated[Optional[CalibrationPart], Field(description=(
-        "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.3+."))] = None,
+        "With clear=true, remove only this part: offset, dac (the DMM lines) or adc (the ADC gains). Firmware 3.9.4+."))] = None,
 ) -> m.CalibrationResult:
     """Calibrate the pod's ADC offset on its 4-20 mA input (current_in, terminal J8) and store it on the pod.
 
@@ -1395,7 +1395,7 @@ async def calibrate_dac(
     code2: Annotated[int, Field(ge=0, le=65535, description="The 16-bit code of the second set point.")],
     volts2: Annotated[float, Field(description="What the DMM read at the second set point, in volts.")],
 ) -> m.CalibrationResult:
-    """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.3+, cap cal_dmm).
+    """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.4+, cap cal_dmm).
 
     The flow, with the user holding a bench DMM: ask them to disconnect the DUT from the output and put the DMM
     (DC volts) on that output's SMA. Drive each set point with dac_output(path, volts) and keep its code16
@@ -1414,7 +1414,7 @@ async def calibrate_adc_gain(
         "cal1 (and current_in) through the 5 V output, cal2 through the ±12 V output, ext (the front SMA, "
         "captures and the control loop) through an SMA cable from the ±12 V output to the ADC input."))],
 ) -> m.CalibrationResult:
-    """Measure and store an ADC source's gain against a DMM-calibrated DAC output (firmware 3.9.3+).
+    """Measure and store an ADC source's gain against a DMM-calibrated DAC output (firmware 3.9.4+).
 
     Needs the ADC offset (calibrate) and the driving output's DMM line (calibrate_dac on 5v for cal1, 12v for
     cal2 and ext). For ext, ask the user to connect the SMA cable first. The pod drives two set points itself

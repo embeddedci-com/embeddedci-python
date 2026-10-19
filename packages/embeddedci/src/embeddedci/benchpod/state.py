@@ -341,7 +341,7 @@ class Calibration:
     Every ADC source is scaled with a fit, ``volts = a + b * count``, that is built into the
     firmware and the same on every pod. A pod that calibrated itself keeps its own values on top
     of that, in flash: the ADC offset, measured on ``current_in`` (the 4-20 mA input, J8), and from
-    firmware 3.9.3 the DMM-guided parts, a DAC line per output (``dac``) and an ADC gain per
+    firmware 3.9.4 the DMM-guided parts, a DAC line per output (``dac``) and an ADC gain per
     source (``adc_gain_ppm``).
     """
 

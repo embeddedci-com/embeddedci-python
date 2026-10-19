@@ -1014,7 +1014,7 @@ Calibration.
 
 #### Calibrating with a DMM
 
-With a bench DMM the pod can also take out what the offset leaves (firmware 3.9.3+, capability
+With a bench DMM the pod can also take out what the offset leaves (firmware 3.9.4+, capability
 `cal_dmm`, `Capabilities.cal_dmm`): its own DAC line per output, then the ADC gain per source.
 Every step is optional and stored on its own; an output or source without one keeps the built-in
 fit. Disconnect the DUT from the DAC outputs first: this drives up to ±5 V on them.
@@ -1718,7 +1718,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.3+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |

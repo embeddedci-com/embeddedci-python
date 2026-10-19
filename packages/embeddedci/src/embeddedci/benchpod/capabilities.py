@@ -176,7 +176,7 @@ class Capabilities:
     spi_stream: bool = False
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
     calibrate: bool = False
-    #: ``calibrate`` also takes the DMM-guided forms (firmware 3.9.3+): this pod's own DAC line
+    #: ``calibrate`` also takes the DMM-guided forms (firmware 3.9.4+): this pod's own DAC line
     #: per output and ADC gain per source, :meth:`BenchPod.calibrate_dac`,
     #: :meth:`BenchPod.calibrate_adc_gain`.
     cal_dmm: bool = False

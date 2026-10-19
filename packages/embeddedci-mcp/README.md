@@ -290,10 +290,10 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | `dac_output` | Route a DAC output and drive a calibrated DC voltage on it. | **`path`**, `volts` |
 | `current_out` | Hold a current on the 4-20 mA output (J9), in amps, or read its range. | `current` |
 | `adc_read` | One calibrated reading: front SMA, DAC loopbacks or the 4-20 mA input (J8). | `source=ext` |
-| `calibration` | The stored calibration: the ADC offset (measured on the 4-20 mA input) and the fit it uses, plus the DMM lines and gains (firmware 3.9.3+). | none |
+| `calibration` | The stored calibration: the ADC offset (measured on the 4-20 mA input) and the fit it uses, plus the DMM lines and gains (firmware 3.9.4+). | none |
 | `calibrate` | Measure and store the ADC offset on the 4-20 mA input (J8 open), or clear the calibration (all of it, or one part). | `source=current_in`, `clear=false`, `clear_part` |
-| `calibrate_dac` | Store this pod's line for a DAC output from two DMM readings of set points driven with `dac_output` (firmware 3.9.3+). | **`path`**, **`code1`**, **`volts1`**, **`code2`**, **`volts2`** |
-| `calibrate_adc_gain` | Measure an ADC source's gain through a loopback against a DMM-calibrated output (firmware 3.9.3+). | **`source`** |
+| `calibrate_dac` | Store this pod's line for a DAC output from two DMM readings of set points driven with `dac_output` (firmware 3.9.4+). | **`path`**, **`code1`**, **`volts1`**, **`code2`**, **`volts2`** |
+| `calibrate_adc_gain` | Measure an ADC source's gain through a loopback against a DMM-calibrated output (firmware 3.9.4+). | **`source`** |
 
 ### Capture and decode
 

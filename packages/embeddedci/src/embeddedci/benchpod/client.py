@@ -1264,7 +1264,7 @@ class BenchPod:
     def clear_calibration(self, part: Optional[CalibrationPart] = None) -> Calibration:
         """Remove the pod's stored calibration. It goes back to the built-in fits.
 
-        ``part`` removes one part only (firmware 3.9.3+): ``"offset"`` (the ADC offset),
+        ``part`` removes one part only (firmware 3.9.4+): ``"offset"`` (the ADC offset),
         ``"dac"`` (the DMM lines of every DAC output) or ``"adc"`` (the ADC gains).
         """
         self._require_capability("calibrate", "calibration")
@@ -1280,7 +1280,7 @@ class BenchPod:
 
     def calibrate_dac(self, path: DacCalPath,
                       points: Sequence[Tuple[int, float]]) -> Calibration:
-        """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.3+).
+        """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.4+).
 
         ``points`` is two ``(code16, volts)`` pairs: the 16-bit code the pod drove (the
         ``code16`` of :meth:`dac_output`) and what a DMM read on that output's SMA. Disconnect
@@ -1308,7 +1308,7 @@ class BenchPod:
             "code2": int(c2), "uv2": int(round(float(v2) * 1e6))}))
 
     def calibrate_adc_gain(self, source: AdcGainSource) -> Calibration:
-        """Measure and store an ADC source's gain through a loopback (firmware 3.9.3+).
+        """Measure and store an ADC source's gain through a loopback (firmware 3.9.4+).
 
         The pod drives two set points on a DAC output that has its DMM line
         (:meth:`calibrate_dac`) and compares what the ADC reads with what the output puts out:

@@ -435,7 +435,7 @@ class CalibrationResult(BaseModel):
     span: Optional[int] = Field(None, description="Its peak-to-peak spread in counts.")
     samples: Optional[int] = Field(None, description="Samples averaged.")
     dac: Dict[str, Optional[DacLineResult]] = Field(default_factory=dict, description=(
-        "This pod's DMM line per DAC output (3v3, 5v, 12v); null = the built-in line. Empty before firmware 3.9.3."))
+        "This pod's DMM line per DAC output (3v3, 5v, 12v); null = the built-in line. Empty before firmware 3.9.4."))
     adc_gain_ppm: Dict[str, Optional[int]] = Field(default_factory=dict, description=(
         "ADC gain correction per source (cal1, cal2, ext) in ppm; null = the built-in gain."))
     dmm: bool = Field(False, description="True when any DMM-guided part is stored.")

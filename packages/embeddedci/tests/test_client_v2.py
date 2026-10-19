@@ -375,10 +375,10 @@ def test_calibrate_needs_the_capability():
 
 
 class DmmCalPod(FakeTransport):
-    """A pod that takes the DMM-guided calibration (firmware 3.9.3+)."""
+    """A pod that takes the DMM-guided calibration (firmware 3.9.4+)."""
 
     def status(self) -> Any:
-        return {**super().status(), "version": "3.9.3", "caps": ["calibrate", "cal_dmm"]}
+        return {**super().status(), "version": "3.9.4", "caps": ["calibrate", "cal_dmm"]}
 
 
 _DMM = {**_CAL, "dmm": True,

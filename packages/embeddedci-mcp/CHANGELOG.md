@@ -1,10 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
-## 2.13.2
+## 2.13.3 (unreleased)
 
-- New tools `calibrate_dac` and `calibrate_adc_gain`: the DMM-guided calibration (firmware 3.9.3+).
+- New tools `calibrate_dac` and `calibrate_adc_gain`: the DMM-guided calibration (firmware 3.9.4+).
   `calibrate` takes `clear_part` (offset, dac or adc); `calibration` reports the DAC lines and
   ADC gains.
+
+## 2.13.2
+
 - `calibrate` and `calibration` describe the ADC offset calibration: from firmware 3.9.3 it corrects
   every ADC source, up to 150 mV.
 - Requires embeddedci 2.13.2.

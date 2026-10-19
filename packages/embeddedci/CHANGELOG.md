@@ -1,14 +1,17 @@
 # Changelog — `embeddedci`
 
-## 2.13.2
+## 2.13.3 (unreleased)
 
-- The DMM-guided calibration (pod firmware 3.9.3+, `Capabilities.cal_dmm`):
+- The DMM-guided calibration (pod firmware 3.9.4+, `Capabilities.cal_dmm`):
   `BenchPod.calibrate_dac(path, points)` stores this pod's own line for a DAC output from two
   `(code16, volts)` DMM readings, `calibrate_adc_gain(source)` measures an ADC gain (`cal1`,
   `cal2`, `ext`) through a loopback, and `clear_calibration(part)` clears one part (`offset`,
   `dac`, `adc`). `Calibration` gains `dac` (`DacLine`), `adc_gain_ppm`, `dmm` and `measured`;
   `BenchPod.DMM_SET_POINTS` has the set points. New types `DacCalPath`, `AdcGainSource`,
   `CalibrationPart`.
+
+## 2.13.2
+
 - Docs: `calibrate()` corrects every ADC source from firmware 3.9.3 (they share the front end) and
   the pod accepts an offset up to 150 mV. On the LAN, `capture_adc` volts use the fit the pod now
   reports in `status`, so they include the pod's calibrated offset.
