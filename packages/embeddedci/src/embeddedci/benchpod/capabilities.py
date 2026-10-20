@@ -176,6 +176,10 @@ class Capabilities:
     spi_stream: bool = False
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
     calibrate: bool = False
+    #: ``calibrate`` also takes the DMM-guided forms (firmware 3.9.4+): this pod's own DAC line
+    #: per output and ADC gain per source, :meth:`BenchPod.calibrate_dac`,
+    #: :meth:`BenchPod.calibrate_adc_gain`.
+    cal_dmm: bool = False
     #: The pod can hold a current on its 4-20 mA output (J9): :meth:`BenchPod.current_out`.
     current_out: bool = False
     #: Classic CAN on the pod's CAN+/CAN- terminals: :meth:`BenchPod.open_can`. Firmware older
@@ -319,6 +323,7 @@ class Capabilities:
                 ("spi_master", "spi_master"),
                 ("spi_stream", "spi_stream"),
                 ("calibrate", "calibrate"),
+                ("cal_dmm", "cal_dmm"),
                 ("current_out", "current_out"),
                 ("can", "can"),
                 ("pod_current", "pod_current"),
@@ -379,7 +384,7 @@ class Capabilities:
             ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
-            ("calibrate", "cap.calibrate"), ("current_out", "cap.current_out"),
+            ("calibrate", "cap.calibrate"), ("cal_dmm", "cap.cal_dmm"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
             ("sensor_types", "cap.sensor_types"), ("gps", "cap.gps"),
             ("dac_limits", "cap.dac_limits"),

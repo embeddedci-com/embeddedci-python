@@ -68,10 +68,13 @@ class FakeTransport(Transport):
         #: Capabilities the pod reports; drop entries to test a pod without a feature.
         self.caps = ["signal", "la", "uart", "dac", "dac_replay", "dac_cotrig",
                      "la_pins", "gpio_read", "capture_trigger", "power_profile", "calibrate",
-                     "current_out"]
+                     "cal_dmm", "current_out"]
         #: The pod's stored `current_in` calibration (the `calibrate` command).
         self.current_in_calibrated = False
         self.current_in_offset_uv = 0
+        #: DMM parts: the DAC lines by path and the ADC gains by source (ppm).
+        self.dac_lines: Dict[str, Any] = {}
+        self.adc_gains: Dict[str, int] = {}
         # -- LA pin ownership (the firmware's table): function, gpio mode and commanded level.
         self.function: Dict[int, str] = {la: "none" for la in range(1, 15)}
         self.mode: Dict[int, Any] = {la: None for la in range(1, 15)}
@@ -285,9 +288,27 @@ class FakeTransport(Transport):
         return reply
 
     def _cmd_calibrate(self, req):
-        if req.get("clear"):
+        measured = None
+        clear = req.get("clear")
+        if clear in ("dac", "adc", "offset"):
+            if clear == "dac":
+                self.dac_lines = {}
+            elif clear == "adc":
+                self.adc_gains = {}
+            else:
+                self.current_in_offset_uv, self.current_in_calibrated = 0, False
+        elif clear:
             self.current_in_offset_uv = 0
             self.current_in_calibrated = False
+            self.dac_lines, self.adc_gains = {}, {}
+        elif "dac" in req:
+            if self.error:
+                raise FirmwareError(self.error, cmd="calibrate")
+            self.dac_lines[req["dac"]] = {"a_uv": -609, "b_pv": 76249841, "offset_uv": -3127, "gain_ppm": -996,
+                                          "_req": dict(req)}
+        elif "adc" in req:
+            self.adc_gains[req["adc"]] = 1850
+            measured = {"v1_uv": 995900, "v2_uv": 3992900, "r1_uv": 994100, "r2_uv": 3985500, "residual_uv": 1200}
         elif "source" in req:
             if self.error:
                 raise FirmwareError(self.error, cmd="calibrate")
@@ -295,9 +316,15 @@ class FakeTransport(Transport):
             self.current_in_calibrated = True
         reply = {"source": "current_in", "calibrated": self.current_in_calibrated,
                  "offset_mv": round(self.current_in_offset_uv / 1000), "offset_uv": self.current_in_offset_uv,
-                 "a_uv": 65832397 - self.current_in_offset_uv, "b_nv": -1004471}
+                 "a_uv": 65832397 - self.current_in_offset_uv, "b_nv": -1004471,
+                 "dac": {p: ({k: v for k, v in self.dac_lines[p].items() if k != "_req"} if p in self.dac_lines else None)
+                         for p in ("3v3", "5v", "12v")},
+                 "adc_gain_ppm": {s: self.adc_gains.get(s) for s in ("cal1", "cal2", "ext")},
+                 "dmm": bool(self.dac_lines or self.adc_gains)}
         if "source" in req:
             reply.update(count=65535, span=6, samples=512)
+        if measured:
+            reply["measured"] = measured
         return reply
 
     def _cmd_generate(self, req):

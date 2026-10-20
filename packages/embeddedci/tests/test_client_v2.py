@@ -13,6 +13,7 @@ from embeddedci.benchpod.state import (
     AdcReading,
     AnalogPathState,
     Calibration,
+    DacLine,
     CurrentOutput,
     DacOutput,
     LaVoltage,
@@ -371,6 +372,67 @@ def test_calibrate_needs_the_capability():
             call()
     assert t.commands == []
     assert BenchPod(transport=CalPod(), lease=False).capabilities.calibrate
+
+
+class DmmCalPod(FakeTransport):
+    """A pod that takes the DMM-guided calibration (firmware 3.9.4+)."""
+
+    def status(self) -> Any:
+        return {**super().status(), "version": "3.9.4", "caps": ["calibrate", "cal_dmm"]}
+
+
+_DMM = {**_CAL, "dmm": True, "zero_count_mc": 65585123,
+        "dac": {"3v3": None, "5v": {"a_uv": -609, "b_pv": 76249841, "offset_uv": -3127, "gain_ppm": -996},
+                "12v": None},
+        "adc_gain_ppm": {"cal1": 1850, "cal2": None, "ext": None}}
+
+
+def test_calibrate_dac_sends_both_points_in_microvolts():
+    t = DmmCalPod({"calibrate": lambda req: _DMM})
+    bp = BenchPod(transport=t, lease=False)
+    assert bp.capabilities.cal_dmm
+    c = bp.calibrate_dac("5v", [(13069, 0.9959), (52374, 3.9929)])
+    assert t.commands[-1] == {"cmd": "calibrate", "dac": "5v", "code1": 13069, "uv1": 995900,
+                              "code2": 52374, "uv2": 3992900}
+    line = c.dac["5v"]
+    assert isinstance(line, DacLine) and c.dac["3v3"] is None and c.dmm
+    assert line.a == pytest.approx(-609e-6) and line.b == pytest.approx(76.249841e-6)
+    assert line.offset == pytest.approx(-3.127e-3) and line.gain_ppm == -996
+    assert c.adc_gain_ppm == {"cal1": 1850, "cal2": None, "ext": None}
+    assert c.zero_count == pytest.approx(65585.123)
+    with pytest.raises(ValueError):
+        bp.calibrate_dac("5v", [(13069, 0.9959)])
+    with pytest.raises(ValueError):
+        bp.calibrate_dac("off", [(1, 0.0), (2, 1.0)])  # type: ignore[arg-type]
+    assert set(bp.DMM_SET_POINTS) == {"3v3", "5v", "12v"}
+
+
+def test_calibrate_adc_gain_and_partial_clear():
+    meas = {"v1_uv": 995900, "v2_uv": 3992900, "r1_uv": 994100, "r2_uv": 3985500, "residual_uv": 1200}
+    t = DmmCalPod({"calibrate": lambda req: {**_DMM, "measured": meas} if "adc" in req else _DMM})
+    bp = BenchPod(transport=t, lease=False)
+    c = bp.calibrate_adc_gain("cal1")
+    assert t.commands[-1] == {"cmd": "calibrate", "adc": "cal1"}
+    assert c.measured == pytest.approx({"v1": 0.9959, "v2": 3.9929, "r1": 0.9941, "r2": 3.9855, "residual": 0.0012})
+    with pytest.raises(ValueError):
+        bp.calibrate_adc_gain("current_in")  # type: ignore[arg-type]
+    bp.clear_calibration("dac")
+    assert t.commands[-1] == {"cmd": "calibrate", "clear": "dac"}
+    with pytest.raises(ValueError):
+        bp.clear_calibration("everything")  # type: ignore[arg-type]
+
+
+def test_dmm_calibration_needs_cal_dmm():
+    t = CalPod({"calibrate": lambda req: _CAL})       # 3.4.0 to 3.9.2: offset only
+    bp = BenchPod(transport=t, lease=False)
+    for call in (lambda: bp.calibrate_dac("5v", [(1, 1.0), (40000, 3.0)]), lambda: bp.calibrate_adc_gain("cal1"),
+                 lambda: bp.clear_calibration("adc")):
+        with pytest.raises(BenchPodError, match="cal_dmm"):
+            call()
+    assert t.commands == []
+    old = bp.calibration()                             # an old reply has no DMM parts
+    assert old.dac == {} and old.adc_gain_ppm == {} and not old.dmm and old.measured is None
+    assert old.zero_count is None
 
 
 def test_capture_adc_routes_the_source_first():

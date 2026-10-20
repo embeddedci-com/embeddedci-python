@@ -290,8 +290,10 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | `dac_output` | Route a DAC output and drive a calibrated DC voltage on it. | **`path`**, `volts` |
 | `current_out` | Hold a current on the 4-20 mA output (J9), in amps, or read its range. | `current` |
 | `adc_read` | One calibrated reading: front SMA, DAC loopbacks or the 4-20 mA input (J8). | `source=ext` |
-| `calibration` | The stored calibration of the 4-20 mA input and the fit it uses. | none |
-| `calibrate` | Measure and store the 4-20 mA input's offset, or clear it. | `source=current_in`, `clear=false` |
+| `calibration` | The stored calibration: the ADC offset (measured on the 4-20 mA input) and the fit it uses, plus the DMM lines and gains (firmware 3.9.4+). | none |
+| `calibrate` | Measure and store the ADC offset on the 4-20 mA input (J8 open), or clear the calibration (all of it, or one part). | `source=current_in`, `clear=false`, `clear_part` |
+| `calibrate_dac` | Store this pod's line for a DAC output from two DMM readings of set points driven with `dac_output` (firmware 3.9.4+). | **`path`**, **`code1`**, **`volts1`**, **`code2`**, **`volts2`** |
+| `calibrate_adc_gain` | Measure an ADC source's gain through a loopback against a DMM-calibrated output (firmware 3.9.4+). | **`source`** |
 
 ### Capture and decode
 
@@ -372,7 +374,7 @@ resistors and analog paths) and `benchpod://help` (the server instructions).
   `disable_i2c_sensor` and `disable_gps`; a pull conflict to `set_pull(las=[7], enabled=false)`.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
-  `nrst_pin`, `can`, `calibrate`, `current_out`, `pod_current` and `analog` (false on the
+  `nrst_pin`, `can`, `calibrate`, `cal_dmm`, `current_out`, `pod_current` and `analog` (false on the
   digital-only board), plus the pod's policy and cloud settings (`dac_limits`, `flash_kb`,
   `ota_sig`, `sig_policy`, `lan_policy`, `tunnel_max_tier`, `lease_state`, `cloud_ca`,
   `cloud_proxy`).

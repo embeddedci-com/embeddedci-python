@@ -112,6 +112,13 @@ AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "
 AdcSource = Literal["ext", "cal1", "cal2", "current_in"]
 #: ADC sources a pod can calibrate on its own (:meth:`BenchPod.calibrate`): the 4-20 mA input.
 CalibrateSource = Literal["current_in"]
+#: DAC outputs a DMM line can be stored for (:meth:`BenchPod.calibrate_dac`).
+DacCalPath = Literal["3v3", "5v", "12v"]
+#: ADC sources whose gain the pod measures through a loopback (:meth:`BenchPod.calibrate_adc_gain`);
+#: ``current_in`` follows ``cal1``.
+AdcGainSource = Literal["cal1", "cal2", "ext"]
+#: One part of the pod's calibration (:meth:`BenchPod.clear_calibration`).
+CalibrationPart = Literal["offset", "dac", "adc"]
 #: Parametric DAC waveforms the firmware generator produces.
 Waveshape = Literal["sine", "square", "sawtooth"]
 #: How replayed volts map onto DAC codes: reproduce them (``faithful``) or auto-scale (``fit``).
@@ -139,6 +146,9 @@ DAC_OUTPUT_PATHS: Tuple[str, ...] = get_args(DacOutputPath)
 ANALOG_PATHS: Tuple[str, ...] = get_args(AnalogPath)
 ADC_SOURCES: Tuple[str, ...] = get_args(AdcSource)
 CALIBRATE_SOURCES: Tuple[str, ...] = get_args(CalibrateSource)
+DAC_CAL_PATHS: Tuple[str, ...] = get_args(DacCalPath)
+ADC_GAIN_SOURCES: Tuple[str, ...] = get_args(AdcGainSource)
+CALIBRATION_PARTS: Tuple[str, ...] = get_args(CalibrationPart)
 WAVESHAPES: Tuple[str, ...] = get_args(Waveshape)
 REPLAY_MAPPINGS: Tuple[str, ...] = get_args(ReplayMapping)
 LOOP_SOURCES: Tuple[str, ...] = get_args(LoopSource)

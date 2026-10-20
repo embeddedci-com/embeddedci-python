@@ -1,4 +1,5 @@
 {
+  "AdcGainSource": "Literal['cal1', 'cal2', 'ext']",
   "AdcReading": {
     "__fields__": [
       "source",
@@ -42,6 +43,8 @@
     "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
     "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",
+    "calibrate_adc_gain": "(self, source: 'AdcGainSource') -> 'Calibration'",
+    "calibrate_dac": "(self, path: 'DacCalPath', points: 'Sequence[Tuple[int, float]]') -> 'Calibration'",
     "calibration": "(self) -> 'Calibration'",
     "can_analog": "property",
     "can_calibrate": "property",
@@ -64,7 +67,7 @@
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
     "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'LaCapture'",
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
-    "clear_calibration": "(self) -> 'Calibration'",
+    "clear_calibration": "(self, part: 'Optional[CalibrationPart]' = None) -> 'Calibration'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
     "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[LaPinState]'",
@@ -168,10 +171,16 @@
       "count",
       "span",
       "samples",
+      "dac",
+      "adc_gain_ppm",
+      "dmm",
+      "zero_count",
+      "measured",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'Calibration'\""
   },
+  "CalibrationPart": "Literal['offset', 'dac', 'adc']",
   "CanBus": {
     "__init__": "(self, bp: \"'BenchPod'\", *, bitrate: 'int', mode: 'str', term: 'bool' = False, fd: 'bool' = False) -> 'None'",
     "add_responder": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'dict'",
@@ -249,6 +258,7 @@
       "spi_master",
       "spi_stream",
       "calibrate",
+      "cal_dmm",
       "current_out",
       "can",
       "pod_current",
@@ -342,9 +352,19 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'CurrentOutput'\""
   },
+  "DacCalPath": "Literal['3v3', '5v', '12v']",
   "DacHandle": {
     "__init__": "(self, *, stop: 'Callable[[], Any]', dac_path: 'str' = '', cotrig: 'bool' = False, data: 'Optional[dict]' = None) -> 'None'",
     "stop": "(self) -> 'None'"
+  },
+  "DacLine": {
+    "__fields__": [
+      "a",
+      "b",
+      "offset",
+      "gain_ppm"
+    ],
+    "from_reply": "(cls, d: 'Any') -> \"Optional['DacLine']\""
   },
   "DacOutput": {
     "__fields__": [
@@ -974,6 +994,7 @@
     "with_changes": "(self, **changes: 'Any') -> \"'Wiring'\""
   },
   "__all__": [
+    "AdcGainSource",
     "AdcReading",
     "AdcSource",
     "AnalogPath",
@@ -986,6 +1007,7 @@
     "BuildReporter",
     "CalibrateSource",
     "Calibration",
+    "CalibrationPart",
     "CanBus",
     "CanFrame",
     "CanMode",
@@ -1000,7 +1022,9 @@
     "ControlLoopHandle",
     "CorrelatedCapture",
     "CurrentOutput",
+    "DacCalPath",
     "DacHandle",
+    "DacLine",
     "DacOutput",
     "DacOutputPath",
     "DacPath",

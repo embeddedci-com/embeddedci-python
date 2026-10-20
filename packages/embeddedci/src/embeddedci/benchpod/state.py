@@ -315,12 +315,34 @@ class AdcReading:
 
 
 @dataclass(frozen=True)
+class DacLine:
+    """This pod's own line for a DAC output, from two DMM readings (``BenchPod.calibrate_dac``)."""
+
+    #: ``volts = a + b * code16``: volts at code 0 and volts per 16-bit code.
+    a: float
+    b: float
+    #: Against the built-in line: the offset in volts (at 0 V on ``12v``, at code 0 on the
+    #: others) and the gain difference in ppm.
+    offset: float
+    gain_ppm: int
+
+    @classmethod
+    def from_reply(cls, d: Any) -> Optional["DacLine"]:
+        if not isinstance(d, dict):
+            return None
+        return cls(a=(_opt_int(d, "a_uv") or 0) / 1e6, b=(_opt_int(d, "b_pv") or 0) / 1e12,
+                   offset=(_opt_int(d, "offset_uv") or 0) / 1e6, gain_ppm=_opt_int(d, "gain_ppm") or 0)
+
+
+@dataclass(frozen=True)
 class Calibration:
-    """The pod's own ADC calibration for one source (``BenchPod.calibrate`` / ``calibration``).
+    """The pod's own calibration (``BenchPod.calibrate`` / ``calibration``).
 
     Every ADC source is scaled with a fit, ``volts = a + b * count``, that is built into the
-    firmware and the same on every pod. A pod that calibrated itself keeps its own value on top
-    of that, in flash. Today that is the offset of ``current_in``, the 4-20 mA input (J8).
+    firmware and the same on every pod. A pod that calibrated itself keeps its own values on top
+    of that, in flash: the ADC offset, measured on ``current_in`` (the 4-20 mA input, J8), and from
+    firmware 3.9.4 the DMM-guided parts, a DAC line per output (``dac``) and an ADC gain per
+    source (``adc_gain_ppm``).
     """
 
     source: str
@@ -338,16 +360,41 @@ class Calibration:
     count: Optional[int] = None
     span: Optional[int] = None
     samples: Optional[int] = None
+    #: This pod's DMM line per DAC output (``3v3``, ``5v``, ``12v``); ``None`` = the built-in
+    #: line. Empty on firmware before 3.9.3.
+    dac: Dict[str, Optional[DacLine]] = field(default_factory=dict)
+    #: The ADC gain correction per source (``cal1``, ``cal2``, ``ext``) in ppm; ``None`` = the
+    #: built-in gain. Empty on firmware before 3.9.3.
+    adc_gain_ppm: Dict[str, Optional[int]] = field(default_factory=dict)
+    #: ``True`` when any DMM part is stored.
+    dmm: bool = False
+    #: The raw zero the offset is derived from: the mean count ``current_in`` read with J8 open,
+    #: unwrapped. ``None`` when not calibrated or on firmware before 3.9.4.
+    zero_count: Optional[float] = None
+    #: After :meth:`BenchPod.calibrate_adc_gain`: what the DAC put out at the two set points
+    #: (``v1``, ``v2``), what the ADC read before the gain (``r1``, ``r2``) and the mean offset left
+    #: after it (``residual``), all in volts. ``None`` otherwise.
+    measured: Optional[Dict[str, float]] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "Calibration":
         d = _d(reply)
+        dac = d.get("dac") if isinstance(d.get("dac"), dict) else {}
+        gains = d.get("adc_gain_ppm") if isinstance(d.get("adc_gain_ppm"), dict) else {}
+        meas = d.get("measured") if isinstance(d.get("measured"), dict) else None
         return cls(source=str(d.get("source", "")), calibrated=d.get("calibrated") is True,
                    offset=(_opt_int(d, "offset_uv") or 0) / 1e6,
                    a=(_opt_int(d, "a_uv") or 0) / 1e6, b=(_opt_int(d, "b_nv") or 0) / 1e9,
                    count=_opt_int(d, "count"), span=_opt_int(d, "span"),
-                   samples=_opt_int(d, "samples"), raw=d)
+                   samples=_opt_int(d, "samples"),
+                   dac={str(k): DacLine.from_reply(v) for k, v in dac.items()},
+                   adc_gain_ppm={str(k): _opt_int(gains, k) for k in gains},
+                   dmm=d.get("dmm") is True,
+                   zero_count=None if _opt_int(d, "zero_count_mc") is None else _opt_int(d, "zero_count_mc") / 1000.0,
+                   measured=None if meas is None else {
+                       k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},
+                   raw=d)
 
 
 @dataclass(frozen=True)

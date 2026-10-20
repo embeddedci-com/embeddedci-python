@@ -48,9 +48,12 @@ from . import uart as _uart
 from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .constants import (
     ADC_SOURCE_PATHS,
+    ADC_GAIN_SOURCES,
     ADC_SOURCES,
     ANALOG_PATHS,
     CALIBRATE_SOURCES,
+    CALIBRATION_PARTS,
+    DAC_CAL_PATHS,
     CAN_MODES,
     DAC_OUTPUT_PATHS,
     DAC_PATHS,
@@ -65,9 +68,12 @@ from .constants import (
     PULLUP_CHANNELS,
     REPLAY_MAPPINGS,
     WAVESHAPES,
+    AdcGainSource,
     AdcSource,
     AnalogPath,
     CalibrateSource,
+    CalibrationPart,
+    DacCalPath,
     CanMode,
     DacOutputPath,
     DacPath,
@@ -1255,10 +1261,66 @@ class BenchPod:
         self._require_capability("calibrate", "calibration")
         return Calibration.from_reply(self.command({"cmd": "calibrate"}))
 
-    def clear_calibration(self) -> Calibration:
-        """Remove the pod's stored calibration. It goes back to the built-in fit."""
+    def clear_calibration(self, part: Optional[CalibrationPart] = None) -> Calibration:
+        """Remove the pod's stored calibration. It goes back to the built-in fits.
+
+        ``part`` removes one part only (firmware 3.9.4+): ``"offset"`` (the ADC offset),
+        ``"dac"`` (the DMM lines of every DAC output) or ``"adc"`` (the ADC gains).
+        """
         self._require_capability("calibrate", "calibration")
-        return Calibration.from_reply(self.command({"cmd": "calibrate", "clear": True}))
+        if part is None:
+            return Calibration.from_reply(self.command({"cmd": "calibrate", "clear": True}))
+        check_choice(part, CALIBRATION_PARTS, "part")
+        self._require_capability("cal_dmm", "partial calibration clears")
+        return Calibration.from_reply(self.command({"cmd": "calibrate", "clear": part}))
+
+    #: The set points a DMM calibration drives on each output, in volts: well inside the range,
+    #: away from the output floor near 0 V. The pod's ADC gain step uses the same ones.
+    DMM_SET_POINTS: Dict[str, Tuple[float, float]] = {"3v3": (0.5, 3.0), "5v": (1.0, 4.0), "12v": (-5.0, 5.0)}
+
+    def calibrate_dac(self, path: DacCalPath,
+                      points: Sequence[Tuple[int, float]]) -> Calibration:
+        """Store this pod's own line for a DAC output from two DMM readings (firmware 3.9.4+).
+
+        ``points`` is two ``(code16, volts)`` pairs: the 16-bit code the pod drove (the
+        ``code16`` of :meth:`dac_output`) and what a DMM read on that output's SMA. Disconnect
+        the DUT from the output first. A typical run::
+
+            for v in pod.DMM_SET_POINTS["5v"]:
+                out = pod.dac_output("5v", volts=v)
+                points.append((out.code16, dmm.read_volts()))
+            pod.calibrate_dac("5v", points)
+            pod.dac_output("off")
+
+        From then on :meth:`dac_output`, the calibrated :meth:`generate` and the DAC output
+        limits convert with this line. Raises :class:`BenchPodError` when the pod refuses: the
+        codes are too close, a reading is far from what the output should give (the DMM is on
+        another SMA), or the gain is more than 2 % off. The stored line is then unchanged.
+        """
+        check_choice(path, DAC_CAL_PATHS, "path")
+        pts = list(points)
+        if len(pts) != 2:
+            raise ValueError("calibrate_dac needs exactly two (code16, volts) points")
+        (c1, v1), (c2, v2) = pts
+        self._require_capability("cal_dmm", "DMM calibration")
+        return Calibration.from_reply(self.command({
+            "cmd": "calibrate", "dac": path, "code1": int(c1), "uv1": int(round(float(v1) * 1e6)),
+            "code2": int(c2), "uv2": int(round(float(v2) * 1e6))}))
+
+    def calibrate_adc_gain(self, source: AdcGainSource) -> Calibration:
+        """Measure and store an ADC source's gain through a loopback (firmware 3.9.4+).
+
+        The pod drives two set points on a DAC output that has its DMM line
+        (:meth:`calibrate_dac`) and compares what the ADC reads with what the output puts out:
+        ``cal1`` through the 5 V output, ``cal2`` through the ±12 V output, and ``ext`` (the front
+        SMA, which captures and the control loop use) through an SMA cable from the ±12 V output
+        to the ADC input. ``current_in`` follows ``cal1``. Needs the ADC offset first
+        (:meth:`calibrate`). ``Calibration.measured`` says what was measured. Takes about 0.7 s
+        and switches the outputs off afterwards.
+        """
+        check_choice(source, ADC_GAIN_SOURCES, "source")
+        self._require_capability("cal_dmm", "DMM calibration")
+        return Calibration.from_reply(self.command({"cmd": "calibrate", "adc": source}))
 
     # -- CAN (FDCAN1 / TCAN1044 transceiver) -----------------------------------
     # Single-node board: use a loopback ``mode`` to self-test on one pod. :meth:`open_can` and

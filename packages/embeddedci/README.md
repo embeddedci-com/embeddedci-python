@@ -1008,8 +1008,45 @@ and keeps what it had. `a` and `b` are the fit the pod now uses for `current_in`
 Every ADC source shares the same front end after its input switch, so from firmware 3.9.3 the pod
 takes the offset out of all of them: `adc_read` on `ext`, `cal1` and `cal2`, and `capture_adc`,
 whose `volts` use the fit the pod reports (on the LAN in `status`, through embeddedci.com in its
-capabilities). Older firmware corrects `current_in` only. Only the offset is calibrated; the gain
-uses the built-in fits. Needs firmware 3.4.0 (capability `calibrate`, `Capabilities.calibrate`).
+capabilities). Older firmware corrects `current_in` only. Needs firmware 3.4.0 (capability
+`calibrate`, `Capabilities.calibrate`). The web app has it in the pod's Settings tab, under
+Calibration.
+
+#### Calibrating with a DMM
+
+With a bench DMM the pod can also take out what the offset leaves (firmware 3.9.4+, capability
+`cal_dmm`, `Capabilities.cal_dmm`): its own DAC line per output, then the ADC gain per source.
+Every step is optional and stored on its own; an output or source without one keeps the built-in
+fit. Disconnect the DUT from the DAC outputs first: this drives up to ±5 V on them.
+
+```python
+points = []
+for volts in bp.DMM_SET_POINTS["5v"]:            # 1.0 and 4.0 V; 3v3: 0.5 / 3.0, 12v: -5 / +5
+    out = bp.dac_output("5v", volts=volts)
+    points.append((out.code16, read_dmm()))      # the DMM on the 5 V output SMA, DC volts
+cal = bp.calibrate_dac("5v", points)             # this pod's line for the 5 V output
+bp.dac_output("off")
+print(cal.dac["5v"])                             # DacLine(a, b, offset=-0.0031, gain_ppm=-996)
+
+bp.calibrate_adc_gain("cal1")                    # 5 V loopback, against the line just stored
+bp.calibrate_adc_gain("ext")                     # needs the 12v line and an SMA cable ±12 V -> ADC in
+bp.clear_calibration("dac")                      # one part: "offset", "dac" or "adc"; no part = all
+```
+
+`calibrate_dac(path, points)` takes two `(code16, volts)` pairs: the 16-bit code `dac_output`
+drove and the DMM reading. From then on `dac_output`, the calibrated `generate` and the DAC output
+limits convert with this pod's line (`DacLine`: `a`, `b` per 16-bit code, `offset`, `gain_ppm`
+against the built-in line). `calibrate_adc_gain(source)` measures `cal1` through the 5 V output,
+`cal2` through the ±12 V output and `ext` (the front SMA, which `capture_adc` and the control loop
+use) through an SMA cable from the ±12 V output to the ADC input; `current_in` follows `cal1`. It
+needs the ADC offset and the driving output's DMM line, and `Calibration.measured` says what it
+saw. The pod refuses (`BenchPodError`) and keeps what it had when a reading cannot be right: two
+codes too close, a reading far from what the output should give (the DMM on another SMA), a gain
+more than 2 % off. It also refuses while DAC output limits are set. `Calibration.dac`,
+`Calibration.adc_gain_ppm` and `Calibration.dmm` show what is stored. The pod stores raw
+measurements (the J8-open zero as `Calibration.zero_count`, the DMM points) and derives every fit
+from them, so a later firmware with re-measured built-in fits keeps them right. Going back to
+firmware 3.4.0 to 3.9.3 keeps the offset; the DMM parts are not used there.
 
 ### The 4-20 mA output
 
@@ -1593,7 +1630,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | I2C sensor | `enable_i2c_sensor(sensor=Sensor.BMP280, *, sda=None, scl=None, address=None, **values)`, `set_i2c_sensor(**values)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_types()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
 | GPS receiver | `enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)`, `set_gps(*, utc=None, **fix)`, `disable_gps()`, `gps_status()` |
-| Analog | `analog_path(path)`, `adc_read(source="ext")`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration()` |
+| Analog | `analog_path(path)`, `adc_read(source="ext")`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source)`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
 | CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
@@ -1638,7 +1675,8 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current` |
 | `DacOutput` | `dac_output` | `path`, `voltage`, `code` |
 | `CurrentOutput` | `current_out`, `current_out_range` | `current`, `code`, `min_current`, `max_current` |
-| `Calibration` | `calibrate`, `calibration`, `clear_calibration` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples` |
+| `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `dmm`, `measured`, `zero_count` |
+| `DacLine` | `Calibration.dac` | `a`, `b`, `offset`, `gain_ppm` |
 | `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
 | `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |
 | `CorrelatedCapture` | `capture_correlated` | `adc` (a `Capture`), `la` (a `LaCapture`), sharing one hardware trigger |
@@ -1682,7 +1720,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |
@@ -1723,7 +1761,7 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 | `curve_output_at(curve, input_code)`, `input_percent_to_code(percent)` | evaluate a curve the way the gateware does; an input percentage as a code |
 | `encode_curve_b64url(codes)` | 16-bit DAC codes as little-endian base64url, the wire form of a curve |
 | `INTERNAL`, `EXTERNAL`, `PIN1` … `PIN14`, `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | named constants (see [API conventions](#api-conventions-and-stability)) |
-| `DacPath`, `DacOutputPath`, `AnalogPath`, `AdcSource`, `CalibrateSource` (`"current_in"`), `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`, `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge` | the `Literal` string types |
+| `DacPath`, `DacOutputPath`, `AnalogPath`, `AdcSource`, `CalibrateSource` (`"current_in"`), `DacCalPath` (`"3v3"`, `"5v"`, `"12v"`), `AdcGainSource` (`"cal1"`, `"cal2"`, `"ext"`), `CalibrationPart` (`"offset"`, `"dac"`, `"adc"`), `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`, `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge` | the `Literal` string types |
 | `decode`, `i2c`, `can`, `control_loop`, `motor_emulator`, `dsp` | submodules: off-device decoders, I2C helpers, CAN types, curve helpers, the emulator's registers, and `dsp`, a pure-Python mirror of the server's record-to-replay processing |
 
 ## Examples
