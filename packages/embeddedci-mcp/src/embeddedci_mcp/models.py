@@ -439,6 +439,8 @@ class CalibrationResult(BaseModel):
     adc_gain_ppm: Dict[str, Optional[int]] = Field(default_factory=dict, description=(
         "ADC gain correction per source (cal1, cal2, ext) in ppm; null = the built-in gain."))
     dmm: bool = Field(False, description="True when any DMM-guided part is stored.")
+    zero_count: Optional[float] = Field(None, description=(
+        "The raw zero the offset is derived from: the mean ADC count with J8 open, unwrapped (firmware 3.9.4+)."))
     measured: Optional[Dict[str, float]] = Field(None, description=(
         "After calibrate_adc_gain: v1, v2 (what the DAC put out), r1, r2 (what the ADC read before the gain) "
         "and residual (offset left after it), in volts."))

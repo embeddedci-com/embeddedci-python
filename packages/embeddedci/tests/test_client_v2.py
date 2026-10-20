@@ -381,7 +381,7 @@ class DmmCalPod(FakeTransport):
         return {**super().status(), "version": "3.9.4", "caps": ["calibrate", "cal_dmm"]}
 
 
-_DMM = {**_CAL, "dmm": True,
+_DMM = {**_CAL, "dmm": True, "zero_count_mc": 65585123,
         "dac": {"3v3": None, "5v": {"a_uv": -609, "b_pv": 76249841, "offset_uv": -3127, "gain_ppm": -996},
                 "12v": None},
         "adc_gain_ppm": {"cal1": 1850, "cal2": None, "ext": None}}
@@ -399,6 +399,7 @@ def test_calibrate_dac_sends_both_points_in_microvolts():
     assert line.a == pytest.approx(-609e-6) and line.b == pytest.approx(76.249841e-6)
     assert line.offset == pytest.approx(-3.127e-3) and line.gain_ppm == -996
     assert c.adc_gain_ppm == {"cal1": 1850, "cal2": None, "ext": None}
+    assert c.zero_count == pytest.approx(65585.123)
     with pytest.raises(ValueError):
         bp.calibrate_dac("5v", [(13069, 0.9959)])
     with pytest.raises(ValueError):
@@ -431,6 +432,7 @@ def test_dmm_calibration_needs_cal_dmm():
     assert t.commands == []
     old = bp.calibration()                             # an old reply has no DMM parts
     assert old.dac == {} and old.adc_gain_ppm == {} and not old.dmm and old.measured is None
+    assert old.zero_count is None
 
 
 def test_capture_adc_routes_the_source_first():

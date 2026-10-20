@@ -368,6 +368,9 @@ class Calibration:
     adc_gain_ppm: Dict[str, Optional[int]] = field(default_factory=dict)
     #: ``True`` when any DMM part is stored.
     dmm: bool = False
+    #: The raw zero the offset is derived from: the mean count ``current_in`` read with J8 open,
+    #: unwrapped. ``None`` when not calibrated or on firmware before 3.9.4.
+    zero_count: Optional[float] = None
     #: After :meth:`BenchPod.calibrate_adc_gain`: what the DAC put out at the two set points
     #: (``v1``, ``v2``), what the ADC read before the gain (``r1``, ``r2``) and the mean offset left
     #: after it (``residual``), all in volts. ``None`` otherwise.
@@ -388,6 +391,7 @@ class Calibration:
                    dac={str(k): DacLine.from_reply(v) for k, v in dac.items()},
                    adc_gain_ppm={str(k): _opt_int(gains, k) for k in gains},
                    dmm=d.get("dmm") is True,
+                   zero_count=None if _opt_int(d, "zero_count_mc") is None else _opt_int(d, "zero_count_mc") / 1000.0,
                    measured=None if meas is None else {
                        k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},
                    raw=d)

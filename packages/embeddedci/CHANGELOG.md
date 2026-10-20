@@ -8,7 +8,7 @@
   `cal2`, `ext`) through a loopback, and `clear_calibration(part)` clears one part (`offset`,
   `dac`, `adc`). `Calibration` gains `dac` (`DacLine`), `adc_gain_ppm`, `dmm` and `measured`;
   `BenchPod.DMM_SET_POINTS` has the set points. New types `DacCalPath`, `AdcGainSource`,
-  `CalibrationPart`.
+  `CalibrationPart`. `Calibration.zero_count` is the raw J8-open zero the pod derives its offset from.
 
 ## 2.13.2
 

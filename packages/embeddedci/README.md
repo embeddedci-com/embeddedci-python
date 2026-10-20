@@ -1043,8 +1043,10 @@ needs the ADC offset and the driving output's DMM line, and `Calibration.measure
 saw. The pod refuses (`BenchPodError`) and keeps what it had when a reading cannot be right: two
 codes too close, a reading far from what the output should give (the DMM on another SMA), a gain
 more than 2 % off. It also refuses while DAC output limits are set. `Calibration.dac`,
-`Calibration.adc_gain_ppm` and `Calibration.dmm` show what is stored. Going back to firmware
-older than 3.9.3 drops the whole calibration.
+`Calibration.adc_gain_ppm` and `Calibration.dmm` show what is stored. The pod stores raw
+measurements (the J8-open zero as `Calibration.zero_count`, the DMM points) and derives every fit
+from them, so a later firmware with re-measured built-in fits keeps them right. Going back to
+firmware 3.4.0 to 3.9.3 keeps the offset; the DMM parts are not used there.
 
 ### The 4-20 mA output
 
@@ -1673,7 +1675,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current` |
 | `DacOutput` | `dac_output` | `path`, `voltage`, `code` |
 | `CurrentOutput` | `current_out`, `current_out_range` | `current`, `code`, `min_current`, `max_current` |
-| `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `dmm`, `measured` |
+| `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `dmm`, `measured`, `zero_count` |
 | `DacLine` | `Calibration.dac` | `a`, `b`, `offset`, `gain_ppm` |
 | `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
 | `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |

@@ -1353,7 +1353,8 @@ def _calibration_result(c: Any) -> m.CalibrationResult:
            for k, v in (c.dac or {}).items()}
     return m.CalibrationResult(source=c.source, calibrated=c.calibrated, offset=c.offset, a=c.a, b=c.b,
                                count=c.count, span=c.span, samples=c.samples, dac=dac,
-                               adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured)
+                               adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured,
+                               zero_count=c.zero_count)
 
 
 @mcp.tool(annotations=_ann("Read the pod's calibration", read_only=True))
