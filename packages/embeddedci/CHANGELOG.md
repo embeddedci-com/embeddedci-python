@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## 2.13.3 (unreleased)
+## 2.13.3
 
 - The DMM-guided calibration (pod firmware 3.9.4+, `Capabilities.cal_dmm`):
   `BenchPod.calibrate_dac(path, points)` stores this pod's own line for a DAC output from two
