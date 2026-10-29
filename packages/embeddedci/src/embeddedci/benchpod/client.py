@@ -45,10 +45,11 @@ from . import motor_emulator as _motor_emulator
 from . import sensor as _sensor
 from . import spi as _spi
 from . import uart as _uart
-from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
+from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, AffineCal, Capabilities
 from .constants import (
     ADC_SOURCE_PATHS,
     ADC_GAIN_SOURCES,
+    ADC_RANGES,
     ADC_SOURCES,
     ANALOG_PATHS,
     CALIBRATE_SOURCES,
@@ -69,6 +70,7 @@ from .constants import (
     REPLAY_MAPPINGS,
     WAVESHAPES,
     AdcGainSource,
+    AdcRange,
     AdcSource,
     AnalogPath,
     CalibrateSource,
@@ -101,6 +103,8 @@ from .replay import DacHandle, Fault, ReplayHandle, normalize_fault
 from .results import Capture, CorrelatedCapture, LaCapture, LanTls, Trigger
 from .wiring import Signal, Wiring
 from .state import (
+    AdcRangeState,
+    AdcRangeTest,
     AdcReading,
     AnalogPathState,
     Calibration,
@@ -1147,7 +1151,7 @@ class BenchPod:
     # never hand-flips muxes/relays and can never disagree with the pod about how a path is wired.
     # Raw mux/relay access lives on :attr:`lowlevel`.
 
-    def analog_path(self, path: AnalogPath) -> AnalogPathState:
+    def analog_path(self, path: AnalogPath, *, range: Optional[AdcRange] = None) -> AnalogPathState:
         """Apply a named analog path, flipping every mux and relay it needs in one step.
 
         ``dac_3v3``/``dac_5v``/``dac_12v`` route the DAC to an output (``dac_12v`` is bipolar
@@ -1155,9 +1159,18 @@ class BenchPod:
         12 V DAC output back into the ADC; ``current_in`` reads the 4-20 mA measurement terminal; ``off`` parks it all.
         ``current_out`` is the 4-20 mA output (J9): it only switches the DAC voltage outputs off,
         for a waveform played as a current (:meth:`current_out` does it for a held level).
+
+        ``range`` also sets the ADC input range afterwards (:meth:`adc_range`, analog module
+        v3r4+); without it the range stays as it is, except that ``off`` and ``cal2`` put it back
+        to ``normal``.
         """
         check_choice(path, ANALOG_PATHS, "path")
-        state = AnalogPathState.from_reply(self.command({"cmd": "analog_path", "path": path}))
+        req: Dict[str, Any] = {"cmd": "analog_path", "path": path}
+        if range is not None:
+            check_choice(range, ADC_RANGES, "range")
+            req["range"] = range
+        state = AnalogPathState.from_reply(self.command(req))
+        self._follow_adc_range(state.range)
         if path in _ANALOG_PATH_DAC:
             self._routed_dac_path = _ANALOG_PATH_DAC[path]
         elif path == "off":
@@ -1220,7 +1233,7 @@ class BenchPod:
         self._require_capability("current_out", "4-20 mA output commands")
         return CurrentOutput.from_reply(self.command({"cmd": "current_out"}))
 
-    def adc_read(self, source: AdcSource = "ext") -> AdcReading:
+    def adc_read(self, source: AdcSource = "ext", *, range: Optional[AdcRange] = None) -> AdcReading:
         """Route an ADC ``source`` and return one CALIBRATED reading (a short averaged burst).
 
         ``ext`` is the front SMA (the ÷12 divider is applied, so ``voltage`` is the true SMA
@@ -1230,9 +1243,72 @@ class BenchPod:
         On ``current_in`` the reading also carries ``current``, the loop current in amps, and
         already has this pod's calibration offset taken out (:meth:`calibrate`); ``offset`` says
         how much that was.
+
+        ``range`` switches the ADC input range first (:meth:`adc_range`): ``"low"`` reads up to
+        ±5.46 V at about 6x the resolution on analog module v3r4+ (not on ``cal2``). The reading
+        says which range it was taken in, its full scale, and ``overrange`` when it clipped.
         """
         check_choice(source, ADC_SOURCES, "source")
-        return AdcReading.from_reply(self.command({"cmd": "adc_read", "source": source}))
+        req: Dict[str, Any] = {"cmd": "adc_read", "source": source}
+        if range is not None:
+            check_choice(range, ADC_RANGES, "range")
+            req["range"] = range
+        reading = AdcReading.from_reply(self.command(req))
+        self._follow_adc_range(reading.range)
+        return reading
+
+    # -- the ADC input range (analog module v3r4+) -------------------------------
+    # Relay K5 swaps the divider in front of the ADC: normal ÷12 (±32.8 V) or low ÷2 (±5.46 V).
+    # Captures are raw counts, so the SDK keeps the fit it scales them with on the range in use.
+
+    def adc_range(self, range: Optional[AdcRange] = None) -> AdcRangeState:
+        """Read the ADC input range, or switch it to ``range`` (``"normal"`` / ``"low"``).
+
+        The low range (analog module v3r4 and later, firmware 3.9.5+) is ±5.46 V at about
+        167 µV per count, against ±32.8 V and ~1 mV in the normal range: about 6x the resolution
+        on signals up to ±5 V. **Use 1x leads**: its input is 1.82 MΩ, not the 1 MΩ a 10x probe
+        expects. It applies to ``ext``, ``cal1`` and ``current_in``; ``cal2`` has none. It stays
+        until changed, ``analog_path("off")`` or ``"cal2"``, or a restart of the pod.
+
+        Switching waits for the relay to settle, and from then on :meth:`capture_adc` scales with
+        the new range's fit. Raises :class:`BenchPodError` when the board has no low range.
+        """
+        req: Dict[str, Any] = {"cmd": "adc_range"}
+        if range is not None:
+            check_choice(range, ADC_RANGES, "range")
+            req["range"] = range
+        state = AdcRangeState.from_reply(self.command(req))
+        self._set_adc_range_fit(state)
+        return state
+
+    def adc_range_test(self) -> AdcRangeTest:
+        """Self-test the ADC low range: the 5 V output drives the cal1 loopback at 1 V and 3.5 V,
+        and each point is read in both ranges. ``passed`` is ``False`` when the ranges disagree by
+        more than 5 % + 30 mV (a relay that does not switch reads 6x off). Takes about 0.5 s and
+        leaves the outputs off and the range normal. Disconnect anything on the 5 V output."""
+        result = AdcRangeTest.from_reply(self.command({"cmd": "adc_range", "test": True}))
+        self._follow_adc_range("normal")
+        return result
+
+    def _set_adc_range_fit(self, state: AdcRangeState) -> None:
+        """Put the range's fit into the capabilities, so captures scale with it."""
+        caps = self.capabilities
+        caps.adc_range = state.range
+        caps.adc_range_fullscale = state.fullscale
+        caps.adc_low_range = state.supported
+        if state.b:
+            unwrap = caps.adc_affine.unwrap if caps.adc_affine is not None else True
+            caps.adc_affine = AffineCal(a=state.a or 0.0, b=state.b, unwrap=unwrap)
+
+    def _follow_adc_range(self, rng: str) -> None:
+        """A reply said the pod is in range ``rng``: re-read the fit when the cached one is for
+        another range (``off`` and ``cal2`` put the range back to normal)."""
+        if not rng:
+            return  # firmware before 3.9.5: one range
+        caps = self.capabilities
+        if caps.adc_range == rng or (not caps.adc_range and rng == "normal"):
+            return
+        self.adc_range()
 
     # -- the pod's own calibration ---------------------------------------------
     # The ADC fits are built into the firmware and the same on every pod. `calibrate` lets a pod
@@ -1307,7 +1383,7 @@ class BenchPod:
             "cmd": "calibrate", "dac": path, "code1": int(c1), "uv1": int(round(float(v1) * 1e6)),
             "code2": int(c2), "uv2": int(round(float(v2) * 1e6))}))
 
-    def calibrate_adc_gain(self, source: AdcGainSource) -> Calibration:
+    def calibrate_adc_gain(self, source: AdcGainSource, *, range: AdcRange = "normal") -> Calibration:
         """Measure and store an ADC source's gain through a loopback (firmware 3.9.4+).
 
         The pod drives two set points on a DAC output that has its DMM line
@@ -1317,10 +1393,23 @@ class BenchPod:
         to the ADC input. ``current_in`` follows ``cal1``. Needs the ADC offset first
         (:meth:`calibrate`). ``Calibration.measured`` says what was measured. Takes about 0.7 s
         and switches the outputs off afterwards.
+
+        ``range="low"`` (analog module v3r4+, firmware 3.9.5+) measures the ADC low range's gain
+        instead, through ``cal1`` only (the 5 V output at 1 V and 4 V): one gain serves every
+        source in the low range (``Calibration.adc_low_gain_ppm``). It leaves the range normal.
         """
         check_choice(source, ADC_GAIN_SOURCES, "source")
+        check_choice(range, ADC_RANGES, "range")
         self._require_capability("cal_dmm", "DMM calibration")
-        return Calibration.from_reply(self.command({"cmd": "calibrate", "adc": source}))
+        req: Dict[str, Any] = {"cmd": "calibrate", "adc": source}
+        if range != "normal":
+            if source != "cal1":
+                raise ValueError("the low range is calibrated through cal1, and serves every source")
+            req["range"] = range
+        cal = Calibration.from_reply(self.command(req))
+        if range != "normal":
+            self._follow_adc_range("normal")
+        return cal
 
     # -- CAN (FDCAN1 / TCAN1044 transceiver) -----------------------------------
     # Single-node board: use a loopback ``mode`` to self-test on one pod. :meth:`open_can` and
@@ -1594,7 +1683,7 @@ class BenchPod:
 
     def capture_adc(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
                     source: Optional[AdcSource] = None, trigger: Optional[Trigger] = None,
-                    trigger_timeout: float = 10.0) -> Capture:
+                    trigger_timeout: float = 10.0, range: Optional[AdcRange] = None) -> Capture:
         """Capture ADC samples and return a :class:`Capture` with CALIBRATED volts.
 
         Works over any transport. ``sample_rate_hz`` omitted = the device's maximum rate; the
@@ -1612,8 +1701,13 @@ class BenchPod:
         ``trigger`` (a :class:`Trigger`, gateware >= v35) waits for an edge or level on an LA channel
         before sampling, so t = 0 is that moment; a :class:`~embeddedci.benchpod.errors.TriggerTimeout`
         is raised after ``trigger_timeout`` seconds without it.
+
+        ``range`` sets the ADC input range first (:meth:`adc_range`): ``"low"`` captures up to
+        ±5.46 V at about 6x the resolution (analog module v3r4+). Without it the capture is taken
+        in the range the pod is in. ``Capture.range`` says which, and ``Capture.overrange`` whether
+        a sample clipped.
         """
-        label, fit = self._route_adc_source(source)
+        label, fit = self._route_adc_source(source, range)
         trig = self._resolve_trigger(trigger)
         with _classified_errors():
             cap = _capture.capture_adc(self._transport, self.capabilities, samples=samples,
@@ -1621,16 +1715,20 @@ class BenchPod:
                                        trigger_timeout=trigger_timeout)
         return self._scale_current_in(cap, fit)
 
-    def _route_adc_source(self, source: Optional[str]) -> Tuple[str, Optional[Calibration]]:
-        """Route an ADC ``source`` for a capture (``None`` leaves the routing alone). Returns the
-        label for the result and, for ``current_in`` on a pod that reports one, the pod's own fit
-        for that input, read before the capture starts."""
+    def _route_adc_source(self, source: Optional[str],
+                          rng: Optional[str] = None) -> Tuple[str, Optional[Calibration]]:
+        """Route an ADC ``source`` for a capture (``None`` leaves the routing alone) in range
+        ``rng`` (``None`` leaves it as it is). Returns the label for the result and, for
+        ``current_in`` on a pod that reports one, the pod's own fit for that input in the range
+        in use, read before the capture starts."""
         if source is None:
+            if rng is not None:
+                self.adc_range(rng)  # type: ignore[arg-type]
             return "", None
         check_choice(source, ADC_SOURCES, "source")
-        fit = self.calibration() if source == "current_in" and self.capabilities.calibrate else None
-        self.analog_path(ADC_SOURCE_PATHS[source])  # type: ignore[arg-type]
+        self.analog_path(ADC_SOURCE_PATHS[source], range=rng)  # type: ignore[arg-type]
         time.sleep(0.02)  # relays (~4 ms) + front-end RC settle, as the firmware's adc_read does
+        fit = self.calibration() if source == "current_in" and self.capabilities.calibrate else None
         return source, fit
 
     @staticmethod

@@ -147,7 +147,7 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
         counts.extend(_dense(chunk))
     volts = [caps.counts_to_volts(c) for c in counts]
     return Capture(counts=counts, volts=volts, sample_rate_hz=_rate_hz(rate, sample_rate_hz),
-                   source=source)
+                   source=source, range=caps.adc_range)
 
 
 def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,
@@ -279,7 +279,8 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
         la_words = la_dense[:la_samples] if la_samples else la_dense
 
     adc = Capture(counts=adc_counts, volts=[caps.counts_to_volts(c) for c in adc_counts],
-                  sample_rate_hz=_rate_hz(adc_rate, adc_sample_rate_hz), trigger=trigger)
+                  sample_rate_hz=_rate_hz(adc_rate, adc_sample_rate_hz), trigger=trigger,
+                  range=caps.adc_range)
     la = LaCapture(words=la_words, sample_rate_hz=_rate_hz(la_rate, la_sample_rate_hz),
                    trigger=trigger)
     return CorrelatedCapture(adc=adc, la=la)

@@ -115,6 +115,13 @@ class Capabilities:
     adc_offset_counts: float = 0.0
     #: affine front-end fit; None => use the naive linear model.
     adc_affine: Optional[AffineCal] = None
+    #: The board has the ADC low range (analog module v3r4+): :meth:`BenchPod.adc_range`.
+    adc_low_range: bool = False
+    #: The ADC input range :attr:`adc_affine` is for: ``"normal"`` or ``"low"``; ``""`` when the
+    #: firmware does not say (before 3.9.5: always normal).
+    adc_range: str = ""
+    #: That range's input full scale in volts (±), or 0.0 when not reported.
+    adc_range_fullscale: float = 0.0
 
     # DAC / replay
     dac: bool = False
@@ -327,6 +334,7 @@ class Capabilities:
                 ("current_out", "current_out"),
                 ("can", "can"),
                 ("pod_current", "pod_current"),
+                ("adc_low_range", "adc_low_range"),
                 ("dac_limits", "dac_limits"),
                 ("sensor_types", "sensor_types"),
                 ("gps", "gps"),
@@ -341,7 +349,18 @@ class Capabilities:
         c.last_crash = _crash_text(status.get("last_crash", status.get("crash")))
         c.reset_cause = str(status.get("reset", status.get("reset_cause", "")) or "")
         c._apply_affine(status)
+        c._apply_range(status)
         return c
+
+    def _apply_range(self, src: Mapping[str, Any], prefix: str = "") -> None:
+        """The ADC input range the fit is for (firmware 3.9.5+)."""
+        rng = src.get(prefix + "adc_range")
+        if isinstance(rng, str) and rng:
+            self.adc_range = rng
+        if (v := _as_float(src, prefix + "adc_range_fs_mv")) is not None and v > 0:
+            self.adc_range_fullscale = v / 1000.0
+        if _as_bool(src, prefix + "adc_low_range") is True:
+            self.adc_low_range = True
 
     @classmethod
     def from_parameters(cls, params: Mapping[str, Any]) -> "Capabilities":
@@ -386,6 +405,7 @@ class Capabilities:
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
             ("calibrate", "cap.calibrate"), ("cal_dmm", "cap.cal_dmm"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
+            ("adc_low_range", "cap.adc_low_range"),
             ("sensor_types", "cap.sensor_types"), ("gps", "cap.gps"),
             ("dac_limits", "cap.dac_limits"),
             ("ws_auth_v2", "cap.ws_auth_v2"),
@@ -413,6 +433,7 @@ class Capabilities:
             c.adc_affine = AffineCal(a=cal_a, b=cal_b, unwrap=bool(_as_bool(params, "cap.adc_cal_unwrap")))
         else:
             c._apply_affine(params, board=c.board)
+        c._apply_range(params, "cap.")
         return c
 
     def _apply_affine(self, src: Mapping[str, Any], board: Optional[str] = None) -> None:

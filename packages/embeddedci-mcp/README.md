@@ -286,20 +286,21 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `analog_path` | Set every analog mux and relay for a named path in one step. | **`path`** |
+| `analog_path` | Set every analog mux and relay for a named path in one step; `range` sets the ADC input range too. | **`path`**, `range` |
 | `dac_output` | Route a DAC output and drive a calibrated DC voltage on it. | **`path`**, `volts` |
 | `current_out` | Hold a current on the 4-20 mA output (J9), in amps, or read its range. | `current` |
-| `adc_read` | One calibrated reading: front SMA, DAC loopbacks or the 4-20 mA input (J8). | `source=ext` |
+| `adc_read` | One calibrated reading: front SMA, DAC loopbacks or the 4-20 mA input (J8); reports the ADC range, its full scale and overrange. | `source=ext`, `range` |
+| `adc_range` | Read or switch the ADC input range: normal ±32.8 V or low ±5.46 V at 6x the resolution (analog module v3r4+, firmware 3.9.5+; 1x leads, the low range's input is 1.82 MΩ), or self-test it through the cal1 loopback. | `range`, `test=false` |
 | `calibration` | The stored calibration: the ADC offset (measured on the 4-20 mA input) and the fit it uses, plus the DMM lines and gains (firmware 3.9.4+). | none |
 | `calibrate` | Measure and store the ADC offset on the 4-20 mA input (J8 open), or clear the calibration (all of it, or one part). | `source=current_in`, `clear=false`, `clear_part` |
 | `calibrate_dac` | Store this pod's line for a DAC output from two DMM readings of set points driven with `dac_output` (firmware 3.9.4+). | **`path`**, **`code1`**, **`volts1`**, **`code2`**, **`volts2`** |
-| `calibrate_adc_gain` | Measure an ADC source's gain through a loopback against a DMM-calibrated output (firmware 3.9.4+). | **`source`** |
+| `calibrate_adc_gain` | Measure an ADC source's gain through a loopback against a DMM-calibrated output (firmware 3.9.4+); `range=low` the ADC low range's gain through cal1 (firmware 3.9.5+). | **`source`**, `range=normal` |
 
 ### Capture and decode
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10` |
+| `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope; `clipped_samples` counts samples past the range's full scale. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `range` |
 | `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10` |
 | `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `source` |
 | `decode_la` | Decode I2C, UART or SPI from the last LA capture (or a new one). | **`protocol`**, `sda`, `scl`, `rx`, `baud`, `sclk`, `mosi`, `miso`, `cs`, `mode=0`, `capture=last`, `samples=16384`, `sample_rate_hz=1000000`, `max_items=200` |

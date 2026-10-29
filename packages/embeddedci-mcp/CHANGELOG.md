@@ -1,5 +1,14 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.4
+
+- New tool `adc_range`: read or switch the ADC input range (normal ±32.8 V, low ±5.46 V at 6x the
+  resolution; analog module v3r4+, firmware 3.9.5+), or run its self-test (`test=true`).
+  `analog_path`, `adc_read` and `capture_adc` take `range`; `calibrate_adc_gain` takes `range=low`
+  for the low range's gain. `adc_read` reports `range`, `fullscale` and `overrange`, `capture_adc`
+  `range` and `clipped_samples`, `calibration` `adc_low_gain_ppm`.
+- Requires embeddedci 2.13.4.
+
 ## 2.13.3
 
 - New tools `calibrate_dac` and `calibrate_adc_gain`: the DMM-guided calibration (firmware 3.9.4+).

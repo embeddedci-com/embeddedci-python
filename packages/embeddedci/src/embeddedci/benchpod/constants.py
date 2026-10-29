@@ -117,6 +117,9 @@ DacCalPath = Literal["3v3", "5v", "12v"]
 #: ADC sources whose gain the pod measures through a loopback (:meth:`BenchPod.calibrate_adc_gain`);
 #: ``current_in`` follows ``cal1``.
 AdcGainSource = Literal["cal1", "cal2", "ext"]
+#: The ADC input range (:meth:`BenchPod.adc_range`): ``normal`` is ±32.8 V, ``low`` ±5.46 V
+#: (analog module v3r4 and later).
+AdcRange = Literal["normal", "low"]
 #: One part of the pod's calibration (:meth:`BenchPod.clear_calibration`).
 CalibrationPart = Literal["offset", "dac", "adc"]
 #: Parametric DAC waveforms the firmware generator produces.
@@ -149,6 +152,7 @@ CALIBRATE_SOURCES: Tuple[str, ...] = get_args(CalibrateSource)
 DAC_CAL_PATHS: Tuple[str, ...] = get_args(DacCalPath)
 ADC_GAIN_SOURCES: Tuple[str, ...] = get_args(AdcGainSource)
 CALIBRATION_PARTS: Tuple[str, ...] = get_args(CalibrationPart)
+ADC_RANGES: Tuple[str, ...] = get_args(AdcRange)
 WAVESHAPES: Tuple[str, ...] = get_args(Waveshape)
 REPLAY_MAPPINGS: Tuple[str, ...] = get_args(ReplayMapping)
 LOOP_SOURCES: Tuple[str, ...] = get_args(LoopSource)
