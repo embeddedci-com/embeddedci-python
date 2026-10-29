@@ -108,7 +108,7 @@ def test_replay_takes_amps_and_maps_them_to_the_pods_codes():
 def test_capture_of_the_input_is_in_amps_with_the_pods_own_fit():
     bp, t = _bp()
     cap = bp.capture_adc(3, source="current_in", sample_rate_hz=100_000)
-    assert _cmds(t) == ["calibrate", "analog_path", "capture"]
+    assert _cmds(t) == ["analog_path", "calibrate", "capture"]  # the fit of the range the route left
     assert cap.source == "current_in"
     assert cap.currents == pytest.approx([0.004, 0.012, 0.020], abs=5e-6)
     assert cap.volts == pytest.approx([0.996, 2.988, 4.98], abs=2e-3)
@@ -122,8 +122,8 @@ def test_the_input_is_captured_in_amps_next_to_the_logic_channels():
     cc = bp.capture_correlated(adc_samples=3, adc_sample_rate_hz=100_000, la_samples=4,
                                la_sample_rate_hz=1e6, source="current_in")
     # The fit is read and the source routed BEFORE the one capture command that takes both.
-    assert _cmds(t) == ["calibrate", "analog_path", "capture_dual"]
-    assert t.commands[1] == {"cmd": "analog_path", "path": "current_in"}
+    assert _cmds(t) == ["analog_path", "calibrate", "capture_dual"]
+    assert t.commands[0] == {"cmd": "analog_path", "path": "current_in"}
     assert cc.adc.source == "current_in"
     assert cc.adc.currents == pytest.approx([0.004, 0.012, 0.020], abs=5e-6)
     assert cc.la.words == [1, 1, 3, 3]

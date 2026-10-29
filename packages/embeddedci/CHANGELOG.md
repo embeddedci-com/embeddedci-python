@@ -1,5 +1,19 @@
 # Changelog — `embeddedci`
 
+## 2.13.4
+
+- The ADC input range (pod firmware 3.9.5+, analog module v3r4, `Capabilities.adc_low_range`):
+  `BenchPod.adc_range(range=None)` reads or switches it (`"normal"` ±32.8 V, `"low"` ±5.46 V at
+  about 6x the resolution), `adc_range_test()` self-tests it through the cal1 loopback, and
+  `analog_path`, `adc_read`, `capture_adc` take `range=`. `calibrate_adc_gain("cal1", range="low")`
+  measures the low range's gain (`Calibration.adc_low_gain_ppm`). Captures scale with the fit of
+  the range in use: the SDK re-reads it whenever a reply says the pod changed range.
+  `AdcReading` gains `range`, `fullscale`, `overrange`; `Capture` gains `range`, `overrange`,
+  `clipped_samples`; `AnalogPathState.range`; `Capabilities.adc_range`, `adc_range_fullscale`.
+  New types `AdcRange`, `AdcRangeState`, `AdcRangeTest`, `AdcRangeTestPoint`.
+- `capture_adc(source="current_in")` reads the pod's `current_in` fit after routing, so it is the
+  fit of the range in use.
+
 ## 2.13.3
 
 - The DMM-guided calibration (pod firmware 3.9.4+, `Capabilities.cal_dmm`):

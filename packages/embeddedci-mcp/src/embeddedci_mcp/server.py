@@ -30,6 +30,7 @@ from embeddedci.benchpod import (
     AdcSource,
     AnalogPath,
     AdcGainSource,
+    AdcRange,
     CalibrateSource,
     CalibrationPart,
     DacCalPath,
@@ -1286,16 +1287,49 @@ async def gpio_release(la: OptionalGpioChannels = None) -> m.GpioReleaseResult:
 
 # -- analog ------------------------------------------------------------------------------
 
+AdcRangeArg = Annotated[Optional[AdcRange], Field(description=(
+    "ADC input range: normal (±32.8 V, ~1 mV/count) or low (±5.46 V, ~167 µV/count, 1.82 MΩ input: 1x leads only; "
+    "analog module v3r4+). Omit to keep the range the pod is in."))]
+
+
 @mcp.tool(annotations=_ann("Apply an analog path", idempotent=True))
-async def analog_path(path: AnalogPath) -> m.AnalogPathResult:
+async def analog_path(path: AnalogPath, range: AdcRangeArg = None) -> m.AnalogPathResult:
     """Set every analog mux and relay for a named path in one step.
 
     dac_3v3/dac_5v/dac_12v route the DAC to an output; adc_ext connects the ADC to the front SMA;
     cal1/cal2 loop the 5 V/12 V DAC output back into the ADC; current_in reads the 4-20 mA input (J8);
     current_out switches the DAC voltage outputs off for the 4-20 mA output (J9); off parks everything.
+    range also sets the ADC input range (see adc_range); off and cal2 put it back to normal.
     """
-    state = await _call(lambda: SESSION.require().analog_path(path))
-    return m.AnalogPathResult(path=state.path)
+    state = await _call(lambda: SESSION.require().analog_path(path, range=range))
+    return m.AnalogPathResult(path=state.path, range=state.range or None)
+
+
+@mcp.tool(annotations=_ann("Read or switch the ADC input range", idempotent=True))
+async def adc_range(
+    range: AdcRangeArg = None,
+    test: Annotated[bool, Field(description=(
+        "Run the self-test instead: the 5 V output drives the cal1 loopback at 1 V and 3.5 V and both ranges read it. "
+        "Nothing may be connected to the 5 V output."))] = False,
+) -> m.AdcRangeResult:
+    """Read or switch the ADC input range (analog module v3r4 and later, firmware 3.9.5+).
+
+    normal is the ÷12 divider: ±32.8 V, about 1 mV per count. low is ÷2: ±5.46 V, about 167 µV per count,
+    6x the resolution for signals up to ±5 V. The low range's input is 1.82 MΩ: tell the user to use 1x
+    leads, not a 10x scope probe. It applies to ext, cal1 and current_in (not cal2), and stays until changed,
+    analog_path off or cal2, or a pod restart. capture_adc and adc_read scale with the range in use.
+    A board without the low range refuses low. Use low for small signals; switch back to normal when a
+    reading or capture reports overrange.
+    """
+    result = None
+    if test:
+        res = await _call(lambda: SESSION.require().adc_range_test())
+        result = m.AdcRangeTestResult(passed=res.passed, points=[
+            m.AdcRangeTestPointResult(set_voltage=p.set_voltage, normal=p.normal, low=p.low, ok=p.ok)
+            for p in res.points])
+    st = await _call(lambda: SESSION.require().adc_range(None if test else range))
+    return m.AdcRangeResult(range=st.range, supported=st.supported, fullscale=st.fullscale,
+                            normal_fullscale=st.normal_fullscale, low_fullscale=st.low_fullscale, test=result)
 
 
 @mcp.tool(annotations=_ann("Set a DC output voltage", destructive=True, idempotent=True))
@@ -1336,16 +1370,18 @@ async def current_out(
 
 
 @mcp.tool(annotations=_ann("Read a voltage", read_only=True))
-async def adc_read(source: AdcSource = "ext") -> m.AdcReadResult:
+async def adc_read(source: AdcSource = "ext", range: AdcRangeArg = None) -> m.AdcReadResult:
     """One calibrated voltage: ext = front SMA (true volts), cal1/cal2 = DAC loopbacks, current_in = 4-20 mA input (J8).
 
-    current_in also returns current, the loop current in amps.
+    current_in also returns current, the loop current in amps. range low reads small signals (up to ±5.46 V)
+    at 6x the resolution on analog module v3r4+; overrange says the input clipped.
 
     Refused while the input is still moving (e.g. a DAC output left running).
     """
-    r = await _call(lambda: SESSION.require().adc_read(source))
+    r = await _call(lambda: SESSION.require().adc_read(source, range=range))
     return m.AdcReadResult(source=r.source, voltage=r.voltage, count=r.count, span=r.span,
-                           offset=r.offset, current=r.current)
+                           offset=r.offset, current=r.current, range=r.range or None,
+                           fullscale=r.fullscale, overrange=r.overrange)
 
 
 def _calibration_result(c: Any) -> m.CalibrationResult:
@@ -1354,6 +1390,7 @@ def _calibration_result(c: Any) -> m.CalibrationResult:
     return m.CalibrationResult(source=c.source, calibrated=c.calibrated, offset=c.offset, a=c.a, b=c.b,
                                count=c.count, span=c.span, samples=c.samples, dac=dac,
                                adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured,
+                               adc_low_gain_ppm=c.adc_low_gain_ppm,
                                zero_count=c.zero_count)
 
 
@@ -1414,6 +1451,9 @@ async def calibrate_adc_gain(
     source: Annotated[AdcGainSource, Field(description=(
         "cal1 (and current_in) through the 5 V output, cal2 through the ±12 V output, ext (the front SMA, "
         "captures and the control loop) through an SMA cable from the ±12 V output to the ADC input."))],
+    range: Annotated[AdcRange, Field(description=(
+        "low measures the ADC low range's gain instead (analog module v3r4+, firmware 3.9.5+): source must be "
+        "cal1, and the one gain serves every source in the low range."))] = "normal",
 ) -> m.CalibrationResult:
     """Measure and store an ADC source's gain against a DMM-calibrated DAC output (firmware 3.9.4+).
 
@@ -1421,7 +1461,7 @@ async def calibrate_adc_gain(
     cal2 and ext). For ext, ask the user to connect the SMA cable first. The pod drives two set points itself
     and switches the outputs off afterwards; measured says what it saw. Nothing to read on a DMM.
     """
-    return _calibration_result(await _call(lambda: SESSION.require().calibrate_adc_gain(source)))
+    return _calibration_result(await _call(lambda: SESSION.require().calibrate_adc_gain(source, range=range)))
 
 
 @mcp.tool(annotations=_ann("Capture an ADC waveform"))
@@ -1433,6 +1473,7 @@ async def capture_adc(
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
     trigger_timeout: TriggerTimeoutS = 10.0,
+    range: AdcRangeArg = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.AdcCaptureResult:
     """Capture the ADC and summarise it: calibrated stats, dominant frequency and a min/max envelope.
@@ -1442,12 +1483,13 @@ async def capture_adc(
 
     Above 32768 samples the capture streams from PSRAM (multi-second captures work). With
     trigger_la the capture waits for that edge or level, so t = 0 is the trigger moment. The
-    capture is kept for replay and save_capture_as_recording.
+    capture is kept for replay and save_capture_as_recording. range low captures small signals
+    (up to ±5.46 V) at 6x the resolution (see adc_range); clipped_samples > 0 means it clipped.
     """
     def op() -> m.AdcCaptureResult:
         cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source,
                                             trigger=_trigger(trigger_la, trigger_edge),
-                                            trigger_timeout=trigger_timeout)
+                                            trigger_timeout=trigger_timeout, range=range)
         SESSION.last_adc = cap
         return adc_summary(cap, points)
 

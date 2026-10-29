@@ -215,13 +215,79 @@ class AnalogPathState:
     #: Raw DAC-mux (U55) and calibration-relay (U58) register values, for diagnostics.
     dac_mux_register: int = 0
     cal_relay_register: int = 0
+    #: The ADC input range in use afterwards (``"normal"`` / ``"low"``); ``""`` on firmware
+    #: before 3.9.5.
+    range: str = ""
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "AnalogPathState":
         d = _d(reply)
         return cls(path=str(d.get("path", "")), dac_mux_register=_opt_int(d, "u55") or 0,
-                   cal_relay_register=_opt_int(d, "u58") or 0, raw=d)
+                   cal_relay_register=_opt_int(d, "u58") or 0, range=str(d.get("range", "") or ""), raw=d)
+
+
+@dataclass(frozen=True)
+class AdcRangeState:
+    """The ADC input range (``BenchPod.adc_range``).
+
+    ``normal`` is the ÷12 divider (±32.8 V, ~1 mV per count, ~1 MΩ); ``low`` the ÷2 divider of
+    analog module v3r4 and later (±5.46 V, ~167 µV per count, 1.82 MΩ: 1x leads, not 10x probes).
+    Full scales are in volts (±), from this pod's fits.
+    """
+
+    range: str
+    #: The board has the low range.
+    supported: bool
+    fullscale: float
+    normal_fullscale: float
+    #: ``None`` on a board without the low range.
+    low_fullscale: Optional[float] = None
+    #: The ``ext`` fit captures are scaled with in this range: ``volts = a + b * count``.
+    a: Optional[float] = None
+    b: Optional[float] = None
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "AdcRangeState":
+        d = _d(reply)
+        low = _opt_int(d, "low_fullscale_mv")
+        a_uv, b_nv = _opt_int(d, "adc_cal_a_uv"), _opt_int(d, "adc_cal_b_nv")
+        return cls(range=str(d.get("range", "normal") or "normal"), supported=d.get("supported") is True,
+                   fullscale=(_opt_int(d, "fullscale_mv") or 0) / 1000.0,
+                   normal_fullscale=(_opt_int(d, "normal_fullscale_mv") or 0) / 1000.0,
+                   low_fullscale=None if low is None else low / 1000.0,
+                   a=None if a_uv is None or not b_nv else a_uv / 1e6,
+                   b=None if not b_nv else b_nv / 1e9, raw=d)
+
+
+@dataclass(frozen=True)
+class AdcRangeTestPoint:
+    """One point of the range self-test: the set point and what each range read, in volts."""
+
+    set_voltage: float
+    normal: float
+    low: float
+    ok: bool
+
+
+@dataclass(frozen=True)
+class AdcRangeTest:
+    """The ADC range self-test (``BenchPod.adc_range_test``): the cal1 loopback read in both ranges."""
+
+    passed: bool
+    points: List[AdcRangeTestPoint] = field(default_factory=list)
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "AdcRangeTest":
+        d = _d(reply)
+        pts = d.get("points") if isinstance(d.get("points"), list) else []
+        return cls(passed=d.get("pass") is True, points=[
+            AdcRangeTestPoint(set_voltage=(_opt_int(p, "set_mv") or 0) / 1000.0,
+                              normal=(_opt_int(p, "normal_mv") or 0) / 1000.0,
+                              low=(_opt_int(p, "low_mv") or 0) / 1000.0, ok=p.get("ok") is True)
+            for p in pts if isinstance(p, dict)], raw=d)
 
 
 @dataclass(frozen=True)
@@ -301,6 +367,13 @@ class AdcReading:
     #: Loop current in amps on ``current_in``, the 4-20 mA input: ``voltage`` across the pod's
     #: 249 Ω sense resistor. ``None`` on every other source and on older firmware.
     current: Optional[float] = None
+    #: The ADC input range the reading was taken in (``"normal"`` / ``"low"``) and its full scale
+    #: in volts (±). ``""`` / ``None`` on firmware before 3.9.5.
+    range: str = ""
+    fullscale: Optional[float] = None
+    #: A sample sat on an ADC rail: the input is past ``fullscale`` and ``voltage`` is only a
+    #: bound. Use the normal range. ``False`` on firmware before 3.9.5.
+    overrange: bool = False
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -308,10 +381,13 @@ class AdcReading:
         d = _d(reply)
         offset_mv = _opt_int(d, "offset_mv")
         ua = _opt_int(d, "ua")
+        fs = _opt_int(d, "fullscale_mv")
         return cls(source=str(d.get("source", "")), voltage=(_opt_int(d, "mv") or 0) / 1000.0,
                    count=_opt_int(d, "count") or 0, span=_opt_int(d, "span") or 0,
                    offset=None if offset_mv is None else offset_mv / 1000.0,
-                   current=None if ua is None else ua / 1e6, raw=d)
+                   current=None if ua is None else ua / 1e6, range=str(d.get("range", "") or ""),
+                   fullscale=None if fs is None else fs / 1000.0, overrange=d.get("overrange") is True,
+                   raw=d)
 
 
 @dataclass(frozen=True)
@@ -368,6 +444,9 @@ class Calibration:
     adc_gain_ppm: Dict[str, Optional[int]] = field(default_factory=dict)
     #: ``True`` when any DMM part is stored.
     dmm: bool = False
+    #: The ADC low range's gain correction in ppm (:meth:`BenchPod.calibrate_adc_gain` with
+    #: ``range="low"``); ``None`` = the divider's nominal ratio, or a board without the low range.
+    adc_low_gain_ppm: Optional[int] = None
     #: The raw zero the offset is derived from: the mean count ``current_in`` read with J8 open,
     #: unwrapped. ``None`` when not calibrated or on firmware before 3.9.4.
     zero_count: Optional[float] = None
@@ -390,7 +469,7 @@ class Calibration:
                    samples=_opt_int(d, "samples"),
                    dac={str(k): DacLine.from_reply(v) for k, v in dac.items()},
                    adc_gain_ppm={str(k): _opt_int(gains, k) for k in gains},
-                   dmm=d.get("dmm") is True,
+                   dmm=d.get("dmm") is True, adc_low_gain_ppm=_opt_int(d, "adc_low_gain_ppm"),
                    zero_count=None if _opt_int(d, "zero_count_mc") is None else _opt_int(d, "zero_count_mc") / 1000.0,
                    measured=None if meas is None else {
                        k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},

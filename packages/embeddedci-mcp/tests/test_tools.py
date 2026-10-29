@@ -25,7 +25,7 @@ EXPECTED_TOOLS = {
     "i2c_sensor_regs", "i2c_sensor_capture", "i2c_sensor_types",
     "enable_gps", "set_gps", "disable_gps", "gps_status",
     "set_pull", "pull_status", "usb_network", "lan_tls",
-    "analog_path", "dac_output", "current_out", "adc_read", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
+    "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
     "save_capture_as_recording",
@@ -393,12 +393,30 @@ def test_pulls(connected):
 # -- analog + captures -----------------------------------------------------------------
 
 def test_analog_tools(connected):
-    assert call("analog_path", path="cal1") == {"path": "cal1"}
+    assert call("analog_path", path="cal1") == {"path": "cal1", "range": None}
     out = call("dac_output", path="5v", volts=2.5)
     assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": None}
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
     assert call("adc_read", source="ext")["offset"] is None
+
+
+def test_adc_range_tool(connected):
+    out = call("adc_range")
+    assert connected.requests[-1] == {"cmd": "adc_range"}
+    assert out["range"] == "normal" and out["supported"] and out["fullscale"] == pytest.approx(32.856)
+    out = call("adc_range", range="low")
+    assert connected.requests[-1] == {"cmd": "adc_range", "range": "low"}
+    assert out["range"] == "low" and out["low_fullscale"] == pytest.approx(5.462)
+    test = call("adc_range", test=True)
+    assert {"cmd": "adc_range", "test": True} in connected.requests
+    assert test["test"]["passed"] and test["test"]["points"][1]["set_voltage"] == pytest.approx(3.5)
+    assert test["range"] == "normal"  # the self-test leaves the range normal
+    r = call("adc_read", source="ext", range="low")
+    assert {"cmd": "adc_read", "source": "ext", "range": "low"} in connected.requests
+    assert r["range"] == "low" and r["fullscale"] == pytest.approx(5.462) and r["overrange"] is False
+    with pytest.raises(Exception):
+        call("adc_range", range="high")
 
 
 def test_current_out_tool(connected):

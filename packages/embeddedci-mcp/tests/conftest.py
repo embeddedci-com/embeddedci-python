@@ -280,8 +280,28 @@ class FakeTransport(Transport):
         code = max(0, round((req["ua"] - 4015.686) / 0.245098))
         return {"ua": round(4015.686 + 0.245098 * code), "code": code, **rng}
 
+    adc_range_state = "normal"
+
+    def _cmd_adc_range(self, req):
+        # analog module v3r4 (firmware 3.9.5+): normal / low, and the self-test.
+        if req.get("test"):
+            self.adc_range_state = "normal"
+            return {"points": [{"set_mv": 1000, "normal_mv": 1001, "low_mv": 999, "ok": True},
+                               {"set_mv": 3500, "normal_mv": 3502, "low_mv": 3497, "ok": True}],
+                    "pass": True, "range": "normal"}
+        if "range" in req:
+            self.adc_range_state = req["range"]
+        low = self.adc_range_state == "low"
+        return {"range": self.adc_range_state, "supported": True, "fullscale_mv": 5462 if low else 32856,
+                "normal_fullscale_mv": 32856, "low_fullscale_mv": 5462,
+                "adc_cal_a_uv": 10923784 if low else 65708158, "adc_cal_b_nv": -166687 if low else -1002644}
+
     def _cmd_adc_read(self, req):
+        if "range" in req:
+            self.adc_range_state = req["range"]
         reply = {"source": req.get("source", "ext"), "mv": 3301, "count": 63049, "span": 2}
+        if "range" in req:
+            reply.update({"range": self.adc_range_state, "fullscale_mv": 5462, "overrange": False})
         if reply["source"] == "current_in":
             reply["offset_mv"] = round(self.current_in_offset_uv / 1000)
             reply["ua"] = round(reply["mv"] * 1000 / 249)

@@ -1,4 +1,42 @@
 {
+  "adc_range": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Read or switch the ADC input range"
+    },
+    "input": {
+      "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "enum": [
+                "normal",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ADC input range: normal (\u00b132.8 V, ~1 mV/count) or low (\u00b15.46 V, ~167 \u00b5V/count, 1.82 M\u03a9 input: 1x leads only; analog module v3r4+). Omit to keep the range the pod is in.",
+          "title": "Range"
+        },
+        "test": {
+          "default": false,
+          "description": "Run the self-test instead: the 5 V output drives the cal1 loopback at 1 V and 3.5 V and both ranges read it. Nothing may be connected to the 5 V output.",
+          "title": "Test",
+          "type": "boolean"
+        }
+      },
+      "title": "adc_rangeArguments",
+      "type": "object"
+    }
+  },
   "adc_read": {
     "annotations": {
       "idempotentHint": false,
@@ -8,6 +46,23 @@
     },
     "input": {
       "properties": {
+        "range": {
+          "anyOf": [
+            {
+              "enum": [
+                "normal",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ADC input range: normal (\u00b132.8 V, ~1 mV/count) or low (\u00b15.46 V, ~167 \u00b5V/count, 1.82 M\u03a9 input: 1x leads only; analog module v3r4+). Omit to keep the range the pod is in.",
+          "title": "Range"
+        },
         "source": {
           "default": "ext",
           "enum": [
@@ -48,6 +103,23 @@
           ],
           "title": "Path",
           "type": "string"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "enum": [
+                "normal",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ADC input range: normal (\u00b132.8 V, ~1 mV/count) or low (\u00b15.46 V, ~167 \u00b5V/count, 1.82 M\u03a9 input: 1x leads only; analog module v3r4+). Omit to keep the range the pod is in.",
+          "title": "Range"
         }
       },
       "required": [
@@ -113,6 +185,16 @@
     },
     "input": {
       "properties": {
+        "range": {
+          "default": "normal",
+          "description": "low measures the ADC low range's gain instead (analog module v3r4+, firmware 3.9.5+): source must be cal1, and the one gain serves every source in the low range.",
+          "enum": [
+            "normal",
+            "low"
+          ],
+          "title": "Range",
+          "type": "string"
+        },
         "source": {
           "description": "cal1 (and current_in) through the 5 V output, cal2 through the \u00b112 V output, ext (the front SMA, captures and the control loop) through an SMA cable from the \u00b112 V output to the ADC input.",
           "enum": [
@@ -452,6 +534,23 @@
           "minimum": 8,
           "title": "Points",
           "type": "integer"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "enum": [
+                "normal",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ADC input range: normal (\u00b132.8 V, ~1 mV/count) or low (\u00b15.46 V, ~167 \u00b5V/count, 1.82 M\u03a9 input: 1x leads only; analog module v3r4+). Omit to keep the range the pod is in.",
+          "title": "Range"
         },
         "sample_rate_hz": {
           "anyOf": [

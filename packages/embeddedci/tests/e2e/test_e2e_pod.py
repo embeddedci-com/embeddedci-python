@@ -990,3 +990,32 @@ def test_can_loopback_responder_and_typed_reads(pod):
         time.sleep(0.05)
         result = pod.can_read(max_frames=8)
         assert isinstance(result, CanReadResult) and any(f.id == 0x55 for f in result.frames)
+
+
+@ANALOG
+def test_adc_low_range_reads_the_cal1_loopback(pod):
+    """The ÷2 ADC low range (analog module v3r4, firmware 3.9.5+) through the cal1 loopback.
+
+    Nothing wired. Skips on a board without the low range, and checks there that low is refused.
+    """
+    if not pod.capabilities.adc_low_range:
+        if pod.adc_range().supported is False:
+            with pytest.raises(BenchPodError):
+                pod.adc_range("low")
+        pytest.skip("this board has no ADC low range (analog module v3r4+)")
+    try:
+        st = pod.adc_range("low")
+        assert st.range == "low" and 5.3 < st.fullscale < 5.6, st
+        assert pod.adc_range_test().passed
+        for volts in (1.0, 3.5):
+            pod.dac_output("5v", volts=volts)
+            time.sleep(0.1)
+            low = pod.adc_read("cal1", range="low")
+            normal = pod.adc_read("cal1", range="normal")
+            assert low.range == "low" and not low.overrange, low
+            assert abs(low.voltage - volts) < 0.05 and abs(low.voltage - normal.voltage) < 0.05, (volts, low, normal)
+        pod.dac_output("off")
+        assert pod.analog_path("off").range == "normal"
+    finally:
+        pod.dac_output("off")
+        pod.adc_range("normal")

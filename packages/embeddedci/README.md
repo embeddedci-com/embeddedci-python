@@ -983,6 +983,40 @@ microvolt resolution (about 76 µV a step on `"5v"`) and `code16` is the 16-bit 
 stays the nearest 8-bit level. On older firmware `code16` is `None` and the steps are 8-bit. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"current_in"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).
 
+### The ADC input range (analog module v3r4)
+
+Analog module v3r4 (firmware 3.9.5+, `Capabilities.adc_low_range`) adds a ÷2 low range to the
+ADC input next to the normal ÷12 one:
+
+| Range | Full scale | Resolution | Input impedance |
+|---|---|---|---|
+| `"normal"` (default) | ±32.8 V | ~1 mV per count | ~1 MΩ |
+| `"low"` | ±5.46 V | ~167 µV per count | 1.82 MΩ: use 1x leads, not 10x probes |
+
+```python
+st = bp.adc_range("low")                   # AdcRangeState(range, supported, fullscale, ...)
+r = bp.adc_read("ext")                      # read in the low range: r.range == "low"
+r = bp.adc_read("current_in", range="low")  # or switch it with the reading
+cap = bp.capture_adc(4096, source="ext", range="low")
+print(cap.range, cap.overrange)             # a clipped sample: capture again in the normal range
+bp.adc_range("normal")
+print(bp.adc_range_test().passed)           # self-test through the cal1 loopback (5 V output)
+```
+
+The range applies to `ext`, `cal1` and `current_in` (4-20 mA fits inside it); `cal2` has none.
+It stays until it is changed, `analog_path("off")` or `analog_path("cal2")`, or the pod restarts.
+`analog_path`, `adc_read` and `capture_adc` take `range=` too. Captures are raw counts: the SDK
+keeps the fit it scales them with on the range in use (`Capabilities.adc_range`), and re-reads it
+whenever a reply says the pod moved to the other range. `AdcReading.overrange` and
+`Capture.overrange` (with `clipped_samples`) flag samples on the ADC's rails. A board without the
+low range raises `BenchPodError` for `"low"`.
+
+`adc_range_test()` drives the 5 V output into `cal1` at 1 V and 3.5 V, reads each point in both
+ranges, and fails (`passed` is `False`) when they disagree by more than 5 % + 30 mV. The low range's
+gain is calibrated through `cal1` with `calibrate_adc_gain("cal1", range="low")` (after the offset and
+the 5 V DMM line, see below); it serves every source in the low range and shows as
+`Calibration.adc_low_gain_ppm`.
+
 ### Calibrating the ADC offset
 
 `"current_in"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
@@ -1139,9 +1173,9 @@ both = bp.capture_correlated(adc_samples=4096, adc_sample_rate_hz=400_000,
 print(both.adc.duration, both.la.duration)              # one hardware trigger: timebases align
 ```
 
-* `capture_adc(samples=4096, *, sample_rate_hz=None, source=None, trigger=None, trigger_timeout=10.0)` — omitted rate = the device
+* `capture_adc(samples=4096, *, sample_rate_hz=None, source=None, trigger=None, trigger_timeout=10.0, range=None)` — omitted rate = the device
   maximum; the **achieved** rate is on the result. `source` routes the ADC first (omitted, the
-  current routing is left alone). `volts` use the front-SMA calibration; for the other sources
+  current routing is left alone); `range` sets the [ADC input range](#the-adc-input-range-analog-module-v3r4). `volts` use the front-SMA calibration; for the other sources
   compare `counts` or use `adc_read`.
 * `capture_la(samples=4096, *, sample_rate_hz=None, stop_dac_after=None, trigger=None, trigger_timeout=10.0)` — 12-bit words; bit *n* is
   channel LA*n+1*. The **achieved** rate is on the result and can be below the request: the pod
@@ -1630,7 +1664,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | I2C sensor | `enable_i2c_sensor(sensor=Sensor.BMP280, *, sda=None, scl=None, address=None, **values)`, `set_i2c_sensor(**values)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_types()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
 | GPS receiver | `enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)`, `set_gps(*, utc=None, **fix)`, `disable_gps()`, `gps_status()` |
-| Analog | `analog_path(path)`, `adc_read(source="ext")`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source)`, `DMM_SET_POINTS` |
+| Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
 | CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
@@ -1671,13 +1705,16 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `I2CByte` | `I2CMessage.data` | `value`, `ack` |
 | `UartFrame` | `decode("uart")` | `index`, `start_us`, `end_us`, `value`, `hex`, `text`, `ok`, `error` |
 | `SpiFrame` | `decode("spi")` | `index`, `start_us`, `end_us`, `mosi`, `miso`, `mosi_hex`, `miso_hex` |
-| `AnalogPathState` | `analog_path` | `path`, `dac_mux_register`, `cal_relay_register` |
-| `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current` |
+| `AnalogPathState` | `analog_path` | `path`, `dac_mux_register`, `cal_relay_register`, `range` |
+| `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current`, `range`, `fullscale`, `overrange` |
+| `AdcRangeState` | `adc_range` | `range`, `supported`, `fullscale`, `normal_fullscale`, `low_fullscale`, `a`, `b` (volts, the `ext` fit of the range) |
+| `AdcRangeTest` | `adc_range_test` | `passed`, `points` (each an `AdcRangeTestPoint`: `set_voltage`, `normal`, `low`, `ok`) |
+| `AdcRange` (literal) | `adc_range`, `range=` | `"normal"`, `"low"` |
 | `DacOutput` | `dac_output` | `path`, `voltage`, `code` |
 | `CurrentOutput` | `current_out`, `current_out_range` | `current`, `code`, `min_current`, `max_current` |
-| `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `dmm`, `measured`, `zero_count` |
+| `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `adc_low_gain_ppm`, `dmm`, `measured`, `zero_count` |
 | `DacLine` | `Calibration.dac` | `a`, `b`, `offset`, `gain_ppm` |
-| `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
+| `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `range`, `overrange`, `clipped_samples`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
 | `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |
 | `CorrelatedCapture` | `capture_correlated` | `adc` (a `Capture`), `la` (a `LaCapture`), sharing one hardware trigger |
 | `Trigger` | `capture_adc`, `capture_la`, `capture_correlated` | `la`, `edge` |
@@ -1718,7 +1755,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Group | Fields |
 |---|---|
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
-| ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit), `adc_max_count`, `counts_to_volts(count)` |
+| ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
 | Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |

@@ -1,5 +1,35 @@
 {
   "AdcGainSource": "Literal['cal1', 'cal2', 'ext']",
+  "AdcRange": "Literal['normal', 'low']",
+  "AdcRangeState": {
+    "__fields__": [
+      "range",
+      "supported",
+      "fullscale",
+      "normal_fullscale",
+      "low_fullscale",
+      "a",
+      "b",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'AdcRangeState'\""
+  },
+  "AdcRangeTest": {
+    "__fields__": [
+      "passed",
+      "points",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'AdcRangeTest'\""
+  },
+  "AdcRangeTestPoint": {
+    "__fields__": [
+      "set_voltage",
+      "normal",
+      "low",
+      "ok"
+    ]
+  },
   "AdcReading": {
     "__fields__": [
       "source",
@@ -8,6 +38,9 @@
       "span",
       "offset",
       "current",
+      "range",
+      "fullscale",
+      "overrange",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
@@ -19,6 +52,7 @@
       "path",
       "dac_mux_register",
       "cal_relay_register",
+      "range",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'AnalogPathState'\""
@@ -40,10 +74,12 @@
   },
   "BenchPod": {
     "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None, wiring_source: 'Optional[str]' = None) -> 'None'",
-    "adc_read": "(self, source: 'AdcSource' = 'ext') -> 'AdcReading'",
-    "analog_path": "(self, path: 'AnalogPath') -> 'AnalogPathState'",
+    "adc_range": "(self, range: 'Optional[AdcRange]' = None) -> 'AdcRangeState'",
+    "adc_range_test": "(self) -> 'AdcRangeTest'",
+    "adc_read": "(self, source: 'AdcSource' = 'ext', *, range: 'Optional[AdcRange]' = None) -> 'AdcReading'",
+    "analog_path": "(self, path: 'AnalogPath', *, range: 'Optional[AdcRange]' = None) -> 'AnalogPathState'",
     "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",
-    "calibrate_adc_gain": "(self, source: 'AdcGainSource') -> 'Calibration'",
+    "calibrate_adc_gain": "(self, source: 'AdcGainSource', *, range: 'AdcRange' = 'normal') -> 'Calibration'",
     "calibrate_dac": "(self, path: 'DacCalPath', points: 'Sequence[Tuple[int, float]]') -> 'Calibration'",
     "calibration": "(self) -> 'Calibration'",
     "can_analog": "property",
@@ -63,7 +99,7 @@
     "can_trigger": "property",
     "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'Dict[str, Any]'",
     "capabilities": "property",
-    "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'Capture'",
+    "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None) -> 'Capture'",
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
     "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'LaCapture'",
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
@@ -174,6 +210,7 @@
       "dac",
       "adc_gain_ppm",
       "dmm",
+      "adc_low_gain_ppm",
       "zero_count",
       "measured",
       "raw"
@@ -228,6 +265,9 @@
       "adc_channels",
       "adc_offset_counts",
       "adc_affine",
+      "adc_low_range",
+      "adc_range",
+      "adc_range_fullscale",
       "dac",
       "dac_dc",
       "dac_replay",
@@ -300,8 +340,10 @@
       "sample_rate_hz",
       "source",
       "currents",
-      "trigger"
+      "trigger",
+      "range"
     ],
+    "clipped_samples": "property",
     "crossing_times": "(self, threshold: 'float', edge: 'Edge' = 'rising', *, hysteresis: 'float' = 0.0) -> 'List[float]'",
     "dominant_frequency": "(self) -> 'float'",
     "duration": "property",
@@ -310,6 +352,7 @@
     "max": "(self) -> 'float'",
     "mean": "(self) -> 'float'",
     "min": "(self) -> 'float'",
+    "overrange": "property",
     "peak_to_peak": "(self) -> 'float'",
     "rms": "(self) -> 'float'",
     "rms_ac": "(self) -> 'float'",
@@ -995,6 +1038,10 @@
   },
   "__all__": [
     "AdcGainSource",
+    "AdcRange",
+    "AdcRangeState",
+    "AdcRangeTest",
+    "AdcRangeTestPoint",
     "AdcReading",
     "AdcSource",
     "AnalogPath",

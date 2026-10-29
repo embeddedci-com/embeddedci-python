@@ -389,6 +389,29 @@ class PullStatusResult(BaseModel):
 
 class AnalogPathResult(BaseModel):
     path: str
+    range: Optional[str] = Field(None, description=(
+        "The ADC input range in use afterwards: normal or low (firmware 3.9.5+; null on older firmware)."))
+
+
+class AdcRangeTestPointResult(BaseModel):
+    set_voltage: float = Field(description="What the 5 V output put into the cal1 loopback, volts.")
+    normal: float = Field(description="What the normal range read, volts.")
+    low: float = Field(description="What the low range read, volts.")
+    ok: bool
+
+
+class AdcRangeTestResult(BaseModel):
+    passed: bool = Field(description="Both ranges agree with the set points within 5 % + 30 mV.")
+    points: List[AdcRangeTestPointResult]
+
+
+class AdcRangeResult(BaseModel):
+    range: str = Field(description="The ADC input range in use: normal (±32.8 V) or low (±5.46 V).")
+    supported: bool = Field(description="The board has the low range (analog module v3r4 and later).")
+    fullscale: float = Field(description="Full scale of the range in use, volts (±).")
+    normal_fullscale: float = Field(description="Full scale of the normal range, volts (±).")
+    low_fullscale: Optional[float] = Field(None, description="Full scale of the low range, volts (±); null without it.")
+    test: Optional[AdcRangeTestResult] = Field(None, description="The self-test's result (test=true only).")
 
 
 class DacOutputResult(BaseModel):
@@ -416,6 +439,12 @@ class AdcReadResult(BaseModel):
         "The pod's own calibration offset in volts, already taken out of voltage (current_in only)."))
     current: Optional[float] = Field(None, description=(
         "Loop current in amps on the 4-20 mA input (current_in only): 0.004 to 0.020 for a live loop."))
+    range: Optional[str] = Field(None, description=(
+        "The ADC input range the reading was taken in: normal or low (firmware 3.9.5+)."))
+    fullscale: Optional[float] = Field(None, description="That range's full scale, volts (±).")
+    overrange: bool = Field(False, description=(
+        "A sample sat on an ADC rail: the input is past fullscale and voltage is only a bound. "
+        "Read again in the normal range."))
 
 
 class DacLineResult(BaseModel):
@@ -439,6 +468,8 @@ class CalibrationResult(BaseModel):
     adc_gain_ppm: Dict[str, Optional[int]] = Field(default_factory=dict, description=(
         "ADC gain correction per source (cal1, cal2, ext) in ppm; null = the built-in gain."))
     dmm: bool = Field(False, description="True when any DMM-guided part is stored.")
+    adc_low_gain_ppm: Optional[int] = Field(None, description=(
+        "The ADC low range's gain correction in ppm (analog module v3r4+); null = the nominal divider ratio."))
     zero_count: Optional[float] = Field(None, description=(
         "The raw zero the offset is derived from: the mean ADC count with J8 open, unwrapped (firmware 3.9.4+)."))
     measured: Optional[Dict[str, float]] = Field(None, description=(
@@ -467,6 +498,10 @@ class AdcCaptureResult(BaseModel):
     trigger: Optional[str] = Field(None, description=(
         "The trigger that started the capture, e.g. 'LA9 rising'; null for a free-running capture. "
         "t = 0 is the trigger moment."))
+    range: Optional[str] = Field(None, description=(
+        "The ADC input range the capture was scaled for: normal or low (firmware 3.9.5+)."))
+    clipped_samples: int = Field(0, description=(
+        "Samples on an ADC rail: the input went past the range's full scale. Capture again in the normal range."))
 
 
 class LaChannelSummary(BaseModel):

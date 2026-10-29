@@ -48,6 +48,7 @@ from .constants import (
     PIN12,
     PIN13,
     PIN14,
+    AdcRange,
     AdcSource,
     CalibrateSource,
     CalibrationPart,
@@ -117,6 +118,9 @@ from .results import Capture, CorrelatedCapture, LaCapture, LanTls, Trigger
 from .transport.tls import delete_pin as forget_lan_tls, trust_lan_tls
 from .server_api import ServerApi, ServerApiError, ServerPermissionDeniedError
 from .state import (
+    AdcRangeState,
+    AdcRangeTest,
+    AdcRangeTestPoint,
     AdcReading,
     AnalogPathState,
     Calibration,
@@ -163,6 +167,9 @@ __all__ = [
     "PullState",
     "AnalogPathState",
     "DacOutput",
+    "AdcRangeState",
+    "AdcRangeTest",
+    "AdcRangeTestPoint",
     "AdcReading",
     "Calibration",
     "DacLine",
@@ -257,6 +264,7 @@ __all__ = [
     "DacPath",
     "DacOutputPath",
     "AnalogPath",
+    "AdcRange",
     "AdcSource",
     "CalibrateSource",
     "CalibrationPart",

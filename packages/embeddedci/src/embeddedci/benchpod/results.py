@@ -89,9 +89,26 @@ class Capture:
     currents: List[float] = field(default_factory=list)
     #: The trigger that started the capture (t = 0 is its moment), or ``None``.
     trigger: Optional[Trigger] = None
+    #: The ADC input range the capture was scaled for (``"normal"`` / ``"low"``, analog module
+    #: v3r4+); ``""`` when the pod does not say (firmware before 3.9.5: normal).
+    range: str = ""
 
     def __len__(self) -> int:
         return len(self.volts)
+
+    #: The 16-bit MCP33131's rails (two's complement +FS / -FS): a sample there is clipped.
+    ADC_RAILS = (0x7FFF, 0x8000)
+
+    @property
+    def clipped_samples(self) -> int:
+        """How many samples sit on an ADC rail: the input went past the range's full scale."""
+        return sum(1 for c in self.counts if c in self.ADC_RAILS)
+
+    @property
+    def overrange(self) -> bool:
+        """``True`` when any sample is clipped (:attr:`clipped_samples`); in the low range,
+        capture again in the normal one."""
+        return self.clipped_samples > 0
 
     # -- reductions (volts) -------------------------------------------------
 
