@@ -7,6 +7,8 @@
   `analog_path`, `adc_read` and `capture_adc` take `range`; `calibrate_adc_gain` takes `range=low`
   for the low range's gain. `adc_read` reports `range`, `fullscale` and `overrange`, `capture_adc`
   `range` and `clipped_samples`, `calibration` `adc_low_gain_ppm`.
+- `set_wiring` takes back what `wiring` returned: the server's `loop_output_*` keys pass through
+  like `loop_input_*`, so reading the profile, changing a value and saving it works and keeps them.
 - Requires embeddedci 2.13.4.
 
 ## 2.13.3

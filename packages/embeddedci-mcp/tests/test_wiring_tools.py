@@ -165,3 +165,14 @@ def test_signals_reach_gpio_and_trigger_arguments(connected):
     assert call("gpio_mode", la=["TRIGGER"])["pins"][0]["la"] == 9
     assert call("capture_la", samples=64, sample_rate_hz=1e6,
                 trigger_la="TRIGGER")["trigger"] == "LA9 rising"
+
+
+def test_set_wiring_takes_back_what_wiring_returned(connected):
+    # The server keeps loop_input_* and loop_output_* in the profile: an agent that reads the
+    # profile, changes one value and writes it back must not be refused, or lose them.
+    stored = {"swd_target": "", "loop_input_unit": "mA", "loop_output_enabled": True, "loop_output_max_v": 3.3}
+    SESSION.require().wiring = Wiring.from_dict(stored, strict=False)
+    profile = call("wiring")["profile"]
+    result = call("set_wiring", profile={**profile, "swd_target": "target/stm32f4x.cfg"})
+    assert result["swd_target"] == "target/stm32f4x.cfg"
+    assert SESSION.require().wiring.extra["loop_output_max_v"] == 3.3
