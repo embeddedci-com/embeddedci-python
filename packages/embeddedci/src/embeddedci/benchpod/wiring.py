@@ -34,7 +34,7 @@ SIGNAL_DIRECTIONS: Tuple[str, ...] = ("input", "output", "open_drain", "bidir")
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 _SIGNAL_KEYS = ("name", "la", "direction", "active_low", "description")
 #: Keys other parts of the product keep in the profile; the SDK passes them through untouched.
-_PASSTHROUGH_PREFIXES = ("loop_input_",)
+_PASSTHROUGH_PREFIXES = ("loop_input_", "loop_output_")
 
 
 def _is_int(value: Any) -> bool:
