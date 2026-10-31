@@ -1385,14 +1385,15 @@ async def adc_read(source: AdcSource = "ext", range: AdcRangeArg = None) -> m.Ad
 
 
 def _calibration_result(c: Any) -> m.CalibrationResult:
+    comp = getattr(c, "adc_comp", None)  # an older embeddedci SDK has no such field
     dac = {k: (None if v is None else m.DacLineResult(a=v.a, b=v.b, offset=v.offset, gain_ppm=v.gain_ppm))
            for k, v in (c.dac or {}).items()}
     return m.CalibrationResult(source=c.source, calibrated=c.calibrated, offset=c.offset, a=c.a, b=c.b,
                                count=c.count, span=c.span, samples=c.samples, dac=dac,
                                adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured,
                                adc_low_gain_ppm=c.adc_low_gain_ppm,
-                               adc_comp=None if c.adc_comp is None else {
-                                   "hf_dc_gain": c.adc_comp.hf_dc_gain, "c_top_pf": c.adc_comp.c_top_pf},
+                               adc_comp=None if comp is None else {
+                                   "hf_dc_gain": comp.hf_dc_gain, "c_top_pf": comp.c_top_pf},
                                zero_count=c.zero_count)
 
 
