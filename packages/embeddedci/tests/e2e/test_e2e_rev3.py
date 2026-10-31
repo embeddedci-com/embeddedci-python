@@ -64,12 +64,16 @@ def _level(pod, ch: int) -> int:
 
 # -- identity ----------------------------------------------------------------------------
 
-def test_board_strap_reads_as_v3(v3):
+def test_board_strap_reads_as_rev3_or_later(v3):
     status = v3.status()
-    # R164 1 k over R163 10 k from +3V3: ~3.0 V. Near a bucket edge means a wrong part or a bad joint.
-    assert status["board_rev"] == "v3" and 2700 <= status["board_rev_mv"] <= 3250, status
+    # R164 over R163 10 k from +3V3: 1 k ~3.0 V (v3), 2.2 k ~2.7 V (v3r2). Near a bucket edge means
+    # a wrong part or a bad joint.
+    bands = {"v3": (2900, 3250), "v3r2": (2550, 2849)}
+    assert status["board_rev"] in bands, status
+    low, high = bands[status["board_rev"]]
+    assert low <= status["board_rev_mv"] <= high, status
     caps = v3.refresh_capabilities()
-    assert caps.board_rev == "v3" and caps.nrst_pin and caps.usb_cc, caps
+    assert caps.board_rev == status["board_rev"] and caps.nrst_pin and caps.usb_cc, caps
 
 
 def test_firmware_and_gateware_are_current(v3):

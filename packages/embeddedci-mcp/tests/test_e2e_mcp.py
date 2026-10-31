@@ -83,6 +83,8 @@ def test_current_loop_terminals(connected):
         assert rng["current"] is None and 0.0039 < rng["min_current"] < 0.0042 < 0.0199 < rng["max_current"]
         held = call("current_out", current=0.012)
         assert abs(held["current"] - 0.012) < 2e-6
+        if connected["firmware"].get("board_rev") == "v3r2":
+            pytest.skip("quad DAC: the 5 V loopback does not see the 4-20 mA output; needs the J9 fixture")
         want = (0.012 - rng["min_current"]) / (rng["max_current"] - rng["min_current"]) * 65535 / 65536 * 4.99
         time.sleep(0.1)
         assert abs(call("adc_read", source="cal1")["voltage"] - want) < 0.1
@@ -212,7 +214,7 @@ def test_rev3_tools(connected):
     if not connected["firmware"].get("nrst_pin"):
         pytest.skip("not a rev3 pod")
     caps = connected["capabilities"]
-    assert caps["board_rev"] == "v3" and caps["nrst_pin"] and caps["usb_cc"], caps
+    assert caps["board_rev"] in ("v3", "v3r2") and caps["nrst_pin"] and caps["usb_cc"], caps
     try:
         assert call("set_la_voltage", voltage=1.8) == {"voltage": 1.8, "readback": 1.8}
     finally:
