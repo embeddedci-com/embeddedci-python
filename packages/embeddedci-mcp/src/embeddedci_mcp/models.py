@@ -468,6 +468,9 @@ class CalibrationResult(BaseModel):
     adc_gain_ppm: Dict[str, Optional[int]] = Field(default_factory=dict, description=(
         "ADC gain correction per source (cal1, cal2, ext) in ppm; null = the built-in gain."))
     dmm: bool = Field(False, description="True when any DMM-guided part is stored.")
+    adc_comp: Optional[Dict[str, float]] = Field(None, description=(
+        "The ADC input's recorded frequency response: hf_dc_gain (high-frequency gain against DC, 1.0 "
+        "is flat) and c_top_pf. Reference only, no reading is scaled with it. null: not measured."))
     adc_low_gain_ppm: Optional[int] = Field(None, description=(
         "The ADC low range's gain correction in ppm (analog module v3r4+); null = the nominal divider ratio."))
     zero_count: Optional[float] = Field(None, description=(

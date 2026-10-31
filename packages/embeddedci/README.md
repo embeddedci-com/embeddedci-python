@@ -1070,7 +1070,10 @@ bp.clear_calibration("dac")                      # one part: "offset", "dac" or 
 `calibrate_dac(path, points)` takes two `(code16, volts)` pairs: the 16-bit code `dac_output`
 drove and the DMM reading. From then on `dac_output`, the calibrated `generate` and the DAC output
 limits convert with this pod's line (`DacLine`: `a`, `b` per 16-bit code, `offset`, `gain_ppm`
-against the built-in line). `calibrate_adc_gain(source)` measures `cal1` through the 5 V output,
+against the built-in line). `store_adc_compensation(hf_dc_gain, c_top_pf)` records the ADC input's
+measured frequency response on the pod (firmware 3.9.5+), read back as `Calibration.adc_comp`
+(`AdcCompensation`), for
+reference only: no reading is scaled with it. `calibrate_adc_gain(source)` measures `cal1` through the 5 V output,
 `cal2` through the ±12 V output and `ext` (the front SMA, which `capture_adc` and the control loop
 use) through an SMA cable from the ±12 V output to the ADC input; `current_in` follows `cal1`. It
 needs the ADC offset and the driving output's DMM line, and `Calibration.measured` says what it

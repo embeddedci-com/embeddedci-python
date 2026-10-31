@@ -1411,6 +1411,20 @@ class BenchPod:
             self._follow_adc_range("normal")
         return cal
 
+    def store_adc_compensation(self, hf_dc_gain: float, c_top_pf: float) -> Calibration:
+        """Record the ADC input's measured frequency response on the pod (firmware 3.9.5+).
+
+        ``hf_dc_gain`` is the high-frequency gain against DC and ``c_top_pf`` the divider's fitted
+        top-leg capacitance, both from ``adc_comp_sweep.py`` in the firmware's calibration scripts.
+        Reference only: no reading is scaled with them. Read it back as ``Calibration.adc_comp``.
+        """
+        self._require_capability("calibrate", "calibration")
+        cal = Calibration.from_reply(self.command({"cmd": "calibrate", "comp_hf_dc_e4": round(hf_dc_gain * 1e4),
+                                                   "comp_c_top_ff": round(c_top_pf * 1e3)}))
+        if cal.adc_comp is None:
+            raise BenchPodError("this pod's firmware cannot record the ADC frequency response (needs 3.9.5+)")
+        return cal
+
     # -- CAN (FDCAN1 / TCAN1044 transceiver) -----------------------------------
     # Single-node board: use a loopback ``mode`` to self-test on one pod. :meth:`open_can` and
     # :class:`~embeddedci.benchpod.can.CanBus` are the convenient interface; these are the

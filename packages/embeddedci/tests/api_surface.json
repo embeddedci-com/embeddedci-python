@@ -1,4 +1,11 @@
 {
+  "AdcCompensation": {
+    "__fields__": [
+      "hf_dc_gain",
+      "c_top_pf"
+    ],
+    "from_reply": "(cls, d: 'Any') -> \"Optional['AdcCompensation']\""
+  },
   "AdcGainSource": "Literal['cal1', 'cal2', 'ext']",
   "AdcRange": "Literal['normal', 'low']",
   "AdcRangeState": {
@@ -174,6 +181,7 @@
     "signal": "(self, name: 'str') -> 'GpioPin'",
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
     "status": "(self) -> 'Dict[str, Any]'",
+    "store_adc_compensation": "(self, hf_dc_gain: 'float', c_top_pf: 'float') -> 'Calibration'",
     "supports": "(self, feature: 'str') -> 'bool'",
     "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
@@ -211,6 +219,7 @@
       "adc_gain_ppm",
       "dmm",
       "adc_low_gain_ppm",
+      "adc_comp",
       "zero_count",
       "measured",
       "raw"
@@ -1037,6 +1046,7 @@
     "with_changes": "(self, **changes: 'Any') -> \"'Wiring'\""
   },
   "__all__": [
+    "AdcCompensation",
     "AdcGainSource",
     "AdcRange",
     "AdcRangeState",

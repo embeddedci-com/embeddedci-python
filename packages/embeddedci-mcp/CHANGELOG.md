@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `calibration` and the calibrate tools report `adc_comp`, the ADC input's recorded frequency
+  response (firmware 3.9.5+). Reference only.
+
 ## 2.13.4
 
 - New tool `adc_range`: read or switch the ADC input range (normal ±32.8 V, low ±5.46 V at 6x the
