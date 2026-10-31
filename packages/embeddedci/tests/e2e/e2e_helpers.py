@@ -15,6 +15,22 @@ from embeddedci.benchpod import BenchPod, FirmwareError
 ANALOG = pytest.mark.benchpod_capability("analog")
 
 
+def has_dac_mux(pod: BenchPod) -> bool:
+    """One DAC behind output muxes (v3 and earlier). False on the quad DAC (analog v3r2 and later):
+    every output has its own channel, so the 5 V loopback does not see the 4-20 mA output."""
+    try:
+        pod.command({"cmd": "dac_mux"})
+    except FirmwareError:
+        return False
+    return True
+
+
+def require_shared_dac(pod: BenchPod) -> None:
+    """Skip where the 4-20 mA output has its own DAC channel: only the J9 fixture can read it."""
+    if not has_dac_mux(pod):
+        pytest.skip("quad DAC: the 5 V loopback does not see the 4-20 mA output; needs the J9 fixture")
+
+
 def require_analog(pod: BenchPod) -> None:
     """Skip on the digital-only board, for tests on a pod the ``ANALOG`` marker does not see (the
     cloud tier's own connection)."""

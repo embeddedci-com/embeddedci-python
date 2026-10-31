@@ -37,7 +37,8 @@ from embeddedci.benchpod.control_loop import CURVE_POINTS
 from embeddedci.benchpod.decode import decode_uart
 
 from e2e_helpers import (ANALOG, HOST_CLOCK_REL, SETTLE, adc_levels, events_during, host_clock_rate, p2p,
-                         split_levels)
+                         split_levels, has_dac_mux, require_shared_dac,
+)
 
 pytestmark = pytest.mark.hardware
 
@@ -197,8 +198,9 @@ def test_current_out_holds_a_current_and_the_dac_follows(pod):
         want_code = q.code + (0.012 - q.current) / per_code
         assert mid.current == pytest.approx(0.012, abs=2e-6) and abs(mid.code - want_code) <= 4, mid
         time.sleep(0.1)
-        readback = pod.adc_read("cal1").voltage           # routes the 5 V output: about 2.49 V
-        assert abs(readback - mid.code / 65536 * 4.99) < 0.06, (mid, readback)
+        if has_dac_mux(pod):
+            readback = pod.adc_read("cal1").voltage       # routes the 5 V output: about 2.49 V
+            assert abs(readback - mid.code / 65536 * 4.99) < 0.06, (mid, readback)
 
         top = pod.current_out(0.020)                      # switches the 5 V output off again
         assert top.current == pytest.approx(0.020, abs=2e-6)
@@ -220,6 +222,7 @@ def test_waveforms_on_the_current_output_reach_the_dac(pod):
     output while it is read). Stopping returns the DAC to the live zero."""
     if not pod.capabilities.current_out:
         pytest.skip("this pod's firmware has no current_out command")
+    require_shared_dac(pod)
     rng = pod.current_out_range()
 
     def dac_volts(amps: float) -> float:
@@ -315,6 +318,7 @@ def test_a_current_waveform_starts_on_the_capture_t0(pod):
     capture's t0, so the capture opens on the first level and steps to the second."""
     if not pod.capabilities.current_out:
         pytest.skip("this pod's firmware has no current_out command")
+    require_shared_dac(pod)
     if not pod.capabilities.dac_cotrig:
         pytest.skip("the running gateware has no DAC co-trigger")
     hi, lo = _loop_dac_volts(pod, 0.012), _loop_dac_volts(pod, 0.006)
@@ -339,6 +343,7 @@ def test_stop_dac_after_freezes_the_loop_current(pod):
     so the loop HOLDS a current from the waveform. It does not fall back to 4 mA by itself."""
     if not pod.capabilities.current_out:
         pytest.skip("this pod's firmware has no current_out command")
+    require_shared_dac(pod)
     lo, hi = _loop_dac_volts(pod, 0.006), _loop_dac_volts(pod, 0.012)
     try:
         handle = pod.generate("square", freq_hz=200, amplitude=0.003, offset=0.009, dac_path="current_out")
@@ -365,6 +370,7 @@ def test_dac_stop_alone_leaves_the_loop_where_it_was(pod):
     4 mA takes `current_out(0.004)`, which is what the handles and the web Stop do."""
     if not pod.capabilities.current_out:
         pytest.skip("this pod's firmware has no current_out command")
+    require_shared_dac(pod)
     try:
         pod.current_out(0.012)
         pod.dac_stop()
@@ -384,6 +390,7 @@ def test_a_current_switches_the_voltage_outputs_off(pod):
     and it leaves the ADC relays alone (J8 stays routed)."""
     if not pod.capabilities.current_out:
         pytest.skip("this pod's firmware has no current_out command")
+    require_shared_dac(pod)
     try:
         pod.dac_output("5v", volts=0.0)
         pod.analog_path("current_in")
@@ -393,6 +400,26 @@ def test_a_current_switches_the_voltage_outputs_off(pod):
         assert mux["ctrl1_en"] == 0 and mux["ctrl2_en"] == 0, mux
         assert pod.lowlevel.cal_switch_status()["current_in"] == 1
     finally:
+        pod.analog_path("off")
+
+
+@ANALOG
+def test_a_current_leaves_the_voltage_outputs_alone_on_the_quad_dac(pod):
+    """Quad DAC: the 4-20 mA output has its own channel, so a current does not move the 5 V output."""
+    if not pod.capabilities.current_out:
+        pytest.skip("this pod's firmware has no current_out command")
+    if has_dac_mux(pod):
+        pytest.skip("one shared DAC: a current switches the voltage outputs off")
+    try:
+        pod.dac_output("5v", volts=2.0)
+        before = pod.adc_read("cal1").voltage
+        assert abs(before - 2.0) < 0.06, before
+        pod.current_out(0.012)
+        time.sleep(0.1)
+        assert abs(pod.adc_read("cal1").voltage - before) < 0.01
+    finally:
+        pod.current_out(0.004)
+        pod.dac_stop()
         pod.analog_path("off")
 
 
@@ -722,7 +749,7 @@ def test_deep_replay_switches_to_the_deep_replay_image(loop_image):
     np = pytest.importorskip("numpy")
     pod = loop_image
     period = [0.8] * 100 + [2.2] * 100                 # 100 Hz at 20 kS/s
-    with pod.replay(period * 41, dac_path="5v", sample_rate_hz=20_000, route=False) as h:
+    with pod.replay(period * 41, dac_path="5v", sample_rate_hz=20_000) as h:
         assert h.deep and h.switched_image is not None
         assert h.switched_image.image == FpgaImage.DEEP_REPLAY
         pod.analog_path("cal1")                        # after the switch, which resets the FPGA
@@ -775,9 +802,12 @@ def test_control_loop_sweep_advances(loop_image):
         pytest.skip("the running gateware has no selectable loop input")
     pod.analog_path("dac_3v3")
     with pod.control_loop(curve=build_linear_curve(60000), source="sweep", step=256) as loop:
-        first = loop.probe().loop_input
-        time.sleep(0.05)
-        assert loop.probe().loop_input != first
+        # The sweep wraps every 256 ticks, so one probe can land on the same input by chance.
+        seen = {loop.probe().loop_input}
+        for pause in (0.013, 0.029, 0.05):
+            time.sleep(pause)
+            seen.add(loop.probe().loop_input)
+        assert len(seen) > 1, seen
 
 
 @ANALOG
