@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.5
 
 - `calibration` and the calibrate tools report `adc_comp`, the ADC input's recorded frequency
   response (firmware 3.9.5+). Reference only.
