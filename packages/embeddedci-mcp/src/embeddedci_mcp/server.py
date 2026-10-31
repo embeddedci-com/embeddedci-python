@@ -1391,6 +1391,8 @@ def _calibration_result(c: Any) -> m.CalibrationResult:
                                count=c.count, span=c.span, samples=c.samples, dac=dac,
                                adc_gain_ppm=dict(c.adc_gain_ppm or {}), dmm=c.dmm, measured=c.measured,
                                adc_low_gain_ppm=c.adc_low_gain_ppm,
+                               adc_comp=None if c.adc_comp is None else {
+                                   "hf_dc_gain": c.adc_comp.hf_dc_gain, "c_top_pf": c.adc_comp.c_top_pf},
                                zero_count=c.zero_count)
 
 

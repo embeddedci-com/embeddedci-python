@@ -411,6 +411,23 @@ class DacLine:
 
 
 @dataclass(frozen=True)
+class AdcCompensation:
+    """The ADC input's frequency response recorded on this pod. Reference only: no reading is
+    scaled with it, and DC accuracy does not depend on it."""
+
+    #: The high-frequency gain of the ADC input divider against its DC gain. 1.0 is flat.
+    hf_dc_gain: float
+    #: The fitted capacitance of the divider's top leg, in pF.
+    c_top_pf: float
+
+    @classmethod
+    def from_reply(cls, d: Any) -> Optional["AdcCompensation"]:
+        if not isinstance(d, dict) or _opt_int(d, "hf_dc_e4") is None or _opt_int(d, "c_top_ff") is None:
+            return None
+        return cls(hf_dc_gain=(_opt_int(d, "hf_dc_e4") or 0) / 1e4, c_top_pf=(_opt_int(d, "c_top_ff") or 0) / 1e3)
+
+
+@dataclass(frozen=True)
 class Calibration:
     """The pod's own calibration (``BenchPod.calibrate`` / ``calibration``).
 
@@ -447,6 +464,8 @@ class Calibration:
     #: The ADC low range's gain correction in ppm (:meth:`BenchPod.calibrate_adc_gain` with
     #: ``range="low"``); ``None`` = the divider's nominal ratio, or a board without the low range.
     adc_low_gain_ppm: Optional[int] = None
+    #: The ADC input's recorded frequency response; ``None`` = not measured, or firmware before 3.9.5.
+    adc_comp: Optional[AdcCompensation] = None
     #: The raw zero the offset is derived from: the mean count ``current_in`` read with J8 open,
     #: unwrapped. ``None`` when not calibrated or on firmware before 3.9.4.
     zero_count: Optional[float] = None
@@ -470,6 +489,7 @@ class Calibration:
                    dac={str(k): DacLine.from_reply(v) for k, v in dac.items()},
                    adc_gain_ppm={str(k): _opt_int(gains, k) for k in gains},
                    dmm=d.get("dmm") is True, adc_low_gain_ppm=_opt_int(d, "adc_low_gain_ppm"),
+                   adc_comp=AdcCompensation.from_reply(d.get("adc_comp")),
                    zero_count=None if _opt_int(d, "zero_count_mc") is None else _opt_int(d, "zero_count_mc") / 1000.0,
                    measured=None if meas is None else {
                        k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},

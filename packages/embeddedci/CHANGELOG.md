@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `BenchPod.store_adc_compensation(hf_dc_gain, c_top_pf)` records the ADC input's measured frequency
+  response on the pod (firmware 3.9.5+), and `Calibration.adc_comp` (`AdcCompensation`) reads it.
+  Reference only: no reading is scaled with it.
+
 ## 2.13.4
 
 - The ADC input range (pod firmware 3.9.5+, analog module v3r4, `Capabilities.adc_low_range`):
