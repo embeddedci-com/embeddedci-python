@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.13.6
 
 - `BenchPod.capture_adc(..., oversample=True)` converts at 400 kS/s and averages down to the requested
   rate, for lower noise and a smaller step at 0 V. New `Capture.oversample`, `Capture.mean_counts` and
