@@ -1495,11 +1495,10 @@ async def capture_adc(
     how many conversions each sample averages, and it fails if they do not fit in the pod's memory.
     """
     def op() -> m.AdcCaptureResult:
-        # oversample is new in embeddedci 2.13.6; the MCP still runs on older SDKs (CI: mcp-min-sdk).
-        extra = {"oversample": True} if oversample else {}
         cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source,
                                             trigger=_trigger(trigger_la, trigger_edge),
-                                            trigger_timeout=trigger_timeout, range=range, **extra)
+                                            trigger_timeout=trigger_timeout, range=range,
+                                            oversample=oversample)
         SESSION.last_adc = cap
         return adc_summary(cap, points)
 
