@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.6
 
 - `capture_adc` takes `oversample`: convert at 400 kS/s and average down to `sample_rate_hz`. The result reports `oversample`. Needs `embeddedci` with the same option.
 
