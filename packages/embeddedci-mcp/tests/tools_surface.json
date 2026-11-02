@@ -527,6 +527,12 @@
     },
     "input": {
       "properties": {
+        "oversample": {
+          "default": false,
+          "description": "Convert at 400 kS/s and average down to sample_rate_hz: lower noise and a smaller step at 0 V, for short captures (about 5 s at most).",
+          "title": "Oversample",
+          "type": "boolean"
+        },
         "points": {
           "default": 200,
           "description": "Points in the returned min/max envelope.",

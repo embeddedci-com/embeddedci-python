@@ -106,7 +106,7 @@
     "can_trigger": "property",
     "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'Dict[str, Any]'",
     "capabilities": "property",
-    "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None) -> 'Capture'",
+    "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None, oversample: 'bool' = False) -> 'Capture'",
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
     "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'LaCapture'",
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
@@ -350,7 +350,10 @@
       "source",
       "currents",
       "trigger",
-      "range"
+      "range",
+      "oversample",
+      "mean_counts",
+      "clipped_conversions"
     ],
     "clipped_samples": "property",
     "crossing_times": "(self, threshold: 'float', edge: 'Edge' = 'rising', *, hysteresis: 'float' = 0.0) -> 'List[float]'",
