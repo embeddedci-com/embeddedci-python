@@ -1697,7 +1697,8 @@ class BenchPod:
 
     def capture_adc(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
                     source: Optional[AdcSource] = None, trigger: Optional[Trigger] = None,
-                    trigger_timeout: float = 10.0, range: Optional[AdcRange] = None) -> Capture:
+                    trigger_timeout: float = 10.0, range: Optional[AdcRange] = None,
+                    oversample: bool = False) -> Capture:
         """Capture ADC samples and return a :class:`Capture` with CALIBRATED volts.
 
         Works over any transport. ``sample_rate_hz`` omitted = the device's maximum rate; the
@@ -1720,13 +1721,22 @@ class BenchPod:
         ±5.46 V at about 6x the resolution (analog module v3r4+). Without it the capture is taken
         in the range the pod is in. ``Capture.range`` says which, and ``Capture.overrange`` whether
         a sample clipped.
+
+        ``oversample=True`` converts at the ADC's maximum rate (400 kS/s) and averages down to
+        ``sample_rate_hz``, for lower noise and a smaller step at 0 V. The conversions must fit in
+        the pod's memory, about 5 s of capture, or it raises :class:`BenchPodError`. The rate is the
+        nearest whole ratio of 400 kS/s, so check ``sample_rate_hz`` on the result. ``volts`` and
+        ``mean_counts`` keep the fraction, ``counts`` are rounded raw codes, ``oversample`` is how
+        many conversions each sample averages, and ``clipped_samples`` counts clipped conversions.
+        The average lowers the bandwidth to about 0.44 times the returned rate.
         """
         label, fit = self._route_adc_source(source, range)
         trig = self._resolve_trigger(trigger)
+        take = _capture.capture_adc_oversampled if oversample else _capture.capture_adc
         with _classified_errors():
-            cap = _capture.capture_adc(self._transport, self.capabilities, samples=samples,
-                                       sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
-                                       trigger_timeout=trigger_timeout)
+            cap = take(self._transport, self.capabilities, samples=samples,
+                       sample_rate_hz=sample_rate_hz, source=label, trigger=trig,
+                       trigger_timeout=trigger_timeout)
         return self._scale_current_in(cap, fit)
 
     def _route_adc_source(self, source: Optional[str],
@@ -1749,7 +1759,10 @@ class BenchPod:
     def _scale_current_in(cap: Capture, fit: Optional[Calibration]) -> Capture:
         """Rescale a capture of the 4-20 mA input with the pod's fit and fill ``currents`` (amps)."""
         if fit is not None and fit.b:
-            unwrapped = (c + ADC_WRAP_SPAN if c < ADC_WRAP_THRESHOLD else c for c in cap.counts)
+            if cap.mean_counts:
+                unwrapped: Any = (c + ADC_WRAP_SPAN for c in cap.mean_counts)
+            else:
+                unwrapped = (c + ADC_WRAP_SPAN if c < ADC_WRAP_THRESHOLD else c for c in cap.counts)
             cap.volts = [fit.a + fit.b * c for c in unwrapped]
             cap.currents = [v / _CURRENT_IN_SENSE_OHMS for v in cap.volts]
         return cap

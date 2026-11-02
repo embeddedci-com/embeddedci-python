@@ -13,17 +13,24 @@ produced only here.
 from __future__ import annotations
 
 import base64
+import math
 import sys
 from array import array
 from typing import Any, List, Optional
 
-from .capabilities import Capabilities
+from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .errors import BenchPodError
 from .results import Capture, CorrelatedCapture, LaCapture, Trigger
 
 #: The firmware's single-shot ``capture`` reads into a fixed buffer of this many samples; a larger
 #: ADC capture streams from PSRAM through ``capture_dual`` instead.
 ADC_SHALLOW_MAX_SAMPLES = 32768
+
+#: The ADC's fastest rate (24 MHz / 60), which ``capture_adc_oversampled`` converts at.
+ADC_MAX_RATE_HZ = 400_000.0
+
+#: What fits in the pod's 4 MB ADC capture region, in 16-bit conversions.
+ADC_OVERSAMPLE_MAX_CONVERSIONS = 2_097_152
 
 #: Longest a triggered capture waits for its condition (the firmware's cap), seconds.
 MAX_TRIGGER_TIMEOUT = 600.0
@@ -148,6 +155,59 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
     volts = [caps.counts_to_volts(c) for c in counts]
     return Capture(counts=counts, volts=volts, sample_rate_hz=_rate_hz(rate, sample_rate_hz),
                    source=source, range=caps.adc_range)
+
+
+def oversample_factor(sample_rate_hz: Optional[float]) -> int:
+    """Conversions to average per sample for ``sample_rate_hz``: the nearest whole ratio to the
+    ADC's maximum rate, 1 when there is nothing to average (the rate is the maximum or omitted)."""
+    if sample_rate_hz is None:
+        return 1
+    if sample_rate_hz <= 0:
+        raise ValueError(f"sample rate must be > 0 Hz, got {sample_rate_hz!r}")
+    return max(1, int(round(ADC_MAX_RATE_HZ / float(sample_rate_hz))))
+
+
+def average_conversions(raw: Capture, caps: Capabilities, factor: int) -> Capture:
+    """Average a maximum-rate capture down by ``factor``, in the signed domain so that a block
+    straddling 0 V does not average the two's complement wrap. A partial last block is dropped."""
+    means: List[float] = []
+    codes: List[int] = []
+    volts: List[float] = []
+    clipped = sum(1 for c in raw.counts if c in Capture.ADC_RAILS)
+    for i in range(len(raw.counts) // factor):
+        block = raw.counts[i * factor:(i + 1) * factor]
+        mean = sum(c - ADC_WRAP_SPAN if c >= ADC_WRAP_THRESHOLD else c for c in block) / factor
+        means.append(mean)
+        codes.append(int(math.floor(mean + 0.5)) & 0xFFFF)
+        # Above the wrap threshold counts_to_volts adds no span, so a fractional mean scales exactly.
+        volts.append(caps.counts_to_volts(mean + ADC_WRAP_SPAN))
+    return Capture(counts=codes, volts=volts, sample_rate_hz=raw.sample_rate_hz / factor,
+                   source=raw.source, trigger=raw.trigger, range=raw.range, oversample=factor,
+                   mean_counts=means, clipped_conversions=clipped)
+
+
+def capture_adc_oversampled(transport: Any, caps: Capabilities, *, samples: int = 4096,
+                            sample_rate_hz: Optional[float] = None, source: str = "",
+                            trigger: Optional[Trigger] = None,
+                            trigger_timeout: float = 10.0) -> Capture:
+    """Capture at the ADC's maximum rate and average down to ``sample_rate_hz``.
+
+    Raises :class:`BenchPodError` when the conversions do not fit in the pod's capture memory.
+    """
+    n = _check_samples(samples)
+    factor = oversample_factor(sample_rate_hz)
+    if factor == 1:
+        return capture_adc(transport, caps, samples=n, sample_rate_hz=sample_rate_hz, source=source,
+                           trigger=trigger, trigger_timeout=trigger_timeout)
+    if n * factor > ADC_OVERSAMPLE_MAX_CONVERSIONS:
+        raise BenchPodError(
+            f"oversample: {n} samples at {sample_rate_hz:g} Hz is {n * factor} conversions, and the "
+            f"pod holds {ADC_OVERSAMPLE_MAX_CONVERSIONS}: ask for at most "
+            f"{ADC_OVERSAMPLE_MAX_CONVERSIONS // factor} samples, or capture without oversample"
+        )
+    raw = capture_adc(transport, caps, samples=n * factor, sample_rate_hz=ADC_MAX_RATE_HZ,
+                      source=source, trigger=trigger, trigger_timeout=trigger_timeout)
+    return average_conversions(raw, caps, factor)
 
 
 def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,

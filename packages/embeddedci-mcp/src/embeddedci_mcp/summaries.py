@@ -72,6 +72,7 @@ def adc_summary(cap: Capture, points: int) -> m.AdcCaptureResult:
         peak_to_peak=r(cap.peak_to_peak()), rms=r(cap.rms()), rms_ac=r(cap.rms_ac()),
         dominant_frequency_hz=dominant, envelope_step=step, envelope_min=mins, envelope_max=maxs,
         trigger=trigger_text(cap.trigger), range=cap.range or None, clipped_samples=cap.clipped_samples,
+        oversample=getattr(cap, "oversample", 1),
     )
 
 

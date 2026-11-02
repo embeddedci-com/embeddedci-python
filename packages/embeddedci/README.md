@@ -1176,6 +1176,23 @@ both = bp.capture_correlated(adc_samples=4096, adc_sample_rate_hz=400_000,
 print(both.adc.duration, both.la.duration)              # one hardware trigger: timebases align
 ```
 
+For small signals or readings near 0 V at low rates, `oversample=True` converts at 400 kS/s and
+averages down to the requested rate:
+
+```python
+cap = bp.capture_adc(1000, sample_rate_hz=10_000, source="ext", oversample=True)
+print(cap.oversample, cap.sample_rate_hz, cap.mean())   # 40 conversions per sample, at 10 kS/s
+```
+
+Measured on the `cal2` loopback at 10 kS/s, noise fell from about 0.87 to 0.13 counts RMS, and the
+step in the ADC's readings at 0 V from about 4 counts to about 1.35. `volts` and `mean_counts` keep
+the fraction, `counts` are rounded raw codes, and `clipped_conversions` (also `clipped_samples`)
+counts conversions on a rail, since an average can hide one. Limits: the conversions must fit in
+the pod's memory, 2,097,152 of them or about 5 s (more raises `BenchPodError`), the rate is the
+nearest whole ratio of 400 kS/s (check `sample_rate_hz` on the result), and the bandwidth falls to
+about 0.44 times the returned rate.
+
+
 * `capture_adc(samples=4096, *, sample_rate_hz=None, source=None, trigger=None, trigger_timeout=10.0, range=None)` — omitted rate = the device
   maximum; the **achieved** rate is on the result. `source` routes the ADC first (omitted, the
   current routing is left alone); `range` sets the [ADC input range](#the-adc-input-range-analog-module-v3r4). `volts` use the front-SMA calibration; for the other sources

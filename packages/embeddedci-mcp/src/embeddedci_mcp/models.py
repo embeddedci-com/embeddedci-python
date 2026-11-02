@@ -503,6 +503,7 @@ class AdcCaptureResult(BaseModel):
         "t = 0 is the trigger moment."))
     range: Optional[str] = Field(None, description=(
         "The ADC input range the capture was scaled for: normal or low (firmware 3.9.5+)."))
+    oversample: int = Field(1, description="ADC conversions averaged into each sample; 1 for a plain capture.")
     clipped_samples: int = Field(0, description=(
         "Samples on an ADC rail: the input went past the range's full scale. Capture again in the normal range."))
 

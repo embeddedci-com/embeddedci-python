@@ -1,5 +1,9 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `capture_adc` takes `oversample`: convert at 400 kS/s and average down to `sample_rate_hz`. The result reports `oversample`. Needs `embeddedci` with the same option.
+
 ## 2.13.5
 
 - `calibration` and the calibrate tools report `adc_comp`, the ADC input's recorded frequency

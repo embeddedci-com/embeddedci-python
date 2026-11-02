@@ -92,6 +92,14 @@ class Capture:
     #: The ADC input range the capture was scaled for (``"normal"`` / ``"low"``, analog module
     #: v3r4+); ``""`` when the pod does not say (firmware before 3.9.5: normal).
     range: str = ""
+    #: ADC conversions averaged into each sample: 1 for a plain capture, more for
+    #: ``capture_adc(..., oversample=True)``.
+    oversample: int = 1
+    #: For an oversampled capture, each sample's mean in signed counts, with the fraction that
+    #: ``counts`` (rounded raw codes) cannot hold. Empty for a plain capture.
+    mean_counts: List[float] = field(default_factory=list)
+    #: For an oversampled capture, how many of the conversions sat on an ADC rail.
+    clipped_conversions: int = 0
 
     def __len__(self) -> int:
         return len(self.volts)
@@ -101,7 +109,10 @@ class Capture:
 
     @property
     def clipped_samples(self) -> int:
-        """How many samples sit on an ADC rail: the input went past the range's full scale."""
+        """How many samples sit on an ADC rail: the input went past the range's full scale. For an
+        oversampled capture, how many conversions did, since an average can hide a clipped one."""
+        if self.oversample > 1:
+            return self.clipped_conversions
         return sum(1 for c in self.counts if c in self.ADC_RAILS)
 
     @property

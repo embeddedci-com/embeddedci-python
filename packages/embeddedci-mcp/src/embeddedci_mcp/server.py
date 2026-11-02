@@ -1477,6 +1477,9 @@ async def capture_adc(
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
     trigger_timeout: TriggerTimeoutS = 10.0,
     range: AdcRangeArg = None,
+    oversample: Annotated[bool, Field(description=(
+        "Convert at 400 kS/s and average down to sample_rate_hz: lower noise and a smaller step at 0 V, "
+        "for short captures (about 5 s at most)."))] = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.AdcCaptureResult:
     """Capture the ADC and summarise it: calibrated stats, dominant frequency and a min/max envelope.
@@ -1488,11 +1491,15 @@ async def capture_adc(
     trigger_la the capture waits for that edge or level, so t = 0 is the trigger moment. The
     capture is kept for replay and save_capture_as_recording. range low captures small signals
     (up to ±5.46 V) at 6x the resolution (see adc_range); clipped_samples > 0 means it clipped.
+    oversample suits measuring small or near-0 V signals at low rates; the result's oversample says
+    how many conversions each sample averages, and it fails if they do not fit in the pod's memory.
     """
     def op() -> m.AdcCaptureResult:
+        # oversample is new in embeddedci 2.13.6; the MCP still runs on older SDKs (CI: mcp-min-sdk).
+        extra = {"oversample": True} if oversample else {}
         cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source,
                                             trigger=_trigger(trigger_la, trigger_edge),
-                                            trigger_timeout=trigger_timeout, range=range)
+                                            trigger_timeout=trigger_timeout, range=range, **extra)
         SESSION.last_adc = cap
         return adc_summary(cap, points)
 

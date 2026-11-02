@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `BenchPod.capture_adc(..., oversample=True)` converts at 400 kS/s and averages down to the requested
+  rate, for lower noise and a smaller step at 0 V. New `Capture.oversample`, `Capture.mean_counts` and
+  `Capture.clipped_conversions`. Limited by the pod's capture memory, about 5 s.
+
 ## 2.13.5
 
 - `BenchPod.store_adc_compensation(hf_dc_gain, c_top_pf)` records the ADC input's measured frequency
