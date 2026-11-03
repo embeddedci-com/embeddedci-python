@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from embeddedci.benchpod import Trigger
+from embeddedci.benchpod import BenchPod, Trigger
 
 from embeddedci.benchpod import (
     BenchPodError,
@@ -718,20 +718,38 @@ def test_la_above_12_msps_reads_exact_pulse_widths(pod, bench, rate_hz, width):
         time.sleep(0.2)
 
 
-def test_la_pre_trigger_returns_the_samples_before_it(pod, bench):
+def test_la_pre_trigger_returns_the_samples_before_it(pod, bench, benchpod_connection):
+    # The line is held low (an undriven LA pin may read high) and the pulse train starts from a
+    # second connection 100 ms after the arm, so 2000 samples of history exist when it fires.
+    import threading
+
     _needs_v50(pod)
     ch = bench.free_la[0]
-    pod.la_step(ch, steps=20_000, delay=4e-6)
+    pin = pod.gpio(ch, "output", level=0)
+    errors = []
+
+    def train():
+        try:
+            time.sleep(0.1)
+            with BenchPod(benchpod_connection, la_voltage=None) as other:
+                other.la_step(ch, steps=2_000, delay=4e-6)
+        except Exception as e:                                # pragma: no cover - reported below
+            errors.append(e)
+
+    th = threading.Thread(target=train)
+    th.start()
     try:
         la = pod.capture_la(10_000, sample_rate_hz=48_000_000,
-                            trigger=Trigger(ch, "rising", pre_samples=2_000))
-        assert la.pre_samples == 2_000 and len(la) == 12_000
-        bits = la.channel(ch)
-        assert bits[la.pre_samples] == 1 and bits[la.pre_samples - 1] == 0, (
-            "the trigger index is not on the rising edge")
-        assert 0 in bits[:la.pre_samples] and 1 in bits[:la.pre_samples], "no pulses before the trigger"
+                            trigger=Trigger(ch, "rising", pre_samples=2_000), trigger_timeout=5.0)
     finally:
-        time.sleep(0.2)
+        th.join()
+        time.sleep(0.1)
+        pin.release()
+    assert not errors, errors
+    assert la.pre_samples == 2_000 and len(la) == 12_000
+    bits = la.channel(ch)
+    assert set(bits[:la.pre_samples]) == {0}, "the line was not low before the trigger"
+    assert bits[la.pre_samples] == 1, "the trigger index is not on the rising edge"
 
 
 # The host clock is the independent reference for the capture clock: events sent at known host
