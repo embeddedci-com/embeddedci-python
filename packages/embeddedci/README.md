@@ -1263,6 +1263,21 @@ to 600). When the condition never happens the pod aborts the capture and raises 
 (`.la`, `.edge`). The trigger channel can have any function — triggers observe. Triggers need gateware
 v35+ (`Capabilities.capture_trigger`).
 
+`capture_la` can also return what happened before the trigger: `Trigger(..., pre_samples=N)` (gateware
+v50+, any rate up to 48 MS/s). The capture's `pre_samples` says how many it holds (fewer when the
+capture was armed only shortly before the trigger, or the signals changed very often before it), and
+the trigger is at that sample index:
+
+```python
+la = bp.capture_la(20_000, sample_rate_hz=24_000_000,
+                   trigger=Trigger("CS", "falling", pre_samples=2_000))
+t0 = la.pre_samples / la.sample_rate_hz                          # the trigger, in seconds
+```
+
+Above 12 MS/s (gateware v50+) the pod records only the changes, at up to about 6 million per second
+for all channels together. A signal that changes faster for long ends such a capture early: it then
+holds the samples up to that point and `truncated` says why (`"busy"` or `"memory"`).
+
 ## DAC: generator, replay and faults
 
 Every DAC output keeps running until stopped. The returned `DacHandle` / `ReplayHandle` is a

@@ -566,7 +566,9 @@
       "words",
       "sample_rate_hz",
       "channels",
-      "trigger"
+      "trigger",
+      "pre_samples",
+      "truncated"
     ],
     "channel": "(self, la: 'int') -> 'List[int]'",
     "decode": "(self, protocol: 'str' = 'i2c', **channels)",
@@ -916,7 +918,8 @@
   "Trigger": {
     "__fields__": [
       "la",
-      "edge"
+      "edge",
+      "pre_samples"
     ]
   },
   "TriggerEdge": "Literal['rising', 'falling', 'high', 'low']",

@@ -97,7 +97,10 @@ def la_summary(la: LaCapture) -> m.LaCaptureResult:
             est_frequency_hz=round(edges / 2 / la.duration, 3) if (edges >= 2 and la.duration > 0) else None,
         ))
     return m.LaCaptureResult(samples=len(la), sample_rate_hz=rate, duration=la.duration,
-                             channels=channels, trigger=trigger_text(la.trigger))
+                             channels=channels, trigger=trigger_text(la.trigger),
+                             # getattr: an SDK older than these fields (the MCP's minimum pin)
+                             pre_samples=getattr(la, "pre_samples", 0),
+                             truncated=getattr(la, "truncated", "") or None)
 
 
 # -- wiring, pins and power ------------------------------------------------------------

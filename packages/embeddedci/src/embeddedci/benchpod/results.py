@@ -31,10 +31,15 @@ class Trigger:
     is the trigger moment, and a DAC co-trigger or ``stop_dac_after`` counts from it::
 
         la = bp.capture_la(100_000, sample_rate_hz=1_000_000, trigger=Trigger(9, "rising"))
+
+    ``pre_samples`` (``capture_la`` only, gateware v50+) also returns up to that many samples from
+    before the trigger: the capture's :attr:`LaCapture.pre_samples` says how many it holds, and the
+    trigger is at that index.
     """
 
     la: Union[int, str]
     edge: TriggerEdge = "rising"
+    pre_samples: int = 0
 
     def __post_init__(self) -> None:
         if self.edge not in TRIGGER_EDGES:
@@ -42,6 +47,8 @@ class Trigger:
         if isinstance(self.la, bool) or not (
                 isinstance(self.la, str) or (isinstance(self.la, int) and 1 <= self.la <= 14)):
             raise ValueError(f"trigger la must be an LA channel 1-14 or a wiring name, got {self.la!r}")
+        if isinstance(self.pre_samples, bool) or not isinstance(self.pre_samples, int) or self.pre_samples < 0:
+            raise ValueError(f"trigger pre_samples must be an integer >= 0, got {self.pre_samples!r}")
 
 
 def _check_edge(edge: str, name: str = "edge") -> None:
@@ -241,6 +248,11 @@ class LaCapture:
     channels: int = 14
     #: The trigger that started the capture (t = 0 is its moment), or ``None``.
     trigger: Optional[Trigger] = None
+    #: Samples before the trigger (``Trigger(pre_samples=...)``): the trigger is at this index.
+    pre_samples: int = 0
+    #: ``""``, or why a capture above 12 MS/s stopped early and holds fewer samples than asked:
+    #: ``"busy"`` (the signals changed faster than the pod can store) or ``"memory"``.
+    truncated: str = ""
 
     def __len__(self) -> int:
         return len(self.words)

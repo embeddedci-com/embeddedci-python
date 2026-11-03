@@ -526,6 +526,11 @@ class LaCaptureResult(BaseModel):
     trigger: Optional[str] = Field(None, description=(
         "The trigger that started the capture, e.g. 'LA9 rising'; null for a free-running capture. "
         "t = 0 is the trigger moment."))
+    pre_samples: int = Field(0, description=(
+        "Samples before the trigger (trigger_pre_samples): the trigger is at this sample index."))
+    truncated: Optional[str] = Field(None, description=(
+        "Above 12 MS/s only: why the capture stopped early ('busy': the signals changed too often, "
+        "'memory'), so it holds fewer samples than asked; null when complete."))
 
 
 class PulseStats(BaseModel):

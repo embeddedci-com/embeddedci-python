@@ -286,9 +286,17 @@ def _channel(pod: Any, value: Any, key: str) -> int:
     return int(la)
 
 
-def _trigger(la: Any, edge: str) -> Optional[Trigger]:
+def _trigger(la: Any, edge: str, pre_samples: int = 0) -> Optional[Trigger]:
     """A :class:`Trigger` for the capture tools (the SDK resolves wiring names)."""
-    return None if la is None else Trigger(la, edge)  # type: ignore[arg-type]
+    if la is None:
+        return None
+    if not pre_samples:                       # an SDK older than pre_samples takes the two arguments
+        return Trigger(la, edge)  # type: ignore[arg-type]
+    try:
+        return Trigger(la, edge, pre_samples)  # type: ignore[arg-type,call-arg]
+    except TypeError:
+        raise ValueError("trigger_pre_samples needs embeddedci with Trigger(pre_samples=...); "
+                         "upgrade the embeddedci package") from None
 
 
 # -- connection ---------------------------------------------------------------------
@@ -1514,17 +1522,23 @@ async def capture_la(
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
     trigger_timeout: TriggerTimeoutS = 10.0,
+    trigger_pre_samples: Annotated[int, Field(ge=0, le=16_777_215, description=(
+        "With trigger_la: also return up to this many samples from before the trigger "
+        "(gateware v50+)."))] = 0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.LaCaptureResult:
     """Capture all 14 LA channels and summarise each: levels, edge count, first edge, estimated frequency.
 
     With trigger_la the capture starts on that edge or level instead of immediately, so a short
     event can be caught at a high sample rate. The capture is kept for decode_la and la_timing.
+    sample_rate_hz goes up to 12 MS/s, or 48 MS/s on gateware v50+ (48, 24 or 16 MS/s); above
+    12 MS/s a signal changing over ~6 million times per second for long stops early (truncated);
+    retry at 12 MS/s.
     """
     def op() -> m.LaCaptureResult:
         la = SESSION.require().capture_la(samples, sample_rate_hz=sample_rate_hz,
                                           stop_dac_after=stop_dac_after,
-                                          trigger=_trigger(trigger_la, trigger_edge),
+                                          trigger=_trigger(trigger_la, trigger_edge, trigger_pre_samples),
                                           trigger_timeout=trigger_timeout)
         SESSION.last_la = la
         return la_summary(la)

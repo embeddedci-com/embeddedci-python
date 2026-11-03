@@ -13,6 +13,7 @@ produced only here.
 from __future__ import annotations
 
 import base64
+import logging
 import math
 import sys
 from array import array
@@ -21,6 +22,8 @@ from typing import Any, List, Optional
 from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .errors import BenchPodError
 from .results import Capture, CorrelatedCapture, LaCapture, Trigger
+
+_log = logging.getLogger(__name__)
 
 #: The firmware's single-shot ``capture`` reads into a fixed buffer of this many samples; a larger
 #: ADC capture streams from PSRAM through ``capture_dual`` instead.
@@ -45,6 +48,8 @@ def _apply_trigger(req: dict, trigger: Optional[Trigger], timeout: float) -> Non
     if not 0 < timeout <= MAX_TRIGGER_TIMEOUT:
         raise ValueError(f"trigger_timeout must be > 0 and <= {MAX_TRIGGER_TIMEOUT:g} seconds, got {timeout!r}")
     req["trigger"] = {"la": trigger.la, "edge": trigger.edge}
+    if trigger.pre_samples:
+        req["trigger"]["pre_samples"] = int(trigger.pre_samples)
     req["trigger_timeout_ms"] = max(1, int(round(timeout * 1000)))
 
 
@@ -232,9 +237,15 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     edges: List[List[int]] = []
     upto = 0
     rate = 0.0
+    pre = 0
+    truncated = ""
     for chunk in _stream_or_samples(transport, req):
         if chunk.get("la_rate_hz"):
             rate = float(chunk["la_rate_hz"])
+        if chunk.get("pre_samples"):
+            pre = int(chunk["pre_samples"])
+        if chunk.get("truncated"):
+            truncated = str(chunk["truncated"])
         # The firmware answers la_capture RUN-LENGTH ENCODED — {"la":true,"la_edges":[[i,word],…],
         # "la_upto":N} — exactly as it does for capture_dual, and sends no "data" array at all. RLE
         # wins when present; dense "data" remains the fallback for the server-relayed shape.
@@ -247,7 +258,10 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
         if isinstance(data, list):
             dense.extend(int(x) for x in data)
     words = _expand_la_edges(edges, upto or int(samples)) if (edges or upto) else dense
-    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz), trigger=trigger)
+    if truncated:
+        _log.warning("capture_la stopped early (%s): %d of %d samples", truncated, len(words), samples)
+    return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz), trigger=trigger,
+                     pre_samples=pre, truncated=truncated)
 
 
 def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:
