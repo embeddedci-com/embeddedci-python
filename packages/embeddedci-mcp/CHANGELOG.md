@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.8
+
+- Requires `embeddedci` 2.13.7. `capture_la` takes `trigger_pre_samples`, and its result reports
+  `pre_samples` and `truncated` (LA up to 48 MS/s with gateware v50).
+
 ## 2.13.7
 
 - Requires `embeddedci` 2.13.6, so `capture_adc` `oversample` always works.

@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## 2.13.7
+
+- `capture_la` goes up to 48 MS/s with gateware v50 (firmware 3.9.6+): above 12 MS/s the pod records
+  only the changes and replies in the usual form, so the call is unchanged.
+- `Trigger(la, edge, pre_samples=N)`: `capture_la` also returns up to N samples from before the
+  trigger (gateware v50+); `LaCapture.pre_samples` says how many it holds.
+- `LaCapture.truncated`: `"busy"` or `"memory"` when a capture above 12 MS/s stopped early.
+
 ## 2.13.6
 
 - `BenchPod.capture_adc(..., oversample=True)` converts at 400 kS/s and averages down to the requested

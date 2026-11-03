@@ -98,9 +98,7 @@ def la_summary(la: LaCapture) -> m.LaCaptureResult:
         ))
     return m.LaCaptureResult(samples=len(la), sample_rate_hz=rate, duration=la.duration,
                              channels=channels, trigger=trigger_text(la.trigger),
-                             # getattr: an SDK older than these fields (the MCP's minimum pin)
-                             pre_samples=getattr(la, "pre_samples", 0),
-                             truncated=getattr(la, "truncated", "") or None)
+                             pre_samples=la.pre_samples, truncated=la.truncated or None)
 
 
 # -- wiring, pins and power ------------------------------------------------------------
