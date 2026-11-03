@@ -1772,6 +1772,12 @@ class BenchPod:
                    trigger_timeout: float = 10.0) -> LaCapture:
         """Capture raw 14-channel logic-analyzer words and return a :class:`LaCapture`.
 
+        ``sample_rate_hz`` goes up to 12 MS/s, or 48 MS/s on gateware v50 and later
+        (:attr:`Capabilities` ``la_max_rate_hz``): above 12 MS/s the pod runs 48, 24 or 16 MS/s and
+        records only the changes, so a signal changing more than about 6 million times per second
+        (all channels together) for longer than its buffer lasts raises :class:`BenchPodError`.
+        ``LaCapture.sample_rate_hz`` is always the rate the pod ran.
+
         ``stop_dac_after`` (seconds) cuts a concurrently-running DAC that far into the capture,
         sample-precise from the capture's hardware t0 (gateware >= v21). ``trigger`` (a
         :class:`Trigger`, gateware >= v35) makes t0 an edge or level on an LA channel —

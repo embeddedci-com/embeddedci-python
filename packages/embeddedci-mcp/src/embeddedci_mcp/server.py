@@ -1520,6 +1520,8 @@ async def capture_la(
 
     With trigger_la the capture starts on that edge or level instead of immediately, so a short
     event can be caught at a high sample rate. The capture is kept for decode_la and la_timing.
+    sample_rate_hz goes up to 12 MS/s, or 48 MS/s on gateware v50+ (48, 24 or 16 MS/s); above
+    12 MS/s a signal changing over ~6 million times per second for long fails: retry at 12 MS/s.
     """
     def op() -> m.LaCaptureResult:
         la = SESSION.require().capture_la(samples, sample_rate_hz=sample_rate_hz,
