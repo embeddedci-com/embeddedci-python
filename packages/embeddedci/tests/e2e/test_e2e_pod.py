@@ -14,6 +14,8 @@ import time
 
 import pytest
 
+from embeddedci.benchpod import Trigger
+
 from embeddedci.benchpod import (
     BenchPodError,
     CanReadResult,
@@ -684,6 +686,52 @@ def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
         assert min(widths) > 0.9 * delay, "samples were dropped"
     finally:
         time.sleep(max(0.0, t0 + steps * 2 * delay + 0.1 - time.monotonic()))
+
+
+# Above 12 MS/s (gateware v50+) the pod records the changes at 48 MS/s and replies in the same form:
+# FPGA-timed 4 us pulses must measure exactly 4 us in samples at 48, 24 and 16 MS/s.
+def _needs_v50(pod):
+    if int(pod.status().get("gateware") or 0) < 50:
+        pytest.skip("needs gateware v50 (LA above 12 MS/s)")
+
+
+@pytest.mark.parametrize("rate_hz,width", [(48_000_000, 192), (24_000_000, 96), (16_000_000, 64)])
+def test_la_above_12_msps_reads_exact_pulse_widths(pod, bench, rate_hz, width):
+    _needs_v50(pod)
+    ch = bench.free_la[0]
+    delay = 4e-6
+    pod.la_step(ch, steps=20_000, delay=delay)                # 160 ms of 4 us / 4 us
+    try:
+        la = pod.capture_la(100_000, sample_rate_hz=rate_hz)
+        assert la.sample_rate_hz == rate_hz and len(la) == 100_000 and not la.truncated
+        bits = la.channel(ch)
+        runs, n = [], 1
+        for a, b in zip(bits, bits[1:]):
+            if a == b:
+                n += 1
+            else:
+                runs.append(n)
+                n = 1
+        runs = runs[1:]
+        assert len(runs) > 100 and set(runs) == {width}, f"pulse widths {sorted(set(runs))}, want {width}"
+    finally:
+        time.sleep(0.2)
+
+
+def test_la_pre_trigger_returns_the_samples_before_it(pod, bench):
+    _needs_v50(pod)
+    ch = bench.free_la[0]
+    pod.la_step(ch, steps=20_000, delay=4e-6)
+    try:
+        la = pod.capture_la(10_000, sample_rate_hz=48_000_000,
+                            trigger=Trigger(ch, "rising", pre_samples=2_000))
+        assert la.pre_samples == 2_000 and len(la) == 12_000
+        bits = la.channel(ch)
+        assert bits[la.pre_samples] == 1 and bits[la.pre_samples - 1] == 0, (
+            "the trigger index is not on the rising edge")
+        assert 0 in bits[:la.pre_samples] and 1 in bits[:la.pre_samples], "no pulses before the trigger"
+    finally:
+        time.sleep(0.2)
 
 
 # The host clock is the independent reference for the capture clock: events sent at known host
