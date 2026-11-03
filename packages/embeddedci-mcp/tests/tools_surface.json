@@ -846,6 +846,14 @@
           "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
           "title": "Trigger La"
         },
+        "trigger_pre_samples": {
+          "default": 0,
+          "description": "With trigger_la: also return up to this many samples from before the trigger (gateware v50+).",
+          "maximum": 16777215,
+          "minimum": 0,
+          "title": "Trigger Pre Samples",
+          "type": "integer"
+        },
         "trigger_timeout": {
           "default": 10.0,
           "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",

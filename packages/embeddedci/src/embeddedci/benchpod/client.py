@@ -1775,8 +1775,10 @@ class BenchPod:
         ``sample_rate_hz`` goes up to 12 MS/s, or 48 MS/s on gateware v50 and later
         (:attr:`Capabilities` ``la_max_rate_hz``): above 12 MS/s the pod runs 48, 24 or 16 MS/s and
         records only the changes, so a signal changing more than about 6 million times per second
-        (all channels together) for longer than its buffer lasts raises :class:`BenchPodError`.
-        ``LaCapture.sample_rate_hz`` is always the rate the pod ran.
+        (all channels together) for longer than its buffer lasts stops early: the capture then holds
+        the samples up to there and :attr:`LaCapture.truncated` says why. ``LaCapture.sample_rate_hz``
+        is always the rate the pod ran. ``Trigger(..., pre_samples=N)`` also returns samples from
+        before the trigger (gateware v50+, any rate up to 48 MS/s).
 
         ``stop_dac_after`` (seconds) cuts a concurrently-running DAC that far into the capture,
         sample-precise from the capture's hardware t0 (gateware >= v21). ``trigger`` (a
@@ -1830,7 +1832,7 @@ class BenchPod:
             raise ValueError(f"trigger must be a Trigger, e.g. Trigger(9, 'rising'), got {trigger!r}")
         self._require_capability("capture_trigger", "capture triggers")
         if isinstance(trigger.la, str):
-            return Trigger(self._resolve_la(trigger.la, "trigger")[0], trigger.edge)
+            return Trigger(self._resolve_la(trigger.la, "trigger")[0], trigger.edge, trigger.pre_samples)
         return trigger
 
     def decode(self, source: Union[LaCapture, Sequence[int]], protocol: DecodeProtocol = "i2c", *,

@@ -9,7 +9,7 @@ import pytest
 from embeddedci.benchpod import capture as cap_mod
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.errors import BenchPodError
-from embeddedci.benchpod.results import Capture, CorrelatedCapture, LaCapture
+from embeddedci.benchpod.results import Capture, CorrelatedCapture, LaCapture, Trigger
 
 
 class FakeCaptureTransport:
@@ -154,6 +154,29 @@ def test_capture_la_expands_rle_frames():
     ]})
     la = cap_mod.capture_la(t, samples=5)
     assert la.words == [1, 1, 1, 0, 0]
+
+
+def test_capture_la_pre_trigger_and_truncated():
+    # gateware v50: the pre-trigger count and an early stop ride the first frame
+    t = FakeCaptureTransport({"la_capture": [
+        {"status": "ok", "bits": 16, "la_rate_hz": 48000000, "pre_samples": 2, "la": True,
+         "la_edges": [[0, 1], [2, 3]], "la_upto": 5, "more": False},
+    ]})
+    la = cap_mod.capture_la(t, samples=3, sample_rate_hz=48e6, trigger=Trigger(3, "falling", pre_samples=2))
+    assert t.sent[0]["trigger"] == {"la": 3, "edge": "falling", "pre_samples": 2}
+    assert la.words == [1, 1, 3, 3, 3] and la.pre_samples == 2 and la.truncated == ""
+    t = FakeCaptureTransport({"la_capture": [
+        {"status": "ok", "bits": 16, "la_rate_hz": 48000000, "truncated": "busy", "la": True,
+         "la_edges": [[0, 1]], "la_upto": 2, "more": False},
+    ]})
+    la = cap_mod.capture_la(t, samples=1000, sample_rate_hz=48e6)
+    assert len(la.words) == 2 and la.truncated == "busy" and la.pre_samples == 0
+    assert "pre_samples" not in t.sent[0].get("trigger", {})
+
+
+def test_trigger_pre_samples_must_be_a_count():
+    with pytest.raises(ValueError):
+        Trigger(3, "rising", pre_samples=-1)
 
 
 def test_capture_correlated_expands_rle_la_edges():

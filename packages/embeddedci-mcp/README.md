@@ -301,7 +301,7 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope; `clipped_samples` counts samples past the range's full scale. `oversample` converts at 400 kS/s and averages down to `sample_rate_hz` for lower noise, about 5 s at most. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `range`, `oversample` |
-| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10` |
+| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. Up to 48 MS/s on gateware v50+. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `trigger_pre_samples=0` |
 | `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `source` |
 | `decode_la` | Decode I2C, UART or SPI from the last LA capture (or a new one). | **`protocol`**, `sda`, `scl`, `rx`, `baud`, `sclk`, `mosi`, `miso`, `cs`, `mode=0`, `capture=last`, `samples=16384`, `sample_rate_hz=1000000`, `max_items=200` |
 | `la_timing` | Edge timestamps, pulse widths, frequency, duty cycle and channel-to-channel delay from the last capture. | **`la`**, `edge=rising`, `to_la`, `to_edge=rising`, `after=0`, `max_edges=100` |

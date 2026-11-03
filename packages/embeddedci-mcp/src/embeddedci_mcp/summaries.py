@@ -97,7 +97,8 @@ def la_summary(la: LaCapture) -> m.LaCaptureResult:
             est_frequency_hz=round(edges / 2 / la.duration, 3) if (edges >= 2 and la.duration > 0) else None,
         ))
     return m.LaCaptureResult(samples=len(la), sample_rate_hz=rate, duration=la.duration,
-                             channels=channels, trigger=trigger_text(la.trigger))
+                             channels=channels, trigger=trigger_text(la.trigger),
+                             pre_samples=la.pre_samples, truncated=la.truncated or None)
 
 
 # -- wiring, pins and power ------------------------------------------------------------
