@@ -288,7 +288,15 @@ def _channel(pod: Any, value: Any, key: str) -> int:
 
 def _trigger(la: Any, edge: str, pre_samples: int = 0) -> Optional[Trigger]:
     """A :class:`Trigger` for the capture tools (the SDK resolves wiring names)."""
-    return None if la is None else Trigger(la, edge, pre_samples)  # type: ignore[arg-type]
+    if la is None:
+        return None
+    if not pre_samples:                       # an SDK older than pre_samples takes the two arguments
+        return Trigger(la, edge)  # type: ignore[arg-type]
+    try:
+        return Trigger(la, edge, pre_samples)  # type: ignore[arg-type,call-arg]
+    except TypeError:
+        raise ValueError("trigger_pre_samples needs embeddedci with Trigger(pre_samples=...); "
+                         "upgrade the embeddedci package") from None
 
 
 # -- connection ---------------------------------------------------------------------
