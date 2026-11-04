@@ -8,7 +8,7 @@ integrated over real time rather than estimated from snapshots; a load that swit
 few milliseconds is averaged, not resolved.
 
 Rail limits: the internal rail (eFuse 1, 5 V) trips at about 2.0 A and the external rail (eFuse 2,
-5-20 V) at about 3.0 A; a trip shorter than a sample does not show in the profile.
+2.7-20 V) at about 3.0 A; a trip shorter than a sample does not show in the profile.
 """
 
 from __future__ import annotations

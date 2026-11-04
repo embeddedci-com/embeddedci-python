@@ -615,7 +615,7 @@ how finely a transient was resolved. Measured on a v2 pod:
 | Rail | Supply | Current limit | Cut-off | Monitor resolution |
 |---|---|---|---|---|
 | eFuse 1 (internal) | 5 V from the pod's USB-C | ≈ 2.0 A | 5.7 V | 100 µA |
-| eFuse 2 (external) | 5-20 V on the external terminal | ≈ 3.0 A | ≈ 21.8 V | 167 µA |
+| eFuse 2 (external) | 2.7-20 V on the external terminal | ≈ 3.0 A | ≈ 21.8 V | 167 µA |
 
 An overload is held at the limit for about 2.8 ms, then the eFuse trips (`TargetStatus` `fault`) and
 retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `current_in`
