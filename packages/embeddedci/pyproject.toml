@@ -37,7 +37,8 @@ pytest = ["pytest>=7.0"]
 # Cloud destination (embeddedci:<device>): a synchronous WebSocket client for the byte tunnel.
 # OIDC mint + token exchange use the stdlib (urllib), so no extra HTTP dependency is needed.
 cloud = ["websocket-client>=1.6"]
-# LAN auto-discovery (connection="discover" / --benchpod-discover): browse mDNS for pods.
+# LAN auto-discovery (connection="discover" / --benchpod-discover): browse mDNS for pods (and
+# AI Vision boards, AIVision("discover")).
 # Kept optional so headless CI (cloud/explicit path, multicast often blocked) stays lean.
 discovery = ["zeroconf>=0.131"]
 # Signal analysis helpers on capture results (Capture.fft / dominant_frequency). The core
@@ -46,6 +47,7 @@ analysis = ["numpy>=1.21"]
 
 [project.entry-points.pytest11]
 benchpod = "embeddedci.benchpod.pytest_plugin"
+aivision = "embeddedci.aivision.pytest_plugin"
 
 [project.scripts]
 embeddedci-upload-build = "embeddedci.upload_build:main"

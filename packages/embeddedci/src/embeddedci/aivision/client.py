@@ -402,7 +402,7 @@ class AIVision:
             left = deadline - time.monotonic()
             last = left <= MAX_WAIT_REQUEST_S
             chunk = max(min(left, MAX_WAIT_REQUEST_S), 0.0)
-            payload = _clean({"condition": dict(condition), "timeout_ms": int(chunk * 1000),
+            payload = _clean({"condition": dict(condition), "timeout_ms": int(round(chunk * 1000)),
                               "stable_ms": int(stable * 1000) or None,
                               "poll_ms": int(poll * 1000) if poll else None,
                               "error_on_timeout": True if (last and raise_on_timeout) else None})
