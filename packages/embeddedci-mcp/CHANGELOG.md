@@ -5,8 +5,8 @@
 - `vision_*` tools for the AI Vision board (ai-vision-2), on their own connection next to the pod's:
   `vision_connect`, `vision_disconnect`, `vision_status`, `vision_look` (the screen as an image),
   `vision_ocr`, `vision_find`, `vision_wait_for`, `vision_compare`, `vision_screen_health`,
-  `vision_calibrate`, `vision_add_reference`, `vision_press`, `vision_tap`. Needs the `embeddedci`
-  release with `embeddedci.aivision`.
+  `vision_calibrate`, `vision_add_reference`, `vision_press`, `vision_tap`. Requires `embeddedci`
+  2.13.8, the release with `embeddedci.aivision`.
 
 ## 2.13.8
 
