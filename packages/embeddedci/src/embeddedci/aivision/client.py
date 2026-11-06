@@ -38,6 +38,10 @@ ENV_TOKEN = "AIVISION_TOKEN"
 #: survives proxies that cut long requests (Cloudflare drops them at about 100 s).
 MAX_WAIT_REQUEST_S = 60.0
 
+#: Longest ``verify_timeout`` a press, tap or swipe may ask for: the board answers within one
+#: request, which it caps at 90 s (``max_wait_ms`` in its capabilities).
+MAX_VERIFY_S = 90.0
+
 Region = Union[Sequence[float], Mapping[str, Any], Box]
 Point = Union[Tuple[float, float], Sequence[float]]
 PathLike = Union[str, Path]
@@ -82,6 +86,15 @@ def _region(r: Optional[Region]) -> Any:
     if len(vals) != 4:
         raise ValueError("a region is (x, y, w, h)")
     return vals
+
+
+def _verify_ms(verify_timeout: Optional[float]) -> Optional[int]:
+    if not verify_timeout:
+        return None
+    if verify_timeout > MAX_VERIFY_S:
+        raise ValueError(f"verify_timeout at most {MAX_VERIFY_S:g} s: the board answers within one request; "
+                         "for a longer wait, press without verify and call wait_for")
+    return int(round(verify_timeout * 1000))
 
 
 def _clean(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -517,7 +530,7 @@ class AIVision:
         """
         target = _query(text, label=label, template=template, match=match, region=region, near=near)
         payload = _clean({"target": target, "verify": dict(verify) if verify else None,
-                          "verify_timeout_ms": int(verify_timeout * 1000) if verify_timeout else None,
+                          "verify_timeout_ms": _verify_ms(verify_timeout),
                           "hold_ms": hold_ms, "offset": list(offset) if offset else None,
                           "index": index, "actuator": actuator})
         return PressResult.from_dict(self._json("POST", "/press", payload,
@@ -531,7 +544,7 @@ class AIVision:
             raise ValueError("tap needs x and y (use press() to tap a found element)")
         payload = _clean({"x": x, "y": y, "hold_ms": hold_ms, "actuator": actuator,
                           "verify": dict(verify) if verify else None,
-                          "verify_timeout_ms": int(verify_timeout * 1000) if verify_timeout else None})
+                          "verify_timeout_ms": _verify_ms(verify_timeout)})
         return PressResult.from_dict(self._json("POST", "/tap", payload,
                                                 timeout=max(self.timeout, 60) + (verify_timeout or 10)))
 
@@ -543,7 +556,7 @@ class AIVision:
         payload = _clean({"from": list(start) if start else None, "to": list(end) if end else None,
                           "direction": direction, "distance": distance, "duration_ms": duration_ms,
                           "actuator": actuator, "verify": dict(verify) if verify else None,
-                          "verify_timeout_ms": int(verify_timeout * 1000) if verify_timeout else None})
+                          "verify_timeout_ms": _verify_ms(verify_timeout)})
         return PressResult.from_dict(self._json("POST", "/swipe", payload,
                                                 timeout=max(self.timeout, 60) + (verify_timeout or 10)))
 

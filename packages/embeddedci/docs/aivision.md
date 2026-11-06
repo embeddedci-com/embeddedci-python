@@ -84,6 +84,9 @@ board's `evidence` id). Pass `raise_on_timeout=False` to get `met=False` back in
 than `MAX_WAIT_REQUEST_S` (60 s) runs as several requests to the board, and `stable` then starts
 again with each request.
 
+`verify_timeout` on `press`, `tap` and `swipe` is at most `MAX_VERIFY_S` (90 s), because the board
+answers within one request; for a longer wait, press without `verify` and call `wait_for`.
+
 `press` of something that is not on the screen raises `NotFoundError`; `detail["visible_text"]`
 lists what the board could read.
 

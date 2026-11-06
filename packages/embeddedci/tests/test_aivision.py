@@ -252,3 +252,10 @@ def test_plugin_skips_without_board(pytester, monkeypatch):
     monkeypatch.delenv("AIVISION_CONNECTION", raising=False)
     pytester.makepyfile("def test_x(aivision):\n    pass\n")
     pytester.runpytest("-p", "no:cacheprovider").assert_outcomes(skipped=1)
+
+
+def test_verify_timeout_over_the_board_limit_is_refused_before_sending(board):
+    v = AIVision(board.addr)
+    with pytest.raises(ValueError, match="at most 90"):
+        v.press("Radio", verify={"text": "FM"}, verify_timeout=120)
+    assert not board.requests

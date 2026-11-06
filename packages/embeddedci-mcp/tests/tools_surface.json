@@ -5193,8 +5193,9 @@
         },
         "verify_timeout_s": {
           "default": 5.0,
+          "description": "Seconds to wait for verify_text; the board caps one request at 90 s.",
           "exclusiveMinimum": 0,
-          "maximum": 120,
+          "maximum": 90,
           "title": "Verify Timeout S",
           "type": "number"
         }

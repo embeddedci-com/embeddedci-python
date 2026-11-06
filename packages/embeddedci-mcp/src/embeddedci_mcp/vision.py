@@ -384,7 +384,8 @@ def register(mcp: Any) -> None:
     async def vision_press(
         text: Annotated[str, Field(description="Text of the button or element to press.")],
         verify_text: Annotated[Optional[str], Field(description="Then wait for this text to appear.")] = None,
-        verify_timeout_s: Annotated[float, Field(gt=0, le=120)] = 5.0,
+        verify_timeout_s: Annotated[float, Field(gt=0, le=90, description=(
+            "Seconds to wait for verify_text; the board caps one request at 90 s."))] = 5.0,
         match: Match = None,
         actuator: Annotated[Optional[str], Field(description="Actuator id; omit for the first one.")] = None,
     ) -> PressOut:
