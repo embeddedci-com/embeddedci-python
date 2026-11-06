@@ -33,7 +33,13 @@ EXPECTED_TOOLS = {
     "can_open", "can_write", "can_read", "can_respond", "can_status", "can_close",
     "la_step", "command",
     "cloud_list_devices",
+    "vision_connect", "vision_disconnect", "vision_status", "vision_look", "vision_ocr", "vision_find",
+    "vision_wait_for", "vision_compare", "vision_screen_health", "vision_calibrate", "vision_add_reference",
+    "vision_press", "vision_tap",
 }
+
+#: Tools that return an image content block (no structured output).
+IMAGE_TOOLS = {"vision_look"}
 
 
 # -- registration + metadata ---------------------------------------------------------
@@ -51,7 +57,8 @@ def test_every_tool_is_described_annotated_and_structured():
     for tool in anyio.run(mcp.list_tools):
         assert tool.description and len(tool.description) > 20, tool.name
         assert tool.annotations is not None and tool.annotations.title, tool.name
-        assert tool.outputSchema is not None, tool.name
+        if tool.name not in IMAGE_TOOLS:
+            assert tool.outputSchema is not None, tool.name
         if not tool.annotations.readOnlyHint:
             assert tool.annotations.destructiveHint is not None, tool.name
 

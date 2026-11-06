@@ -4705,6 +4705,671 @@
       "type": "object"
     }
   },
+  "vision_add_reference": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Store a reference screen"
+    },
+    "input": {
+      "properties": {
+        "kind": {
+          "default": "screen",
+          "enum": [
+            "screen",
+            "template"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[x, y, w, h] in screen pixels (camera pixels before calibration). Omit for the whole screen.",
+          "title": "Region"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "vision_add_referenceArguments",
+      "type": "object"
+    }
+  },
+  "vision_calibrate": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Calibrate the screen"
+    },
+    "input": {
+      "properties": {
+        "corners": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The screen's top-left, top-right, bottom-right, bottom-left corners in camera pixels (read them from vision_look(space='camera')). Or omit and use method.",
+          "title": "Corners"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "markers"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "auto: find the bright screen (show white on it); markers: the screen shows markers.png.",
+          "title": "Method"
+        },
+        "screen_size": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The screen's own resolution [w, h], e.g. [1920, 720].",
+          "title": "Screen Size"
+        }
+      },
+      "title": "vision_calibrateArguments",
+      "type": "object"
+    }
+  },
+  "vision_compare": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Compare with a reference screen"
+    },
+    "input": {
+      "properties": {
+        "mask": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Areas to ignore: names of the reference's masks ('clock') or [x, y, w, h].",
+          "title": "Mask"
+        },
+        "reference": {
+          "description": "Name of a reference screen (vision_add_reference).",
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "title": "vision_compareArguments",
+      "type": "object"
+    }
+  },
+  "vision_connect": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Connect to an AI Vision board"
+    },
+    "input": {
+      "properties": {
+        "connection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "host[:port] or URL of the ai-vision-2 board, or 'discover' (mDNS). Omit for AIVISION_CONNECTION.",
+          "title": "Connection"
+        },
+        "lease_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Take the board's lease under this name, so nobody else drives the camera or the actuator until vision_disconnect.",
+          "title": "Lease As"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The board's API token; omit for AIVISION_TOKEN.",
+          "title": "Token"
+        }
+      },
+      "title": "vision_connectArguments",
+      "type": "object"
+    }
+  },
+  "vision_disconnect": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Disconnect from the AI Vision board"
+    },
+    "input": {
+      "properties": {},
+      "title": "vision_disconnectArguments",
+      "type": "object"
+    }
+  },
+  "vision_find": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Find on the screen"
+    },
+    "input": {
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Element kind instead: button, icon, text.",
+          "title": "Label"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "contains",
+                "regex",
+                "fuzzy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How text is compared; default exact (case-insensitive).",
+          "title": "Match"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[x, y, w, h] in screen pixels (camera pixels before calibration). Omit for the whole screen.",
+          "title": "Region"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of a template reference instead.",
+          "title": "Template"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Text to look for.",
+          "title": "Text"
+        }
+      },
+      "title": "vision_findArguments",
+      "type": "object"
+    }
+  },
+  "vision_look": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Look at the screen"
+    },
+    "input": {
+      "properties": {
+        "overlay": {
+          "anyOf": [
+            {
+              "enum": [
+                "elements",
+                "text",
+                "detections"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Draw what the board recognised on the image.",
+          "title": "Overlay"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[x, y, w, h] in screen pixels (camera pixels before calibration). Omit for the whole screen.",
+          "title": "Region"
+        },
+        "space": {
+          "default": "screen",
+          "description": "screen: the rectified screen in its own pixels (needs a calibration); camera: what the camera sees, to find the screen's corners.",
+          "enum": [
+            "screen",
+            "camera"
+          ],
+          "title": "Space",
+          "type": "string"
+        }
+      },
+      "title": "vision_lookArguments",
+      "type": "object"
+    }
+  },
+  "vision_ocr": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Read text on the screen"
+    },
+    "input": {
+      "properties": {
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[x, y, w, h] in screen pixels (camera pixels before calibration). Omit for the whole screen.",
+          "title": "Region"
+        },
+        "zoom": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 4,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Read at this many image pixels per screen pixel (small text).",
+          "title": "Zoom"
+        }
+      },
+      "title": "vision_ocrArguments",
+      "type": "object"
+    }
+  },
+  "vision_press": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Press on the screen"
+    },
+    "input": {
+      "properties": {
+        "actuator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actuator id; omit for the first one.",
+          "title": "Actuator"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "contains",
+                "regex",
+                "fuzzy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How text is compared; default exact (case-insensitive).",
+          "title": "Match"
+        },
+        "text": {
+          "description": "Text of the button or element to press.",
+          "title": "Text",
+          "type": "string"
+        },
+        "verify_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Then wait for this text to appear.",
+          "title": "Verify Text"
+        },
+        "verify_timeout_s": {
+          "default": 5.0,
+          "description": "Seconds to wait for verify_text; the board caps one request at 90 s.",
+          "exclusiveMinimum": 0,
+          "maximum": 90,
+          "title": "Verify Timeout S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "vision_pressArguments",
+      "type": "object"
+    }
+  },
+  "vision_screen_health": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Screen health"
+    },
+    "input": {
+      "properties": {
+        "expect_motion": {
+          "default": false,
+          "description": "Count a frozen screen as a problem.",
+          "title": "Expect Motion",
+          "type": "boolean"
+        },
+        "window_ms": {
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 100,
+          "title": "Window Ms",
+          "type": "integer"
+        }
+      },
+      "title": "vision_screen_healthArguments",
+      "type": "object"
+    }
+  },
+  "vision_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "AI Vision board status"
+    },
+    "input": {
+      "properties": {},
+      "title": "vision_statusArguments",
+      "type": "object"
+    }
+  },
+  "vision_tap": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Tap a point"
+    },
+    "input": {
+      "properties": {
+        "actuator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actuator id; omit for the first one.",
+          "title": "Actuator"
+        },
+        "hold_ms": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Hold Ms",
+          "type": "integer"
+        },
+        "x": {
+          "description": "Screen pixels.",
+          "minimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "description": "Screen pixels.",
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "vision_tapArguments",
+      "type": "object"
+    }
+  },
+  "vision_wait_for": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Wait for the screen"
+    },
+    "input": {
+      "properties": {
+        "gone": {
+          "default": false,
+          "description": "Wait until the text has left the screen instead.",
+          "title": "Gone",
+          "type": "boolean"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "contains",
+                "regex",
+                "fuzzy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How text is compared; default exact (case-insensitive).",
+          "title": "Match"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[x, y, w, h] in screen pixels (camera pixels before calibration). Omit for the whole screen.",
+          "title": "Region"
+        },
+        "text": {
+          "description": "Text to wait for.",
+          "title": "Text",
+          "type": "string"
+        },
+        "timeout_s": {
+          "default": 10.0,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Timeout S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "vision_wait_forArguments",
+      "type": "object"
+    }
+  },
   "wiring": {
     "annotations": {
       "idempotentHint": false,

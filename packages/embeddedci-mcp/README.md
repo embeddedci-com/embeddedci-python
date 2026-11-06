@@ -344,6 +344,30 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | `la_step` | Step pulses for step/dir motor drivers: `delay` is half the step period (4 us to 65.535 ms), `steps` up to 65535. | **`la`**, **`steps`**, **`delay`**, `dir_la`, `direction=0` |
 | `command` | Raw firmware JSON command, for anything no tool covers. | **`request`** |
 
+### AI Vision board
+
+For a bench with an AI Vision board (ai-vision-2): a camera on the DUT's screen that reads text,
+finds buttons and presses them through its actuator. Its connection is separate from the pod's, so
+one session drives both. Without `vision_connect`, the first `vision_*` call connects to
+`AIVISION_CONNECTION` (token in `AIVISION_TOKEN`). Boxes and taps are in screen pixels once the
+screen is calibrated.
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `vision_connect` | Open the AI Vision connection (closing a previous one) and report its status. | `connection`, `token`, `lease_as` |
+| `vision_disconnect` | Close the connection and release its lease. | none |
+| `vision_status` | Version, calibration, camera lock, actuators, lease, capabilities, with warnings. | none |
+| `vision_look` | The screen as an image (an image content block), or what the camera sees; a `region` zooms in at full sensor resolution. | `space=screen`, `overlay`, `region` |
+| `vision_ocr` | All text on the screen or in a region, in reading order, with boxes. | `region`, `zoom` |
+| `vision_find` | Elements matching text, a kind (`button`, `icon`, `text`) or a template, best first. | `text`, `label`, `template`, `match`, `region` |
+| `vision_wait_for` | Wait until text appears (or with `gone`, disappears); `met: false` on timeout. | **`text`**, `timeout_s=10`, `gone=false`, `match`, `region` |
+| `vision_compare` | Similarity of the screen to a stored reference screen. | **`reference`**, `mask` |
+| `vision_screen_health` | Black, dim, frozen, flickering or stuck pixels over a window. | `window_ms=1000`, `expect_motion=false` |
+| `vision_calibrate` | Map camera pixels to screen pixels: four corners and the screen size, or `method` auto/markers. | `corners`, `screen_size`, `method` |
+| `vision_add_reference` | Store the current screen (or a region, as a template) as a reference. | **`name`**, `kind=screen`, `region`, `overwrite=false` |
+| `vision_press` | Find an element, tap its center, optionally wait for `verify_text`. Fails with the visible text when it is not there. | **`text`**, `verify_text`, `verify_timeout_s=5`, `match`, `actuator` |
+| `vision_tap` | Tap a point in screen pixels (`hold_ms` for a long press). | **`x`**, **`y`**, `hold_ms=0`, `actuator` |
+
 Resources: `benchpod://wiring` (the connected bench's own wiring profile, then LA channels, bias
 resistors and analog paths) and `benchpod://help` (the server instructions).
 

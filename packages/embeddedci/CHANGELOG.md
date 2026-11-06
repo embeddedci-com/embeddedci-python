@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- `embeddedci.aivision`: client for the AI Vision board (ai-vision-2), standard library only.
+  `AIVision` covers the board's v1 API: calibration, frames and zoom, OCR, find, detect, compare,
+  identify, screen health, waits and checks, references, models, actuators (`press`, `tap`,
+  `swipe`, `press_key`), recordings, evidence and the lease. mDNS `discover()` with the
+  `discovery` extra. pytest: the `aivision` fixture and `--aivision`, `--aivision-token`,
+  `--aivision-lease`, `--aivision-artifacts`; a failing test saves the screen it saw.
+  See `docs/aivision.md`.
+
 ## 2.13.7
 
 - `capture_la` goes up to 48 MS/s with gateware v50 (firmware 3.9.6+): above 12 MS/s the pod records

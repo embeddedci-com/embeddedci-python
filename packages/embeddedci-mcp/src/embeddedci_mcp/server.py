@@ -2094,3 +2094,10 @@ def wiring_resource() -> str:
               description="The server instructions: session start, typical flows, error contract.")
 def help_() -> str:
     return INSTRUCTIONS
+
+
+# -- AI Vision board ------------------------------------------------------------------------
+
+from . import vision as _vision  # noqa: E402  (registers the vision_* tools on this server)
+
+_vision.register(mcp)
