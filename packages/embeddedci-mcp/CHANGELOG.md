@@ -7,6 +7,9 @@
   `vision_ocr`, `vision_find`, `vision_wait_for`, `vision_compare`, `vision_screen_health`,
   `vision_calibrate`, `vision_add_reference`, `vision_press`, `vision_tap`. Requires `embeddedci`
   2.13.8, the release with `embeddedci.aivision`.
+- `vision_cloud_boards` lists the AI Vision boards on embeddedci.com, and `vision_connect` takes
+  `embeddedci:<name>` to drive one from anywhere (signed in with `BENCHPOD_API_KEY` or `benchpod
+  login`; `lease_as` takes embeddedci.com's device lease).
 
 ## 2.13.8
 

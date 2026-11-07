@@ -125,3 +125,27 @@ def test_vision_live():
         assert call("vision_wait_for", text=os.environ.get("AIVISION_HOME_TEXT", "Home"), timeout_s=10)["met"]
     finally:
         call("vision_disconnect")
+
+
+def test_cloud_boards_lists_the_organizations_boards(monkeypatch):
+    from embeddedci_mcp import vision
+
+    monkeypatch.setattr(vision, "list_boards", lambda: [
+        {"id": "d1", "name": "bench-1", "online": True, "connection": "embeddedci:bench-1"},
+        {"id": "d2", "name": "bench-2", "online": False},
+    ])
+    r = call("vision_cloud_boards")
+    assert [(b["name"], b["online"], b["connection"]) for b in r["boards"]] == [
+        ("bench-1", True, "embeddedci:bench-1"), ("bench-2", False, "embeddedci:bench-2")]
+
+
+def test_cloud_boards_without_a_sign_in_says_how(monkeypatch):
+    from embeddedci.aivision import AuthError
+    from embeddedci_mcp import vision
+
+    def no_login():
+        raise AuthError("listing boards on embeddedci.com needs an API key")
+
+    monkeypatch.setattr(vision, "list_boards", no_login)
+    with pytest.raises(ToolError, match="benchpod login"):
+        call("vision_cloud_boards")

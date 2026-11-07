@@ -1523,6 +1523,10 @@ with AIVision("ai-vision-2-5dcec6.local") as v:      # or AIVISION_CONNECTION, o
     assert v.compare("radio-fm", mask=["clock"]).score > 0.95
 ```
 
+A board paired with embeddedci.com is reached from anywhere as `AIVision("embeddedci:<name>")`,
+signed in like a cloud pod (`BENCHPOD_API_KEY` or `benchpod login`); `list_boards()` lists them and
+`register_cloud(name)` pairs one from its LAN.
+
 In pytest, ask for the `aivision` fixture and pass `--aivision <board>`. Every call, the result
 types, the errors and the pytest options:
 [docs/aivision.md](https://github.com/embeddedci-com/embeddedci-python/blob/main/packages/embeddedci/docs/aivision.md).

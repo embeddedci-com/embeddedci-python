@@ -20,7 +20,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from embeddedci.aivision import AIVision, AIVisionError, NotFoundError, WaitTimeout
+from embeddedci.aivision import AIVision, AIVisionError, NotFoundError, WaitTimeout, list_boards
 
 T = TypeVar("T")
 
@@ -74,7 +74,8 @@ def _hint(exc: AIVisionError) -> str:
     if exc.code == "busy":
         return "Someone else holds the board's lease; wait and retry. Reads (look, ocr, find, wait) still work."
     if exc.code == "unauthorized":
-        return "Pass the board's token to vision_connect (or set AIVISION_TOKEN)."
+        return ("Over embeddedci.com: run `benchpod login` or set BENCHPOD_API_KEY (an API key with the Control "
+                "AI Vision scope). On the LAN: pass the board's token to vision_connect (or set AIVISION_TOKEN).")
     if isinstance(exc, WaitTimeout):
         return "The condition never held; vision_look shows what is on the screen now."
     return ""
@@ -93,6 +94,16 @@ async def _call(fn: Callable[[], T]) -> T:
         raise ToolError(f"{msg}. {hint}" if hint else msg) from exc
     except ValueError as exc:
         raise ToolError(f"invalid argument: {exc}") from exc
+
+
+def _wrap(fn: Callable[[], T]) -> T:
+    """``fn`` with an AI Vision error turned into a tool error (for calls that need no session)."""
+    try:
+        return fn()
+    except AIVisionError as exc:
+        hint = _hint(exc)
+        msg = f"{type(exc).__name__}: {exc}"
+        raise ToolError(f"{msg}. {hint}" if hint else msg) from exc
 
 
 # -- results -----------------------------------------------------------------------------
@@ -117,6 +128,18 @@ class VElement(BaseModel):
 def _el(e: Any) -> VElement:
     b = VBox(x=e.box.x, y=e.box.y, w=e.box.w, h=e.box.h, space=e.box.space) if e.box else None
     return VElement(kind=e.kind, label=e.label, text=e.text, confidence=e.confidence, box=b, center=e.center)
+
+
+class CloudBoard(BaseModel):
+    id: str
+    name: str
+    online: bool
+    connection: str = Field(description="What vision_connect takes: 'embeddedci:<name>'.")
+    last_active_at: Optional[str] = None
+
+
+class CloudBoards(BaseModel):
+    boards: List[CloudBoard]
 
 
 class VisionStatus(BaseModel):
@@ -212,7 +235,7 @@ def _status(c: Optional[AIVision]) -> VisionStatus:
     if not acts:
         warnings.append("no actuator configured: vision_press and vision_tap will fail")
     size = cal.get("screen_size")
-    return VisionStatus(connected=True, url=c.url, version=str(s.get("version", "")),
+    return VisionStatus(connected=True, url=f"embeddedci:{c.cloud_name}" if getattr(c, "cloud_name", None) else c.url, version=str(s.get("version", "")),
                         calibrated=bool(scr.get("calibrated")), screen_size=tuple(size) if size else None,
                         camera_locked=cam.get("locked"), actuators=acts,
                         lease=lease.get("who") if isinstance(lease, dict) else None,
@@ -225,15 +248,32 @@ def register(mcp: Any) -> None:
     @mcp.tool(annotations=_ann("Connect to an AI Vision board", idempotent=True))
     async def vision_connect(
         connection: Annotated[Optional[str], Field(description=(
-            "host[:port] or URL of the ai-vision-2 board, or 'discover' (mDNS). Omit for "
-            "AIVISION_CONNECTION."))] = None,
-        token: Annotated[Optional[str], Field(description="The board's API token; omit for AIVISION_TOKEN.")] = None,
+            "host[:port] or URL of the ai-vision-2 board, 'discover' (mDNS), or 'embeddedci:<name>' for a "
+            "board on embeddedci.com (vision_cloud_boards lists them). Omit for AIVISION_CONNECTION."))] = None,
+        token: Annotated[Optional[str], Field(description=(
+            "The board's API token on the LAN; omit for AIVISION_TOKEN. Over embeddedci.com the "
+            "`benchpod login` session or BENCHPOD_API_KEY is used instead."))] = None,
         lease_as: Annotated[Optional[str], Field(description=(
             "Take the board's lease under this name, so nobody else drives the camera or the actuator "
             "until vision_disconnect."))] = None,
     ) -> VisionStatus:
         """Open the AI Vision connection (closing a previous one) and report the board's status."""
         return await _call(lambda: _status(VISION.connect(connection, token, lease_as)))
+
+    @mcp.tool(annotations=_ann("List AI Vision boards on embeddedci.com", read_only=True))
+    async def vision_cloud_boards() -> CloudBoards:
+        """The AI Vision boards registered to your embeddedci.com organisation, and whether each is
+        online. Connect to one with vision_connect(connection) using its `connection`
+        ('embeddedci:<name>'). Authenticates with BENCHPOD_API_KEY, else the `benchpod login`
+        session."""
+        def op() -> CloudBoards:
+            boards = [CloudBoard(id=str(d.get("id", "")), name=str(d.get("name", "")), online=bool(d.get("online")),
+                                 connection=str(d.get("connection") or f"embeddedci:{d.get('name', '')}"),
+                                 last_active_at=d.get("last_active_at"))
+                      for d in list_boards()]
+            return CloudBoards(boards=boards)
+
+        return await anyio.to_thread.run_sync(lambda: _wrap(op))
 
     @mcp.tool(annotations=_ann("Disconnect from the AI Vision board", idempotent=True))
     async def vision_disconnect() -> VisionStatus:

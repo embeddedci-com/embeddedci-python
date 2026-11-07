@@ -4830,6 +4830,19 @@
       "type": "object"
     }
   },
+  "vision_cloud_boards": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List AI Vision boards on embeddedci.com"
+    },
+    "input": {
+      "properties": {},
+      "title": "vision_cloud_boardsArguments",
+      "type": "object"
+    }
+  },
   "vision_compare": {
     "annotations": {
       "idempotentHint": false,
@@ -4886,7 +4899,7 @@
             }
           ],
           "default": null,
-          "description": "host[:port] or URL of the ai-vision-2 board, or 'discover' (mDNS). Omit for AIVISION_CONNECTION.",
+          "description": "host[:port] or URL of the ai-vision-2 board, 'discover' (mDNS), or 'embeddedci:<name>' for a board on embeddedci.com (vision_cloud_boards lists them). Omit for AIVISION_CONNECTION.",
           "title": "Connection"
         },
         "lease_as": {
@@ -4912,7 +4925,7 @@
             }
           ],
           "default": null,
-          "description": "The board's API token; omit for AIVISION_TOKEN.",
+          "description": "The board's API token on the LAN; omit for AIVISION_TOKEN. Over embeddedci.com the `benchpod login` session or BENCHPOD_API_KEY is used instead.",
           "title": "Token"
         }
       },

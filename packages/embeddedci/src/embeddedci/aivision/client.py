@@ -9,6 +9,9 @@ Standard library only (``urllib``). One method per endpoint; the board does the 
         v.wait_for("Home", timeout=20)
         v.press("Radio", verify={"text": "FM"})
         assert v.screen_health().ok
+
+A board paired with embeddedci.com is reached anywhere as ``AIVision("embeddedci:<name>")``
+(see :mod:`.cloud`).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
+from . import cloud as _cloud
 from . import errors
 from .results import (Box, Calibration, CheckResult, Comparison, Element, Health, Identification, Image,
                       Lease, OCRResult, PressResult, Snapshot, WaitResult, elements)
@@ -51,9 +55,12 @@ def resolve_connection(connection: Optional[str]) -> str:
     """Turn a connection string into the board's base URL (``http://host[:port]``).
 
     Accepts ``host``, ``host:port``, ``http(s)://host[:port]``, or ``discover`` (exactly one board
-    on the LAN, via mDNS). ``None`` reads ``AIVISION_CONNECTION``.
+    on the LAN, via mDNS). ``None`` reads ``AIVISION_CONNECTION``. A cloud connection
+    (``embeddedci:<name>``) is not an address: :class:`AIVision` handles it.
     """
     conn = (connection or os.environ.get(ENV_CONNECTION, "")).strip()
+    if _cloud.cloud_name(conn):
+        raise errors.TransportError(f"{conn!r} is a cloud connection: open it with AIVision({conn!r})")
     if not conn:
         raise errors.TransportError(
             f"no AI Vision board given: pass a host, set {ENV_CONNECTION}, or use 'discover'")
@@ -73,6 +80,18 @@ def resolve_connection(connection: Optional[str]) -> str:
     if u.scheme not in ("http", "https") or not u.hostname:
         raise errors.TransportError(f"not an AI Vision address: {connection!r}")
     return f"{u.scheme}://{u.netloc}"
+
+
+def _board_words(e: Exception) -> str:
+    """A message of the shared device lease (written for pods), worded for a board."""
+    return str(e).replace("cloud BenchPod", "AI Vision board").replace("BenchPod", "AI Vision board")
+
+
+def _cloud_user_agent() -> str:
+    # Cloudflare in front of embeddedci.com refuses urllib's default User-Agent.
+    from ..benchpod.cloud_auth import USER_AGENT
+
+    return USER_AGENT
 
 
 def _region(r: Optional[Region]) -> Any:
@@ -134,22 +153,42 @@ def _condition(text: Optional[str], condition: Optional[Mapping[str, Any]], kw: 
 class AIVision:
     """A connection to one ai-vision-2 board.
 
-    ``connection``: host, ``host:port``, URL, or ``"discover"``; default ``AIVISION_CONNECTION``.
-    ``token``: the board's API token; default ``AIVISION_TOKEN`` (open boards need none).
+    ``connection``: host, ``host:port``, URL, or ``"discover"`` on the LAN, or
+    ``"embeddedci:<name>"`` for a board paired with embeddedci.com; default ``AIVISION_CONNECTION``.
+    ``token``: the board's API token on the LAN; default ``AIVISION_TOKEN`` (open boards need none).
     ``lease``: take the board's lease under this name on open (renewed in the background,
-    released on close), so nobody else drives the camera or the actuator meanwhile.
+    released on close), so nobody else drives the camera or the actuator meanwhile. Over the cloud
+    it is the server's device lease; ``lease_wait`` seconds to wait for a busy board (default: fail
+    at once with :class:`~.errors.BusyError`).
+
+    Cloud only: ``api_base`` (default ``BENCHPOD_API_BASE``, else https://www.embeddedci.com),
+    ``api_key`` (an API key with the "Control AI Vision" scope; default ``BENCHPOD_API_KEY``, else
+    the ``benchpod login`` session, else GitHub Actions OIDC), ``cloud_token`` (a cloud session
+    token you minted yourself) and ``cloud_user_token`` (a callable returning a user's access token).
     """
 
     def __init__(self, connection: Optional[str] = None, *, token: Optional[str] = None,
-                 timeout: float = 30.0, lease: Optional[str] = None, lease_ttl_s: int = 300) -> None:
-        self.url = resolve_connection(connection)
+                 timeout: float = 30.0, lease: Optional[str] = None, lease_ttl_s: int = 300,
+                 lease_wait: float = 0.0, api_base: Optional[str] = None, api_key: Optional[str] = None,
+                 cloud_token: Optional[str] = None, cloud_user_token: Optional[Any] = None) -> None:
+        conn = connection if connection is not None else os.environ.get(ENV_CONNECTION, "")
+        #: The board's name on embeddedci.com when connected over the cloud, else None.
+        self.cloud_name = _cloud.cloud_name(conn)
+        self._cloud: Optional[_cloud.CloudSession] = None
+        if self.cloud_name:
+            base = _cloud.resolve_api_base(api_base)
+            self._cloud = _cloud.CloudSession(base, api_key=api_key, token=cloud_token, user_token=cloud_user_token)
+            self.url = _cloud.board_url(base, self.cloud_name)
+        else:
+            self.url = resolve_connection(conn)
         self.token = token if token is not None else os.environ.get(ENV_TOKEN) or None
         self.timeout = timeout
         self._lease: Optional[Lease] = None
+        self._device_lease: Any = None
         self._lease_stop = threading.Event()
         self._lease_thread: Optional[threading.Thread] = None
         if lease:
-            self.acquire_lease(lease, ttl_s=lease_ttl_s)
+            self.acquire_lease(lease, ttl_s=lease_ttl_s, wait=lease_wait)
 
     # ---- plumbing ----
 
@@ -168,10 +207,24 @@ class AIVision:
                 pass
 
     def __repr__(self) -> str:
+        if self.cloud_name:
+            return f"AIVision('embeddedci:{self.cloud_name}')"
         return f"AIVision({self.url!r})"
 
     def _open(self, method: str, path: str, *, body: Optional[bytes] = None, content_type: str = "",
               params: Optional[Mapping[str, Any]] = None, timeout: Optional[float] = None):
+        try:
+            return self._open_once(method, path, body=body, content_type=content_type, params=params,
+                                   timeout=timeout)
+        except errors.AuthError:
+            # Over the cloud a refused session token (expired early, revoked) is minted again once.
+            if self._cloud is None or not self._cloud.invalidate():
+                raise
+            return self._open_once(method, path, body=body, content_type=content_type, params=params,
+                                   timeout=timeout)
+
+    def _open_once(self, method: str, path: str, *, body: Optional[bytes] = None, content_type: str = "",
+                   params: Optional[Mapping[str, Any]] = None, timeout: Optional[float] = None):
         url = self.url + "/api/v1" + path
         if params:
             q = {k: ("true" if v is True else "false" if v is False else v)
@@ -181,10 +234,19 @@ class AIVision:
         req = urllib.request.Request(url, data=body, method=method)
         if content_type:
             req.add_header("Content-Type", content_type)
-        if self.token:
-            req.add_header("Authorization", "Bearer " + self.token)
-        if self._lease is not None:
-            req.add_header("X-Lease-Id", self._lease.id)
+        req.add_header("User-Agent", _cloud_user_agent())
+        if self._cloud is not None:
+            try:
+                req.add_header("Authorization", "Bearer " + self._cloud.token())
+            except Exception as e:  # CloudAuthError: no credential, or the exchange was refused
+                raise errors.AuthError(f"embeddedci.com sign-in for {self.cloud_name!r}: {e}") from None
+            if self._lease is not None:
+                req.add_header("X-Benchpod-Lease", self._lease.id)
+        else:
+            if self.token:
+                req.add_header("Authorization", "Bearer " + self.token)
+            if self._lease is not None:
+                req.add_header("X-Lease-Id", self._lease.id)
         try:
             return urllib.request.urlopen(req, timeout=timeout or self.timeout)
         except urllib.error.HTTPError as e:
@@ -243,6 +305,38 @@ class AIVision:
     def has(self, capability: str) -> bool:
         return capability in self.capabilities()
 
+    # ---- embeddedci.com pairing (on the LAN) ----
+
+    def cloud(self) -> Dict[str, Any]:
+        """The board's embeddedci.com pairing: ``paired``, ``server``, ``device_id``, ``connected``
+        and ``last_error``. LAN only: over the cloud the server refuses it."""
+        return self._json("GET", "/cloud")
+
+    def register_cloud(self, name: str, *, api_base: Optional[str] = None, api_key: Optional[str] = None,
+                       server: Optional[str] = None, cloud_user_token: Optional[Any] = None) -> Dict[str, Any]:
+        """Register this board on embeddedci.com as ``name`` and pair it, from the LAN.
+
+        Registers the board's key in your active organization (an API key with the "Control AI
+        Vision" scope, ``api_key=`` or ``BENCHPOD_API_KEY``, else the ``benchpod login`` session),
+        then stores the pairing on the board (``PUT /cloud``), which then connects on its own.
+        Returns the registered device; afterwards ``AIVision(device["connection"])`` reaches the
+        board from anywhere. Registering again with the same name is harmless.
+        """
+        if self.cloud_name:
+            raise errors.BadRequestError("register_cloud runs on the board's LAN, not over the cloud")
+        key = (self.status().get("public_key") or "").strip()
+        if not key:
+            raise errors.AIVisionError("the board reports no public_key (GET /status identity_error)")
+        base = _cloud.resolve_api_base(api_base)
+        device = _cloud.register_device(base, name, key, api_key=api_key, user_token=cloud_user_token)
+        self._json("PUT", "/cloud", {"server": server or _cloud.pairing_server(base), "device_id": device["id"]})
+        return device
+
+    def unpair_cloud(self) -> None:
+        """Forget the embeddedci.com pairing (``DELETE /cloud``), from the LAN. The board stays
+        registered on embeddedci.com until it is deregistered there."""
+        self._json("DELETE", "/cloud")
+
     # ---- lease ----
 
     @property
@@ -250,12 +344,15 @@ class AIVision:
         """The lease this client holds, or None."""
         return self._lease
 
-    def acquire_lease(self, who: str, *, ttl_s: int = 300, renew: bool = True) -> Lease:
+    def acquire_lease(self, who: str, *, ttl_s: int = 300, renew: bool = True, wait: float = 0.0) -> Lease:
         """Take the board's lease (``BusyError`` when someone else holds it).
 
         With ``renew`` a background thread renews it at a third of ``ttl_s`` until
-        :meth:`release_lease` or :meth:`close`.
+        :meth:`release_lease` or :meth:`close`. Over the cloud it is embeddedci.com's device lease
+        (always renewed), and ``wait`` seconds are spent waiting for a busy board.
         """
+        if self._cloud is not None:
+            return self._acquire_cloud_lease(who, ttl_s, wait)
         d = self._json("POST", "/lease", {"who": who, "ttl_s": ttl_s})
         self._lease = Lease(str(d["lease_id"]), str(d.get("who", who)), str(d.get("expires", "")),
                             int(d.get("ttl_s", ttl_s)))
@@ -277,8 +374,30 @@ class AIVision:
             except errors.AIVisionError:
                 pass  # the next driving call reports the problem
 
+    def _acquire_cloud_lease(self, who: str, ttl_s: int, wait: float) -> Lease:
+        from ..benchpod.errors import BenchPodError, DeviceBusyError
+        from ..benchpod.lease import DeviceLease
+
+        assert self._cloud is not None and self.cloud_name
+        dl = DeviceLease(api_base=self._cloud.api_base, token_provider=self._cloud.token,
+                         invalidate_token=self._cloud.invalidate, device_name=self.cloud_name,
+                         ttl_seconds=ttl_s, run_label=who)
+        try:
+            dl.acquire(wait_timeout=wait, poll_interval=min(5.0, max(wait, 0.5)))
+        except DeviceBusyError as e:
+            raise errors.BusyError(_board_words(e), status=409, detail={"source": "cloud"}) from None
+        except BenchPodError as e:
+            raise errors.AIVisionError(f"device lease on embeddedci.com: {_board_words(e)}") from None
+        self._device_lease = dl
+        self._lease = Lease(dl.lease_id, who, "", ttl_s)
+        return self._lease
+
     def release_lease(self) -> None:
         """Release the lease this client holds (no-op without one)."""
+        if self._device_lease is not None:
+            dl, self._device_lease, self._lease = self._device_lease, None, None
+            dl.release()
+            return
         self._lease_stop.set()
         t, self._lease_thread = self._lease_thread, None
         if t is not None and t is not threading.current_thread():

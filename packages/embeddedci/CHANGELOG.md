@@ -9,6 +9,10 @@
   `discovery` extra. pytest: the `aivision` fixture and `--aivision`, `--aivision-token`,
   `--aivision-lease`, `--aivision-artifacts`; a failing test saves the screen it saw.
   See `docs/aivision.md`.
+- `embeddedci.aivision` over embeddedci.com: `AIVision("embeddedci:<name>")` reaches a paired board
+  from anywhere, with the BenchPod SDK's sign-in (API key, `benchpod login`, GitHub Actions OIDC)
+  and embeddedci.com's device lease. `list_boards()` lists the organization's boards;
+  `register_cloud(name)`, `cloud()` and `unpair_cloud()` pair a board from its LAN.
 
 ## 2.13.7
 
