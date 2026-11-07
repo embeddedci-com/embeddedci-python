@@ -21,13 +21,14 @@ with AIVision("ai-vision-2-5dcec6.local") as v:
 
 ## Connecting
 
-`AIVision(connection=None, *, token=None, timeout=30.0, lease=None, lease_ttl_s=300)`
+`AIVision(connection=None, *, token=None, timeout=30.0, lease=None, lease_ttl_s=300, lease_wait=0.0, api_base=None, api_key=None)`
 
 | `connection` | Meaning |
 | --- | --- |
 | `"ai-vision-2-5dcec6.local"`, `"10.1.0.165"` | the board on port 80 |
 | `"host:8080"`, `"http://host:8080"` | another port (the agent's simulator listens on 8080) |
 | `"discover"` | the one board on the LAN over mDNS (`_aivision._tcp`); needs `embeddedci[discovery]` |
+| `"embeddedci:<name>"` | the board over embeddedci.com (below) |
 | omitted | the `AIVISION_CONNECTION` environment variable |
 
 `token` is the board's API token (`/etc/ai-vision-agent/token`); it defaults to `AIVISION_TOKEN`,
@@ -42,6 +43,37 @@ hand.
 
 `discover(timeout=3.0)` lists every board it hears (`DiscoveredBoard`: `hostname`, `addresses`,
 `port`, `addr`). `resolve_connection(connection)` gives the base URL a connection string means.
+
+### Over embeddedci.com
+
+A board paired with embeddedci.com is reached from anywhere, by its name in your organization:
+
+```python
+from embeddedci.aivision import AIVision, list_boards
+
+print([(b["name"], b["online"]) for b in list_boards()])
+with AIVision("embeddedci:bench-vision", lease="nightly") as v:
+    v.press("Radio", verify={"text": "FM"})
+```
+
+The calls are the same; embeddedci.com forwards them to the board. Sign-in is the BenchPod SDK's:
+an API key with the "Control AI Vision" scope (`api_key=` or `BENCHPOD_API_KEY`), else the
+`benchpod login` session, else GitHub Actions OIDC inside a workflow. `api_base=` (or
+`BENCHPOD_API_BASE`) points at another server. `lease=` takes embeddedci.com's device lease, the one
+the web app and other runs see (`lease_wait=` seconds to wait for a busy board); the board's own LAN
+lease is not reachable this way, and neither is changing its pairing or uploading models.
+
+To pair a board, connect to it on its LAN once:
+
+```python
+dev = AIVision("ai-vision-2-5dcec6.local").register_cloud("bench-vision")
+print(dev["connection"])  # embeddedci:bench-vision
+```
+
+`register_cloud(name)` registers the board's key in your active organization and stores the
+pairing on the board, which then connects on its own; `cloud()` shows the pairing and the last
+connection error, and `unpair_cloud()` forgets it. The board shows in the BenchPod workspace on
+embeddedci.com next to your pods.
 
 ## Coordinates
 
@@ -96,8 +128,8 @@ Every error derives from `AIVisionError` (`code`, `status`, `detail`):
 
 | Exception | When |
 | --- | --- |
-| `TransportError` | the board cannot be reached |
-| `AuthError` | missing or wrong token |
+| `TransportError` | the board cannot be reached (over embeddedci.com: the board is offline) |
+| `AuthError` | missing or wrong token (over embeddedci.com: no sign-in, or it was refused) |
 | `BadRequestError` | the board rejected the arguments |
 | `NotCalibratedError` | the call needs `calibrate` first |
 | `BusyError` | someone else holds the lease (`detail["who"]`, `detail["expires"]`) |

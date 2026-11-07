@@ -97,8 +97,12 @@ _BY_CODE: Dict[str, Type[AIVisionError]] = {
 
 
 def from_answer(status: int, body: Optional[Dict[str, Any]], fallback: str) -> AIVisionError:
-    """Build the exception for an error answer from the board."""
+    """Build the exception for an error answer from the board, or from embeddedci.com when the
+    board is reached over the cloud (``{"error": "<message>", "code"?}``: the device lease held by
+    someone else, the board offline, a refused token)."""
     err = (body or {}).get("error") if isinstance(body, dict) else None
+    if isinstance(err, str) and err:
+        return _from_server(status, body or {}, err)
     if not isinstance(err, dict):
         return AIVisionError(f"HTTP {status}: {fallback}".strip(), status=status)
     code = str(err.get("code", ""))
@@ -106,4 +110,21 @@ def from_answer(status: int, body: Optional[Dict[str, Any]], fallback: str) -> A
     exc = cls(str(err.get("message", fallback)), status=status, detail=err.get("detail"))
     if cls is AIVisionError:
         exc.code = code
+    return exc
+
+
+def _from_server(status: int, body: Dict[str, Any], message: str) -> AIVisionError:
+    """An error embeddedci.com answered for the board."""
+    if status == 409 and (body.get("busy") or body.get("code") == "lease_held"):
+        return BusyError(message, status=status,
+                         detail={"who": body.get("holder"), "expires": body.get("expires_at"), "source": "cloud"})
+    if status == 401:
+        return AuthError(message, status=status)
+    if status in (502, 503, 504):
+        return TransportError(message, status=status)
+    if status == 404:
+        return NotFoundError(message, status=status)
+    exc = AIVisionError(message, status=status)
+    if isinstance(body.get("code"), str):
+        exc.code = body["code"]
     return exc
