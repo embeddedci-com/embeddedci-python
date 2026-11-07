@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.9
 
 - `vision_*` tools for the AI Vision board (ai-vision-2), on their own connection next to the pod's:
   `vision_connect`, `vision_disconnect`, `vision_status`, `vision_look` (the screen as an image),
