@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.13.8
 
 - `embeddedci.aivision`: client for the AI Vision board (ai-vision-2), standard library only.
   `AIVision` covers the board's v1 API: calibration, frames and zoom, OCR, find, detect, compare,
