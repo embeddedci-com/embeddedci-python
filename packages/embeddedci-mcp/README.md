@@ -352,9 +352,16 @@ one session drives both. Without `vision_connect`, the first `vision_*` call con
 `AIVISION_CONNECTION` (token in `AIVISION_TOKEN`). Boxes and taps are in screen pixels once the
 screen is calibrated.
 
+A board paired with embeddedci.com is reached from anywhere as `embeddedci:<name>`:
+`vision_cloud_boards` lists the organization's boards, and `vision_connect` takes the `connection`
+it returns. Over embeddedci.com the server's sign-in applies (`BENCHPOD_API_KEY`, an API key with
+the "Control AI Vision" scope, else the `benchpod login` session) and `lease_as` takes the
+server's device lease, the one the web app and other runs see.
+
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `vision_connect` | Open the AI Vision connection (closing a previous one) and report its status. | `connection`, `token`, `lease_as` |
+| `vision_cloud_boards` | The AI Vision boards on embeddedci.com, online or not, with the `connection` to pass to `vision_connect`. | none |
+| `vision_connect` | Open the AI Vision connection (a LAN address, `discover` or `embeddedci:<name>`; closing a previous one) and report its status. | `connection`, `token`, `lease_as` |
 | `vision_disconnect` | Close the connection and release its lease. | none |
 | `vision_status` | Version, calibration, camera lock, actuators, lease, capabilities, with warnings. | none |
 | `vision_look` | The screen as an image (an image content block), or what the camera sees; a `region` zooms in at full sensor resolution. | `space=screen`, `overlay`, `region` |

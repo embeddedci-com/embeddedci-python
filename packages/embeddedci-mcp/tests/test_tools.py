@@ -33,7 +33,7 @@ EXPECTED_TOOLS = {
     "can_open", "can_write", "can_read", "can_respond", "can_status", "can_close",
     "la_step", "command",
     "cloud_list_devices",
-    "vision_connect", "vision_disconnect", "vision_status", "vision_look", "vision_ocr", "vision_find",
+    "vision_cloud_boards", "vision_connect", "vision_disconnect", "vision_status", "vision_look", "vision_ocr", "vision_find",
     "vision_wait_for", "vision_compare", "vision_screen_health", "vision_calibrate", "vision_add_reference",
     "vision_press", "vision_tap",
 }
