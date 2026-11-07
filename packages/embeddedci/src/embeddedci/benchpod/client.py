@@ -1778,7 +1778,11 @@ class BenchPod:
         (all channels together) for longer than its buffer lasts stops early: the capture then holds
         the samples up to there and :attr:`LaCapture.truncated` says why. ``LaCapture.sample_rate_hz``
         is always the rate the pod ran. ``Trigger(..., pre_samples=N)`` also returns samples from
-        before the trigger (gateware v50+, any rate up to 48 MS/s).
+        before the trigger (gateware v50+, any rate up to 48 MS/s). At 12 MS/s and below a capture
+        deeper than the pod's burst buffer has to fit it at the rate asked: leave ``sample_rate_hz``
+        out and the pod runs the fastest rate that fits; a rate that does not fit raises
+        :class:`FirmwareError` naming the most samples at that rate and the fastest rate for that
+        depth (firmware 3.10.0+; older firmware slowed the capture down).
 
         ``stop_dac_after`` (seconds) cuts a concurrently-running DAC that far into the capture,
         sample-precise from the capture's hardware t0 (gateware >= v21). ``trigger`` (a

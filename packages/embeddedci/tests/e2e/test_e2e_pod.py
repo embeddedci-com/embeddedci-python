@@ -666,19 +666,21 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
 # The step train is timed by the pod's own 24 MHz clock, so its frequency read through the
 # capture's reported rate is exact only when that rate is the one the pod really ran. 1 MHz is
 # 24 MHz / 24 and shallow, so the tests above can't tell; these rates are rounded down to a whole
-# divider (2.304 MHz -> 24/11 = 2.18 MHz) or slowed to fit the 64 KB burst ring (300K samples at
-# 4 MHz -> 3 MHz). Firmware that reports the request instead fails by 5-25%.
+# divider (2.304 MHz -> 24/11 = 2.18 MHz), or, with no rate given, the fastest that fits the burst
+# ring (100K samples -> 4.8 MHz, 300K -> 3.43 MHz). Firmware that reports the request instead fails
+# by 5-25%.
 @pytest.mark.parametrize("samples,rate_hz", [(20_000, 2_304_000), (20_000, 12_000_000),
-                                             (100_000, 12_000_000), (300_000, 4_000_000)])
+                                             (100_000, None), (300_000, None)])
 def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
     ch = bench.free_la[0]
     delay = 10e-6                                           # 10 us high, 10 us low: 50 kHz
-    steps = min(65535, int((samples / rate_hz + 0.15) / (2 * delay)) + 1)
+    top = rate_hz or 12_000_000
+    steps = min(65535, int((samples / 3_000_000 + 0.15) / (2 * delay)) + 1)
     t0 = time.monotonic()
     pod.la_step(ch, steps=steps, delay=delay)
     try:
         la = pod.capture_la(samples, sample_rate_hz=rate_hz)
-        assert la.sample_rate_hz <= rate_hz
+        assert la.sample_rate_hz <= top
         assert la.frequency(ch) == pytest.approx(50_000, rel=0.002), (
             f"a 50 kHz train reads {la.frequency(ch):.0f} Hz at the reported "
             f"{la.sample_rate_hz:.0f} Hz: the capture ran at another rate")
@@ -686,6 +688,16 @@ def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
         assert min(widths) > 0.9 * delay, "samples were dropped"
     finally:
         time.sleep(max(0.0, t0 + steps * 2 * delay + 0.1 - time.monotonic()))
+
+
+# Firmware 3.10.0+ refuses an explicit rate a capture cannot run at (it used to slow it down), and
+# says what would work: the most samples at that rate and the fastest rate for that depth.
+def test_la_rate_that_does_not_fit_is_refused(pod):
+    fw = str(pod.status().get("firmware") or pod.status().get("version") or "0")
+    if tuple(int(x) for x in (fw.split(".") + ["0", "0"])[:3] if x.isdigit()) < (3, 10, 0):
+        pytest.skip(f"firmware {fw} slows such a capture down instead of refusing it")
+    with pytest.raises(FirmwareError, match=r"does not fit 100000 samples: at most 65536 samples at 12.0 MS/s"):
+        pod.capture_la(100_000, sample_rate_hz=12_000_000)
 
 
 # Above 12 MS/s (gateware v50+) the pod records the changes at 48 MS/s and replies in the same form:
