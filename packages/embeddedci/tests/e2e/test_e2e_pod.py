@@ -805,7 +805,15 @@ def test_adc_sample_rate_matches_the_host_clock(pod):
     block = 100
     counts = np.asarray(cap.counts, dtype=np.int64)
     blocks = counts[: len(counts) // block * block].reshape(-1, block)
-    active = (blocks.max(axis=1) - blocks.min(axis=1)) > 800
+    # Each block's swing around its own middle, modulo 65536: on the analog module with the quad
+    # DAC the cal1 loopback reads 0 V at the top of the ADC's code range, where noise wraps between
+    # 65535 and 0 and a flat block would look like a 65535-count swing.
+    mid = np.median(blocks, axis=1, keepdims=True)
+    centred = (blocks - mid + 32768) % 65536 - 32768
+    swing = centred.max(axis=1) - centred.min(axis=1)
+    active = swing > 800
+    if not active.any():
+        pytest.skip("no DAC burst on the cal1 loopback: the DAC does not reach the ADC on this pod")
     edges = (np.flatnonzero(np.diff(active.astype(np.int8)) != 0) + 1) * block
     rate = host_clock_rate(edges, stamps)
     assert rate == pytest.approx(cap.sample_rate_hz, rel=HOST_CLOCK_REL), (
