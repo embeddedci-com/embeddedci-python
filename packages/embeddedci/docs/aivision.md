@@ -61,7 +61,8 @@ an API key with the "Control AI Vision" scope (`api_key=` or `BENCHPOD_API_KEY`)
 `benchpod login` session, else GitHub Actions OIDC inside a workflow. `api_base=` (or
 `BENCHPOD_API_BASE`) points at another server. `lease=` takes embeddedci.com's device lease, the one
 the web app and other runs see (`lease_wait=` seconds to wait for a busy board); the board's own LAN
-lease is not reachable this way, and neither is changing its pairing or uploading models.
+lease is not reachable this way, and neither is changing its pairing. A model upload (`POST
+/api/v1/models`) goes through up to 95 MB; upload a larger one on the board's LAN.
 
 To pair a board, connect to it on its LAN once:
 
