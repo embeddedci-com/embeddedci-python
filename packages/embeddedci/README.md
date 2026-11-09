@@ -1087,6 +1087,31 @@ measurements (the J8-open zero as `Calibration.zero_count`, the DMM points) and 
 from them, so a later firmware with re-measured built-in fits keeps them right. Going back to
 firmware 3.4.0 to 3.9.3 keeps the offset; the DMM parts are not used there.
 
+`Calibration.stored` says where the calibration in use is kept (firmware 3.10.1+): `"module"`
+when it is also in the analog module's EEPROM, `"pod"` when it is only in the pod's flash, `"none"`.
+
+### The analog module (two-board BenchPod)
+
+On a two-board BenchPod (digital v3r3 with the analog module on a ribbon cable), the module carries
+an EEPROM with its identity and, from firmware 3.10.1, its calibration. The calibration belongs to
+the analog front end, so it moves with the module: every calibration is saved on the pod and on the
+module, and at boot the module's copy is used.
+
+```python
+m = bp.module()             # ModuleInfo(present, analog, power, bridge_power, eeprom, type, rev, serial, ...)
+print(m.eeprom, m.serial)   # "ok" "am-3f9a1c07b2e4"; "blank" on a module never written
+bp.set_module_id("am-3f9a1c07b2e4", "3.3")   # serial (up to 16 characters) and hardware revision
+```
+
+`ModuleInfo` has the live `present` flag, `analog` (the module is the pod's analog front end), the
+two rails (`power`, `bridge_power`), the EEPROM state (`eeprom`: `"ok"`, `"blank"`, `"bad magic"`,
+`"bad crc"`, `"bad length"`, `"none"`), and with `"ok"` the `type`, `rev` and `serial`, plus the stored
+calibration blob's `cal_len` and `cal_ok`. `set_module_id(serial, rev, module_type="analog")` writes
+the identity and keeps the calibration. A serial names one module for life: a module that already
+has another serial is refused unless `replace=True`. The revision (`"3.3"` for analog-v3r3) decides
+features such as the ADC low range (3.4 and later) after the pod's next restart. Other boards answer
+both with a `BenchPodError`.
+
 ### The 4-20 mA output
 
 Terminal J9 is a two-wire 4-20 mA transmitter. `current_out` holds a current on it, in amps:

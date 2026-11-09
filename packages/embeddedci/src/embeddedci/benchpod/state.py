@@ -473,6 +473,10 @@ class Calibration:
     #: (``v1``, ``v2``), what the ADC read before the gain (``r1``, ``r2``) and the mean offset left
     #: after it (``residual``), all in volts. ``None`` otherwise.
     measured: Optional[Dict[str, float]] = None
+    #: Where the calibration in use is kept (firmware 3.10.1+): ``"module"`` (also in the analog
+    #: module's EEPROM, digital v3r3: it moves with the module), ``"pod"`` (only the pod's flash) or
+    #: ``"none"``. ``None`` on older firmware.
+    stored: Optional[str] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -493,7 +497,45 @@ class Calibration:
                    zero_count=None if _opt_int(d, "zero_count_mc") is None else _opt_int(d, "zero_count_mc") / 1000.0,
                    measured=None if meas is None else {
                        k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},
+                   stored=d.get("stored") if isinstance(d.get("stored"), str) else None,
                    raw=d)
+
+
+@dataclass(frozen=True)
+class ModuleInfo:
+    """The analog module of a two-board BenchPod (digital v3r3) and its EEPROM (``BenchPod.module``).
+
+    The module's EEPROM holds its identity (type, hardware revision, serial number) and, from
+    firmware 3.10.1, its calibration, so the calibration moves with the module.
+    """
+
+    #: A module is plugged in now.
+    present: bool
+    #: The module was found at boot and is the pod's analog front end.
+    analog: bool
+    #: The module's 5 V rail and the USB-A bridge port rail are on.
+    power: bool
+    bridge_power: bool
+    #: The EEPROM header: ``"ok"``, ``"blank"`` (never written), ``"bad magic"``, ``"bad crc"``,
+    #: ``"bad length"`` or ``"none"`` (no EEPROM answered).
+    eeprom: str
+    #: With ``eeprom == "ok"``: the module type (``"analog"``), hardware revision (``"3.3"``) and serial.
+    type: Optional[str] = None
+    rev: Optional[str] = None
+    serial: Optional[str] = None
+    #: The stored calibration blob's length in bytes (0 = none) and whether its CRC matched.
+    cal_len: int = 0
+    cal_ok: bool = False
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "ModuleInfo":
+        d = _d(reply)
+        s = lambda k: d.get(k) if isinstance(d.get(k), str) else None  # noqa: E731
+        return cls(present=d.get("present") is True, analog=d.get("analog") is True,
+                   power=d.get("power") is True, bridge_power=d.get("bridge_power") is True,
+                   eeprom=str(d.get("eeprom", "none")), type=s("type"), rev=s("rev"), serial=s("serial"),
+                   cal_len=_opt_int(d, "cal_len") or 0, cal_ok=d.get("cal_ok") is True, raw=d)
 
 
 @dataclass(frozen=True)

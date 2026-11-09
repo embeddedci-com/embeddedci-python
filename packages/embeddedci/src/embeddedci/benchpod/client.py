@@ -30,6 +30,7 @@ import datetime as _dt
 import logging
 import math
 import os
+import re
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
@@ -113,6 +114,7 @@ from .state import (
     FpgaImageInfo,
     LaVoltage,
     LoopState,
+    ModuleInfo,
     PowerStatus,
     PullState,
     ResetState,
@@ -1410,6 +1412,35 @@ class BenchPod:
         if range != "normal":
             self._follow_adc_range("normal")
         return cal
+
+    # -- The analog module (two-board BenchPod, digital v3r3) -------------------
+
+    def module(self) -> ModuleInfo:
+        """The analog module and its EEPROM: identity, revision, serial and stored calibration.
+
+        Only on a two-board BenchPod (digital v3r3); other boards answer with a ``BenchPodError``.
+        """
+        return ModuleInfo.from_reply(self.command({"cmd": "module"}))
+
+    def set_module_id(self, serial: str, rev: str, module_type: str = "analog", *,
+                      replace: bool = False) -> ModuleInfo:
+        """Write the analog module's identity into its EEPROM: ``serial`` (up to 16 characters),
+        hardware ``rev`` as ``"major.minor"`` (``"3.3"`` for analog-v3r3) and ``module_type``.
+
+        The stored calibration stays. A module that already has another serial is refused unless
+        ``replace=True``: a serial names one module for life. The revision decides features (the ADC
+        low range from 3.4) after the pod's next restart.
+        """
+        if not serial or len(serial) > 16 or not serial.isprintable() or '"' in serial or "\\" in serial:
+            raise ValueError("serial: 1 to 16 printable characters, no quotes or backslashes")
+        if not re.fullmatch(r"\d{1,3}\.\d{1,3}", rev):
+            raise ValueError('rev: "major.minor", for example "3.3"')
+        current = self.module()
+        if current.eeprom == "ok" and current.serial and current.serial != serial and not replace:
+            raise BenchPodError(f"module: this module already has serial {current.serial!r}; "
+                                "pass replace=True to change it")
+        return ModuleInfo.from_reply(self.command({"cmd": "module", "eeprom": "id", "type": module_type,
+                                                   "rev": rev, "serial": serial}))
 
     def store_adc_compensation(self, hf_dc_gain: float, c_top_pf: float) -> Calibration:
         """Record the ADC input's measured frequency response on the pod (firmware 3.9.5+).

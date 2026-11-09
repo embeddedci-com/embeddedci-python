@@ -147,6 +147,7 @@
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
+    "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> '_can.CanBus'",
     "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
@@ -176,6 +177,7 @@
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
+    "set_module_id": "(self, serial: 'str', rev: 'str', module_type: 'str' = 'analog', *, replace: 'bool' = False) -> 'ModuleInfo'",
     "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
@@ -222,6 +224,7 @@
       "adc_comp",
       "zero_count",
       "measured",
+      "stored",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'Calibration'\""
@@ -648,6 +651,22 @@
     "dac_mux": "(self, *, ctrl1: 'Optional[str]' = None, ctrl2: 'Optional[str]' = None) -> 'Dict[str, Any]'",
     "dac_mux_status": "(self) -> 'Dict[str, Any]'",
     "dac_set": "(self, code: 'int', *, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
+  },
+  "ModuleInfo": {
+    "__fields__": [
+      "present",
+      "analog",
+      "power",
+      "bridge_power",
+      "eeprom",
+      "type",
+      "rev",
+      "serial",
+      "cal_len",
+      "cal_ok",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'ModuleInfo'\""
   },
   "MotorEmulator": {
     "__init__": "(self, spi: \"'SpiSession'\", *, programn: \"'Optional[GpioPin]'\" = None, done: \"'Optional[GpioPin]'\" = None, calibration: 'Optional[EmulatorCalibration]' = None) -> 'None'",
@@ -1121,6 +1140,7 @@
     "LoopSource",
     "LoopState",
     "LowLevel",
+    "ModuleInfo",
     "MotorEmulator",
     "NoopBuildReporter",
     "PIN1",
