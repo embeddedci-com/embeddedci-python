@@ -417,7 +417,8 @@ def _pyyaml_loader():
         out = {}
         for key_node, value_node in node.value:
             key = loader.construct_object(key_node, deep=True)
-            key = key if isinstance(key, str) else key_node.value
+            # As the built-in reader: a number key is its value as text, anything else as written.
+            key = str(key) if isinstance(key, (str, int)) and not isinstance(key, bool) else key_node.value
             if key in out:
                 raise YamlError(f"line {key_node.start_mark.line + 1}: duplicate key '{key}'")
             out[key] = loader.construct_object(value_node, deep=True)
