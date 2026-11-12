@@ -85,7 +85,7 @@ def pulse_and_wait(test, bench):
 ### LA voltage
 
 The pod refuses every LA-bank operation — **flashing, the UART proxy, LA capture,
-pull resistors, I2C-sensor emulation** — until the LA I/O-bank voltage is selected.
+pull resistors, sensor emulation** — until the LA I/O-bank voltage is selected.
 Set it to your DUT's I/O voltage (`1.8` or `3.3` volts); the plug applies it right
 after connecting. Resolution order: `benchpod_plug(..., la_voltage=)`, then the
 `benchpod_la_voltage` conf key, then the `BENCHPOD_LA_VOLTAGE` env var. Leave all three

@@ -37,7 +37,7 @@ def connected(benchpod_connection):
     if want and want != board:
         pytest.fail(f"the pod reports the {board} board, the bench expects {want} (BENCHPOD_EXPECT_BOARD)")
     yield status
-    cleanup = [("dac_stop", {}), ("can_close", {}), ("disable_i2c_sensor", {}), ("disconnect", {})]
+    cleanup = [("dac_stop", {}), ("can_close", {}), ("sensor_stop", {}), ("disconnect", {})]
     if board == "analog":
         cleanup.insert(1, ("analog_path", {"path": "off"}))
     for tool, args in cleanup:
@@ -156,10 +156,16 @@ def test_top_la_channels(connected):
         call("gpio_release", la=[13, 14])
 
 
-def test_i2c_sensor_and_can(connected):
-    call("enable_i2c_sensor", sda=_pin("I2C_SDA", 2), scl=_pin("I2C_SCL", 1))
-    assert call("i2c_sensor_regs", start=0xD0, length=1)["bytes"] == [0x58]
-    call("disable_i2c_sensor")
+def _require_sensors(connected) -> None:
+    if not connected["capabilities"].get("sensors"):
+        pytest.skip("firmware without sensor emulation (no 'sensors' capability)")
+
+
+def test_sensor_and_can(connected):
+    if connected["capabilities"].get("sensors"):
+        call("sensor_start", definition="bmp280", pins={"sda": _pin("I2C_SDA", 2), "scl": _pin("I2C_SCL", 1)})
+        assert call("sensor_regs", instance="bmp280", start=0xD0, length=1)["bytes"] == [0x58]
+        call("sensor_stop")
     if connected["capabilities"]["board"] == "stm32h563":
         call("can_open", mode="internal")
         call("can_write", can_id=0x321, data=[7, 8])
@@ -168,33 +174,37 @@ def test_i2c_sensor_and_can(connected):
         call("can_close")
 
 
-def test_sensor_models_and_gps(connected):
-    """The other sensor models and the GPS receiver through the tools an agent would call."""
-    caps = connected["capabilities"]
-    if not caps.get("sensor_types"):
-        pytest.skip("firmware without the sensor models")
-    types = {t["type"] for t in call("i2c_sensor_types")["reply"]["types"]}
-    assert {"bme280", "sht4x", "mpu6050"} <= types
+def test_library_and_inline_sensors_and_gps(connected):
+    """Library sensors, a definition written inline (as an agent would) and the NMEA GPS."""
+    _require_sensors(connected)
+    pins = {"sda": _pin("I2C_SDA", 2), "scl": _pin("I2C_SCL", 1)}
     try:
-        call("enable_i2c_sensor", sensor="mpu6050", sda=_pin("I2C_SDA", 2), scl=_pin("I2C_SCL", 1),
-             values={"accel_x_g": 0.5})
-        assert call("i2c_sensor_regs", start=0x75, length=1)["bytes"] == [0x68]
-        reply = call("set_i2c_sensor", values={"gyro_z_dps": 90})["reply"]
-        assert reply["values"]["gyro_z_dps"] == 90 and reply["values"]["accel_x_g"] == 0.5
-    finally:
-        call("disable_i2c_sensor")
-    if not caps.get("gps"):
-        return
-    try:
-        st = call("enable_gps", tx=_pin("FREE_LA_A", 9), latitude_deg=40.7128, longitude_deg=-74.006,
-                  fix=1)["reply"]
-        assert st["active"] and abs(st["latitude_deg"] - 40.7128) < 1e-6
-        st = call("set_gps", speed_kmh=50, course_deg=180)["reply"]
-        assert st["speed_kmh"] == 50
+        started = call("sensor_start", definition="mpu6050", pins=pins, values={"accel_x_g": 0.5})
+        assert started["started"]["image"] == "emulation"
+        assert call("sensor_regs", instance="mpu6050", start=0x75, length=1)["bytes"] == [0x68]
+        call("sensor_set", instance="mpu6050", values={"gyro_z_dps": 90})
+        inst = {i["instance"]: i for i in call("sensor_status")["reply"]["instances"]}
+        assert inst["mpu6050"]["values"]["gyro_z_dps"] == 90
+        assert inst["mpu6050"]["values"]["accel_x_g"] == 0.5
+        call("sensor_stop", instance="mpu6050")
+
+        inline = ("format: 1\nkind: i2c\nname: probe\nparams:\n  - { key: level, min: 0, max: 255, default: 7 }\n"
+                  "i2c: { address: 0x50 }\nregisters:\n  - { at: 0x00, u8: level }\n")
+        assert call("sensor_validate", definition=inline)["checked"] == "pod"
+        call("sensor_start", definition=inline, pins=pins)
+        assert call("sensor_regs", instance="probe", start=0, length=1)["bytes"] == [7]
+        call("sensor_set", instance="probe", values={"level": 42})
+        assert call("sensor_regs", instance="probe", start=0, length=1)["bytes"] == [42]
+        call("sensor_stop", instance="probe")
+
+        call("sensor_start", definition="gps_nmea", instance="gps", pins={"tx": _pin("FREE_LA_A", 9)},
+             values={"lat_deg": 40.7128, "lon_deg": -74.006, "fix": 1})
+        call("sensor_set", instance="gps", values={"speed_kmh": 50, "course_deg": 180})
         time.sleep(1.2)
-        assert call("gps_status")["reply"]["epochs"] >= 1
+        inst = {i["instance"]: i for i in call("sensor_status")["reply"]["instances"]}
+        assert inst["gps"]["bus"]["messages"] >= 1, inst["gps"]
     finally:
-        call("disable_gps")
+        call("sensor_stop")
 
 
 def test_firmware_refusals_are_tool_errors(connected):

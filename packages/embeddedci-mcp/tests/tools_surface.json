@@ -1271,7 +1271,7 @@
         },
         "switch_image": {
           "default": true,
-          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or sensor emulation. false = fail instead.",
           "title": "Switch Image",
           "type": "boolean"
         },
@@ -1585,34 +1585,6 @@
       "type": "object"
     }
   },
-  "disable_gps": {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": true,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Stop the emulated GPS"
-    },
-    "input": {
-      "properties": {},
-      "title": "disable_gpsArguments",
-      "type": "object"
-    }
-  },
-  "disable_i2c_sensor": {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": true,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Stop the emulated sensor"
-    },
-    "input": {
-      "properties": {},
-      "title": "disable_i2c_sensorArguments",
-      "type": "object"
-    }
-  },
   "disconnect": {
     "annotations": {
       "destructiveHint": false,
@@ -1624,318 +1596,6 @@
     "input": {
       "properties": {},
       "title": "disconnectArguments",
-      "type": "object"
-    }
-  },
-  "enable_gps": {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Emulate a GPS receiver"
-    },
-    "input": {
-      "properties": {
-        "altitude_m": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Altitude M"
-        },
-        "baud": {
-          "default": 9600,
-          "maximum": 921600,
-          "minimum": 300,
-          "title": "Baud",
-          "type": "integer"
-        },
-        "course_deg": {
-          "anyOf": [
-            {
-              "maximum": 360,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Course Deg"
-        },
-        "fix": {
-          "anyOf": [
-            {
-              "maximum": 2,
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "0 no fix, 1 GPS, 2 DGPS.",
-          "title": "Fix"
-        },
-        "hdop": {
-          "anyOf": [
-            {
-              "maximum": 99,
-              "minimum": 0.5,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Hdop"
-        },
-        "latitude_deg": {
-          "anyOf": [
-            {
-              "maximum": 90,
-              "minimum": -90,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Latitude Deg"
-        },
-        "longitude_deg": {
-          "anyOf": [
-            {
-              "maximum": 180,
-              "minimum": -180,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Longitude Deg"
-        },
-        "rate_hz": {
-          "default": 1,
-          "description": "Fixes per second.",
-          "maximum": 10,
-          "minimum": 1,
-          "title": "Rate Hz",
-          "type": "integer"
-        },
-        "satellites": {
-          "anyOf": [
-            {
-              "maximum": 12,
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Satellites"
-        },
-        "sentences": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Comma-separated subset of RMC, VTG, GGA, GSA, GSV, GLL; omit for all six.",
-          "title": "Sentences"
-        },
-        "speed_kmh": {
-          "anyOf": [
-            {
-              "maximum": 2000,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Speed Kmh"
-        },
-        "tx": {
-          "anyOf": [
-            {
-              "maximum": 14,
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "description": "LA channel (or wiring name) wired to the DUT's UART RX.",
-          "title": "Tx"
-        },
-        "utc": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock).",
-          "title": "Utc"
-        }
-      },
-      "required": [
-        "tx"
-      ],
-      "title": "enable_gpsArguments",
-      "type": "object"
-    }
-  },
-  "enable_i2c_sensor": {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Emulate an I2C sensor"
-    },
-    "input": {
-      "properties": {
-        "address": {
-          "anyOf": [
-            {
-              "maximum": 119,
-              "minimum": 3,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "7-bit address; omit for the profile's i2c_addr (BMP280/BME280) or the model's default (SHT4x 0x44, MPU-6050 0x68).",
-          "title": "Address"
-        },
-        "pressure_pa": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pressure Pa"
-        },
-        "scl": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "maximum": 14,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "string"
-                }
-              ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "LA channel (or wiring name) of the bus's SCL; omit for the profile's i2c_scl.",
-          "title": "Scl"
-        },
-        "sda": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "maximum": 14,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "string"
-                }
-              ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "LA channel (or wiring name) of the bus's SDA; omit for the profile's i2c_sda.",
-          "title": "Sda"
-        },
-        "sensor": {
-          "default": "bmp280",
-          "description": "bmp280 (temperature, pressure), bme280 (+ humidity), sht4x (temperature, humidity) or mpu6050 (accelerometer, gyroscope, die temperature).",
-          "enum": [
-            "bmp280",
-            "bme280",
-            "sht4x",
-            "mpu6050"
-          ],
-          "title": "Sensor",
-          "type": "string"
-        },
-        "temperature_c": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Temperature C"
-        },
-        "values": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or {\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, units and ranges.",
-          "title": "Values"
-        }
-      },
-      "title": "enable_i2c_sensorArguments",
       "type": "object"
     }
   },
@@ -2579,128 +2239,6 @@
         "level"
       ],
       "title": "gpio_writeArguments",
-      "type": "object"
-    }
-  },
-  "gps_status": {
-    "annotations": {
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Emulated GPS status"
-    },
-    "input": {
-      "properties": {},
-      "title": "gps_statusArguments",
-      "type": "object"
-    }
-  },
-  "i2c_sensor_capture": {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Capture the sensor's I2C bus"
-    },
-    "input": {
-      "properties": {
-        "address": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Also report whether the DUT addressed this device.",
-          "title": "Address"
-        },
-        "register": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "With address: the bytes the DUT read from this register.",
-          "title": "Register"
-        },
-        "sample_rate_hz": {
-          "default": 500000,
-          "exclusiveMinimum": 0,
-          "maximum": 50000000,
-          "title": "Sample Rate Hz",
-          "type": "number"
-        },
-        "samples": {
-          "default": 4096,
-          "maximum": 65536,
-          "minimum": 64,
-          "title": "Samples",
-          "type": "integer"
-        }
-      },
-      "title": "i2c_sensor_captureArguments",
-      "type": "object"
-    }
-  },
-  "i2c_sensor_regs": {
-    "annotations": {
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Emulated sensor registers"
-    },
-    "input": {
-      "properties": {
-        "length": {
-          "default": 256,
-          "maximum": 256,
-          "minimum": 1,
-          "title": "Length",
-          "type": "integer"
-        },
-        "start": {
-          "default": 0,
-          "maximum": 255,
-          "minimum": 0,
-          "title": "Start",
-          "type": "integer"
-        }
-      },
-      "title": "i2c_sensor_regsArguments",
-      "type": "object"
-    }
-  },
-  "i2c_sensor_status": {
-    "annotations": {
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Emulated sensor status"
-    },
-    "input": {
-      "properties": {},
-      "title": "i2c_sensor_statusArguments",
-      "type": "object"
-    }
-  },
-  "i2c_sensor_types": {
-    "annotations": {
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Emulated sensor models"
-    },
-    "input": {
-      "properties": {},
-      "title": "i2c_sensor_typesArguments",
       "type": "object"
     }
   },
@@ -3483,7 +3021,7 @@
         },
         "switch_image": {
           "default": true,
-          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or sensor emulation. false = fail instead.",
           "title": "Switch Image",
           "type": "boolean"
         },
@@ -3627,7 +3165,7 @@
         },
         "switch_image": {
           "default": true,
-          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or I2C sensor emulation. false = fail instead.",
+          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or sensor emulation. false = fail instead.",
           "title": "Switch Image",
           "type": "boolean"
         },
@@ -3735,46 +3273,77 @@
       "type": "object"
     }
   },
-  "set_gps": {
+  "sensor_capture": {
     "annotations": {
       "destructiveHint": false,
-      "idempotentHint": true,
+      "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
-      "title": "Set the emulated GPS fix"
+      "title": "Capture a sensor's I2C bus"
     },
     "input": {
       "properties": {
-        "altitude_m": {
+        "address": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "integer"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Altitude M"
+          "description": "Also report whether the DUT addressed this device.",
+          "title": "Address"
         },
-        "course_deg": {
+        "instance": {
+          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+          "pattern": "^[a-z0-9_]{1,32}$",
+          "title": "Instance",
+          "type": "string"
+        },
+        "register": {
           "anyOf": [
             {
-              "maximum": 360,
-              "minimum": 0,
-              "type": "number"
+              "type": "integer"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Course Deg"
+          "description": "With address: the bytes the DUT read from this register.",
+          "title": "Register"
         },
-        "fix": {
+        "samples": {
+          "default": 4096,
+          "maximum": 65536,
+          "minimum": 64,
+          "title": "Samples",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instance"
+      ],
+      "title": "sensor_captureArguments",
+      "type": "object"
+    }
+  },
+  "sensor_fault": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Inject a sensor fault"
+    },
+    "input": {
+      "properties": {
+        "at": {
           "anyOf": [
             {
-              "maximum": 2,
+              "maximum": 65535,
               "minimum": 0,
               "type": "integer"
             },
@@ -3783,14 +3352,13 @@
             }
           ],
           "default": null,
-          "description": "0 no fix, 1 GPS, 2 DGPS.",
-          "title": "Fix"
+          "description": "corrupt: the register.",
+          "title": "At"
         },
-        "hdop": {
+        "duration_s": {
           "anyOf": [
             {
-              "maximum": 99,
-              "minimum": 0.5,
+              "exclusiveMinimum": 0,
               "type": "number"
             },
             {
@@ -3798,40 +3366,19 @@
             }
           ],
           "default": null,
-          "title": "Hdop"
+          "description": "Omit to last until sensor_fault_clear.",
+          "title": "Duration S"
         },
-        "latitude_deg": {
+        "instance": {
+          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+          "pattern": "^[a-z0-9_]{1,32}$",
+          "title": "Instance",
+          "type": "string"
+        },
+        "mask": {
           "anyOf": [
             {
-              "maximum": 90,
-              "minimum": -90,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Latitude Deg"
-        },
-        "longitude_deg": {
-          "anyOf": [
-            {
-              "maximum": 180,
-              "minimum": -180,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Longitude Deg"
-        },
-        "satellites": {
-          "anyOf": [
-            {
-              "maximum": 12,
+              "maximum": 255,
               "minimum": 0,
               "type": "integer"
             },
@@ -3840,23 +3387,10 @@
             }
           ],
           "default": null,
-          "title": "Satellites"
+          "description": "corrupt: the XOR mask.",
+          "title": "Mask"
         },
-        "speed_kmh": {
-          "anyOf": [
-            {
-              "maximum": 2000,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Speed Kmh"
-        },
-        "utc": {
+        "param": {
           "anyOf": [
             {
               "type": "string"
@@ -3866,15 +3400,179 @@
             }
           ],
           "default": null,
-          "description": "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock).",
-          "title": "Utc"
+          "description": "The param a stuck/offset/gain fault applies to.",
+          "title": "Param"
+        },
+        "rate_hz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "garbage: bytes per second (default 100).",
+          "title": "Rate Hz"
+        },
+        "type": {
+          "description": "stuck (readings freeze), offset/gain (param + value), no_response (I2C NACK, SPI MISO released, UART silent), corrupt (register at XOR mask), bus_stuck (I2C SDA low, at most 1 s), garbage/drop/baud_error (UART), open/short (analog).",
+          "enum": [
+            "stuck",
+            "offset",
+            "gain",
+            "no_response",
+            "corrupt",
+            "bus_stuck",
+            "garbage",
+            "drop",
+            "baud_error",
+            "open",
+            "short"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "offset/gain amount, drop probability, baud error percent, or a stuck/open/short value.",
+          "title": "Value"
         }
       },
-      "title": "set_gpsArguments",
+      "required": [
+        "instance",
+        "type"
+      ],
+      "title": "sensor_faultArguments",
       "type": "object"
     }
   },
-  "set_i2c_sensor": {
+  "sensor_fault_clear": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Clear sensor faults"
+    },
+    "input": {
+      "properties": {
+        "instance": {
+          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+          "pattern": "^[a-z0-9_]{1,32}$",
+          "title": "Instance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instance"
+      ],
+      "title": "sensor_fault_clearArguments",
+      "type": "object"
+    }
+  },
+  "sensor_format": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Sensor definition format"
+    },
+    "input": {
+      "properties": {
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sensor library version: 'latest', a release such as '0.2.0', or 'default' (the version the SDK pins). Sets it for the other sensor tools too. Omit to keep the current one.",
+          "title": "Version"
+        }
+      },
+      "title": "sensor_formatArguments",
+      "type": "object"
+    }
+  },
+  "sensor_library": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List library sensors"
+    },
+    "input": {
+      "properties": {
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sensor library version: 'latest', a release such as '0.2.0', or 'default' (the version the SDK pins). Sets it for the other sensor tools too. Omit to keep the current one.",
+          "title": "Version"
+        }
+      },
+      "title": "sensor_libraryArguments",
+      "type": "object"
+    }
+  },
+  "sensor_regs": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated sensor registers"
+    },
+    "input": {
+      "properties": {
+        "instance": {
+          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+          "pattern": "^[a-z0-9_]{1,32}$",
+          "title": "Instance",
+          "type": "string"
+        },
+        "length": {
+          "default": 256,
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Length",
+          "type": "integer"
+        },
+        "start": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instance"
+      ],
+      "title": "sensor_regsArguments",
+      "type": "object"
+    }
+  },
+  "sensor_set": {
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,
@@ -3884,29 +3582,154 @@
     },
     "input": {
       "properties": {
-        "pressure_pa": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pressure Pa"
+        "instance": {
+          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+          "pattern": "^[a-z0-9_]{1,32}$",
+          "title": "Instance",
+          "type": "string"
         },
-        "temperature_c": {
+        "values": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Param key -> value, e.g. {\"temperature_c\": 31.5}; the keys, units and ranges are the definition's params (sensor_show, or the params sensor_start returns).",
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "instance",
+        "values"
+      ],
+      "title": "sensor_setArguments",
+      "type": "object"
+    }
+  },
+  "sensor_show": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Show a library sensor"
+    },
+    "input": {
+      "properties": {
+        "name": {
+          "description": "Library entry name ('sht4x') or path.",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Temperature C"
+          "description": "Sensor library version: 'latest', a release such as '0.2.0', or 'default' (the version the SDK pins). Sets it for the other sensor tools too. Omit to keep the current one.",
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "sensor_showArguments",
+      "type": "object"
+    }
+  },
+  "sensor_start": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Start an emulated sensor"
+    },
+    "input": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "I2C: the definition's address or one of its alt_addresses (0x77 or \"0x77\"); omit for its address.",
+          "title": "Address"
+        },
+        "baud": {
+          "anyOf": [
+            {
+              "maximum": 4000000,
+              "minimum": 300,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UART: override the definition's baud rate.",
+          "title": "Baud"
+        },
+        "definition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ],
+          "description": "A library sensor name ('bme280', see sensor_library), a .yaml/.json path on the machine running this server, the definition itself as YAML or JSON text, or a JSON object. Write your own from a datasheet in the format sensor_format describes.",
+          "title": "Definition"
+        },
+        "instance": {
+          "anyOf": [
+            {
+              "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instance"
+        },
+        "pins": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Role -> LA channel (1-14) or wiring name. I2C: sda, scl (default: the profile's i2c_sda/i2c_scl), optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*), optional drdy. UART: tx (pod to DUT RX, required), optional rx. Analog: output 'dac' (default) or 'current'.",
+          "title": "Pins"
         },
         "values": {
           "anyOf": [
@@ -3921,11 +3744,161 @@
             }
           ],
           "default": null,
-          "description": "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or {\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, units and ranges.",
+          "description": "Initial param values; omitted ones start at their defaults.",
           "title": "Values"
         }
       },
-      "title": "set_i2c_sensorArguments",
+      "required": [
+        "definition"
+      ],
+      "title": "sensor_startArguments",
+      "type": "object"
+    }
+  },
+  "sensor_status": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Emulated sensor status"
+    },
+    "input": {
+      "properties": {},
+      "title": "sensor_statusArguments",
+      "type": "object"
+    }
+  },
+  "sensor_stimulus_load": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Load a sensor stimulus"
+    },
+    "input": {
+      "properties": {
+        "stimulus": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ],
+          "description": "A stimulus (kind: stimulus): YAML or JSON text, a JSON object, or a path on the machine running this server. Signals are params ('temperature_c', or 'env.temperature_c' with several sensors); segments hold, step, ramp, sine, saw, pulse, noise, data, repeat; optional faults at_s.",
+          "title": "Stimulus"
+        }
+      },
+      "required": [
+        "stimulus"
+      ],
+      "title": "sensor_stimulus_loadArguments",
+      "type": "object"
+    }
+  },
+  "sensor_stimulus_start": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Play the sensor stimulus"
+    },
+    "input": {
+      "properties": {
+        "at_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start this many seconds into the stimulus; omit for t = 0.",
+          "title": "At S"
+        }
+      },
+      "title": "sensor_stimulus_startArguments",
+      "type": "object"
+    }
+  },
+  "sensor_stimulus_stop": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop the sensor stimulus"
+    },
+    "input": {
+      "properties": {},
+      "title": "sensor_stimulus_stopArguments",
+      "type": "object"
+    }
+  },
+  "sensor_stop": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stop emulated sensors"
+    },
+    "input": {
+      "properties": {
+        "instance": {
+          "anyOf": [
+            {
+              "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The instance to stop; omit to stop every sensor.",
+          "title": "Instance"
+        }
+      },
+      "title": "sensor_stopArguments",
+      "type": "object"
+    }
+  },
+  "sensor_validate": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Validate a sensor definition"
+    },
+    "input": {
+      "properties": {
+        "definition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ],
+          "description": "A library sensor name ('bme280', see sensor_library), a .yaml/.json path on the machine running this server, the definition itself as YAML or JSON text, or a JSON object. Write your own from a datasheet in the format sensor_format describes.",
+          "title": "Definition"
+        }
+      },
+      "required": [
+        "definition"
+      ],
+      "title": "sensor_validateArguments",
       "type": "object"
     }
   },

@@ -131,11 +131,11 @@ def test_power_tools_report_the_resolved_rail(connected):
     assert call("power_off", efuse=1)["efuse"] == 1  # an explicit rail still wins
 
 
-def test_i2c_sensor_takes_the_profile_channels_and_address(connected):
+def test_sensor_start_takes_the_profile_channels(connected):
     _set()
-    call("enable_i2c_sensor")
+    call("sensor_start", definition="bmp280")
     start = [r for r in connected.requests if r["cmd"] == "sensor_start"][-1]
-    assert start["sda"] == 3 and start["scl"] == 4 and start["addr"] == "0x77"
+    assert start["pins"] == {"sda": 3, "scl": 4} and "address" not in start
 
 
 def test_flash_takes_the_profile_pins_target_and_reset(connected, monkeypatch):

@@ -367,7 +367,7 @@ def _benchpod_lift_dac_limits(pytestconfig: "pytest.Config") -> Iterator[None]:
 def benchpod_la_voltage() -> Optional[float]:
     """The I/O voltage of the board under test, selected on the pod when the session connects.
 
-    The pod refuses flashing, UART, LA capture, pull resistors and I2C-sensor emulation until an
+    The pod refuses flashing, UART, LA capture, pull resistors and sensor emulation until an
     LA bank voltage is chosen, so set it ONCE for your test suite by overriding this fixture in
     ``conftest.py`` — nothing has to be repeated on the command line::
 
