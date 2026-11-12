@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.13.9
 
 - CAN FD (pod firmware 3.10.2+, capability `can_fd`): `open_can` and `can_config` take
   `data_bitrate`, which makes the bus CAN FD with bit-rate switching above `bitrate` (exact rates up
