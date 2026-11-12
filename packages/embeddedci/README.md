@@ -891,9 +891,9 @@ pod a **sensor definition** (YAML or JSON, the format of the public
 [sensor library](https://github.com/embeddedci-com/benchpod-sensors), `docs/format.md`) and the pod
 compiles and plays it. So firmware that probes a sensor can be tested with it present, absent,
 reporting chosen values, following a curve over time, or failing in a chosen way. Up to 4 I2C
-sensors (on one bus or several), 1 SPI sensor, 1 UART sensor and the analog sensors run at once;
-each is an **instance** with a name you pick (`[a-z0-9_]{1,32}`, the definition's `name` by
-default). Needs pod firmware with the `sensors` capability (`Capabilities.sensors`,
+sensors (on one bus or several), 1 SPI sensor, 1 UART sensor and 2 analog sensors (one per analog
+output) run at once; each is an **instance** with a name you pick (1 to 16 characters of `a-z`,
+`0-9` and `_`; the definition's `name` by default, so a longer definition name needs `instance=`). Needs pod firmware with the `sensors` capability (`Capabilities.sensors`,
 `Capabilities.sensors_format`); older firmware raises `UnsupportedFeatureError`: "this pod's
 firmware is too old for sensor emulation; update the firmware".
 
@@ -906,7 +906,7 @@ env = bp.sensors.start("bme280", pins={"sda": PIN2, "scl": PIN1}, address=0x76,
 env.set(temperature_c=40.0)                        # the DUT's next read sees it
 print(env.params)                                  # key, unit, min, max, default of each value
 print(env.regs(0xD0, 1))                           # [0x60]: the register image the DUT reads
-print(env.status())                                # values, faults, bus counters (transfers, writes)
+print(env.status())                                # slot, values, faults, bus counters (writes, last_write)
 txns = env.i2c_transactions(4096)                  # capture the instance's bus and decode it
 print(i2c.format_transactions(txns))
 env.stop()                                         # pins released, definition forgotten
@@ -918,9 +918,17 @@ in the shape the EmbeddedCI capture view draws), for placing decoded bytes on a 
 
 `bp.sensors` is a `SensorEmulation`; `start()` returns a `Sensor` handle (also a context manager
 that stops the instance). I2C, SPI and UART sensors need the pod's emulation FPGA image: `start()`
-loads it when another image runs (about a second; `sensor.started["image_loaded"]`), and while it
+loads it when another image runs (about 2 s; `sensor.started["image_loaded"]`), and while it
 runs the DAC control loop and deep DAC replay are unavailable (`sensor.started["unavailable"]`).
+The pod does not switch back after `stop()`: `control_loop()` and the deep replays do it once no
+I2C, SPI or UART sensor runs, and raise a `BenchPodError` naming `bp.sensors.stop()` while one does.
 Set the LA voltage first, and the pull-ups for I2C.
+
+What the pod's emulation supports: UART 8N1 only; the SPI target has no data-ready pin; one
+sensor with a `fifo` at a time; conversion and command times of at most 65.535 ms (a longer one
+is cut to that), at most 4 distinct ones per I2C sensor; one analog instance per output, and no
+`excitation: adc` yet; `bus_stuck` lasts at most 1 s. The pod refuses the rest with a clear
+message.
 
 | `SensorEmulation` | Does |
 |---|---|
@@ -931,10 +939,11 @@ Set the LA voltage first, and the pull-ups for I2C.
 | `set(instance, values=None, **values)` | change readings; a value outside its param's range is refused with the range |
 | `fault(instance, type, *, duration_s=None, **fields)`, `clear_fault(instance)` | inject a fault now (`stuck`, `offset`, `gain`, `no_response`, `corrupt`, `bus_stuck`, `garbage`, `drop`, `baud_error`, `open`, `short`; fields `param`, `value`, `at`, `mask`, `rate_hz`); without `duration_s` it lasts until cleared |
 | `load_stimulus(stimulus, *, base_dir=None)`, `start_stimulus(at_s=None)`, `stop_stimulus()` | values over time (below) |
-| `stop(instance=None)` | stop one instance, or all of them |
-| `status()` | `image`, `stimulus` (`loaded`, `running`, `t_s`) and `instances` with their `pins`, `values`, `faults`, `bus` |
-| `regs(instance, *, start=0, length=256)` | the bytes an I2C/SPI instance answers now (the DUT's own writes included) |
-| `capture(instance, samples=4096)`, `i2c_transactions(instance, samples=4096)` | a raw capture of the instance's bus pins (`sensor_la`), and that capture decoded as I2C |
+| `stop(instance=None)` | stop one instance, or all of them; returns the names the pod stopped |
+| `status(instance=None)` | `image`, `stimulus` (`loaded`, `running`, `t_s`) and `instances` with their `slot` (`i2c0`..`i2c3`, `spi0`, `uart0`, `analog0` the DAC, `analog1` the 4-20 mA output), `pins`, `values`, `faults` (objects with `type` and `left_s`, `None` until cleared) and `bus` (`writes`, `last_write`, `log_lost`...; `transfers` is always `None`: the gateware counts written bytes); every page the pod sends, as one |
+| `running_digital()` | the I2C, SPI and UART instances that run (they hold the emulation image) |
+| `regs(instance, *, start=0, length=None)` | the bytes an I2C/SPI instance answers now (the DUT's own writes included): `start` 0..255 in its 256-byte image, to its end by default |
+| `capture(instance, samples=4096)`, `i2c_transactions(instance, samples=4096)` | a raw capture of an I2C instance's bus pins (`sensor_la`, 1..4096 packed bytes of four samples), and that capture decoded; SPI and UART sensors: `la_capture()` their pins |
 | `library(version=None, *, offline=False)`, `library_version` | the sensor library used for names such as `"bme280"` |
 
 The `Sensor` handle has `instance`, `kind`, `name`, `params`, `info` (the compile report: `label`,
@@ -944,8 +953,9 @@ methods `set()`, `fault()`, `clear_fault()`, `status()`, `regs()`, `capture()`,
 
 **Pins** map roles to LA channels or wiring names: I2C `sda`, `scl` (default: the profile's
 `i2c_sda`/`i2c_scl`) and an optional `drdy`; SPI `sclk`, `mosi`, `miso`, `cs` (default: the
-profile's `spi_*`) and `drdy`; UART `tx` (pod to DUT) and an optional `rx` (DUT to pod); analog
-`output`, `"dac"` (default) or `"current"` (the 4-20 mA output). Several I2C instances may share
+profile's `spi_*`; the emulated SPI target has no data-ready pin); UART `tx` (pod to DUT) and an optional `rx` (DUT to pod); analog
+`output`, `"dac"` (default) or `"current"` (the 4-20 mA output). The SDK sends LA channels: it
+resolves wiring names itself. Several I2C instances may share
 `sda`/`scl` when their addresses differ. `la_pins()` shows an instance's channels as owner
 `sensor:<instance>`; a pin conflict names `bp.sensors.stop("<instance>")`.
 
@@ -1471,7 +1481,7 @@ The pod's FPGA runs one of three gateware images, all stored on the pod:
 |---|---|---|
 | `FpgaImage.LOOP` (0) | the [in-fabric control loop](#in-fabric-dac-control-loop) | `dac_control_loop` |
 | `FpgaImage.DEEP_REPLAY` (1) | replays longer than 2048 samples, streamed from PSRAM | `dac_deep_replay` |
-| `FpgaImage.EMULATION` (2) | I2C, SPI and UART sensor emulation | `sensors` |
+| `FpgaImage.EMULATION` (2) | I2C, SPI and UART sensor emulation (gateware v54+, W25Q slot `gw2`) | none while it runs; `sensors_digital` says it is installed |
 
 Everything else — captures, the generator, DC output, short replays, UART, CAN — works on all three.
 I2C, SPI and UART sensor emulation runs only on the emulation image, which `bp.sensors.start()` loads by
@@ -1483,8 +1493,10 @@ logger, and record the switch on the returned handle as `switched_image` (an `Fp
 `None` when no switch was needed). Pass `switch_image=False` to get a `BenchPodError` instead, for a
 test that must not disturb the pod. `replay_waveform` through the server switches only for a
 recording that would otherwise be downsampled (longer than the shallow replay depth, with no
-`target_samples`), and waits until the server sees the new image. A pod that reports neither flag has
-a single image and is never switched.
+`target_samples`), and waits until the server sees the new image. From the emulation image (neither
+flag, `sensors_digital` set; `fpga_image` says which runs) they switch back when no I2C, SPI or UART
+sensor runs and raise naming `bp.sensors.stop()` otherwise: the pod never switches back by itself.
+A pod that reports neither flag nor `sensors_digital` has a single image and is never switched.
 
 What a switch does:
 
@@ -1865,7 +1877,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
 | `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
 | `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
-| `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=256)`, `capture(samples)`, `i2c_transactions(samples)`, `stop()` |
+| `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=None)`, `capture(samples)`, `i2c_transactions(samples)`, `stop()` |
 | `SensorEmulation` (class) | `BenchPod.sensors` | see [Emulated sensors](#emulated-sensors) |
 | `SensorLibrary` (class) | `sensor_library`, `sensors.library` | `version`, `source`, `warning`, `root`, `entries`, `find(name)`, `get(name)`, `path(name)`, `text(name)`, `load(name)`, `format_doc()` |
 | `LibraryEntry` | `SensorLibrary.entries` | `path`, `name`, `kind`, `label`, `to_dict()` |
@@ -1895,7 +1907,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `IVPoint` | `loop_probe`, `ControlLoopHandle.probe` | `i`, `v`, `input_code`, `source`, `tripped`, `loop_input` |
 | `LoopInputMap` | `control_loop(input_map=...)` | `mv_per_unit`, `range_min`, `range_max`, `mv_at_zero`, `trip`, `to_request()` |
 | `LoopState` | `loop_input` | `source`, `input_code`, `step`, `output_code` |
-| `FpgaImage` (enum) | `fpga_image` | `LOOP`, `DEEP_REPLAY` |
+| `FpgaImage` (enum) | `fpga_image` | `LOOP`, `DEEP_REPLAY`, `EMULATION` |
 | `FpgaImageInfo` | `fpga_image` | `image`, `version`, `features` |
 | `CanBus` (class) | `open_can` | `write()`, `read()`, `read_until()`, `expect()`, `collect()`, `assert_periodic()`, `add_responder()`, `clear_responders()`, `simulate_ecu()`, `set_term()`, `status()`, `close()` |
 | `CanFrame` | `CanBus.read`, `CanBus.expect` | `id`, `data`, `ext`, `rtr`, `ts`, `dlc` |

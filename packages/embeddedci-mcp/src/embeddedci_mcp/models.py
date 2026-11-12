@@ -625,6 +625,10 @@ class StopResult(BaseModel):
     stopped: bool = True
 
 
+class SensorStopResult(StopResult):
+    instances: List[str] = Field(default_factory=list, description="The instances the pod stopped.")
+
+
 class ReplayResult(BaseModel):
     samples: int
     sample_rate_hz: float

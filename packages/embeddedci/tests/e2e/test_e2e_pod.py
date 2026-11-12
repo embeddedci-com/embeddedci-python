@@ -104,7 +104,7 @@ def test_reset_line_and_usb_cc(pod, rev3):
     lambda p: p.capture_adc(0),
     lambda p: p.capture_la(64, sample_rate_hz=0),
     lambda p: p.replay([1.0], dac_path="24v"),
-    lambda p: p.fpga_image(2),
+    lambda p: p.fpga_image(3),
     lambda p: p.la_step(9, steps=0, delay=0.001),
     lambda p: p.can_write(0x10, list(range(65))),
     lambda p: p.decode([0, 1], "can"),
@@ -963,9 +963,10 @@ def test_deep_replay_plays_while_capturing(deep_image):
 
 @ANALOG
 def test_fpga_image_round_trip(pod):
-    started_on_loop = pod.refresh_capabilities().dac_control_loop
-    other = FpgaImage.DEEP_REPLAY if started_on_loop else FpgaImage.LOOP
-    back = FpgaImage.LOOP if started_on_loop else FpgaImage.DEEP_REPLAY
+    running = pod._running_image()
+    back = FpgaImage(running.image) if running is not None else (
+        FpgaImage.LOOP if pod.refresh_capabilities().dac_control_loop else FpgaImage.DEEP_REPLAY)
+    other = FpgaImage.DEEP_REPLAY if back == FpgaImage.LOOP else FpgaImage.LOOP
     info = pod.fpga_image(other)
     try:
         assert isinstance(info, FpgaImageInfo) and info.image == int(other)
@@ -1020,8 +1021,25 @@ def test_sensor_emulation(sensors, bench):
     # A changed value must reach the register image: the BMP280 temperature lives in 0xFA..0xFC.
     assert s.regs(0xFA, 3) != before_regs, "set did not change the emulated temperature registers"
     assert isinstance(s.capture(1024), list)
-    s.stop()
+    status = s.status()
+    assert status["slot"].startswith("i2c") and status["bus"]["transfers"] is None
+    assert s.stop() == ["bmp280"]
     assert s.status() == {}
+
+
+@ANALOG
+def test_control_loop_leaves_the_emulation_image_only_once_the_sensors_stopped(sensors, bench, pod):
+    """The pod never switches back from the emulation image: the SDK does, when nothing needs it."""
+    s = sensors.start("bmp280", pins=_i2c_pins(bench))
+    assert pod._running_image().image == FpgaImage.EMULATION
+    with pytest.raises(BenchPodError, match=r"bp\.sensors\.stop\(\)"):
+        pod.control_loop(curve=[0, 30000, 60000])
+    s.stop()
+    loop = pod.control_loop(curve=[0, 30000, 60000])
+    try:
+        assert loop.switched_image is not None and loop.switched_image.image == FpgaImage.LOOP
+    finally:
+        pod.dac_stop()
 
 
 def test_library_sensors(sensors, bench):

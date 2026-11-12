@@ -112,7 +112,7 @@ def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
         )
         assert boot.match(APP_OK), f"no APP_OK banner:\n{boot.text}"
         assert boot.match(PRESENT), f"BMP280 not detected:\n{boot.text}"
-        assert sensor.status()["bus"]["transfers"] > 0
+        assert sensor.status()["running"]  # the pod counts written bytes, not transfers
 
         # 4. Boot again and decode the I2C bus. The chip-id probe is a one-shot a few
         #    ms after power-up, so sweep a handful of back-to-back capture windows.

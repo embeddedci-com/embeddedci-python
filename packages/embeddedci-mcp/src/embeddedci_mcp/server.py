@@ -160,6 +160,10 @@ _MCP_FIXES = (
      "close the UART session first with uart_close"),
     (re.compile(r"end the SWD session first"),
      "wait for the running flash (its SWD session) to finish"),
+    (re.compile(r'\{"cmd":"sensor_stop","all":true\} then \{"cmd":"fpga_image","image":"(loop|deep)"\}'),
+     lambda m: 'sensor_stop() then fpga_image(image="'
+               + ("loop" if m.group(1) == "loop" else "deep_replay") + '")'),
+    (re.compile(r'stop them first \(\{"cmd":"sensor_stop","all":true\}\)'), "stop them first with sensor_stop"),
     (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'sensor_stop(instance="\1")'),
     (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
      "stop the sensor emulation first with sensor_stop"),
@@ -907,11 +911,12 @@ SensorDefinition = Annotated[Union[str, Dict[str, Any]], Field(description=(
     "A library sensor name ('bme280', see sensor_library), a .yaml/.json path on the machine "
     "running this server, the definition itself as YAML or JSON text, or a JSON object. Write "
     "your own from a datasheet in the format sensor_format describes."))]
-SensorInstance = Annotated[str, Field(pattern=r"^[a-z0-9_]{1,32}$", description=(
-    "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name."))]
+SensorInstance = Annotated[str, Field(pattern=r"^[a-z0-9_]{1,16}$", description=(
+    "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the "
+    "definition's name (pass one when that name is longer)."))]
 SensorPins = Annotated[Optional[Dict[str, Union[int, str]]], Field(description=(
     "Role -> LA channel (1-14) or wiring name. I2C: sda, scl (default: the profile's i2c_sda/i2c_scl), "
-    "optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*), optional drdy. UART: "
+    "optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*; no data-ready pin). UART: "
     "tx (pod to DUT RX, required), optional rx. Analog: output 'dac' (default) or 'current'."))]
 SensorValuesArg = Annotated[Dict[str, float], Field(description=(
     "Param key -> value, e.g. {\"temperature_c\": 31.5}; the keys, units and ranges are the "
@@ -1022,9 +1027,12 @@ async def sensor_start(
 
     Set the LA voltage first, and the pull-ups for I2C (set_pull on sda and scl, LA1-LA6).
     Starting an instance name that runs replaces it. Up to 4 I2C sensors (several may share one
-    bus at different addresses), 1 SPI and 1 UART sensor run at once. I2C/SPI/UART sensors load the
-    pod's emulation FPGA image if another runs (image_loaded in the result; control_loop and deep
-    replays are unavailable meanwhile). The result lists the params sensor_set takes.
+    bus at different addresses), 1 SPI, 1 UART and 2 analog sensors (one per output) run at once.
+    I2C/SPI/UART sensors load the pod's emulation FPGA image if another runs (image_loaded in the
+    result); it stays after sensor_stop, and control_loop / deep replays switch back by themselves
+    once no I2C/SPI/UART sensor runs. Pod limits: UART 8N1 only, one FIFO sensor at a time,
+    conversion/command times at most 65.535 ms (4 distinct per I2C sensor), no excitation: adc.
+    The result lists the params sensor_set takes.
     """
     return await _call(lambda: _sensor_result(_emulation().start(
         definition, instance=instance, pins=pins, address=address, baud=baud, values=values)))
@@ -1087,22 +1095,24 @@ async def sensor_fault_clear(instance: SensorInstance) -> m.DeviceReply:
 
 @mcp.tool(annotations=_ann("Stop emulated sensors", idempotent=True))
 async def sensor_stop(instance: Annotated[Optional[SensorInstance], Field(description=(
-        "The instance to stop; omit to stop every sensor."))] = None) -> m.StopResult:
-    """Stop a sensor (or all): the pod releases its pins and forgets the definition."""
-    await _call(lambda: _emulation().stop(instance))
-    return m.StopResult()
+        "The instance to stop; omit to stop every sensor."))] = None) -> m.SensorStopResult:
+    """Stop a sensor (or all): the pod releases its pins and forgets the definition. The emulation FPGA image stays loaded."""
+    names = await _call(lambda: _emulation().stop(instance))
+    return m.SensorStopResult(instances=list(names or []))
 
 
 @mcp.tool(annotations=_ann("Emulated sensor status", read_only=True))
 async def sensor_status() -> m.DeviceReply:
-    """Running sensors (pins, values, faults, bus counters: did the DUT talk to it?), the stimulus and the FPGA image."""
+    """Running sensors (slot, pins, values, faults with left_s, bus counters: writes and last_write say the DUT talked to it; transfers is always null), the stimulus and the FPGA image."""
     return m.DeviceReply(reply=await _call(lambda: _emulation().status()) or {})
 
 
 @mcp.tool(annotations=_ann("Emulated sensor registers", read_only=True))
 async def sensor_regs(instance: SensorInstance,
-                      start: Annotated[int, Field(ge=0, le=0xFFFF)] = 0,
-                      length: Annotated[int, Field(ge=1, le=256)] = 256) -> m.I2cRegsResult:
+                      start: Annotated[int, Field(ge=0, le=255, description=(
+                          "Offset in the 256-byte register image (i2c.page is its window)."))] = 0,
+                      length: Annotated[Optional[int], Field(ge=1, le=256, description=(
+                          "Bytes to read; omit for the rest of the image."))] = None) -> m.I2cRegsResult:
     """The bytes an I2C/SPI sensor answers now (the DUT's own writes included)."""
     data = await _call(lambda: _emulation().regs(instance, start=start, length=length))
     return m.I2cRegsResult(start=start, bytes=list(data))
@@ -1111,11 +1121,12 @@ async def sensor_regs(instance: SensorInstance,
 @mcp.tool(annotations=_ann("Capture a sensor's I2C bus"))
 async def sensor_capture(
     instance: SensorInstance,
-    samples: Annotated[int, Field(ge=64, le=65536)] = 4096,
+    samples: Annotated[int, Field(ge=1, le=4096, description=(
+        "Packed bytes to capture (4 samples each)."))] = 4096,
     address: Annotated[Optional[int], Field(description="Also report whether the DUT addressed this device.")] = None,
     register: Annotated[Optional[int], Field(description="With address: the bytes the DUT read from this register.")] = None,
 ) -> m.I2cCaptureResult:
-    """Capture an I2C sensor's bus pins and decode them into a transaction trace (S/Sr/P, addr, data, ACK)."""
+    """Capture an I2C sensor's bus pins and decode them into a transaction trace (S/Sr/P, addr, data, ACK). I2C only: capture an SPI or UART sensor's pins with capture_la."""
     def op() -> m.I2cCaptureResult:
         txns = _emulation().i2c_transactions(instance, samples)
         addrs = sorted({msg.address for t in txns for msg in t.messages if msg.address is not None})
@@ -2020,8 +2031,10 @@ async def fpga_image(
 ) -> m.FpgaImageResult:
     """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
 
-    Rarely needed: control_loop, replay and replay_waveform switch automatically. The switch resets
-    the FPGA (any DAC output, UART session or sensor emulation stops).
+    Rarely needed: control_loop, replay and replay_waveform switch automatically (also back from
+    the emulation image once no I2C/SPI/UART sensor runs). The pod never switches back by itself,
+    and refuses to leave the emulation image while I2C/SPI/UART sensors run (sensor_stop first).
+    The switch resets the FPGA (any DAC output or UART session stops).
     """
     img = {"loop": FpgaImage.LOOP, "deep_replay": FpgaImage.DEEP_REPLAY,
            "emulation": FpgaImage.EMULATION}[image]

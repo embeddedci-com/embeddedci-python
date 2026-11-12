@@ -210,7 +210,13 @@ class Sensor:
     def status(self) -> Dict[str, Any]:
         """This instance's entry of :meth:`SensorEmulation.status` (``values``, ``faults``,
         ``bus`` counters), ``{}`` when it no longer runs."""
-        for entry in self._emulation.status(self.instance).get("instances") or []:
+        try:
+            st = self._emulation.status(self.instance)
+        except BenchPodError as exc:
+            if "unknown sensor instance" in str(exc):
+                return {}
+            raise
+        for entry in st.get("instances") or []:
             if isinstance(entry, dict) and entry.get("instance") == self.instance:
                 return entry
         return {}

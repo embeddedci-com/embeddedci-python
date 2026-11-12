@@ -254,17 +254,17 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `sensor_show` | One library entry: its YAML (a starting point for your own part) and the params `sensor_set` takes. | **`name`**, `version` |
 | `sensor_format` | The definition and stimulus format reference (Markdown), to write a definition from a datasheet. | `version` |
 | `sensor_validate` | Check a definition: the header here, then a dry-run compile on the pod (header only when no pod is connected). | **`definition`** (a library name, YAML/JSON text, a JSON object or a path) |
-| `sensor_start` | Upload a definition and start it on `pins` (set the LA voltage and, for I2C, the pull-ups first); returns the params and whether the emulation FPGA image was loaded. | **`definition`**, `instance` (default: its name), `pins` (`sda`/`scl`/`drdy`, `sclk`/`mosi`/`miso`/`cs`, `tx`/`rx`, `output`; channels or wiring names, I2C and SPI default to the profile), `address`, `baud`, `values` |
+| `sensor_start` | Upload a definition and start it on `pins` (set the LA voltage and, for I2C, the pull-ups first); returns the params and whether the emulation FPGA image was loaded. | **`definition`**, `instance` (1 to 16 characters; default: its name), `pins` (`sda`/`scl`/`drdy`, `sclk`/`mosi`/`miso`/`cs` (no data-ready pin on SPI), `tx`/`rx`, `output`; channels or wiring names, I2C and SPI default to the profile), `address`, `baud`, `values` |
 | `sensor_set` | Change what a running sensor reports; out-of-range values are refused with the range. | **`instance`**, **`values`** |
 | `sensor_stimulus_load` | Upload values over time (and timed faults) for the running sensors. | **`stimulus`** (YAML/JSON text, a JSON object or a path) |
 | `sensor_stimulus_start` | Play the loaded stimulus. | `at_s` |
 | `sensor_stimulus_stop` | Stop it; values stay where it left them. | none |
 | `sensor_fault` | Make a sensor misbehave now: `stuck`, `offset`, `gain`, `no_response`, `corrupt`, `bus_stuck`, `garbage`, `drop`, `baud_error`, `open`, `short`. | **`instance`**, **`type`**, `duration_s` (default: until cleared), `param`, `value`, `at`, `mask`, `rate_hz` |
 | `sensor_fault_clear` | End a sensor's faults. | **`instance`** |
-| `sensor_stop` | Stop one sensor, or all; the pod releases the pins and forgets the definition. | `instance` (default: all) |
-| `sensor_status` | Running sensors (pins, values, faults, bus counters), the stimulus and the FPGA image. | none |
-| `sensor_regs` | The bytes an I2C/SPI sensor answers now. | **`instance`**, `start=0`, `length=256` |
-| `sensor_capture` | Capture an I2C sensor's bus and decode it into a transaction trace. | **`instance`**, `samples=4096`, `address`, `register` |
+| `sensor_stop` | Stop one sensor, or all; the pod releases the pins and forgets the definition; returns the names it stopped. The emulation image stays loaded. | `instance` (default: all) |
+| `sensor_status` | Running sensors (slot, pins, values, faults with `left_s`, bus counters such as `writes`; `transfers` is always null), the stimulus and the FPGA image, every page in one reply. | none |
+| `sensor_regs` | The bytes an I2C/SPI sensor answers now. | **`instance`**, `start=0` (0..255), `length` (default: to the end of the 256-byte image) |
+| `sensor_capture` | Capture an I2C sensor's bus and decode it into a transaction trace (I2C only; `capture_la` for SPI and UART sensors). | **`instance`**, `samples=4096` (1..4096 packed bytes), `address`, `register` |
 
 ### Pull resistors
 
@@ -329,7 +329,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `control_loop` | Run a tabulated transfer function in the FPGA (for example a solar panel I-V curve). | `curve`, `voc_code`, `sharpness=4`, `points=256`, `k=8192`, `vmin=0`, `vmax=65535`, `tick_div=64`, `source`, `input_code=0`, `step=0`, `input_map`, `switch_image=true` |
 | `loop_input` | Re-target the running loop's input without re-arming. | `input_code`, `source`, `step` |
 | `loop_probe` | The running loop's live operating point. | none |
-| `fpga_image` | Switch the FPGA to the `loop` or `deep_replay` gateware image (~2-3 s). | **`image`** |
+| `fpga_image` | Switch the FPGA to the `loop`, `deep_replay` or `emulation` gateware image (~2-3 s); refused while I2C, SPI or UART sensors run on the emulation image. | **`image`** |
 
 ### CAN
 
@@ -471,7 +471,8 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   `switch_image: false` fails instead. A switch resets the FPGA — a running DAC output, UART session
   or sensor emulation stops — and the server instructions tell the agent to start those after it.
   `fpga_image` switches explicitly. I2C, SPI and UART sensors run on a third, emulation image that
-  `sensor_start` loads by itself.
+  `sensor_start` loads by itself; the pod never switches back, so `control_loop` and the deep
+  replays switch back once no such sensor runs (and name `sensor_stop` while one does).
 - **Non-blocking.** Tools run on worker threads under one device lock: a 5-minute flash doesn't
   freeze the server, sends progress notifications, and concurrent calls can't interleave commands.
 - **Annotations.** Read-only tools (`status`, `power_status`, `adc_read`, …) are marked so clients

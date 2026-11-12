@@ -429,6 +429,7 @@ def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
     assert call("sensor_fault_clear", instance="env")["reply"]["faults"] == []
     status = call("sensor_status")["reply"]
     assert {i["instance"] for i in status["instances"]} == {"env", "probe"}
+    assert [r.get("first") for r in connected.requests if r["cmd"] == "sensor_status"][-2:] == [None, 1]
     assert call("sensor_regs", instance="env", start=0xF7, length=4)["bytes"] == [0, 1, 2, 3]
     cap = call("sensor_capture", instance="env", address=0x77, register=0xD0)
     assert cap["transactions"] == 0 and cap["addressed"] is False
@@ -438,8 +439,12 @@ def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
     with pytest.raises(ToolError, match="unknown name 'bogus'"):
         call("sensor_validate", definition=INLINE.replace("u8: level", "u8: bogus"))
 
-    assert call("sensor_stop", instance="probe") == {"stopped": True}
-    assert call("sensor_stop") == {"stopped": True}
+    with pytest.raises(ToolError):
+        call("sensor_set", instance="a" * 17, values={"x": 1})
+    with pytest.raises(ToolError, match="unknown sensor instance 'nope'"):
+        call("sensor_set", instance="nope", values={"x": 1})
+    assert call("sensor_stop", instance="probe") == {"stopped": True, "instances": ["probe"]}
+    assert call("sensor_stop") == {"stopped": True, "instances": ["env"]}
     assert connected.requests[-1] == {"cmd": "sensor_stop", "all": True}
     assert call("sensor_status")["reply"]["instances"] == []
 

@@ -3298,8 +3298,8 @@
           "title": "Address"
         },
         "instance": {
-          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-          "pattern": "^[a-z0-9_]{1,32}$",
+          "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+          "pattern": "^[a-z0-9_]{1,16}$",
           "title": "Instance",
           "type": "string"
         },
@@ -3318,8 +3318,9 @@
         },
         "samples": {
           "default": 4096,
-          "maximum": 65536,
-          "minimum": 64,
+          "description": "Packed bytes to capture (4 samples each).",
+          "maximum": 4096,
+          "minimum": 1,
           "title": "Samples",
           "type": "integer"
         }
@@ -3371,8 +3372,8 @@
           "title": "Duration S"
         },
         "instance": {
-          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-          "pattern": "^[a-z0-9_]{1,32}$",
+          "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+          "pattern": "^[a-z0-9_]{1,16}$",
           "title": "Instance",
           "type": "string"
         },
@@ -3469,8 +3470,8 @@
     "input": {
       "properties": {
         "instance": {
-          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-          "pattern": "^[a-z0-9_]{1,32}$",
+          "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+          "pattern": "^[a-z0-9_]{1,16}$",
           "title": "Instance",
           "type": "string"
         }
@@ -3546,21 +3547,30 @@
     "input": {
       "properties": {
         "instance": {
-          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-          "pattern": "^[a-z0-9_]{1,32}$",
+          "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+          "pattern": "^[a-z0-9_]{1,16}$",
           "title": "Instance",
           "type": "string"
         },
         "length": {
-          "default": 256,
-          "maximum": 256,
-          "minimum": 1,
-          "title": "Length",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 256,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bytes to read; omit for the rest of the image.",
+          "title": "Length"
         },
         "start": {
           "default": 0,
-          "maximum": 65535,
+          "description": "Offset in the 256-byte register image (i2c.page is its window).",
+          "maximum": 255,
           "minimum": 0,
           "title": "Start",
           "type": "integer"
@@ -3584,8 +3594,8 @@
     "input": {
       "properties": {
         "instance": {
-          "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-          "pattern": "^[a-z0-9_]{1,32}$",
+          "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+          "pattern": "^[a-z0-9_]{1,16}$",
           "title": "Instance",
           "type": "string"
         },
@@ -3698,8 +3708,8 @@
         "instance": {
           "anyOf": [
             {
-              "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-              "pattern": "^[a-z0-9_]{1,32}$",
+              "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+              "pattern": "^[a-z0-9_]{1,16}$",
               "type": "string"
             },
             {
@@ -3729,7 +3739,7 @@
             }
           ],
           "default": null,
-          "description": "Role -> LA channel (1-14) or wiring name. I2C: sda, scl (default: the profile's i2c_sda/i2c_scl), optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*), optional drdy. UART: tx (pod to DUT RX, required), optional rx. Analog: output 'dac' (default) or 'current'.",
+          "description": "Role -> LA channel (1-14) or wiring name. I2C: sda, scl (default: the profile's i2c_sda/i2c_scl), optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*; no data-ready pin). UART: tx (pod to DUT RX, required), optional rx. Analog: output 'dac' (default) or 'current'.",
           "title": "Pins"
         },
         "values": {
@@ -3856,8 +3866,8 @@
         "instance": {
           "anyOf": [
             {
-              "description": "Instance name (lowercase letters, digits, _); sensor_start defaults it to the definition's name.",
-              "pattern": "^[a-z0-9_]{1,32}$",
+              "description": "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the definition's name (pass one when that name is longer).",
+              "pattern": "^[a-z0-9_]{1,16}$",
               "type": "string"
             },
             {

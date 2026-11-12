@@ -197,19 +197,25 @@ class FakeTransport(Transport):
 
     def _cmd_sensor_start(self, req):
         st = self.sensors[req["instance"]]
-        st.update(running=True, pins=req["pins"], faults=[], bus={"transfers": 3})
+        st.update(running=True, pins=req["pins"], faults=[], slot="i2c0",
+                  bus={"writes": 3, "transfers": None, "log_lost": 0})
         st["values"].update(req.get("values", {}))
         return {"instance": req["instance"], "slot": "i2c0", "image": "emulation",
                 "image_loaded": True, "unavailable": ["dac_control_loop", "deep_replay"]}
 
     def _cmd_sensor_set(self, req):
-        st = self.sensors[req["instance"]]
+        st = self._sensor(req)
         st["values"].update(req["values"])
-        return {"instance": req["instance"], "values": st["values"]}
+        return {"instance": req["instance"], "values": req["values"]}
+
+    def _sensor(self, req):
+        if req["instance"] not in self.sensors:
+            raise FirmwareError(f"unknown sensor instance '{req['instance']}'", cmd=req["cmd"])
+        return self.sensors[req["instance"]]
 
     def _cmd_sensor_fault(self, req):
-        self.sensors[req["instance"]]["faults"].append(req["type"])
-        return {"instance": req["instance"], "faults": self.sensors[req["instance"]]["faults"]}
+        self._sensor(req)["faults"].append({"type": req["type"], "left_s": req.get("duration_s")})
+        return {"instance": req["instance"], "fault": req["type"]}
 
     def _cmd_sensor_fault_clear(self, req):
         self.sensors[req["instance"]]["faults"] = []
@@ -232,14 +238,28 @@ class FakeTransport(Transport):
 
     def _cmd_sensor_stop(self, req):
         if req.get("all"):
+            names = list(self.sensors)
             self.sensors.clear()
         else:
-            self.sensors.pop(req["instance"], None)
-        return None
+            self._sensor(req)
+            names = [req["instance"]]
+            self.sensors.pop(req["instance"])
+        return {"stopped": names}
 
     def _cmd_sensor_status(self, req):
-        return {"image": "emulation", "stimulus": dict(self.stimulus),
-                "instances": [dict(v, instance=k) for k, v in self.sensors.items()]}
+        # One instance per page, so the tools read every page.
+        items = [dict(v, instance=k) for k, v in self.sensors.items()]
+        first = int(req.get("first", 0))
+        out = {"image": "emulation", "stimulus": dict(self.stimulus), "instances": items[first:first + 1]}
+        if first + 1 < len(items):
+            out["next"] = first + 1
+        return out
+
+    def _cmd_sensor_regs(self, req):
+        self._sensor(req)
+        n = int(req["len"])
+        return {"instance": req["instance"], "start": req["start"], "len": n,
+                "data_b64": base64.b64encode(bytes(range(n))).decode()}
 
     def _cmd_la(self, req):
         if "steps" in req:
@@ -453,8 +473,6 @@ class FakeTransport(Transport):
     # -- chunked / streaming --
     def samples(self, req: dict) -> list:
         self.requests.append(req)
-        if req["cmd"] == "sensor_regs":
-            return list(range(req.get("len", 256)))
         return []
 
     def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:

@@ -9,7 +9,10 @@
   `sensor_stop`, `sensor_status`, `sensor_regs` and `sensor_capture`. `sensor_start` and
   `sensor_validate` take a library name or a definition as YAML or JSON text, so an agent can
   write one from a datasheet (`sensor_format` is the reference). The capability flags report
-  `sensors` and `sensors_format` instead of `sensor_types` and `gps`.
+  `sensors` and `sensors_format` instead of `sensor_types` and `gps`. Instance names are 1 to 16
+  characters; `sensor_stop` returns the instances it stopped; `sensor_regs` takes `start` 0..255;
+  `sensor_capture` (I2C only) takes 1..4096 packed bytes; `fpga_image` takes `emulation`, and the
+  emulation image refusals name `sensor_stop` and `fpga_image`.
 - Removed: `enable_i2c_sensor`, `set_i2c_sensor`, `i2c_sensor_types`, `disable_i2c_sensor`,
   `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture`, `enable_gps`, `set_gps`,
   `disable_gps` and `gps_status`.

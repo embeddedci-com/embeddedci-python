@@ -101,14 +101,16 @@ def quiesce(pod: BenchPod) -> None:
 
 @pytest.fixture(scope="session")
 def pod(benchpod: BenchPod):
-    """The session's pod; the gateware image it started on is restored at the end."""
-    started_on_loop = benchpod.refresh_capabilities().dac_control_loop
+    """The session's pod; the gateware image it started on is restored at the end (the sensor
+    tests leave the emulation image loaded: the pod never switches back by itself)."""
+    started = benchpod._running_image()
     check_expected_board(benchpod)
     yield benchpod
     quiesce(benchpod)
     try:
-        if benchpod.refresh_capabilities().dac_control_loop != started_on_loop:
-            benchpod.fpga_image(FpgaImage.LOOP if started_on_loop else FpgaImage.DEEP_REPLAY)
+        now = benchpod._running_image()
+        if started is not None and now is not None and now.image != started.image:
+            benchpod.fpga_image(started.image)
     except Exception:
         pass
 
