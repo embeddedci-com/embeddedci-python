@@ -1495,8 +1495,9 @@ with bp.control_loop(curve=curve, input_map=shunt) as loop:
 
 ## CAN
 
-The pod has one CAN node (FDCAN + TCAN1044 transceiver). `open_can` configures it and returns a
-`CanBus`, which clears autonomous-responder rules and disables CAN on exit.
+The pod has one CAN node (FDCAN + TCAN1044 transceiver), classic CAN or CAN FD. `open_can`
+configures it and returns a `CanBus`, which clears autonomous-responder rules and disables CAN on
+exit.
 
 | `mode` | Behaviour |
 |---|---|
@@ -1517,11 +1518,25 @@ with bp.open_can(bitrate=500_000, term=True) as can:        # on a real bus, 120
     can.assert_periodic(0x100, period=0.1, tol=0.2)         # uses the pod's ISR timestamps
 ```
 
+**CAN FD** (firmware 3.10.2+, `bp.supports("can_fd")`): pass `data_bitrate`. Frames then carry up
+to 64 bytes, and with `data_bitrate` above `bitrate` their data phase switches to it (up to
+8 Mbit/s; rates with exact timing such as 1, 2, 4, 5 and 8 Mbit/s). Frames on an FD bus are FD with
+bit-rate switching unless you pass `fd=False` (a classic frame, for a classic node on the same bus)
+or `brs=False`. An FD payload of another length than 0-8, 12, 16, 20, 24, 32, 48 or 64 bytes is
+padded with zeros to the next one.
+
+```python
+with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
+    can.write(0x123, bytes(range(64)))
+    frame = can.expect(can_id=0x123, timeout=1.0)
+    assert frame.fd and frame.brs and frame.data == bytes(range(64))
+```
+
 `CanBus` also has `read(max_frames=8)`, `read_until(match, timeout=)` (returns `None` on timeout),
 `add_responder`, `clear_responders`, `status()` and `set_term(on)`. A match is a CAN id or a
-`CanFrame -> bool` predicate. `CanFrame` has `id`, `data` (bytes), `ext`, `rtr`, `dlc` and `ts`
-(pod uptime in ms). The command-level methods underneath are on `BenchPod`: `can_config`,
-`can_write`, `can_read` (→ `CanReadResult(frames, overflow)`), `can_status`, `can_term`,
+`CanFrame -> bool` predicate. `CanFrame` has `id`, `data` (bytes), `ext`, `rtr`, `fd`, `brs`, `dlc`
+and `ts` (pod uptime in ms). The command-level methods underneath are on `BenchPod`: `can_config`,
+`can_write`, `can_read` (→ `CanReadResult(frames, overflow, pending)`), `can_status`, `can_term`,
 `can_respond`, `can_respond_clear`, `can_disable`.
 
 ### Step/direction pulse trains
@@ -1753,7 +1768,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
-| CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
+| CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False, data_bitrate=None)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
 | Cloud library and server | `waveforms`, `save_capture_as_recording(...)`, `server_api` (the `ServerApi`; needs an API key or a cloud session) |
 | Escape hatches | `command(cmd)`, `transport`, `lowlevel` (see [Escape hatches](#escape-hatches)) |
 

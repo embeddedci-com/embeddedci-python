@@ -1,5 +1,12 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.10
+
+- CAN FD (pod firmware 3.10.2+): `can_open` takes `data_bitrate` (CAN FD, bit-rate switching up to
+  8 Mbit/s), `can_write` takes up to 64 bytes plus `fd` and `brs`, `can_respond` takes
+  `reply_fd` and `reply_brs`. `can_read` frames report `fd` and `brs`; `can_write` returns the
+  `dlc` sent and whether it was FD. Requires `embeddedci` 2.13.9.
+
 ## 2.13.9
 
 - `vision_*` tools for the AI Vision board (ai-vision-2), on their own connection next to the pod's:

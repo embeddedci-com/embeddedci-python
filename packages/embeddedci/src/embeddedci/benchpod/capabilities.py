@@ -84,7 +84,7 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
 #: Boolean capabilities the firmware's ``status`` reports as top-level ``true`` fields (and the
 #: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
 _STATUS_FLAGS = ("ota_sig", "sig_policy_cmd", "lan_policy_cmd", "tunnel_max_tier", "lease_state",
-                 "cloud_ca", "cloud_proxy", "blob_slots")
+                 "cloud_ca", "cloud_proxy", "blob_slots", "can_fd")
 
 
 def _crash_text(v: Any) -> str:
@@ -192,6 +192,9 @@ class Capabilities:
     #: Classic CAN on the pod's CAN+/CAN- terminals: :meth:`BenchPod.open_can`. Firmware older
     #: than the flag still has CAN on every v2/v3 pod; it just doesn't say so.
     can: bool = False
+    #: CAN FD on the same terminals (firmware 3.10.2+): ``data_bitrate`` on
+    #: :meth:`BenchPod.open_can` / :meth:`BenchPod.can_config`, frames of up to 64 bytes.
+    can_fd: bool = False
     #: The board measures the pod's own 5 V current: :attr:`PowerStatus.pod`.
     pod_current: bool = False
     #: The board has the analog front end (ADC, DAC, 4-20 mA). ``False`` on the digital-only

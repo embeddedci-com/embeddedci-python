@@ -330,10 +330,10 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `can_open` | Bring up the pod's CAN interface (normal, loopback or listen-only). | `bitrate=500000`, `mode=normal`, `term=false` |
-| `can_write` | Queue one classic CAN frame. | **`can_id`**, `data`, `ext=false`, `rtr=false` |
+| `can_open` | Bring up the pod's CAN interface (normal, loopback or listen-only): classic CAN, or CAN FD with `data_bitrate` (firmware 3.10.2+, up to 8 Mbit/s, 64-byte frames). | `bitrate=500000`, `mode=normal`, `term=false`, `data_bitrate` |
+| `can_write` | Queue one CAN frame: up to 8 bytes, or 64 on a CAN FD bus (FD with bit-rate switching unless `fd=false` / `brs=false`). | **`can_id`**, `data`, `ext=false`, `rtr=false`, `fd`, `brs` |
 | `can_read` | Read received frames, or wait for one id. | `timeout=0`, `can_id`, `max_frames=32` |
-| `can_respond` | Answer a CAN id from the pod firmware (ECU simulation), or clear all rules. | `match_id`, `reply_id`, `reply_data`, `match_ext=false`, `reply_ext=false`, `clear=false` |
+| `can_respond` | Answer a CAN id from the pod firmware (ECU simulation), or clear all rules. | `match_id`, `reply_id`, `reply_data`, `match_ext=false`, `reply_ext=false`, `reply_fd`, `reply_brs`, `clear=false` |
 | `can_status` | Link state: mode, bitrate, error counters, bus-off. | none |
 | `can_close` | Clear responder rules and stop CAN. | none |
 

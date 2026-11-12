@@ -1,5 +1,17 @@
 # Changelog — `embeddedci`
 
+## 2.13.9
+
+- CAN FD (pod firmware 3.10.2+, capability `can_fd`): `open_can` and `can_config` take
+  `data_bitrate`, which makes the bus CAN FD with bit-rate switching above `bitrate` (exact rates up
+  to 8 Mbit/s, for example 2 or 5 Mbit/s). `fd=True` without it is CAN FD at `bitrate`. Classic CAN
+  stays the default. `can_write`, `CanBus.write`, `can_respond` and `add_responder` take up to 64
+  bytes and `fd`/`brs` (`reply_fd`/`reply_brs`); `CanFrame` has `fd` and `brs`, and
+  `CanReadResult.pending` counts frames still queued (`CanBus` reads again while it is above 0).
+  More than 8 bytes on a pod without `can_fd` raises `UnsupportedFeatureError` instead of
+  `ValueError`; more than 64 raises `ValueError`. `can_config` no longer sends `fd`, which the
+  firmware never used.
+
 ## 2.13.8
 
 - `embeddedci.aivision`: client for the AI Vision board (ai-vision-2), standard library only.

@@ -91,20 +91,20 @@
     "calibration": "(self) -> 'Calibration'",
     "can_analog": "property",
     "can_calibrate": "property",
-    "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_config": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> 'Dict[str, Any]'",
     "can_current_out": "property",
     "can_disable": "(self) -> 'Dict[str, Any]'",
     "can_gpio": "property",
     "can_profile_power": "property",
     "can_read": "(self, *, max_frames: 'int' = 8) -> '_can.CanReadResult'",
     "can_reset_target": "property",
-    "can_respond": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_respond": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False, reply_fd: 'Optional[bool]' = None, reply_brs: 'Optional[bool]' = None) -> 'Dict[str, Any]'",
     "can_respond_clear": "(self) -> 'Dict[str, Any]'",
     "can_spi": "property",
     "can_status": "(self) -> 'Dict[str, Any]'",
     "can_term": "(self, on: 'bool') -> 'Dict[str, Any]'",
     "can_trigger": "property",
-    "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'Dict[str, Any]'",
+    "can_write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False, fd: 'Optional[bool]' = None, brs: 'Optional[bool]' = None) -> 'Dict[str, Any]'",
     "capabilities": "property",
     "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None, oversample: 'bool' = False) -> 'Capture'",
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
@@ -148,7 +148,7 @@
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
-    "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False) -> '_can.CanBus'",
+    "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
     "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
     "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576) -> '_uart.UartSession'",
@@ -231,19 +231,20 @@
   },
   "CalibrationPart": "Literal['offset', 'dac', 'adc']",
   "CanBus": {
-    "__init__": "(self, bp: \"'BenchPod'\", *, bitrate: 'int', mode: 'str', term: 'bool' = False, fd: 'bool' = False) -> 'None'",
-    "add_responder": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False) -> 'dict'",
+    "__init__": "(self, bp: \"'BenchPod'\", *, bitrate: 'int', mode: 'str', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> 'None'",
+    "add_responder": "(self, match_id: 'int', reply_id: 'int', reply_data: 'Union[bytes, Sequence[int], None]' = None, *, match_ext: 'bool' = False, reply_ext: 'bool' = False, reply_fd: 'Optional[bool]' = None, reply_brs: 'Optional[bool]' = None) -> 'dict'",
     "assert_periodic": "(self, can_id: 'int', period: 'float', *, tol: 'float' = 0.25, min_count: 'int' = 3, duration: 'Optional[float]' = None) -> 'List[CanFrame]'",
     "clear_responders": "(self) -> 'dict'",
     "close": "(self) -> 'None'",
     "collect": "(self, duration: 'float', *, match: 'Optional[Match]' = None, poll: 'float' = 0.02) -> 'List[CanFrame]'",
     "expect": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float' = 1.0) -> 'CanFrame'",
+    "fd": "property",
     "read": "(self, max_frames: 'int' = 8) -> 'List[CanFrame]'",
     "read_until": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float', poll: 'float' = 0.02) -> 'Optional[CanFrame]'",
     "set_term": "(self, on: 'bool') -> 'dict'",
     "simulate_ecu": "(self, rules: 'dict') -> 'None'",
     "status": "(self) -> 'dict'",
-    "write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False) -> 'dict'"
+    "write": "(self, can_id: 'int', data: 'Union[bytes, Sequence[int], None]' = None, *, ext: 'bool' = False, rtr: 'bool' = False, fd: 'Optional[bool]' = None, brs: 'Optional[bool]' = None) -> 'dict'"
   },
   "CanFrame": {
     "__fields__": [
@@ -251,7 +252,9 @@
       "data",
       "ext",
       "rtr",
-      "ts"
+      "ts",
+      "fd",
+      "brs"
     ],
     "dlc": "property",
     "from_dict": "(cls, d: 'dict') -> \"'CanFrame'\""
@@ -260,7 +263,8 @@
   "CanReadResult": {
     "__fields__": [
       "frames",
-      "overflow"
+      "overflow",
+      "pending"
     ],
     "from_reply": "(cls, data: 'Optional[dict]') -> \"'CanReadResult'\""
   },
@@ -313,6 +317,7 @@
       "cal_dmm",
       "current_out",
       "can",
+      "can_fd",
       "pod_current",
       "analog",
       "dac_limits",

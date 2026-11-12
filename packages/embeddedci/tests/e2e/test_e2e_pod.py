@@ -106,12 +106,12 @@ def test_reset_line_and_usb_cc(pod, rev3):
     lambda p: p.replay([1.0], dac_path="24v"),
     lambda p: p.fpga_image(2),
     lambda p: p.la_step(9, steps=0, delay=0.001),
-    lambda p: p.can_write(0x10, list(range(9))),
+    lambda p: p.can_write(0x10, list(range(65))),
     lambda p: p.decode([0, 1], "can"),
     lambda p: p.control_loop(vmin=50000, vmax=1000),
 ], ids=["analog_path alias", "volts on off", "adc source", "pullup on LA7", "pulldown on LA1",
         "la voltage", "zero amplitude", "zero samples", "zero rate", "dac path", "fpga image",
-        "zero steps", "9 CAN bytes", "protocol", "inverted clamp"])
+        "zero steps", "65 CAN bytes", "protocol", "inverted clamp"])
 def test_invalid_arguments_raise_before_touching_the_pod(pod, bad_call):
     with pytest.raises(ValueError):
         bad_call(pod)
@@ -1106,6 +1106,50 @@ def test_can_loopback_responder_and_typed_reads(pod):
         time.sleep(0.05)
         result = pod.can_read(max_frames=8)
         assert isinstance(result, CanReadResult) and any(f.id == 0x55 for f in result.frames)
+
+
+@pytest.mark.parametrize("mode", ["internal", "external"])
+@pytest.mark.parametrize("data_bitrate", [2_000_000, 5_000_000])
+def test_can_fd_loopback(pod, mode, data_bitrate):
+    """CAN FD with bit-rate switching (firmware 3.10.2+). ``internal`` loops inside the FDCAN core,
+    ``external`` through the transceiver (CAN+/CAN- must be idle: no other node on the bus)."""
+    if not pod.supports("can_fd"):
+        pytest.skip("CAN FD needs firmware 3.10.2+ (capability can_fd)")
+    with pod.open_can(bitrate=500_000, data_bitrate=data_bitrate, mode=mode, term=True) as can:
+        st = can.status()
+        assert st["data_bitrate"] == data_bitrate and st["fd"] is True
+        for n in (0, 8, 12, 33, 64):            # 33 is padded to 48
+            payload = bytes((i * 7 + n) & 0xFF for i in range(n))
+            reply = can.write(0x100 + n, payload, ext=n == 33)
+            want = {33: 48}.get(n, n)
+            assert reply["fd"] is True and reply["brs"] is True and reply["dlc"] == want
+            f = can.expect(can_id=0x100 + n, timeout=1.0)
+            assert f.fd and f.brs and f.data == payload + bytes(want - n)
+        can.write(0x50, [1, 2], fd=False)        # classic frame on the FD bus
+        f = can.expect(can_id=0x50, timeout=1.0)
+        assert not f.fd and f.data == b"\x01\x02"
+        can.write(0x51, bytes(20), brs=False)    # FD at the nominal rate
+        f = can.expect(can_id=0x51, timeout=1.0)
+        assert f.fd and not f.brs and len(f.data) == 20
+        can.add_responder(0x7DF, 0x7E8, bytes(range(64)))
+        can.write(0x7DF, [2, 1, 0x0C])
+        f = can.expect(can_id=0x7E8, timeout=1.0)
+        assert f.fd and f.data == bytes(range(64))
+        for i in range(12):                      # more than one can_read reply holds
+            can.write(0x300 + i, bytes([i]) * 64)
+        got = can.collect(0.5, match=lambda fr: 0x300 <= fr.id < 0x30C)
+        assert [fr.id for fr in got] == [0x300 + i for i in range(12)]
+        st = can.status()
+        assert st["tec"] == 0 and st["rec"] == 0 and not st["bus_off"]
+        assert st["rx_overflow"] == 0
+
+
+def test_can_fd_rejects_inexact_data_rate(pod):
+    if not pod.supports("can_fd"):
+        pytest.skip("CAN FD needs firmware 3.10.2+ (capability can_fd)")
+    with pytest.raises(BenchPodError, match="data_bitrate"):
+        pod.can_config(bitrate=500_000, data_bitrate=3_000_000, mode="internal")
+    pod.can_disable()
 
 
 @ANALOG

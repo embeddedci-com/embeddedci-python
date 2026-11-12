@@ -1949,7 +1949,8 @@ async def fpga_image(
 # -- CAN ------------------------------------------------------------------------------
 
 def _frame(f: Any) -> m.CanFrameInfo:
-    return m.CanFrameInfo(id=f.id, id_hex=f"0x{f.id:X}", data=list(f.data), ext=f.ext, rtr=f.rtr, ts_ms=f.ts)
+    return m.CanFrameInfo(id=f.id, id_hex=f"0x{f.id:X}", data=list(f.data), ext=f.ext, rtr=f.rtr,
+                          fd=f.fd, brs=f.brs, ts_ms=f.ts)
 
 
 @mcp.tool(annotations=_ann("Open CAN"))
@@ -1958,14 +1959,20 @@ async def can_open(
     mode: Annotated[CanMode, Field(description=(
         "normal = on a bus with other nodes; internal/external = loopback self-test; listen = silent."))] = "normal",
     term: Annotated[bool, Field(description="Engage the 120 ohm termination.")] = False,
+    data_bitrate: Annotated[Optional[int], Field(ge=10_000, le=8_000_000, description=(
+        "CAN FD: the data-phase bit rate (bit/s). Omit for classic CAN. Above bitrate, frames switch to it "
+        "after arbitration; equal to bitrate, FD frames without switching. Exact rates only, e.g. 1, 2, 4, "
+        "5 or 8 Mbit/s. Needs pod firmware 3.10.2+."))] = None,
 ) -> m.CanOpenResult:
-    """Bring up the pod's CAN interface (replacing any open CAN session)."""
+    """Bring up the pod's CAN interface (replacing any open CAN session): classic CAN, or CAN FD
+    (up to 64-byte frames) with data_bitrate."""
     def op() -> m.CanOpenResult:
         pod = SESSION.require()
         SESSION.close_can()
-        SESSION.can = pod.open_can(bitrate=bitrate, mode=mode, term=term)
+        SESSION.can = pod.open_can(bitrate=bitrate, mode=mode, term=term, data_bitrate=data_bitrate)
         SESSION.can_config = (bitrate, mode, term)
-        return m.CanOpenResult(open=True, bitrate=bitrate, mode=mode, term=term)
+        return m.CanOpenResult(open=True, bitrate=bitrate, mode=mode, term=term,
+                               data_bitrate=data_bitrate, fd=data_bitrate is not None)
 
     return await _call(op)
 
@@ -1973,13 +1980,20 @@ async def can_open(
 @mcp.tool(annotations=_ann("Send a CAN frame", destructive=True))
 async def can_write(
     can_id: Annotated[int, Field(ge=0, le=0x1FFFFFFF)],
-    data: Annotated[Optional[List[Byte]], Field(description="0-8 data bytes.")] = None,
+    data: Annotated[Optional[List[Byte]], Field(max_length=64, description=(
+        "0-8 data bytes on classic CAN, up to 64 on CAN FD (padded with zeros to 12, 16, 20, 24, 32, 48 or 64)."))] = None,
     ext: Annotated[bool, Field(description="29-bit extended identifier.")] = False,
     rtr: bool = False,
+    fd: Annotated[Optional[bool], Field(description=(
+        "CAN FD bus only: false sends a classic frame. Default: FD frames on an FD bus."))] = None,
+    brs: Annotated[Optional[bool], Field(description=(
+        "CAN FD frames only: false keeps the data phase at the nominal bitrate. Default: switch."))] = None,
 ) -> m.CanWriteResult:
-    """Queue one classic CAN frame."""
-    await _call(lambda: SESSION.require_can().write(can_id, data or [], ext=ext, rtr=rtr))
-    return m.CanWriteResult()
+    """Queue one CAN frame (classic, or CAN FD on a bus opened with data_bitrate)."""
+    reply = await _call(lambda: SESSION.require_can().write(can_id, data or [], ext=ext, rtr=rtr,
+                                                            fd=fd, brs=brs))
+    r = reply if isinstance(reply, dict) else {}
+    return m.CanWriteResult(dlc=r.get("dlc"), fd=r.get("fd"), brs=r.get("brs"))
 
 
 @mcp.tool(annotations=_ann("Read CAN frames", read_only=True))
@@ -2006,9 +2020,14 @@ async def can_read(
 async def can_respond(
     match_id: Optional[int] = None,
     reply_id: Optional[int] = None,
-    reply_data: Optional[List[Byte]] = None,
+    reply_data: Annotated[Optional[List[Byte]], Field(max_length=64, description=(
+        "Reply bytes: up to 8 on classic CAN, 64 on CAN FD."))] = None,
     match_ext: bool = False,
     reply_ext: bool = False,
+    reply_fd: Annotated[Optional[bool], Field(description=(
+        "CAN FD bus only: false replies with a classic frame. Default: FD on an FD bus."))] = None,
+    reply_brs: Annotated[Optional[bool], Field(description=(
+        "CAN FD replies only: false keeps the data phase at the nominal bitrate."))] = None,
     clear: Annotated[bool, Field(description="Remove all responder rules instead of adding one.")] = False,
 ) -> m.CanRespondResult:
     """Make the pod firmware answer a CAN id instantly (ECU simulation), or clear all rules."""
@@ -2020,7 +2039,7 @@ async def can_respond(
         if match_id is None or reply_id is None:
             raise ValueError("pass match_id and reply_id (or clear=true)")
         reply = bus.add_responder(match_id, reply_id, reply_data or [], match_ext=match_ext,
-                                  reply_ext=reply_ext)
+                                  reply_ext=reply_ext, reply_fd=reply_fd, reply_brs=reply_brs)
         rules = reply.get("rules") if isinstance(reply, dict) else None
         return m.CanRespondResult(rules=int(rules) if rules is not None else None)
 
@@ -2029,7 +2048,7 @@ async def can_respond(
 
 @mcp.tool(annotations=_ann("CAN status", read_only=True))
 async def can_status() -> m.DeviceReply:
-    """CAN link state: mode, bitrate, error counters, bus-off."""
+    """CAN link state: mode, bitrate, data_bitrate (CAN FD), error counters, bus-off."""
     return m.DeviceReply(reply=await _call(lambda: SESSION.require().can_status()))
 
 

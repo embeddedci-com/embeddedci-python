@@ -368,8 +368,10 @@ class FakeTransport(Transport):
         return {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}
 
     def _cmd_can_write(self, req):
+        fd = len(req["data"]) > 8 or req.get("fd", False)
         self.can_rx.append({"id": req["id"], "data": req["data"], "ext": req["ext"],
-                            "rtr": req["rtr"], "ts": 100 + len(self.can_rx)})
+                            "rtr": req["rtr"], "fd": fd, "brs": fd and req.get("brs", True),
+                            "ts": 100 + len(self.can_rx)})
         return {"queued": True}
 
     def _cmd_can_read(self, req):
