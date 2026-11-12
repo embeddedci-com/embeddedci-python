@@ -37,6 +37,9 @@ class FpgaImage(IntEnum):
     LOOP = 0
     #: The deep DAC replay image (replay streams from PSRAM).
     DEEP_REPLAY = 1
+    #: The sensor emulation image (I2C, SPI and UART sensors; no control loop, no deep replay).
+    #: ``bp.sensors.start()`` loads it when a digital sensor starts.
+    EMULATION = 2
 
 
 # Common BMP280 7-bit I2C addresses (datasheet: SDO low / high).

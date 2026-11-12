@@ -1807,7 +1807,8 @@ def _image_name(info: Any) -> Optional[str]:
     """The tool-level name of the image an SDK switch went to (None when there was no switch)."""
     if info is None:
         return None
-    return "loop" if int(info.image) == int(FpgaImage.LOOP) else "deep_replay"
+    return {int(FpgaImage.LOOP): "loop", int(FpgaImage.DEEP_REPLAY): "deep_replay",
+            int(FpgaImage.EMULATION): "emulation"}.get(int(info.image), str(int(info.image)))
 
 
 def _replay_result(handle: Any) -> m.ReplayResult:
@@ -2012,8 +2013,9 @@ async def loop_probe() -> m.LoopProbeResult:
 
 @mcp.tool(annotations=_ann("Switch gateware image", destructive=True))
 async def fpga_image(
-    image: Annotated[Literal["loop", "deep_replay"], Field(description=(
-        "loop = control-loop image; deep_replay = deep DAC replay from PSRAM."))],
+    image: Annotated[Literal["loop", "deep_replay", "emulation"], Field(description=(
+        "loop = control-loop image; deep_replay = deep DAC replay from PSRAM; "
+        "emulation = sensor emulation (sensor_start loads it by itself)."))],
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FpgaImageResult:
     """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
@@ -2021,7 +2023,8 @@ async def fpga_image(
     Rarely needed: control_loop, replay and replay_waveform switch automatically. The switch resets
     the FPGA (any DAC output, UART session or sensor emulation stops).
     """
-    img = FpgaImage.LOOP if image == "loop" else FpgaImage.DEEP_REPLAY
+    img = {"loop": FpgaImage.LOOP, "deep_replay": FpgaImage.DEEP_REPLAY,
+           "emulation": FpgaImage.EMULATION}[image]
     info = await _call_reporting(ctx, "switching gateware", lambda: SESSION.require().fpga_image(img))
     return m.FpgaImageResult(image=image, version=info.version, features=info.features)
 

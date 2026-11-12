@@ -1822,10 +1822,11 @@
     "input": {
       "properties": {
         "image": {
-          "description": "loop = control-loop image; deep_replay = deep DAC replay from PSRAM.",
+          "description": "loop = control-loop image; deep_replay = deep DAC replay from PSRAM; emulation = sensor emulation (sensor_start loads it by itself).",
           "enum": [
             "loop",
-            "deep_replay"
+            "deep_replay",
+            "emulation"
           ],
           "title": "Image",
           "type": "string"

@@ -499,6 +499,7 @@
   "FpgaImage": {
     "__members__": {
       "DEEP_REPLAY": 1,
+      "EMULATION": 2,
       "LOOP": 0
     }
   },

@@ -157,8 +157,9 @@ _ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_contro
                            "dac_loop_sources", "dac_loop_input_map", "calibrate", "current_out"})
 
 #: The capability flag and FPGA_FEATURES bit each gateware image carries.
-_IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay"}
-_IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02}
+_IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay",
+               FpgaImage.EMULATION: "sensors"}
+_IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02, FpgaImage.EMULATION: 0x04}
 
 #: Seconds to wait for the server's cached capabilities to follow an image switch.
 _SERVER_CAPS_WAIT = 15.0
@@ -2102,7 +2103,7 @@ class BenchPod:
         """Switch the iCE40 to another gateware image stored on the pod.
 
         ``FpgaImage.LOOP`` (0) is the control-loop image, ``FpgaImage.DEEP_REPLAY`` (1) the deep
-        DAC replay image. The pod reprograms the FPGA from its config flash and cold-resets it
+        DAC replay image, ``FpgaImage.EMULATION`` (2) the sensor emulation image. The pod reprograms the FPGA from its config flash and cold-resets it
         (~2-3 s), which stops anything running in the FPGA: a DAC output or control loop, a UART
         session, sensor emulation. The selection is written to the config flash, so the pod
         normally stays on it after a power cycle. Drops the cached :attr:`capabilities` so the next
@@ -2114,7 +2115,7 @@ class BenchPod:
         """
         img = int(image)
         if img not in tuple(FpgaImage):
-            raise ValueError(f"image must be FpgaImage.LOOP (0) or FpgaImage.DEEP_REPLAY (1), got {image!r}")
+            raise ValueError(f"image must be FpgaImage.LOOP (0), FpgaImage.DEEP_REPLAY (1) or FpgaImage.EMULATION (2), got {image!r}")
         data = self.command({"cmd": "fpga_image", "image": img})
         self._caps = None
         return FpgaImageInfo.from_reply(data)

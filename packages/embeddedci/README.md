@@ -326,7 +326,7 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
   | Target-power eFuse | `INTERNAL`, `EXTERNAL` (`Efuse`) | 1, 2 |
   | LA channels | `PIN1` … `PIN14` (`Pin`) | 1 … 14 |
   | BMP280 addresses | `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | 0x76, 0x77 |
-  | Gateware image | `FpgaImage.LOOP`, `FpgaImage.DEEP_REPLAY` | 0, 1 |
+  | Gateware image | `FpgaImage.LOOP`, `FpgaImage.DEEP_REPLAY`, `FpgaImage.EMULATION` | 0, 1, 2 |
 
   Plain ints work too (`efuse=1`, `swclk=11`); they are validated. The target's reset line is not an
   LA channel — it has a dedicated pin (see [Flashing](#flashing)).
@@ -1465,15 +1465,16 @@ streaming it over the device connection.
 
 ## Gateware images
 
-The pod's FPGA runs one of two gateware images, both stored on the pod:
+The pod's FPGA runs one of three gateware images, all stored on the pod:
 
 | Image | Adds | Capability flag |
 |---|---|---|
 | `FpgaImage.LOOP` (0) | the [in-fabric control loop](#in-fabric-dac-control-loop) | `dac_control_loop` |
 | `FpgaImage.DEEP_REPLAY` (1) | replays longer than 2048 samples, streamed from PSRAM | `dac_deep_replay` |
+| `FpgaImage.EMULATION` (2) | I2C, SPI and UART sensor emulation | `sensors` |
 
-Everything else — captures, the generator, DC output, short replays, UART, CAN — works on both.
-I2C, SPI and UART sensor emulation runs on a third image, which `bp.sensors.start()` loads by
+Everything else — captures, the generator, DC output, short replays, UART, CAN — works on all three.
+I2C, SPI and UART sensor emulation runs only on the emulation image, which `bp.sensors.start()` loads by
 itself (see [Emulated sensors](#emulated-sensors)).
 
 **Switching is automatic.** `control_loop()`, `replay()` and `replay_waveform()` switch the pod to
