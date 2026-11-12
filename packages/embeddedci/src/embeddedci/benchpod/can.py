@@ -1,4 +1,4 @@
-"""Classic CAN over the pod's FDCAN1 / TCAN1044 transceiver.
+"""Classic CAN and CAN FD over the pod's FDCAN1 / TCAN1044 transceiver.
 
 The pod is a single CAN node, so ``normal`` mode only works against a second
 node on the bus. For self-contained tests on one pod, configure a **loopback**
@@ -16,6 +16,14 @@ Typical use::
         can.write(0x123, [0xDE, 0xAD])
         frame = can.expect(can_id=0x123, timeout=1.0)
         assert frame.data == b"\\xde\\xad"
+
+CAN FD (firmware 3.10.2+): pass ``data_bitrate``. Frames then carry up to 64
+bytes and switch to the data bit rate after arbitration::
+
+    with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
+        can.write(0x123, bytes(range(64)))
+        frame = can.expect(can_id=0x123, timeout=1.0)
+        assert frame.fd and frame.brs and len(frame.data) == 64
 """
 
 from __future__ import annotations
@@ -36,7 +44,7 @@ Match = Union[int, Callable[["CanFrame"], bool]]
 
 @dataclass
 class CanFrame:
-    """One classic CAN frame."""
+    """One CAN frame: classic, or CAN FD when ``fd`` is set."""
 
     id: int
     data: bytes = b""
@@ -44,6 +52,8 @@ class CanFrame:
     rtr: bool = False           # remote-transmission-request (no data)
     ts: int = 0                 # pod uptime in ms when received (ISR-stamped,
                                 # jitter-free) — use for rate/period assertions
+    fd: bool = False            # CAN FD frame (up to 64 data bytes)
+    brs: bool = False           # FD frame whose data phase ran at the data bit rate
 
     @property
     def dlc(self) -> int:
@@ -57,10 +67,14 @@ class CanFrame:
             ext=bool(d.get("ext", False)),
             rtr=bool(d.get("rtr", False)),
             ts=int(d.get("ts", 0)),
+            fd=bool(d.get("fd", False)),
+            brs=bool(d.get("brs", False)),
         )
 
     def __str__(self) -> str:
         kind = "ext" if self.ext else "std"
+        if self.fd:
+            kind += " FD" + ("+BRS" if self.brs else "")
         body = "RTR" if self.rtr else self.data.hex()
         return f"CAN {kind} id=0x{self.id:X} [{self.dlc}] {body}"
 
@@ -80,11 +94,15 @@ class CanReadResult:
     #: Frames the pod dropped because its RX ring was full, counted since the last
     #: ``can_config`` (a running total, not reset by reads).
     overflow: int = 0
+    #: Frames still queued on the pod after this read (firmware 3.10.2+; 0 on older firmware).
+    #: A read returns fewer frames than asked for when 64-byte FD frames fill the reply.
+    pending: int = 0
 
     @classmethod
     def from_reply(cls, data: Optional[dict]) -> "CanReadResult":
         d = data if isinstance(data, dict) else {}
-        return cls(frames=frames_from_reply(d), overflow=int(d.get("overflow", 0) or 0))
+        return cls(frames=frames_from_reply(d), overflow=int(d.get("overflow", 0) or 0),
+                   pending=int(d.get("pending", 0) or 0))
 
 
 def _matcher(match: Optional[Match]) -> Callable[["CanFrame"], bool]:
@@ -105,10 +123,15 @@ class CanBus:
     """
 
     def __init__(self, bp: "BenchPod", *, bitrate: int, mode: str,
-                 term: bool = False, fd: bool = False) -> None:
+                 term: bool = False, fd: bool = False,
+                 data_bitrate: Optional[int] = None) -> None:
         check_choice(mode, CAN_MODES, "mode")
         self._bp = bp
         self.bitrate = int(bitrate)
+        if data_bitrate is None and fd:
+            data_bitrate = bitrate
+        #: The CAN FD data bit rate, or ``None`` on classic CAN.
+        self.data_bitrate: Optional[int] = int(data_bitrate) if data_bitrate is not None else None
         self.mode = mode
         self.term = bool(term)
         self._closed = False
@@ -116,18 +139,31 @@ class CanBus:
         # ``can_read`` is destructive on the pod, so we buffer here — otherwise a
         # matched read would silently drop the other frames it drained.
         self._pending: List[CanFrame] = []
-        self._config = bp.can_config(bitrate=bitrate, mode=mode, term=term, fd=fd)
+        self._config = bp.can_config(bitrate=bitrate, mode=mode, term=term,
+                                     data_bitrate=self.data_bitrate)
+
+    @property
+    def fd(self) -> bool:
+        """Whether this bus runs CAN FD."""
+        return self.data_bitrate is not None
 
     # -- writing ------------------------------------------------------------
     def write(self, can_id: int, data: Union[bytes, Sequence[int], None] = None,
-              *, ext: bool = False, rtr: bool = False) -> dict:
-        """Queue one classic frame (0..8 data bytes)."""
-        return self._bp.can_write(can_id, data, ext=ext, rtr=rtr)
+              *, ext: bool = False, rtr: bool = False, fd: Optional[bool] = None,
+              brs: Optional[bool] = None) -> dict:
+        """Queue one frame (0..8 data bytes, up to 64 on a CAN FD bus). On a CAN FD bus frames
+        are FD with bit-rate switching unless ``fd=False`` or ``brs=False``
+        (see :meth:`BenchPod.can_write`)."""
+        return self._bp.can_write(can_id, data, ext=ext, rtr=rtr, fd=fd, brs=brs)
 
     # -- reading ------------------------------------------------------------
     def _pull(self) -> None:
-        """Drain the pod's RX ring into the local buffer."""
-        self._pending.extend(self._bp.can_read(max_frames=8).frames)
+        """Drain the pod's RX ring into the local buffer (a few reads when FD frames queue up)."""
+        for _ in range(8):
+            res = self._bp.can_read(max_frames=8)
+            self._pending.extend(res.frames)
+            if res.pending <= 0 or not res.frames:
+                break
 
     def read(self, max_frames: int = 8) -> List[CanFrame]:
         """Return up to ``max_frames`` buffered/received frames (non-blocking, FIFO)."""
@@ -216,12 +252,14 @@ class CanBus:
     # -- autonomous responder (ECU simulation) ------------------------------
     def add_responder(self, match_id: int, reply_id: int,
                       reply_data: Union[bytes, Sequence[int], None] = None, *,
-                      match_ext: bool = False, reply_ext: bool = False) -> dict:
+                      match_ext: bool = False, reply_ext: bool = False,
+                      reply_fd: Optional[bool] = None, reply_brs: Optional[bool] = None) -> dict:
         """Have the *firmware* auto-reply to ``match_id`` with ``reply_id`` +
         ``reply_data`` (microsecond latency, no host in the loop). See
         :meth:`BenchPod.can_respond`."""
         return self._bp.can_respond(match_id, reply_id, reply_data,
-                                    match_ext=match_ext, reply_ext=reply_ext)
+                                    match_ext=match_ext, reply_ext=reply_ext,
+                                    reply_fd=reply_fd, reply_brs=reply_brs)
 
     def clear_responders(self) -> dict:
         """Remove all autonomous-responder rules."""

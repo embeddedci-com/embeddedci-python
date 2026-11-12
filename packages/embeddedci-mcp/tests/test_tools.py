@@ -636,6 +636,27 @@ def test_can_tools(connected):
         call("can_write", can_id=1, data=list(range(9)))
 
 
+def test_can_fd_tools(connected):
+    connected.caps.append("can_fd")
+    from embeddedci_mcp.server import SESSION
+    SESSION.require().refresh_capabilities()
+    opened = call("can_open", mode="internal", bitrate=500_000, data_bitrate=2_000_000)
+    assert opened["fd"] is True and opened["data_bitrate"] == 2_000_000
+    cfg = [r for r in connected.requests if r["cmd"] == "can_config"][-1]
+    assert cfg["data_bitrate"] == 2_000_000
+    call("can_write", can_id=0x123, data=list(range(64)), brs=False)
+    req = [r for r in connected.requests if r["cmd"] == "can_write"][-1]
+    assert len(req["data"]) == 64 and req["brs"] is False and "fd" not in req
+    frames = call("can_read", can_id=0x123, timeout=0.5)
+    assert frames["frames"][0]["fd"] is True and len(frames["frames"][0]["data"]) == 64
+    call("can_respond", match_id=0x7DF, reply_id=0x7E8, reply_data=list(range(12)), reply_fd=False)
+    rr = [r for r in connected.requests if r["cmd"] == "can_respond"][-1]
+    assert rr["reply_fd"] is False
+    with pytest.raises(ToolError):
+        call("can_write", can_id=1, data=list(range(65)))
+    call("can_close")
+
+
 # -- stepper + escape hatch --------------------------------------------------------------
 
 def test_la_step_and_command(connected):

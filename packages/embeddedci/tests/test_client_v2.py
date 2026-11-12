@@ -8,6 +8,7 @@ import pytest
 
 from embeddedci import benchpod
 from embeddedci.benchpod import BenchPod, BenchPodError
+from embeddedci.benchpod.errors import UnsupportedFeatureError
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.state import (
     AdcReading,
@@ -490,8 +491,10 @@ def test_can_read_returns_frames():
     res = bp.can_read(max_frames=4)
     assert t.commands[-1] == {"cmd": "can_read", "max": 4}
     assert res.overflow == 2 and res.frames[0].id == 0x123 and res.frames[0].data == b"\x01\x02"
-    with pytest.raises(ValueError):
+    with pytest.raises(UnsupportedFeatureError):   # >8 bytes needs CAN FD (can_fd capability)
         bp.can_write(0x10, list(range(9)))
+    with pytest.raises(ValueError):
+        bp.can_write(0x10, list(range(65)))
     with pytest.raises(ValueError):
         bp.can_config(mode="loopback")  # type: ignore[arg-type]
 

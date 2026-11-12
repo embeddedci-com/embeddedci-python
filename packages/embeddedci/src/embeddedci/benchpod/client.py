@@ -207,6 +207,13 @@ def _classified_errors() -> Iterator[None]:
         raise specific from None
 
 
+def _can_payload(data: Union[bytes, Sequence[int], None]) -> List[int]:
+    payload = list(bytes(data)) if data else []
+    if len(payload) > 64:
+        raise ValueError(f"a CAN FD frame carries at most 64 data bytes, got {len(payload)}")
+    return payload
+
+
 class BenchPod:
     """A connected BenchPod device."""
 
@@ -1462,25 +1469,47 @@ class BenchPod:
     # command-level building blocks under it.
 
     def can_config(self, *, bitrate: int = 500_000, mode: CanMode = "normal",
-                   term: bool = False, fd: bool = False) -> Dict[str, Any]:
+                   term: bool = False, fd: bool = False,
+                   data_bitrate: Optional[int] = None) -> Dict[str, Any]:
         """Bring FDCAN1 up. ``mode`` is ``normal``/``internal``/``external``/``listen`` (the two
-        loopbacks let a lone pod self-test). ``term`` engages the 120 Ω bus termination."""
+        loopbacks let a lone pod self-test). ``term`` engages the 120 Ω bus termination.
+
+        ``data_bitrate`` turns CAN FD on (firmware 3.10.2+, capability ``can_fd``): frames carry
+        up to 64 bytes, and their data phase switches to ``data_bitrate`` (up to 8 Mbit/s) when
+        it is above ``bitrate``. Rates with exact timing work, for example 1, 2, 4, 5 and
+        8 Mbit/s. ``fd=True`` without ``data_bitrate`` is CAN FD without bit-rate switching
+        (``data_bitrate=bitrate``). Without either, the bus is classic CAN."""
         check_choice(mode, CAN_MODES, "mode")
-        return _dict(self.command({
-            "cmd": "can_config", "bitrate": int(bitrate), "mode": mode,
-            "term": bool(term), "fd": bool(fd),
-        }))
+        msg: Dict[str, Any] = {"cmd": "can_config", "bitrate": int(bitrate), "mode": mode,
+                               "term": bool(term)}
+        if data_bitrate is None and fd:
+            data_bitrate = bitrate
+        if data_bitrate is not None:
+            if int(data_bitrate) < int(bitrate):
+                raise ValueError(f"data_bitrate ({data_bitrate}) must be at least bitrate ({bitrate})")
+            self._require_capability("can_fd", "CAN FD frames")
+            msg["data_bitrate"] = int(data_bitrate)
+        return _dict(self.command(msg))
 
     def can_write(self, can_id: int, data: Union[bytes, Sequence[int], None] = None,
-                  *, ext: bool = False, rtr: bool = False) -> Dict[str, Any]:
-        """Queue one classic frame (0..8 data bytes)."""
-        payload = list(bytes(data)) if data else []
+                  *, ext: bool = False, rtr: bool = False, fd: Optional[bool] = None,
+                  brs: Optional[bool] = None) -> Dict[str, Any]:
+        """Queue one frame: 0..8 data bytes on classic CAN, up to 64 on CAN FD.
+
+        On a CAN FD bus (:meth:`can_config` with ``data_bitrate``) a frame is an FD frame with
+        bit-rate switching unless ``fd=False`` (a classic frame, for a classic node on the same
+        bus) or ``brs=False``. An FD length other than 0..8, 12, 16, 20, 24, 32, 48 or 64 is
+        padded with zeros to the next one; the reply's ``dlc`` is the length sent."""
+        payload = _can_payload(data)
         if len(payload) > 8:
-            raise ValueError(f"a classic CAN frame carries at most 8 data bytes, got {len(payload)}")
-        return _dict(self.command({
-            "cmd": "can_write", "id": int(can_id), "ext": bool(ext),
-            "rtr": bool(rtr), "data": payload,
-        }))
+            self._require_capability("can_fd", "CAN frames longer than 8 bytes")
+        msg: Dict[str, Any] = {"cmd": "can_write", "id": int(can_id), "ext": bool(ext),
+                               "rtr": bool(rtr), "data": payload}
+        if fd is not None:
+            msg["fd"] = bool(fd)
+        if brs is not None:
+            msg["brs"] = bool(brs)
+        return _dict(self.command(msg))
 
     def can_read(self, *, max_frames: int = 8) -> _can.CanReadResult:
         """Drain up to ``max_frames`` received frames from the pod's RX ring (non-blocking)."""
@@ -1496,16 +1525,26 @@ class BenchPod:
 
     def can_respond(self, match_id: int, reply_id: int,
                     reply_data: Union[bytes, Sequence[int], None] = None, *,
-                    match_ext: bool = False, reply_ext: bool = False) -> Dict[str, Any]:
+                    match_ext: bool = False, reply_ext: bool = False,
+                    reply_fd: Optional[bool] = None,
+                    reply_brs: Optional[bool] = None) -> Dict[str, Any]:
         """Install an autonomous-responder rule: when a frame with ``match_id`` arrives the
         *firmware* immediately replies with ``reply_id`` + ``reply_data`` (from the RX ISR —
-        microsecond latency, no host round-trip). Turns the pod into an ECU simulator."""
-        payload = list(bytes(reply_data)) if reply_data else []
-        return _dict(self.command({
-            "cmd": "can_respond", "match_id": int(match_id), "ext": bool(match_ext),
-            "reply_id": int(reply_id), "reply_ext": bool(reply_ext),
-            "reply_data": payload,
-        }))
+        microsecond latency, no host round-trip). Turns the pod into an ECU simulator.
+
+        On a CAN FD bus the reply is an FD frame (up to 64 bytes) with bit-rate switching unless
+        ``reply_fd=False`` or ``reply_brs=False``, as for :meth:`can_write`."""
+        payload = _can_payload(reply_data)
+        if len(payload) > 8:
+            self._require_capability("can_fd", "CAN frames longer than 8 bytes")
+        msg: Dict[str, Any] = {"cmd": "can_respond", "match_id": int(match_id), "ext": bool(match_ext),
+                               "reply_id": int(reply_id), "reply_ext": bool(reply_ext),
+                               "reply_data": payload}
+        if reply_fd is not None:
+            msg["reply_fd"] = bool(reply_fd)
+        if reply_brs is not None:
+            msg["reply_brs"] = bool(reply_brs)
+        return _dict(self.command(msg))
 
     def can_respond_clear(self) -> Dict[str, Any]:
         """Remove all autonomous-responder rules."""
@@ -1516,15 +1555,22 @@ class BenchPod:
         return _dict(self.command({"cmd": "can_disable"}))
 
     def open_can(self, *, bitrate: int = 500_000, mode: CanMode = "normal",
-                 term: bool = False, fd: bool = False) -> _can.CanBus:
+                 term: bool = False, fd: bool = False,
+                 data_bitrate: Optional[int] = None) -> _can.CanBus:
         """Configure CAN and return a :class:`~embeddedci.benchpod.can.CanBus` session (clears
         responder rules and disables CAN on exit)::
 
             with bp.open_can(bitrate=500_000, mode="internal") as can:
                 can.write(0x123, [1, 2, 3])
                 frame = can.expect(can_id=0x123, timeout=1.0)
+
+        ``data_bitrate`` makes it a CAN FD bus (see :meth:`can_config`)::
+
+            with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
+                can.write(0x123, bytes(range(64)))
         """
-        return _can.CanBus(self, bitrate=bitrate, mode=mode, term=term, fd=fd)
+        return _can.CanBus(self, bitrate=bitrate, mode=mode, term=term, fd=fd,
+                           data_bitrate=data_bitrate)
 
     # -- UART -----------------------------------------------------------------
 

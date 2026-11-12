@@ -26,6 +26,9 @@ class FakeCanPod:
         self._enabled = False
         self._mode = "normal"
         self._bitrate = 0
+        self._data_bitrate = 0
+        self.caps = ["can", "can_fd"]
+        self.read_cap = 8      # frames per can_read reply (the firmware caps FD-64 frames at ~5)
         self._term = False
         self._rx = []          # queued frames for can_read (loopback echo)
         self._overflow = 0
@@ -51,7 +54,10 @@ class FakeCanPod:
 
     def _reply(self, req):
         cmd = req.get("cmd")
+        if cmd == "status":
+            return {"status": "ok", "data": {"firmware_version": "3.10.2", "caps": list(self.caps)}}
         if cmd == "can_config":
+            self._data_bitrate = int(req.get("data_bitrate", 0))
             self._enabled = True
             self._mode = req.get("mode", "normal")
             self._bitrate = int(req.get("bitrate", 0))
@@ -62,9 +68,17 @@ class FakeCanPod:
         if cmd == "can_write":
             if not self._enabled:
                 return {"status": "error", "message": "can not enabled"}
+            fd = bool(req.get("fd", self._data_bitrate > 0 and not req.get("rtr", False)))
+            data = list(req.get("data", []))
+            if len(data) > 8 and not fd:
+                return {"status": "error", "message": "more than 8 data bytes needs CAN FD"}
+            if fd:
+                n = next(x for x in (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64) if x >= len(data))
+                data += [0] * (n - len(data))
+            brs = fd and bool(req.get("brs", True)) and self._data_bitrate > self._bitrate
             frame = {"id": int(req["id"]), "ext": bool(req.get("ext", False)),
-                     "rtr": bool(req.get("rtr", False)),
-                     "data": list(req.get("data", [])), "ts": self._next_ts()}
+                     "rtr": bool(req.get("rtr", False)), "fd": fd, "brs": brs,
+                     "data": data, "ts": self._next_ts()}
             frame["dlc"] = len(frame["data"])
             if self._mode in ("internal", "external"):
                 self._rx.append(frame)          # loopback: echo back to RX
@@ -90,10 +104,10 @@ class FakeCanPod:
                 "reply_data": list(req.get("reply_data", []))})
             return {"status": "ok", "data": {"rule": len(self._rules) - 1, "rules": len(self._rules)}}
         if cmd == "can_read":
-            want = int(req.get("max", 8))
+            want = min(int(req.get("max", 8)), self.read_cap)
             take, self._rx = self._rx[:want], self._rx[want:]
             return {"status": "ok", "data": {
-                "frames": take, "overflow": self._overflow}}
+                "frames": take, "overflow": self._overflow, "pending": len(self._rx)}}
         if cmd == "can_status":
             return {"status": "ok", "data": {
                 "enabled": self._enabled, "mode": self._mode,
@@ -162,7 +176,7 @@ def test_can_config_request_shape(bp, pod):
     bp.can_config(bitrate=250_000, mode="external", term=True)
     assert pod.requests[-1] == {
         "cmd": "can_config", "bitrate": 250_000, "mode": "external",
-        "term": True, "fd": False}
+        "term": True}
 
 
 def test_can_write_encodes_bytes(bp, pod):
@@ -307,3 +321,82 @@ def test_can_capability_flag_from_status_and_cloud_parameters():
     assert not Capabilities.from_status({"caps": ["la"]}).can  # older firmware: not announced
     assert Capabilities.from_parameters({"cap.can": "true"}).can
     assert not Capabilities.from_parameters({}).can
+
+
+# -- CAN FD -----------------------------------------------------------------
+
+def test_can_config_data_bitrate_means_fd(bp, pod):
+    bp.can_config(bitrate=500_000, data_bitrate=2_000_000, mode="internal")
+    assert pod.requests[-1] == {
+        "cmd": "can_config", "bitrate": 500_000, "mode": "internal", "term": False,
+        "data_bitrate": 2_000_000}
+
+
+def test_can_config_fd_flag_is_fd_without_switching(bp, pod):
+    bp.can_config(bitrate=1_000_000, fd=True)
+    assert pod.requests[-1]["data_bitrate"] == 1_000_000
+
+
+def test_can_config_data_bitrate_below_bitrate_rejected(bp):
+    with pytest.raises(ValueError):
+        bp.can_config(bitrate=1_000_000, data_bitrate=500_000)
+
+
+def test_can_fd_needs_capability(bp, pod):
+    from embeddedci.benchpod.errors import UnsupportedFeatureError
+    pod.caps = ["can"]
+    with pytest.raises(UnsupportedFeatureError):
+        bp.can_config(data_bitrate=2_000_000)
+    with pytest.raises(UnsupportedFeatureError):
+        bp.can_write(0x1, bytes(12))
+
+
+def test_can_write_rejects_more_than_64(bp):
+    with pytest.raises(ValueError):
+        bp.can_write(0x1, bytes(65))
+
+
+def test_can_write_fd_flags_only_when_given(bp, pod):
+    bp.can_config(data_bitrate=5_000_000, mode="internal")
+    bp.can_write(0x10, [1])
+    assert "fd" not in pod.requests[-1] and "brs" not in pod.requests[-1]
+    bp.can_write(0x10, [1], fd=False)
+    assert pod.requests[-1]["fd"] is False
+    bp.can_write(0x10, [1], brs=False)
+    assert pod.requests[-1]["brs"] is False
+
+
+def test_open_can_fd_loopback_64_bytes(bp):
+    with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
+        assert can.fd and can.data_bitrate == 2_000_000
+        can.write(0x123, bytes(range(64)))
+        f = can.expect(can_id=0x123, timeout=1.0)
+        assert f.fd and f.brs and f.data == bytes(range(64))
+        assert "FD+BRS" in str(f)
+        can.write(0x124, [1, 2], fd=False)
+        g = can.expect(can_id=0x124, timeout=1.0)
+        assert not g.fd and g.data == b"\x01\x02"
+
+
+def test_canbus_pull_follows_pending(bp, pod):
+    pod.read_cap = 5
+    with bp.open_can(data_bitrate=2_000_000, mode="internal") as can:
+        for i in range(12):
+            can.write(0x200 + i, bytes(64))
+        got = can.read(max_frames=100)
+        assert [f.id for f in got] == [0x200 + i for i in range(12)]
+
+
+def test_can_respond_fd_reply(bp, pod):
+    bp.can_config(data_bitrate=2_000_000, mode="internal")
+    bp.can_respond(0x7DF, 0x7E8, bytes(20), reply_brs=False)
+    req = pod.requests[-1]
+    assert req["reply_data"] == [0] * 20 and req["reply_brs"] is False and "reply_fd" not in req
+
+
+def test_can_read_result_pending():
+    from embeddedci.benchpod.can import CanReadResult
+    r = CanReadResult.from_reply({"frames": [{"id": 1, "fd": True, "brs": True, "data": [1]}],
+                                  "overflow": 0, "pending": 3})
+    assert r.pending == 3 and r.frames[0].fd and r.frames[0].brs
+    assert CanReadResult.from_reply({"frames": []}).pending == 0

@@ -677,6 +677,8 @@ class CanOpenResult(BaseModel):
     bitrate: Optional[int] = None
     mode: Optional[str] = None
     term: Optional[bool] = None
+    data_bitrate: Optional[int] = None
+    fd: Optional[bool] = None
 
 
 class CanFrameInfo(BaseModel):
@@ -685,6 +687,8 @@ class CanFrameInfo(BaseModel):
     data: List[int]
     ext: bool
     rtr: bool
+    fd: bool = False
+    brs: bool = False
     ts_ms: int
 
 
@@ -695,6 +699,9 @@ class CanReadResult(BaseModel):
 
 class CanWriteResult(BaseModel):
     queued: bool = True
+    dlc: Optional[int] = None
+    fd: Optional[bool] = None
+    brs: Optional[bool] = None
 
 
 class CanRespondResult(BaseModel):

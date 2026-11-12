@@ -313,6 +313,21 @@
           "title": "Bitrate",
           "type": "integer"
         },
+        "data_bitrate": {
+          "anyOf": [
+            {
+              "maximum": 8000000,
+              "minimum": 10000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAN FD: the data-phase bit rate (bit/s). Omit for classic CAN. Above bitrate, frames switch to it after arbitration; equal to bitrate, FD frames without switching. Exact rates only, e.g. 1, 2, 4, 5 or 8 Mbit/s. Needs pod firmware 3.10.2+.",
+          "title": "Data Bitrate"
+        },
         "mode": {
           "default": "normal",
           "description": "normal = on a bus with other nodes; internal/external = loopback self-test; listen = silent.",
@@ -412,6 +427,19 @@
           "default": null,
           "title": "Match Id"
         },
+        "reply_brs": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAN FD replies only: false keeps the data phase at the nominal bitrate.",
+          "title": "Reply Brs"
+        },
         "reply_data": {
           "anyOf": [
             {
@@ -420,6 +448,7 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "maxItems": 64,
               "type": "array"
             },
             {
@@ -427,12 +456,26 @@
             }
           ],
           "default": null,
+          "description": "Reply bytes: up to 8 on classic CAN, 64 on CAN FD.",
           "title": "Reply Data"
         },
         "reply_ext": {
           "default": false,
           "title": "Reply Ext",
           "type": "boolean"
+        },
+        "reply_fd": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAN FD bus only: false replies with a classic frame. Default: FD on an FD bus.",
+          "title": "Reply Fd"
         },
         "reply_id": {
           "anyOf": [
@@ -474,6 +517,19 @@
     },
     "input": {
       "properties": {
+        "brs": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAN FD frames only: false keeps the data phase at the nominal bitrate. Default: switch.",
+          "title": "Brs"
+        },
         "can_id": {
           "maximum": 536870911,
           "minimum": 0,
@@ -488,6 +544,7 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "maxItems": 64,
               "type": "array"
             },
             {
@@ -495,7 +552,7 @@
             }
           ],
           "default": null,
-          "description": "0-8 data bytes.",
+          "description": "0-8 data bytes on classic CAN, up to 64 on CAN FD (padded with zeros to 12, 16, 20, 24, 32, 48 or 64).",
           "title": "Data"
         },
         "ext": {
@@ -503,6 +560,19 @@
           "description": "29-bit extended identifier.",
           "title": "Ext",
           "type": "boolean"
+        },
+        "fd": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAN FD bus only: false sends a classic frame. Default: FD frames on an FD bus.",
+          "title": "Fd"
         },
         "rtr": {
           "default": false,
