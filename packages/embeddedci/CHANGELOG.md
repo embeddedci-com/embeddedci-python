@@ -2,6 +2,9 @@
 
 ## 2.13.9
 
+- `i2c.timed_transactions(words, sda_ch, scl_ch, sample_rate_hz)`: I2C from an LA capture with
+  the time of every START, address, data byte, ACK/NACK and STOP, in the shape the EmbeddedCI
+  capture view draws (the server's decoder gives the same).
 - CAN FD (pod firmware 3.10.2+, capability `can_fd`): `open_can` and `can_config` take
   `data_bitrate`, which makes the bus CAN FD with bit-rate switching above `bitrate` (exact rates up
   to 8 Mbit/s, for example 2 or 5 Mbit/s). `fd=True` without it is CAN FD at `bitrate`. Classic CAN

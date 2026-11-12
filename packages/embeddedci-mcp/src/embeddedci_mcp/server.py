@@ -14,7 +14,9 @@ Results are pydantic models, so every tool publishes an output schema and return
 content. No protocol, flash or decode logic lives here — it all comes from the SDK.
 """
 
+import dataclasses
 import inspect
+import json
 import os
 import re
 import time
@@ -1568,6 +1570,7 @@ async def capture_correlated(
             SESSION.last_adc = cc.adc
         if la_samples:
             SESSION.last_la = cc.la
+        SESSION.correlated = bool(adc_samples and la_samples)
         return m.CorrelatedCaptureResult(adc=adc_summary(cc.adc, points), la=la_summary(cc.la))
 
     return await _call_reporting(ctx, "capturing", op)
@@ -1613,6 +1616,10 @@ async def decode_la(
         if protocol == "spi":
             channels["mode"] = mode
         frames = pod.decode(la, protocol, **channels)
+        try:
+            SESSION.last_decode = _decode_view(la, protocol, channels, frames)
+        except Exception:  # the capture view's copy never fails the decode itself
+            SESSION.last_decode = None
         text = None
         if protocol == "i2c":
             items = i2c.format_transactions(frames).splitlines()
@@ -2113,6 +2120,83 @@ def wiring_resource() -> str:
               description="The server instructions: session start, typical flows, error contract.")
 def help_() -> str:
     return INSTRUCTIONS
+
+
+# The last capture and decode in full, for a capture view (the BenchPod desktop app draws them
+# with zoom and decode overlays). Resources, not tools: an agent reads the summaries the capture
+# tools return, and these can be megabytes.
+
+#: Most LA edges / ADC samples a resource returns; past them it says truncated.
+CAPTURE_VIEW_MAX_EDGES = 4_000_000
+CAPTURE_VIEW_MAX_SAMPLES = 4_194_304
+
+
+def _decode_view(la: Any, protocol: str, channels: Dict[str, Any], frames: Any) -> dict:
+    """A decode in the capture view's shape: I2C transactions with timed segments, UART and SPI
+    frames (the EmbeddedCI web app's decode result)."""
+    view: Dict[str, Any] = {"seq": SESSION.la_seq, "protocol": protocol,
+                            "channels": {k: v for k, v in channels.items()}}
+    if protocol == "i2c":
+        view["transactions"] = i2c.timed_transactions(la.words, channels["sda"], channels["scl"],
+                                                      la.sample_rate_hz)
+    else:
+        view["frames"] = [dataclasses.asdict(f) for f in frames]
+    return view
+
+
+@mcp.resource("benchpod://capture/la", name="capture_la_data", mime_type="application/json",
+              title="Last logic capture, every edge",
+              description=("The last capture_la / capture_correlated / decode_la capture as run-length "
+                           "edges [sample index, 14-bit word] from sample 0, for drawing it. Large: use "
+                           "capture_la's summary, la_timing and decode_la to reason about it."))
+def capture_la_resource() -> str:
+    la = SESSION.last_la
+    if la is None:
+        return json.dumps({"seq": 0})
+    edges: List[List[int]] = []
+    prev = None
+    truncated = False
+    for i, w in enumerate(la.words):
+        if w != prev:
+            if len(edges) >= CAPTURE_VIEW_MAX_EDGES:
+                truncated = True
+                break
+            edges.append([i, w])
+            prev = w
+    return json.dumps({
+        "seq": SESSION.la_seq, "correlated": SESSION.correlated, "sample_rate_hz": la.sample_rate_hz,
+        "count": len(la.words), "pre_samples": getattr(la, "pre_samples", 0),
+        "stopped_early": getattr(la, "truncated", "") or "", "edges_truncated": truncated, "edges": edges,
+    }, separators=(",", ":"))
+
+
+@mcp.resource("benchpod://capture/adc", name="capture_adc_data", mime_type="application/json",
+              title="Last ADC capture, every sample",
+              description=("The last capture_adc / capture_correlated as calibrated samples (volts, or "
+                           "mA for the 4-20 mA input), for drawing it. Large: use capture_adc's summary "
+                           "to reason about it."))
+def capture_adc_resource() -> str:
+    cap = SESSION.last_adc
+    if cap is None:
+        return json.dumps({"seq": 0})
+    current = bool(getattr(cap, "currents", None))
+    values = [v * 1000.0 for v in cap.currents] if current else list(cap.volts)
+    truncated = len(values) > CAPTURE_VIEW_MAX_SAMPLES
+    values = values[:CAPTURE_VIEW_MAX_SAMPLES]
+    return json.dumps({
+        "seq": SESSION.adc_seq, "correlated": SESSION.correlated, "sample_rate_hz": cap.sample_rate_hz,
+        "count": len(cap.volts), "unit": "mA" if current else "V", "source": cap.source or None,
+        "range": getattr(cap, "range", "") or None, "samples_truncated": truncated,
+        "samples": [round(v, 6) for v in values],
+    }, separators=(",", ":"))
+
+
+@mcp.resource("benchpod://capture/decode", name="capture_decode_data", mime_type="application/json",
+              title="Last decode, with timing",
+              description=("The last decode_la in full: I2C transactions with timed segments, or UART / "
+                           "SPI frames, for drawing on the capture. seq is the capture it decoded."))
+def capture_decode_resource() -> str:
+    return json.dumps(SESSION.last_decode or {"seq": 0}, separators=(",", ":"))
 
 
 # -- AI Vision board ------------------------------------------------------------------------

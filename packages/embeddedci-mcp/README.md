@@ -376,7 +376,18 @@ server's device lease, the one the web app and other runs see.
 | `vision_tap` | Tap a point in screen pixels (`hold_ms` for a long press). | **`x`**, **`y`**, `hold_ms=0`, `actuator` |
 
 Resources: `benchpod://wiring` (the connected bench's own wiring profile, then LA channels, bias
-resistors and analog paths) and `benchpod://help` (the server instructions).
+resistors and analog paths) and `benchpod://help` (the server instructions). For drawing captures
+in an app (the BenchPod desktop app's capture view), three more give the last capture in full:
+
+| Resource | JSON |
+|---|---|
+| `benchpod://capture/la` | The last `capture_la` / `capture_correlated` as run-length `edges`, `[sample index, 14-bit word]` from sample 0, plus `sample_rate_hz`, `count`, `pre_samples`, `seq`, `correlated`. |
+| `benchpod://capture/adc` | The last `capture_adc` / `capture_correlated`: `samples` in volts (or mA for `current_in`), `unit`, `sample_rate_hz`, `source`, `seq`, `correlated`. |
+| `benchpod://capture/decode` | The last `decode_la`: `protocol`, `channels`, and I2C `transactions` with timed segments, or UART / SPI `frames` with `start_us` / `end_us`; `seq` is the capture it decoded. |
+
+Each is `{"seq": 0}` before the first capture. `seq` numbers the captures, and `correlated` says
+the LA and ADC captures share one timebase. They can be megabytes: an agent should read the
+capture tools' summaries, `la_timing` and `decode_la` instead.
 
 ## How it behaves
 

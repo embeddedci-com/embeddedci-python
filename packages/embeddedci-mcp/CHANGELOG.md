@@ -2,6 +2,11 @@
 
 ## 2.13.10
 
+- Three resources for a capture view (the BenchPod desktop app draws them with zoom and decode
+  overlays): `benchpod://capture/la` (the last logic capture as run-length edges),
+  `benchpod://capture/adc` (the last ADC capture, every calibrated sample) and
+  `benchpod://capture/decode` (the last `decode_la`, I2C transactions with timed segments or UART /
+  SPI frames). Resources, not tools, so an agent's tool list does not grow.
 - CAN FD (pod firmware 3.10.2+): `can_open` takes `data_bitrate` (CAN FD, bit-rate switching up to
   8 Mbit/s), `can_write` takes up to 64 bytes plus `fd` and `brs`, `can_respond` takes
   `reply_fd` and `reply_brs`. `can_read` frames report `fd` and `brs`; `can_write` returns the
