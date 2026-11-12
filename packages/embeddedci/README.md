@@ -905,6 +905,10 @@ assert i2c.read_register(txns, BMP280_ADDR_PRIMARY, 0xD0) == [0x58]
 bp.disable_i2c_sensor()
 ```
 
+`i2c.timed_transactions(la.words, sda_ch, scl_ch, la.sample_rate_hz)` decodes an LA capture into
+transactions with the time of each START, address, data byte, ACK and STOP in microseconds (dicts
+in the shape the EmbeddedCI capture view draws), for placing decoded bytes on a waveform.
+
 Any model's readings go in as keywords, on `enable_i2c_sensor` or later on `set_i2c_sensor`; the
 reply lists every value:
 

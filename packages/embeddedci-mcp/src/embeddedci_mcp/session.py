@@ -149,8 +149,41 @@ class Session:
         self.can_config: Optional[Tuple[int, str, bool]] = None
         #: A power profile started by ``power_profile_start`` and not yet stopped.
         self.power_profile: Optional[PowerProfileSession] = None
-        self.last_adc: Optional[Capture] = None
-        self.last_la: Optional[LaCapture] = None
+        self._last_adc: Optional[Capture] = None
+        self._last_la: Optional[LaCapture] = None
+        #: Numbers each capture (LA and ADC alike), so a capture view knows when to redraw.
+        self.capture_seq = 0
+        self.la_seq = 0
+        self.adc_seq = 0
+        #: The last LA and ADC captures came from one capture_correlated (one timebase).
+        self.correlated = False
+        #: The last decode_la, in the capture view's shape (see server.capture_decode_resource).
+        self.last_decode: Optional[dict] = None
+
+    @property
+    def last_adc(self) -> Optional[Capture]:
+        return self._last_adc
+
+    @last_adc.setter
+    def last_adc(self, cap: Optional[Capture]) -> None:
+        self._last_adc = cap
+        self.correlated = False
+        if cap is not None:
+            self.capture_seq += 1
+            self.adc_seq = self.capture_seq
+
+    @property
+    def last_la(self) -> Optional[LaCapture]:
+        return self._last_la
+
+    @last_la.setter
+    def last_la(self, cap: Optional[LaCapture]) -> None:
+        self._last_la = cap
+        self.correlated = False
+        self.last_decode = None
+        if cap is not None:
+            self.capture_seq += 1
+            self.la_seq = self.capture_seq
 
     # -- connection -----------------------------------------------------------
 

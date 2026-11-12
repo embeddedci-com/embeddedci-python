@@ -267,3 +267,143 @@ def synthesize(messages: Sequence[dict], *, n: int = 4) -> List[Sample]:
     emit(1, 1)
     emit(1, 1)                    # idle
     return s
+
+
+# --------------------------------------------------------------------------
+# Timed transactions (the capture view's decode table and lane chips)
+# --------------------------------------------------------------------------
+
+def _i2c_direction(read_flags: Sequence[bool]) -> str:
+    if not read_flags:
+        return "write"
+    has_read, has_write = any(read_flags), not all(read_flags)
+    if has_read and has_write:
+        return "read+write" if read_flags[0] else "write+read"
+    return "read" if has_read else "write"
+
+
+def timed_transactions(words: Sequence[int], sda_ch: int, scl_ch: int,
+                       sample_rate_hz: float) -> List[dict]:
+    """Decode I2C from raw LA ``words`` into transactions with per-segment timing.
+
+    Each transaction is a dict ``{id, direction, address, start_us, end_us, ok, segments,
+    register?, error_kind?}`` and each segment ``{type, start_us, end_us, value?, ack?}``, with
+    ``type`` one of start, repeat-start, address-write, address-read, data-write, data-read, ack,
+    nack, stop. This is the shape the EmbeddedCI capture view draws (the server's Go decoder emits
+    the same); :func:`decode_from_la` gives the same bus content without timing.
+    """
+    bits_sda, bits_scl = sda_ch - 1, scl_ch - 1
+    samples = [((w >> bits_scl) & 1, (w >> bits_sda) & 1) for w in words]
+    if len(samples) < 2:
+        return []
+    us_per = 1e6 / sample_rate_hz if sample_rate_hz > 0 else 0.0
+    min_w = us_per if us_per > 0 else 0.001
+
+    def us(i: int) -> float:
+        return i * us_per
+
+    txns: List[dict] = []
+    st: dict = {}
+
+    def reset(start_idx: int) -> None:
+        st.clear()
+        st.update(in_txn=True, cur={"address": ""}, segs=[], start=start_idx, read_flags=[],
+                  addr_nack=False, data_nack=False, register=None)
+
+    def finish(end_idx: int, complete: bool) -> None:
+        if not st.get("in_txn"):
+            return
+        segs = st["segs"]
+        for i, s in enumerate(segs):
+            if s["type"] in ("start", "repeat-start"):
+                if i + 1 < len(segs):
+                    s["end_us"] = segs[i + 1]["start_us"]
+                if s["end_us"] <= s["start_us"]:
+                    s["end_us"] = s["start_us"] + min_w
+        cur = st["cur"]
+        cur["segments"] = segs
+        cur["start_us"] = us(st["start"])
+        if complete:
+            cur["end_us"] = us(end_idx)
+        elif segs:
+            cur["end_us"] = segs[-1]["end_us"]
+        else:
+            cur["end_us"] = cur["start_us"]
+        if cur["end_us"] <= cur["start_us"]:
+            cur["end_us"] = cur["start_us"] + min_w
+        cur["direction"] = _i2c_direction(st["read_flags"])
+        if st["register"] is not None:
+            cur["register"] = st["register"]
+        if st["addr_nack"]:
+            cur["ok"], cur["error_kind"] = False, "address-nack"
+        elif st["data_nack"]:
+            cur["ok"], cur["error_kind"] = False, "data-nack"
+        else:
+            cur["ok"] = True
+        cur["id"] = len(txns) + 1
+        txns.append(cur)
+        st["in_txn"] = False
+
+    bit_count = cur_byte = 0
+    awaiting_ack = new_msg = msg_read = msg_write = False
+    msg_data = byte_start = last_bit = 0
+    pscl, psda = samples[0]
+    for idx in range(1, len(samples)):
+        scl, sda = samples[idx]
+        if pscl == 1 and scl == 1 and psda != sda:
+            if psda == 1 and sda == 0:                      # (repeated) START
+                was = bool(st.get("in_txn"))
+                if not was:
+                    reset(idx)
+                bit_count = cur_byte = 0
+                awaiting_ack = False
+                msg_data = 0
+                new_msg = True
+                st["segs"].append({"type": "repeat-start" if was else "start", "start_us": us(idx), "end_us": 0.0})
+            else:                                           # STOP
+                if st.get("in_txn"):
+                    st["segs"].append({"type": "stop", "start_us": us(idx), "end_us": us(idx) + min_w})
+                finish(idx, True)
+            pscl, psda = scl, sda
+            continue
+        if pscl == 0 and scl == 1 and st.get("in_txn"):
+            if awaiting_ack:
+                ack = sda == 0
+                period = max(1, idx - last_bit)
+                ack_seg = {"type": "ack" if ack else "nack", "start_us": us(idx), "end_us": us(idx + period)}
+                if new_msg:
+                    addr, read = cur_byte >> 1, bool(cur_byte & 1)
+                    addr_s = f"0x{addr:02X}"
+                    if not st["cur"]["address"]:
+                        st["cur"]["address"] = addr_s
+                    st["read_flags"].append(read)
+                    msg_read, msg_write, msg_data = read, not read, 0
+                    st["segs"] += [{"type": "address-read" if read else "address-write",
+                                    "start_us": us(byte_start), "end_us": us(idx), "value": addr_s}, ack_seg]
+                    if not ack:
+                        st["addr_nack"] = True
+                    new_msg = False
+                else:
+                    val = f"0x{cur_byte:02X}"
+                    st["segs"] += [{"type": "data-read" if msg_read else "data-write",
+                                    "start_us": us(byte_start), "end_us": us(idx), "value": val, "ack": ack},
+                                   ack_seg]
+                    if msg_write and st["register"] is None and msg_data == 0:
+                        st["register"] = val
+                    if msg_write and not ack:
+                        st["data_nack"] = True
+                    msg_data += 1
+                awaiting_ack = False
+                bit_count = cur_byte = 0
+            else:
+                cur_byte = ((cur_byte << 1) | sda) & 0xFF
+                bit_count += 1
+                if bit_count == 1:
+                    byte_start = idx
+                last_bit = idx
+                if bit_count == 8:
+                    awaiting_ack = True
+        pscl, psda = scl, sda
+    if st.get("in_txn"):
+        finish(len(samples) - 1, False)
+    return txns
