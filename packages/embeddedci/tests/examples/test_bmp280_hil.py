@@ -2,7 +2,7 @@
 
 Flashes the ``examples/scenario-sensors-stm32`` DUT app, has the pod emulate a
 BMP280 on the DUT's I2C bus, power-cycles the DUT while capturing its UART, and
-asserts on the boot output. Demonstrates connect + flash + I2C-sensor emulation
+asserts on the boot output. Demonstrates connect + flash + sensor emulation
 + timed power + UART capture end to end.
 
 Run against hardware:
@@ -104,17 +104,20 @@ def _flash(device, wiring, firmware):
     assert result.ok
 
 
-def test_app_boots_with_bmp280(benchpod_sensor, wiring, firmware):
-    device = benchpod_sensor
-    _flash(device, wiring, firmware)
-
+def _start_bmp280(device, sensors, wiring):
     # I2C is open-drain: enable the pod's pull-ups on SDA/SCL so the bus idles
-    # high, then have the pod pretend to be a BMP280 on those lines.
+    # high, then have the pod pretend to be a BMP280 (the library definition) on those lines.
     device.enable_pullup(wiring.i2c_sda, wiring.i2c_scl)
-    device.enable_i2c_sensor(
-        bp.Sensor.BMP280, sda=wiring.i2c_sda, scl=wiring.i2c_scl,
-        address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
+    return sensors.start(
+        "bmp280", pins={"sda": wiring.i2c_sda, "scl": wiring.i2c_scl},
+        address=bp.BMP280_ADDR_PRIMARY, values={"temperature_c": 22.5, "pressure_pa": 101000},
     )
+
+
+def test_app_boots_with_bmp280(benchpod, benchpod_sensors, wiring, firmware):
+    device = benchpod
+    _flash(device, wiring, firmware)
+    sensor = _start_bmp280(device, benchpod_sensors, wiring)
 
     # Wait for APP_OK: it is the LAST thing the app prints, so a capture that stops at the
     # earlier BMP280 line would not contain it.
@@ -127,13 +130,14 @@ def test_app_boots_with_bmp280(benchpod_sensor, wiring, firmware):
     assert cap.match(PRESENT), f"BMP280 not detected:\n{cap.text}"
 
     # The DUT actually probed the emulated sensor.
-    assert device.i2c_sensor_status().get("transactions", 0) > 0
+    assert sensor.status().get("bus", {}).get("transfers", 0) > 0
 
 
 def test_app_boots_without_bmp280(benchpod, wiring, firmware):
     device = benchpod
     _flash(device, wiring, firmware)
-    device.disable_i2c_sensor()  # ensure nothing answers on I2C
+    if device.supports("sensors"):
+        device.sensors.stop()  # ensure nothing answers on I2C
 
     cap = device.power_cycle_and_capture(
         rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
@@ -144,7 +148,7 @@ def test_app_boots_without_bmp280(benchpod, wiring, firmware):
     assert cap.match(ABSENT), f"expected BMP280 absent:\n{cap.text}"
 
 
-def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
+def test_bmp280_i2c_bus_decode(benchpod, benchpod_sensors, wiring, firmware):
     """Prove at the protocol level that the DUT read the chip-id register.
 
     Decodes the actual I2C waveform the pod sampled while serving the emulated
@@ -157,13 +161,9 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
     captures nothing but idle. Aim the window instead — sleep the expected lead, capture, and nudge
     the lead on a miss (an idle window was early; a window with other traffic was late).
     """
-    device = benchpod_sensor
+    device = benchpod
     _flash(device, wiring, firmware)
-    device.enable_pullup(wiring.i2c_sda, wiring.i2c_scl)
-    device.enable_i2c_sensor(
-        bp.Sensor.BMP280, sda=wiring.i2c_sda, scl=wiring.i2c_scl,
-        address=bp.BMP280_ADDR_PRIMARY, temperature_c=22.5, pressure_pa=101000,
-    )
+    sensor = _start_bmp280(device, benchpod_sensors, wiring)
 
     txns, chip_id, lead, misses = [], None, BMP280_PROBE_AT, []
     for _ in range(4):
@@ -171,7 +171,7 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
         time.sleep(0.5)
         device.power_on(wiring.efuse)      # returns immediately
         time.sleep(lead)                   # let the DUT get as far as its sensor probe
-        txns = device.i2c_sensor_capture(4096, sample_rate_hz=500_000)  # 5 samples per 100 kHz bit
+        txns = sensor.i2c_transactions(4096)
         chip_id = i2c.read_register(txns, bp.BMP280_ADDR_PRIMARY, BMP280_CHIP_ID_REG)
         if chip_id is not None:
             break
@@ -185,4 +185,4 @@ def test_bmp280_i2c_bus_decode(benchpod_sensor, wiring, firmware):
         f"expected chip-id read 0x{BMP280_CHIP_ID:02X}, decoded {chip_id}"
 
     # Cross-check against the pod's own transaction counters.
-    assert device.i2c_sensor_status().get("transactions", 0) > 0
+    assert sensor.status().get("bus", {}).get("transfers", 0) > 0

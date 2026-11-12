@@ -155,8 +155,8 @@ class PinConflictError(FirmwareError):
 
     ``la`` is the channel and ``function`` its owner (``gpio``, ``uart_tx``, ``i2c_sda``, ``swd_clk``,
     ``step``, …). The message names the SDK call that frees it (``release it with
-    bp.release_gpio(4)``, ``bp.disable_i2c_sensor()``, ``bp.disable_gps()``, close the UART or SPI
-    session); :attr:`firmware_message` keeps the pod's own text.
+    bp.release_gpio(4)``, ``bp.sensors.stop("env")``, close the UART or SPI session);
+    :attr:`firmware_message` keeps the pod's own text.
     """
 
     def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0,
@@ -234,7 +234,7 @@ class PermissionDeniedError(FirmwareError, TransportError):
         self.status = status
 
 
-_PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by (\w+)")
+_PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by ([\w:]+)")
 _PULL_CONFLICT = re.compile(r"pull conflict: LA(\d+)")
 _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
 #: "busy: a cloud job holds this pod (<holder>, <n> s left)" (command_handler.c dispatch_line).
@@ -268,12 +268,11 @@ _SDK_FIXES = (
      "close the UART session from bp.open_uart() first (session.close(), or leave its with block)"),
     (re.compile(r"end the SWD session first"),
      "wait for the running flash (its SWD session) to finish"),
-    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"\}\)'),
-     "stop the sensor emulation first with bp.disable_i2c_sensor()"),
+    (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'bp.sensors.stop("\1")'),
+    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
+     "stop the sensor emulation first with bp.sensors.stop()"),
     (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
      "close the SPI session from bp.open_spi() first (spi.close(), or leave its with block)"),
-    (re.compile(r'stop the GPS receiver first \(\{"cmd":"gps_stop"\}\)'),
-     "stop the GPS emulation first with bp.disable_gps()"),
     (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
      "(close the SPI session from bp.open_spi() first)"),
     (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"bp.set_pull(\1, False)"),

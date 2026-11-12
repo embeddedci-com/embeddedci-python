@@ -120,12 +120,8 @@
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
-    "disable_gps": "(self) -> 'None'",
-    "disable_i2c_sensor": "(self) -> 'None'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
-    "enable_gps": "(self, tx: 'Union[Pin, int, str]', *, baud: 'int' = 9600, rate_hz: 'int' = 1, sentences: 'Union[str, Sequence[str], None]' = None, utc: 'Union[_dt.datetime, str, int, None]' = None, **fix: 'Any') -> 'Dict[str, Any]'",
-    "enable_i2c_sensor": "(self, sensor: 'Union[Sensor, str]' = <Sensor.BMP280: 'bmp280'>, *, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, address: 'Optional[int]' = None, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None, **values: 'float') -> 'Dict[str, Any]'",
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
@@ -135,11 +131,6 @@
     "get_la_voltage": "(self) -> 'LaVoltage'",
     "gpio": "(self, la: 'Union[Pin, int, str]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'GpioPin'",
     "gpio_pins": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[GpioPin]'",
-    "gps_status": "(self) -> 'Dict[str, Any]'",
-    "i2c_sensor_capture": "(self, samples: 'int' = 1024, *, sample_rate_hz: 'Optional[float]' = None) -> 'List[_i2c.I2CTransaction]'",
-    "i2c_sensor_regs": "(self, *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
-    "i2c_sensor_status": "(self) -> 'Dict[str, Any]'",
-    "i2c_sensor_types": "(self) -> 'List[Dict[str, Any]]'",
     "la_pins": "(self) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
     "lan_tls": "(self) -> \"'LanTls'\"",
@@ -170,10 +161,9 @@
     "reset_target": "(self, *, pulse: 'float' = 0.1) -> 'ResetState'",
     "save_capture_as_recording": "(self, capture: 'Capture', name: 'str', *, full_scale_v: 'Optional[float]' = None) -> \"'Waveform'\"",
     "save_wiring": "(self, wiring: 'Union[Wiring, Mapping[str, Any], str, None]' = None) -> 'Wiring'",
+    "sensors": "property",
     "server_api": "property",
     "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'int') -> 'None'",
-    "set_gps": "(self, *, utc: 'Union[_dt.datetime, str, int, None]' = None, **fix: 'Any') -> 'Dict[str, Any]'",
-    "set_i2c_sensor": "(self, *, temperature_c: 'Optional[float]' = None, pressure_pa: 'Optional[float]' = None, **values: 'float') -> 'Dict[str, Any]'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
@@ -321,8 +311,8 @@
       "pod_current",
       "analog",
       "dac_limits",
-      "sensor_types",
-      "gps",
+      "sensors",
+      "sensors_format",
       "flash_kb",
       "blob_slots",
       "ota_sig",
@@ -442,6 +432,9 @@
   "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
   "DacPath": "Literal['3v3', '5v', '12v', 'current_out']",
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
+  "DefinitionError": {
+    "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
+  },
   "DeviceBusyError": {},
   "DeviceLease": {
     "__init__": "(self, *, api_base: 'str', token_provider: 'Callable[[], str]', device_name: 'str', ttl_seconds: 'int' = 120, run_label: 'Optional[str]' = None, invalidate_token: 'Optional[Callable[[], bool]]' = None) -> 'None'",
@@ -627,6 +620,15 @@
       "error"
     ],
     "from_reply": "(cls, data: 'Any') -> \"'LanTls'\""
+  },
+  "LibraryEntry": {
+    "__fields__": [
+      "path",
+      "name",
+      "kind",
+      "label"
+    ],
+    "to_dict": "(self) -> 'Dict[str, str]'"
   },
   "LoopInputMap": {
     "__fields__": [
@@ -827,6 +829,7 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'ResetState'\""
   },
+  "SENSOR_LIBRARY_VERSION": "0.1.0",
   "Segment": {
     "__fields__": [
       "shape",
@@ -837,12 +840,46 @@
     "to_dict": "(self) -> 'Dict[str, Any]'"
   },
   "Sensor": {
-    "__members__": {
-      "BME280": "bme280",
-      "BMP280": "bmp280",
-      "MPU6050": "mpu6050",
-      "SHT4X": "sht4x"
-    }
+    "__init__": "(self, emulation: \"'SensorEmulation'\", instance: 'str', *, info: 'Optional[Mapping[str, Any]]' = None, started: 'Optional[Mapping[str, Any]]' = None) -> 'None'",
+    "capture": "(self, samples: 'int' = 4096) -> 'List[int]'",
+    "clear_fault": "(self) -> 'Dict[str, Any]'",
+    "fault": "(self, type: 'str', *, duration_s: 'Optional[float]' = None, **fields: 'Any') -> 'Dict[str, Any]'",
+    "i2c_transactions": "(self, samples: 'int' = 4096) -> \"List['I2CTransaction']\"",
+    "kind": "property",
+    "name": "property",
+    "params": "property",
+    "regs": "(self, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
+    "set": "(self, values: 'Optional[Mapping[str, Any]]' = None, **kw: 'Any') -> 'Dict[str, Any]'",
+    "status": "(self) -> 'Dict[str, Any]'",
+    "stop": "(self) -> 'None'"
+  },
+  "SensorEmulation": {
+    "__init__": "(self, pod: \"'BenchPod'\", *, library_version: 'Optional[str]' = None) -> 'None'",
+    "capture": "(self, instance: 'str', samples: 'int' = 4096) -> 'List[int]'",
+    "clear_fault": "(self, instance: 'str') -> 'Dict[str, Any]'",
+    "define": "(self, definition: 'DefinitionSource', *, instance: 'Optional[str]' = None, dry_run: 'bool' = False) -> 'Dict[str, Any]'",
+    "fault": "(self, instance: 'str', type: 'str', *, duration_s: 'Optional[float]' = None, **fields: 'Any') -> 'Dict[str, Any]'",
+    "i2c_transactions": "(self, instance: 'str', samples: 'int' = 4096) -> \"List['I2CTransaction']\"",
+    "library": "(self, version: 'Optional[str]' = None, *, offline: 'bool' = False) -> 'SensorLibrary'",
+    "load_stimulus": "(self, stimulus: 'DefinitionSource', *, base_dir: \"Union[str, 'os.PathLike[str]', None]\" = None) -> 'Dict[str, Any]'",
+    "regs": "(self, instance: 'str', *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
+    "sensor": "(self, instance: 'str') -> 'Sensor'",
+    "set": "(self, instance: 'str', values: 'Optional[Mapping[str, Any]]' = None, **kw: 'Any') -> 'Dict[str, Any]'",
+    "start": "(self, definition: 'DefinitionSource', *, instance: 'Optional[str]' = None, pins: 'Optional[Mapping[str, PinValue]]' = None, address: 'Union[int, str, None]' = None, baud: 'Optional[int]' = None, values: 'Optional[Mapping[str, Any]]' = None) -> 'Sensor'",
+    "start_stimulus": "(self, at_s: 'Optional[float]' = None) -> 'Dict[str, Any]'",
+    "status": "(self) -> 'Dict[str, Any]'",
+    "stop": "(self, instance: 'Optional[str]' = None) -> 'None'",
+    "stop_stimulus": "(self) -> 'Dict[str, Any]'",
+    "validate": "(self, definition: 'DefinitionSource') -> 'Dict[str, Any]'"
+  },
+  "SensorLibrary": {
+    "__init__": "(self, version: 'str', root: \"Union[str, 'os.PathLike[str]']\", *, source: 'str' = 'bundled', warning: 'str' = '') -> 'None'",
+    "find": "(self, name: 'str') -> 'Optional[LibraryEntry]'",
+    "format_doc": "(self) -> 'str'",
+    "get": "(self, name: 'str') -> 'LibraryEntry'",
+    "load": "(self, name: 'str') -> 'Dict[str, Any]'",
+    "path": "(self, name: 'str') -> 'Path'",
+    "text": "(self, name: 'str') -> 'str'"
   },
   "ServerApi": {
     "__init__": "(self, *, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, token_provider: 'Optional[Callable[[], str]]' = None, timeout: 'float' = 60.0, lease_id: 'Optional[str]' = None) -> 'None'",
@@ -1116,6 +1153,7 @@
     "DacOutputPath",
     "DacPath",
     "DecodeProtocol",
+    "DefinitionError",
     "DeviceBusyError",
     "DeviceLease",
     "EXTERNAL",
@@ -1141,6 +1179,7 @@
     "LaPinState",
     "LaVoltage",
     "LanTls",
+    "LibraryEntry",
     "LoopInputMap",
     "LoopSource",
     "LoopState",
@@ -1177,8 +1216,11 @@
     "ReplayHandle",
     "ReplayMapping",
     "ResetState",
+    "SENSOR_LIBRARY_VERSION",
     "Segment",
     "Sensor",
+    "SensorEmulation",
+    "SensorLibrary",
     "ServerApi",
     "ServerApiError",
     "ServerPermissionDeniedError",
@@ -1219,10 +1261,14 @@
     "forget_lan_tls",
     "i2c",
     "input_percent_to_code",
+    "load_definition",
+    "load_stimulus",
     "make_build_reporter",
     "motor_emulator",
     "parse_connection",
     "resolve_connection",
+    "sensor_library",
+    "sensors",
     "trust_lan_tls"
   ],
   "build_constant_curve": "(value_code: 'int', points: 'int' = 256) -> 'List[int]'",
@@ -1237,9 +1283,13 @@
   "forget_lan_tls": "(host: 'str', port: 'int' = 8080) -> 'bool'",
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
+  "load_definition": "(source: 'DefinitionSource', *, library: \"Optional['SensorLibrary']\" = None, base_dir: \"Union[str, 'os.PathLike[str]', None]\" = None) -> 'Dict[str, Any]'",
+  "load_stimulus": "(source: 'DefinitionSource', *, library: \"Optional['SensorLibrary']\" = None, base_dir: \"Union[str, 'os.PathLike[str]', None]\" = None) -> 'Dict[str, Any]'",
   "make_build_reporter": "(*, api_base: 'Optional[str]' = None, audience: 'Optional[str]' = None, target: 'str' = '', name: 'str' = '') -> 'Any'",
   "motor_emulator": "module",
   "parse_connection": "(raw: 'str') -> 'ConnSpec'",
   "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'",
+  "sensor_library": "(version: 'Optional[str]' = None, *, cache_dir: \"Union[str, 'os.PathLike[str]', None]\" = None, offline: 'bool' = False, refresh: 'bool' = False, timeout: 'float' = 30.0) -> 'SensorLibrary'",
+  "sensors": "module",
   "trust_lan_tls": "(host: 'str', port: 'int' = 8080, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
 }

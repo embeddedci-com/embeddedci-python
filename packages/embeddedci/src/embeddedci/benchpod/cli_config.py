@@ -57,3 +57,15 @@ def saved_connection(path: Optional[Path] = None) -> Optional[str]:
                 return None
             return conn
     return None
+
+
+def saved_setting(key: str, path: Optional[Path] = None) -> Optional[str]:
+    """A text setting from ``benchpod-cli``'s ``config.json`` (``sensor_library``, say), or None
+    when it is not set or the file cannot be read."""
+    path = path or config_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = data.get(key) if isinstance(data, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None

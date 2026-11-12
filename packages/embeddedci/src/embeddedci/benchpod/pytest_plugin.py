@@ -204,6 +204,14 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="Do not take an exclusive lease on the cloud device (allows concurrent access; "
         "only safe when you know no other run will use the same device).",
     )
+    group.addoption(
+        "--benchpod-sensor-library",
+        action="store",
+        default=None,
+        dest="benchpod_sensor_library",
+        help="Sensor library version for the benchpod_sensors fixture: 'latest' or a release "
+        "such as 0.2.0 (default: the version this SDK pins, or BENCHPOD_SENSOR_LIBRARY).",
+    )
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, 'usb', or "
@@ -552,15 +560,24 @@ def _collect_pytest_log(node: "pytest.Item") -> str:
 
 
 @pytest.fixture
-def benchpod_sensor(benchpod: BenchPod) -> Iterator[BenchPod]:
-    """A BenchPod that disarms any emulated I2C sensor at teardown."""
+def benchpod_sensors(request: "pytest.FixtureRequest", benchpod: BenchPod) -> Iterator[Any]:
+    """``benchpod.sensors`` (a :class:`~embeddedci.benchpod.sensors.SensorEmulation`); stops the
+    stimulus and every emulated sensor at teardown. ``--benchpod-sensor-library`` picks the
+    sensor library version for names such as ``"bme280"``."""
+    if not benchpod.supports("sensors"):
+        pytest.skip("the pod's firmware has no sensor emulation (the 'sensors' capability)")
+    sensors = benchpod.sensors
+    version = request.config.getoption("benchpod_sensor_library", None)
+    if version:
+        sensors.library_version = version
     try:
-        yield benchpod
+        yield sensors
     finally:
-        try:
-            benchpod.disable_i2c_sensor()
-        except Exception:
-            pass
+        for stop in (sensors.stop_stimulus, sensors.stop):
+            try:
+                stop()
+            except Exception:
+                pass
 
 
 @pytest.fixture(scope="session")

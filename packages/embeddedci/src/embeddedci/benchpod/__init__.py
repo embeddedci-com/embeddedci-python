@@ -24,10 +24,22 @@ from . import control_loop
 from . import decode
 from . import dsp
 from . import i2c
+from . import sensors
 from .can import CanBus, CanFrame, CanReadResult
 from .capabilities import Capabilities
 from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
 from .client import BenchPod
+from .sensors import (
+    SENSOR_LIBRARY_VERSION,
+    DefinitionError,
+    LibraryEntry,
+    Sensor,
+    SensorEmulation,
+    SensorLibrary,
+    load_definition,
+    load_stimulus,
+    sensor_library,
+)
 from .connection import ConnSpec, parse_connection, resolve_connection
 from .constants import (
     BMP280_ADDR_PRIMARY,
@@ -67,7 +79,6 @@ from .constants import (
     LoopSource,
     Pin,
     ReplayMapping,
-    Sensor,
     TriggerEdge,
     Waveshape,
 )
@@ -236,6 +247,17 @@ __all__ = [
     "curve_output_at",
     "input_percent_to_code",
     "encode_curve_b64url",
+    # emulated sensors
+    "sensors",
+    "Sensor",
+    "SensorEmulation",
+    "SensorLibrary",
+    "LibraryEntry",
+    "SENSOR_LIBRARY_VERSION",
+    "sensor_library",
+    "load_definition",
+    "load_stimulus",
+    "DefinitionError",
     # low-level escape hatch
     "LowLevel",
     # connection
@@ -245,7 +267,6 @@ __all__ = [
     # constants + option types
     "Efuse",
     "Pin",
-    "Sensor",
     "FpgaImage",
     "INTERNAL",
     "EXTERNAL",

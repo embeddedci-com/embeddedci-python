@@ -7,13 +7,13 @@ A runnable, copy-pasteable starting point for hardware-in-the-loop tests.
 One self-contained test that does the whole HIL loop:
 
 1. **Flash** your firmware onto the DUT over SWD.
-2. **Emulate a BMP280** on the DUT's I2C bus (the pod becomes the sensor), with the
-   pod's pull-ups engaged on SDA/SCL.
+2. **Emulate a BMP280** on the DUT's I2C bus (the pod becomes the sensor, from the sensor
+   library's `bmp280` definition), with the pod's pull-ups engaged on SDA/SCL.
 3. **Power-cycle** the DUT (the power-on is scheduled pod-side, so the boot banner lands
    inside the capture window).
 4. **Capture the UART** and assert the app booted (`APP_OK`) and detected the sensor
    (`chip id match=0x58`).
-5. **Boot again and decode the I2C bus** with `i2c_sensor_capture`, asserting the DUT
+5. **Boot again and decode the I2C bus** with `sensor.i2c_transactions()`, asserting the DUT
    read the BMP280's chip-id register (`0xD0` → `0x58`).
 
 ### Run it
@@ -33,12 +33,13 @@ reached through embeddedci.com (see the package README for cloud authentication)
 
 The board's I/O voltage is set once, by the `benchpod_la_voltage` fixture at the top of
 `test_bmp280.py` (3.3 V). The pod refuses flashing, UART, LA capture, pull resistors and
-I2C-sensor emulation until an LA bank voltage is chosen. **Change it to 1.8 for a 1V8
+sensor emulation until an LA bank voltage is chosen. **Change it to 1.8 for a 1V8
 board** — note the pull-up resistors only work at 3.3 V. In your own project put that fixture
 in `conftest.py` so every test file shares it.
 
 Without a connection or a firmware image the test **skips** (so it's safe in CI). The
-`benchpod_sensor`, `pins` and `firmware` fixtures are provided by the installed plugin.
+`benchpod`, `benchpod_sensors`, `pins` and `firmware` fixtures are provided by the installed plugin.
+Sensor emulation needs pod firmware with the `sensors` capability.
 
 ### Wiring
 

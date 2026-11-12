@@ -1,7 +1,7 @@
 """The :class:`BenchPod` facade — the user-facing API.
 
 Wraps a :class:`~embeddedci.benchpod.transport.base.Transport` with named operations: power,
-flash, UART, I2C-sensor emulation, analog paths, captures, DAC generate/replay, the in-fabric
+flash, UART, sensor emulation, analog paths, captures, DAC generate/replay, the in-fabric
 control loop and CAN. Designed to drop straight into pytest::
 
     from embeddedci import benchpod
@@ -26,7 +26,6 @@ hatches below that API and are not covered by its stability guarantee.
 from __future__ import annotations
 
 import base64
-import datetime as _dt
 import logging
 import math
 import os
@@ -40,10 +39,8 @@ from . import capture as _capture
 from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import flash as _flash
-from . import gps as _gps
 from . import i2c as _i2c
 from . import motor_emulator as _motor_emulator
-from . import sensor as _sensor
 from . import spi as _spi
 from . import uart as _uart
 from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, AffineCal, Capabilities
@@ -87,7 +84,6 @@ from .constants import (
     LoopSource,
     Pin,
     ReplayMapping,
-    Sensor,
     Waveshape,
     check_choice,
     coerce_efuse,
@@ -125,6 +121,7 @@ from .transport import Transport, open_transport
 from .transport.cloud import CloudTransport
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .sensors import SensorEmulation
     from .server_api import ServerApi
     from .waveforms import Waveform, WaveformLibrary
 
@@ -246,7 +243,7 @@ class BenchPod:
 
         ``la_voltage`` (1.8 or 3.3 volts, falling back to ``BENCHPOD_LA_VOLTAGE``) selects the LA
         I/O-bank voltage right after connecting. The pod refuses every LA-bank operation —
-        flashing, UART, LA capture, pull resistors, I2C-sensor emulation — until one is selected.
+        flashing, UART, LA capture, pull resistors, sensor emulation — until one is selected.
 
         Cloud options: ``api_key`` (or ``BENCHPOD_API_KEY``) authenticates anywhere; else
         ``cloud_user_token``, a callable returning a logged-in user's access token (such as the
@@ -286,6 +283,7 @@ class BenchPod:
         #: The 4-20 mA output's range in amps (min, max), as the pod reported it. Read once.
         self._current_out_span: Optional[Tuple[float, float]] = None
         self._waveforms: Optional["WaveformLibrary"] = None
+        self._sensors: Optional["SensorEmulation"] = None
         self._device_name = ""
         #: Hardware controls below the named-path API (raw mux/relay/DAC-code access). Not covered
         #: by the stability guarantee.
@@ -491,7 +489,7 @@ class BenchPod:
         server unreachable or the device on another account, it logs why and uses the defaults,
         and on a LAN/USB connection it gives up after about 3 seconds.
         Channel arguments fall back to it — ``open_uart()``, ``capture_uart()``, ``flash()``,
-        ``enable_i2c_sensor()``, the power rail — and :meth:`signal` / GPIO names come from it.
+        ``bp.sensors.start()``, the power rail — and :meth:`signal` / GPIO names come from it.
         Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`).
         """
         if self._wiring is None:
@@ -646,7 +644,7 @@ class BenchPod:
         """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod).
 
         Match it to the DUT's I/O voltage. It must be set before any LA-bank operation —
-        flashing, the UART proxy, LA capture, pull resistors, I2C-sensor emulation — or the pod
+        flashing, the UART proxy, LA capture, pull resistors, sensor emulation — or the pod
         refuses them with "la voltage not set". :class:`BenchPod` sets it on connect when
         ``la_voltage`` / ``BENCHPOD_LA_VOLTAGE`` is given.
         """
@@ -1025,135 +1023,19 @@ class BenchPod:
         for la in las:
             self.set_pull(self._bias_channel(la, PULLDOWN_CHANNELS, "pull-down"), False)
 
-    # -- emulated I2C sensor ------------------------------------------------
+    # -- emulated sensors ---------------------------------------------------------
 
-    def enable_i2c_sensor(
-        self,
-        sensor: Union[Sensor, str] = Sensor.BMP280,
-        *,
-        sda: Union[Pin, int, str, None] = None,
-        scl: Union[Pin, int, str, None] = None,
-        address: Optional[int] = None,
-        temperature_c: Optional[float] = None,
-        pressure_pa: Optional[float] = None,
-        **values: float,
-    ) -> Dict[str, Any]:
-        """Make the pod emulate an I2C sensor on ``sda``/``scl``.
+    @property
+    def sensors(self) -> "SensorEmulation":
+        """The pod's user-defined sensor emulation (:class:`~embeddedci.benchpod.sensors.SensorEmulation`):
+        ``bp.sensors.start("bme280", pins={"sda": 2, "scl": 1})`` returns a
+        :class:`~embeddedci.benchpod.sensors.Sensor` to ``set``, ``fault`` and ``stop``. Needs
+        firmware with the ``sensors`` capability."""
+        if self._sensors is None:
+            from .sensors import SensorEmulation
 
-        ``sensor`` is a :class:`Sensor` (BMP280, BME280, SHT4x, MPU-6050). The pod becomes an I2C
-        target the DUT's controller can read. Engage the pull-ups on SDA/SCL first
-        (:meth:`enable_pullup`) so the open-drain bus idles high. Seed its readings with
-        ``temperature_c``/``pressure_pa`` or any of the model's parameters as keywords
-        (``humidity_pct=55``, ``accel_z_g=1.0``; :meth:`i2c_sensor_types` lists them). Omitted
-        ``sda`` and ``scl`` come from the wiring profile; an omitted ``address`` is the profile's
-        ``i2c_addr`` for a BMP280/BME280 and the model's default otherwise. Returns the pod's
-        start reply.
-        """
-        sda_i = self._wired(sda, "i2c_sda")
-        scl_i = self._wired(scl, "i2c_scl")
-        name = sensor.value if isinstance(sensor, Sensor) else str(sensor)
-        if name != Sensor.BMP280.value:
-            self._require_capability("sensor_types", f"{name} emulation and the other sensor models")
-        addr = address
-        if addr is None and name in (Sensor.BMP280.value, Sensor.BME280.value):
-            addr = self.wiring.i2c_address
-        with _classified_errors():
-            result = _sensor.sensor_start(
-                self._transport, name, sda=sda_i, scl=scl_i, address=addr
-            )
-            if temperature_c is not None or pressure_pa is not None or values:
-                _sensor.sensor_set(self._transport, values, temperature_c=temperature_c,
-                                   pressure_pa=pressure_pa)
-        return result
-
-    def set_i2c_sensor(self, *, temperature_c: Optional[float] = None,
-                       pressure_pa: Optional[float] = None, **values: float) -> Dict[str, Any]:
-        """Update the emulated sensor's readings: any of the active model's parameters.
-
-        ``set_i2c_sensor(temperature_c=30)``, ``set_i2c_sensor(humidity_pct=80)``,
-        ``set_i2c_sensor(accel_x_g=0.0, accel_y_g=0.0, accel_z_g=-1.0)``. At least one value; the
-        pod rejects the whole request if any is unknown or out of range. Returns the model and
-        every parameter's new value.
-        """
-        with _classified_errors():
-            return _sensor.sensor_set(self._transport, values, temperature_c=temperature_c,
-                                      pressure_pa=pressure_pa)
-
-    def i2c_sensor_types(self) -> List[Dict[str, Any]]:
-        """The sensor models the pod emulates, each with its addresses and the parameters
-        :meth:`set_i2c_sensor` takes (key, unit, min, max, default)."""
-        self._require_capability("sensor_types", "the sensor model list")
-        with _classified_errors():
-            return _sensor.sensor_types(self._transport)
-
-    def disable_i2c_sensor(self) -> None:
-        """Disarm the emulated sensor (safe if none is active)."""
-        _sensor.sensor_stop(self._transport)
-
-    def i2c_sensor_status(self) -> Dict[str, Any]:
-        """Sensor state and I2C-bus activity counters (transactions, reads, writes, …)."""
-        return _sensor.sensor_status(self._transport)
-
-    def i2c_sensor_regs(self, *, start: int = 0, length: int = 256) -> List[int]:
-        """Read the emulated sensor's register image."""
-        return _sensor.sensor_regs(self._transport, start, length)
-
-    def i2c_sensor_capture(self, samples: int = 1024, *,
-                           sample_rate_hz: Optional[float] = None) -> List[_i2c.I2CTransaction]:
-        """Capture the emulated sensor's I2C bus and decode it into transactions.
-
-        Sample fast enough to resolve the bus: ~1 MS/s (``sample_rate_hz=1e6``) gives ~10 samples
-        per bit at 100 kHz I2C. For a bus on arbitrary LA channels use :meth:`capture_la` +
-        :meth:`decode`.
-        """
-        return _i2c.decode(_sensor.sensor_la(self._transport, samples, sample_rate_hz))
-
-    # -- emulated GPS receiver -------------------------------------------------
-
-    def enable_gps(
-        self,
-        tx: Union[Pin, int, str],
-        *,
-        baud: int = 9600,
-        rate_hz: int = 1,
-        sentences: Union[str, Sequence[str], None] = None,
-        utc: Union[_dt.datetime, str, int, None] = None,
-        **fix: Any,
-    ) -> Dict[str, Any]:
-        """Make the pod play a GPS receiver: NMEA sentences on LA channel ``tx`` (the DUT's RX).
-
-        The pod prints one fix every ``1/rate_hz`` s at ``baud`` (default 9600 baud, 1 Hz, all of
-        RMC VTG GGA GSA GSV GLL, like a u-blox module out of the box) from UART2, a second UART,
-        so the UART proxy and the DUT's console keep working. Set the fix with keywords:
-        ``latitude_deg``, ``longitude_deg``, ``altitude_m``, ``speed_kmh``, ``course_deg``,
-        ``satellites``, ``hdop``, ``fix`` (0 none, 1 GPS, 2 DGPS). ``utc`` (a datetime, ISO
-        string or seconds since 1970) defaults to now: the pod has no clock of its own. Between
-        fixes the position moves along ``course_deg`` at ``speed_kmh``. Needs gateware v48
-        (``"gps"`` in :meth:`status` caps). Returns :meth:`gps_status`.
-        """
-        self._require_capability("gps", "the GPS receiver (gateware v48, UART2)")
-        tx_i = self._resolve_la(tx, "tx")[0]
-        when = _dt.datetime.now(_dt.timezone.utc) if utc is None else utc
-        with _classified_errors():
-            return _gps.gps_start(self._transport, tx=tx_i, baud=baud, rate_hz=rate_hz,
-                                  sentences=sentences, utc=when, **fix)
-
-    def set_gps(self, *, utc: Union[_dt.datetime, str, int, None] = None, **fix: Any) -> Dict[str, Any]:
-        """Change the fix the receiver prints (any subset of the :meth:`enable_gps` fields and
-        ``utc``); kept for the next :meth:`enable_gps` when none runs. Returns :meth:`gps_status`."""
-        with _classified_errors():
-            return _gps.gps_set(self._transport, utc=utc, **fix)
-
-    def disable_gps(self) -> None:
-        """Stop the GPS receiver and release its pin (safe if none runs)."""
-        with _classified_errors():
-            _gps.gps_stop(self._transport)
-
-    def gps_status(self) -> Dict[str, Any]:
-        """The receiver's session (``tx``, ``baud``, ``rate_hz``, ``sentences``, ``epochs``,
-        ``overruns``) and the fix it prints (``utc`` in seconds since 1970)."""
-        with _classified_errors():
-            return _gps.gps_status(self._transport)
+            self._sensors = SensorEmulation(self)
+        return self._sensors
 
     # -- analog paths ---------------------------------------------------------
     # One named path == one fully-specified switch state, defined once in the firmware, so the SDK
@@ -2222,7 +2104,7 @@ class BenchPod:
         ``FpgaImage.LOOP`` (0) is the control-loop image, ``FpgaImage.DEEP_REPLAY`` (1) the deep
         DAC replay image. The pod reprograms the FPGA from its config flash and cold-resets it
         (~2-3 s), which stops anything running in the FPGA: a DAC output or control loop, a UART
-        session, I2C sensor emulation. The selection is written to the config flash, so the pod
+        session, sensor emulation. The selection is written to the config flash, so the pod
         normally stays on it after a power cycle. Drops the cached :attr:`capabilities` so the next
         read reflects the new image.
 
@@ -2256,7 +2138,7 @@ class BenchPod:
                 f"other one (capabilities.{flag} is False): pass switch_image=True or call "
                 f"fpga_image(FpgaImage.{image.name}) first")
         _log.warning("switching the FPGA to the %s gateware image for %s (~3 s); this resets the "
-                     "FPGA, so any DAC output, UART session or I2C sensor emulation stops",
+                     "FPGA, so any DAC output, UART session or sensor emulation stops",
                      image.name, needed_for)
         info = self.fpga_image(image)
         # Judge by the reply's feature bits: on a cloud connection the merged capabilities can lag.

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embeddedci"
-version = "2.13.9"
+version = "2.13.10"
 description = "BenchPod SDK and pytest plugin for EmbeddedCI hardware-in-the-loop testing"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "websocket-client>=1.6", "numpy>=1.21"]
+dev = ["pytest>=7.0", "websocket-client>=1.6", "numpy>=1.21", "pyyaml>=6.0"]
 # The pytest plugin (fixtures + --benchpod-* options) registers automatically; this extra just
 # installs pytest alongside the SDK.
 pytest = ["pytest>=7.0"]
@@ -41,6 +41,9 @@ cloud = ["websocket-client>=1.6"]
 # AI Vision boards, AIVision("discover")).
 # Kept optional so headless CI (cloud/explicit path, multicast often blocked) stays lean.
 discovery = ["zeroconf>=0.131"]
+# YAML sensor definitions read by PyYAML (with the YAML 1.2 rules); without it a built-in reader
+# covers what definitions use.
+yaml = ["pyyaml>=6.0"]
 # Signal analysis helpers on capture results (Capture.fft / dominant_frequency). The core
 # reductions (mean/rms/peak-to-peak) are pure-Python and need no extra; only the FFT uses numpy.
 analysis = ["numpy>=1.21"]

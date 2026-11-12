@@ -9,6 +9,7 @@ BENCHPOD_E2E_ALLOW_12V=1. Each test leaves the pod quiet.
 
 from __future__ import annotations
 
+import datetime
 import os
 import time
 
@@ -26,7 +27,6 @@ from embeddedci.benchpod import (
     LoopInputMap,
     PowerStatus,
     ResetState,
-    Sensor,
     TargetStatus,
     UsbCcStatus,
     build_constant_curve,
@@ -990,49 +990,98 @@ def test_bias_resistors_are_direction_aware(pod, bench):
         pod.set_pull(ch, before)
 
 
-def test_i2c_sensor_emulation(pod, bench):
-    pod.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, temperature_c=21.0, pressure_pa=100_000)
+@pytest.fixture
+def sensors(pod):
+    """``pod.sensors``, skipping on firmware without it; stops every instance and the stimulus."""
+    if not pod.supports("sensors"):
+        pytest.skip("firmware without sensor emulation (no 'sensors' capability)")
     try:
-        assert pod.i2c_sensor_regs(start=0xD0, length=1) == [0x58]
-        before_regs = pod.i2c_sensor_regs(start=0xFA, length=3)
-        pod.set_i2c_sensor(temperature_c=30.0)
-        assert pod.i2c_sensor_status()["active"]
-        # A changed setting must reach the emulator's register file: the BMP280 temperature lives
-        # in 0xFA..0xFC, so the raw registers must differ after set_i2c_sensor.
-        assert pod.i2c_sensor_regs(start=0xFA, length=3) != before_regs, \
-            "set_i2c_sensor did not change the emulated temperature registers"
-        assert isinstance(pod.i2c_sensor_capture(1024, sample_rate_hz=1_000_000), list)
+        yield pod.sensors
     finally:
-        pod.disable_i2c_sensor()
-    assert not pod.i2c_sensor_status().get("active")
+        for stop in (pod.sensors.stop_stimulus, pod.sensors.stop):
+            try:
+                stop()
+            except BenchPodError:
+                pass
 
 
-def test_i2c_sensor_models(pod, bench):
-    """BME280, SHT4x and MPU-6050: the start, a reading reaching the register image, the ranges.
-    (examples/process-node-stm32 reads them over a real bus with a DUT.)"""
-    if not pod.capabilities.sensor_types:
-        pytest.skip("firmware without the sensor models (no sensor_types cap)")
-    types = {t["type"]: t for t in pod.i2c_sensor_types()}
-    assert {"bmp280", "bme280", "sht4x", "mpu6050"} <= set(types)
-    try:
-        r = pod.enable_i2c_sensor(Sensor.BME280, sda=bench.i2c_sda, scl=bench.i2c_scl, humidity_pct=30)
-        assert r["type"] == "bme280" and pod.i2c_sensor_regs(start=0xD0, length=1) == [0x60]
-        before = pod.i2c_sensor_regs(start=0xFD, length=2)
-        assert pod.set_i2c_sensor(humidity_pct=70)["values"]["humidity_pct"] == 70
-        assert pod.i2c_sensor_regs(start=0xFD, length=2) != before, "humidity registers did not move"
-        with pytest.raises(BenchPodError, match="humidity_pct"):
-            pod.set_i2c_sensor(humidity_pct=150)
+def _i2c_pins(bench):
+    return {"sda": bench.i2c_sda, "scl": bench.i2c_scl}
 
-        r = pod.enable_i2c_sensor(Sensor.SHT4X, sda=bench.i2c_sda, scl=bench.i2c_scl, temperature_c=25.0)
-        assert r["addr"] == 0x44
-        t = pod.i2c_sensor_regs(start=0xFD, length=2)     # the 0xFD command's answer
-        assert abs(-45 + 175 * (t[0] << 8 | t[1]) / 65535 - 25.0) < 0.01
 
-        r = pod.enable_i2c_sensor(Sensor.MPU6050, sda=bench.i2c_sda, scl=bench.i2c_scl, accel_z_g=1.0)
-        assert r["addr"] == 0x68 and pod.i2c_sensor_regs(start=0x75, length=1) == [0x68]
-        assert pod.i2c_sensor_status()["values"]["accel_z_g"] == 1.0
-    finally:
-        pod.disable_i2c_sensor()
+def test_sensor_emulation(sensors, bench):
+    s = sensors.start("bmp280", pins=_i2c_pins(bench),
+                      values={"temperature_c": 21.0, "pressure_pa": 100_000})
+    assert s.kind == "i2c" and s.started.get("image") == "emulation"
+    assert s.regs(0xD0, 1) == [0x58]
+    before_regs = s.regs(0xFA, 3)
+    s.set(temperature_c=30.0)
+    assert s.status()["running"]
+    # A changed value must reach the register image: the BMP280 temperature lives in 0xFA..0xFC.
+    assert s.regs(0xFA, 3) != before_regs, "set did not change the emulated temperature registers"
+    assert isinstance(s.capture(1024), list)
+    s.stop()
+    assert s.status() == {}
+
+
+def test_library_sensors(sensors, bench):
+    """BME280, SHT4x and MPU-6050 from the library: the start, a reading reaching the register
+    image, the ranges. (examples/process-node-stm32 reads them over a real bus with a DUT.)"""
+    names = {e.name for e in sensors.library().entries}
+    assert {"bmp280", "bme280", "sht4x", "mpu6050", "gps_nmea"} <= names
+    s = sensors.start("bme280", pins=_i2c_pins(bench), values={"humidity_pct": 30})
+    assert s.info["i2c"]["address"].lower() == "0x76" and s.regs(0xD0, 1) == [0x60]
+    before = s.regs(0xFD, 2)
+    s.set(humidity_pct=70)
+    assert s.status()["values"]["humidity_pct"] == 70
+    assert s.regs(0xFD, 2) != before, "humidity registers did not move"
+    with pytest.raises(BenchPodError, match="humidity_pct"):
+        s.set(humidity_pct=150)
+    s.stop()
+
+    s = sensors.start("sht4x", pins=_i2c_pins(bench), values={"temperature_c": 25.0})
+    t = s.regs(0xFD, 2)     # the 0xFD command's answer
+    assert abs(-45 + 175 * (t[0] << 8 | t[1]) / 65535 - 25.0) < 0.01
+    s.stop()
+
+    s = sensors.start("mpu6050", pins=_i2c_pins(bench), values={"accel_z_g": 1.0})
+    assert s.regs(0x75, 1) == [0x68]
+    assert s.status()["values"]["accel_z_g"] == 1.0
+
+
+def test_two_i2c_sensors_share_a_bus(sensors, bench):
+    a = sensors.start("bmp280", instance="baro", pins=_i2c_pins(bench))
+    b = sensors.start("sht4x", instance="hygro", pins=_i2c_pins(bench))
+    running = {i["instance"] for i in sensors.status()["instances"] if i.get("running")}
+    assert running == {"baro", "hygro"}
+    assert a.regs(0xD0, 1) == [0x58]
+    b.stop()
+    assert {i["instance"] for i in sensors.status()["instances"]} == {"baro"}
+
+
+def test_validate_reports_a_broken_definition(sensors):
+    assert sensors.validate("bme280")["name"] == "bme280"
+    broken = sensors.library().load("bmp280")
+    broken["registers"][0] = {"at": 0xD0, "u8": "no_such_name + 1"}
+    with pytest.raises(FirmwareError, match="no_such_name"):
+        sensors.validate(broken)
+    assert sensors.status()["instances"] == []
+
+
+def test_fault_and_stimulus(sensors, bench):
+    s = sensors.start("bmp280", instance="env", pins=_i2c_pins(bench))
+    s.fault("stuck")
+    assert s.status()["faults"], s.status()
+    s.clear_fault()
+    assert not s.status()["faults"]
+    sensors.load_stimulus({"format": 1, "kind": "stimulus", "name": "warm", "signals": {
+        "temperature_c": [{"shape": "ramp", "start": 20, "end": 40, "duration_s": 2}]}})
+    sensors.start_stimulus()
+    time.sleep(1.0)
+    st = sensors.status()
+    assert st["stimulus"]["running"] and 20 < s.status()["values"]["temperature_c"] < 40, st
+    sensors.stop_stimulus()
+    assert not sensors.status()["stimulus"]["running"]
 
 
 def _nmea_lines(pod, ch, baud, seconds):
@@ -1051,35 +1100,34 @@ def _nmea_ok(line):
     return f"{x:02X}" == cs.strip()
 
 
-def test_gps_receiver_prints_nmea(pod, bench):
-    """The emulated GPS on a free channel, decoded from an LA capture: checksummed sentences with
-    the fix and time we set, the clock moving, a 10 Hz subset, the no-fix form."""
-    if not pod.capabilities.gps:
-        pytest.skip("gateware without UART2 (no gps cap)")
+def test_gps_receiver_prints_nmea(pod, sensors, bench):
+    """The library's NMEA GPS on a free channel, decoded from an LA capture: checksummed sentences
+    with the fix and time we set, a 10 Hz subset at another baud rate, the no-fix form."""
     ch = bench.free_la[0]
-    try:
-        st = pod.enable_gps(ch, utc="2026-10-08T12:34:56Z", latitude_deg=50.8466123,
-                            longitude_deg=4.3527987, satellites=9, speed_kmh=0, fix=1)
-        assert st["active"] and st["tx"] == ch and st["baud"] == 9600
-        lines = _nmea_lines(pod, ch, 9600, 1.3)
-        assert len([line for line in lines if _nmea_ok(line)]) >= 6, lines
-        rmc = [line for line in lines if line.startswith("$GPRMC") and _nmea_ok(line)]
-        assert rmc and ",A,5050.79674,N,00421.16792,E," in rmc[0], rmc
-        assert rmc[0][7:13] in ("123456", "123457"), rmc[0]
+    utc = int(datetime.datetime(2026, 10, 8, 12, 34, 56, tzinfo=datetime.timezone.utc).timestamp())
+    fix = {"lat_deg": 50.8466123, "lon_deg": 4.3527987, "sats": 9, "speed_kmh": 0, "fix": 1,
+           "utc_start": utc}
+    gps = sensors.start("gps_nmea", instance="gps", pins={"tx": ch}, values=fix)
+    assert gps.kind == "uart"
+    lines = _nmea_lines(pod, ch, 9600, 1.3)
+    assert len([line for line in lines if _nmea_ok(line)]) >= 6, lines
+    rmc = [line for line in lines if line.startswith("$GPRMC") and _nmea_ok(line)]
+    assert rmc and ",A,5050.79674,N,00421.16792,E," in rmc[0], rmc
+    assert rmc[0][7:13] in ("123456", "123457"), rmc[0]
 
-        pod.enable_gps(ch, baud=115200, rate_hz=10, sentences="RMC,GGA", utc="2026-10-08T12:34:56Z")
-        lines = [line for line in _nmea_lines(pod, ch, 115200, 0.55) if _nmea_ok(line)]
-        stamps = {line.split(",")[1] for line in lines}
-        assert len(stamps) >= 4 and all(line[:6] in ("$GPRMC", "$GPGGA") for line in lines), lines
+    gps = sensors.start("gps_nmea", instance="gps", pins={"tx": ch}, baud=115200,
+                        values={**fix, "rate_hz": 10, "sentences": 1 | 4})   # RMC + GGA
+    lines = [line for line in _nmea_lines(pod, ch, 115200, 0.55) if _nmea_ok(line)]
+    stamps = {line.split(",")[1] for line in lines}
+    assert len(stamps) >= 4 and all(line[:6] in ("$GPRMC", "$GPGGA") for line in lines), lines
 
-        pod.set_gps(fix=0)
-        time.sleep(0.2)
-        lines = _nmea_lines(pod, ch, 115200, 0.3)
-        assert any(line.startswith("$GPRMC") and ",V," in line for line in lines), lines
-        assert pod.gps_status()["overruns"] == 0
-    finally:
-        pod.disable_gps()
-    assert not pod.gps_status()["active"]
+    gps.set(fix=0)
+    time.sleep(0.2)
+    lines = _nmea_lines(pod, ch, 115200, 0.3)
+    assert any(line.startswith("$GPRMC") and ",V," in line for line in lines), lines
+    assert gps.status()["bus"].get("overruns", 0) == 0
+    gps.stop()
+    assert gps.status() == {}
 
 
 def test_uart_session_on_unwired_channels(pod, bench):

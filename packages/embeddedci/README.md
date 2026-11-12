@@ -8,7 +8,8 @@ can:
 * switch and monitor **target power**, and pulse the target's **reset**
 * **flash** firmware over SWD and assert it worked
 * capture the DUT's **UART**, or hold an interactive UART session
-* **emulate an I2C sensor** (BMP280) and decode the bus traffic
+* **emulate sensors** (I2C, SPI, UART and analog) from YAML definitions, including the public
+  sensor library (BME280, SHT4x, MPU-6050, NMEA GPS, ...), with stimuli and faults
 * capture **ADC** (calibrated volts), a 14-channel **logic analyzer**, or both from one trigger
 * drive the **DAC**: DC levels, generated waveforms, arbitrary replay, fault injection, and an
   in-fabric **control loop**
@@ -33,7 +34,7 @@ No pin numbers: the SWD channels, the UART pair, the baud and the power rail com
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
 [API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) ·
 [Power and reset](#power-reset-and-power-monitoring) · [Flashing](#flashing) · [UART](#uart) ·
-[Bias resistors](#la-bias-resistors) · [I2C sensor](#emulated-i2c-sensor) ·
+[Bias resistors](#la-bias-resistors) · [Emulated sensors](#emulated-sensors) ·
 [Analog paths](#analog-paths-dc-output-and-single-readings) · [Captures](#captures) ·
 [DAC](#dac-generator-replay-and-faults) · [Control loop](#in-fabric-dac-control-loop) ·
 [CAN](#can) · [AI Vision](#ai-vision-board) · [Cloud](#cloud-embeddedcidevice-name) · [Build reporting](#build-reporting) ·
@@ -156,7 +157,7 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:
 
 `BenchPod` is a context manager; `close()` is idempotent. `la_voltage` (1.8 or 3.3) selects the
 **LA I/O-bank voltage** right after connecting — match it to the DUT's I/O voltage. The pod refuses
-every LA-bank operation (flashing, UART, LA capture, pull resistors, I2C-sensor emulation) until one
+every LA-bank operation (flashing, UART, LA capture, pull resistors, sensor emulation) until one
 is selected. You can also call `bp.set_la_voltage(3.3)` later; `bp.get_la_voltage()` returns a
 `LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. Until then a
 refused command raises `FirmwareError` with the message `la voltage not set; set the board's I/O
@@ -245,14 +246,14 @@ on an open console.
 **Otherwise use the network (or the cloud) for testing.** The STM32 pod's USB console is a text
 shell for setup and diagnostics with no JSON mode, so over the console the SDK can only read
 `status()`, `ping()`, select the LA voltage and switch target power (without `delay`). Everything
-else (flashing, UART, analog, captures, I2C-sensor emulation, CAN) raises a `TransportError` right
+else (flashing, UART, analog, captures, sensor emulation, CAN) raises a `TransportError` right
 away that points at the network connection. (On firmware 3.9.0 and later the LA voltage and target
 power moved to the network too; see the compatibility table above.)
 
 | | TCP | USB network (`usb`, firmware 3.9.0+) | USB console (STM32 pod) | Cloud |
 |---|---|---|---|---|
 | `status`, `ping`, LA voltage, target power on/off | yes | yes | yes | yes |
-| Scheduled power changes (`delay=`), flashing, UART, analog, captures, I2C sensor, CAN, control loop | yes | yes | no | yes |
+| Scheduled power changes (`delay=`), flashing, UART, analog, captures, sensor emulation, CAN, control loop | yes | yes | no | yes |
 | `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | yes | no | yes |
 | Device lease | — | — | — | yes |
 
@@ -301,6 +302,8 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
 | `BENCHPOD_TLS` | network connections | `auto` (default), `on` or `off`: TLS to the pod's LAN API on 8443, see [TLS on the LAN](#tls-on-the-lan) |
 | `BENCHPOD_TLS_CA` | network connections over TLS | PEM file of CA certificates: verify the pod's certificate and host name instead of pinning it |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
+| `BENCHPOD_SENSOR_LIBRARY` | no `version` argument / `--benchpod-sensor-library` | sensor library version: `latest` or a release such as `0.2.0` (default: the version the SDK pins), see [Emulated sensors](#emulated-sensors) |
+| `BENCHPOD_SENSOR_CACHE` | sensor library downloads | cache folder for downloaded library versions (default `<user cache>/embeddedci/benchpod-sensors`) |
 
 ## API conventions and stability
 
@@ -322,7 +325,6 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
   |---|---|---|
   | Target-power eFuse | `INTERNAL`, `EXTERNAL` (`Efuse`) | 1, 2 |
   | LA channels | `PIN1` … `PIN14` (`Pin`) | 1 … 14 |
-  | Emulated sensor | `Sensor.BMP280` | `"bmp280"` |
   | BMP280 addresses | `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | 0x76, 0x77 |
   | Gateware image | `FpgaImage.LOOP`, `FpgaImage.DEEP_REPLAY` | 0, 1 |
 
@@ -357,7 +359,7 @@ has a complete old → new table.
 
 Installing the package registers a pytest plugin (options, fixtures and markers). Set the board's
 I/O voltage **once** for the whole suite in `conftest.py` — the pod refuses flashing, UART, LA
-capture, pull resistors and I2C-sensor emulation until an LA bank voltage is selected:
+capture, pull resistors and sensor emulation until an LA bank voltage is selected:
 
 ```python
 # conftest.py
@@ -434,6 +436,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-lease-wait` | — | `600` | seconds to wait for a busy cloud device |
 | `--benchpod-no-lease` | — | off | don't lock the cloud device (only when nothing else can use it) |
 | `--benchpod-build-target` | `BENCHPOD_BUILD_TARGET` | — | platform id recorded by `build_report` (e.g. `stm32f4`) |
+| `--benchpod-sensor-library` | `BENCHPOD_SENSOR_LIBRARY` | the pinned version | sensor library version for `benchpod_sensors` (`latest` or a release) |
 
 Connection resolution order: `--benchpod-connection` → `benchpod_connection` ini option →
 `BENCHPOD_CONNECTION` → `--benchpod-discover`.
@@ -458,7 +461,7 @@ benchpod_connection = 192.168.1.213
 | `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
 | `benchpod_target` | function | `benchpod` with the target rail (`--benchpod-efuse`, else the wiring profile's) powered on for the test, off at teardown |
-| `benchpod_sensor` | function | `benchpod`; disarms the emulated I2C sensor at teardown |
+| `benchpod_sensors` | function | `benchpod.sensors` (`SensorEmulation`); stops the stimulus and every emulated sensor at teardown; skips on firmware without the `sensors` capability |
 | `benchpod_dac` | function | `benchpod`; stops any DAC output (generate, replay, control loop) at teardown |
 | `benchpod_capabilities` | session | `benchpod.capabilities` |
 | `benchpod_waveforms` | function | the cloud `WaveformLibrary`; deletes waveforms saved through it during the test; skips without server access |
@@ -467,7 +470,7 @@ benchpod_connection = 192.168.1.213
 | `build_report` | function | a build reporter — see [Build reporting](#build-reporting) |
 
 `benchpod` is shared by the whole session, so state a test leaves behind (a running DAC, engaged
-pull-ups, an armed sensor) carries into the next one — use the teardown fixtures.
+pull-ups, a running sensor) carries into the next one — use the teardown fixtures.
 
 **DAC output limits.** A pod can carry DAC output limits that protect an external output stage (a
 solar simulator module on the 5 V path, say); it then refuses what they forbid. With the stage
@@ -506,7 +509,7 @@ with bp.open_uart() as uart:                   # rx=3, tx=4, 115200 baud from th
     bp.power_on()                              # the profile's eFuse
     uart.expect("APP_OK", timeout=6)
 bp.flash(file="app.elf")                        # swclk/swdio/nreset/target from the profile
-bp.enable_i2c_sensor()                          # sda/scl/address from the profile
+bp.sensors.start("bmp280")                      # sda/scl from the profile
 la = bp.capture_la(100_000, trigger=Trigger("READY"))
 print(wiring.describe())                        # a pin table with each channel's bias resistor
 ```
@@ -516,7 +519,7 @@ print(wiring.describe())                        # a pin table with each channel'
 | `la_mv` | `3300` | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
 | `efuse` | `1` | target-power rail: 1 internal 5 V, 2 external |
 | `uart_rx`, `uart_tx`, `uart_baud` | `5`, `4`, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
-| `i2c_sda`, `i2c_scl`, `i2c_addr` | `1`, `2`, `"0x76"` | emulated sensor bus (put I2C on LA1-LA6, which have pull-ups) |
+| `i2c_sda`, `i2c_scl`, `i2c_addr` | `1`, `2`, `"0x76"` | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
 | `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | `11`, `12`, `False`, `""` | flashing |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
 | `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
@@ -841,8 +844,8 @@ bp.release_gpio(9, 10)                        # back to high-Z; no arguments rel
 
 **One function per channel.** Each channel has exactly one owner at a time: `none` (the default — high-Z
 and watched by captures), `gpio`, or a peripheral that claimed it — `uart_rx`/`uart_tx` (a UART session),
-`swd_clk`/`swd_dio` (flashing), `i2c_sda`/`i2c_scl` (sensor emulation), `step`/`step_dir` (a pulse train),
-`spi_*` (an SPI session) and `gps_tx` (GPS emulation).
+`swd_clk`/`swd_dio` (flashing), `sensor:<instance>` (an emulated sensor), `step`/`step_dir` (a pulse
+train) and `spi_*` (an SPI session).
 The pod refuses a second function with `PinConflictError` (`.la`, `.function`) instead of letting one
 silently override the other, and the message names the SDK call that frees the channel:
 
@@ -854,7 +857,7 @@ except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release 
     bp.release_gpio(exc.la)
 ```
 
-The other owners point to `bp.disable_i2c_sensor()`, `bp.disable_gps()`, closing the session from
+The other owners point to `bp.sensors.stop("<instance>")`, closing the session from
 `bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train to finish. The pod's own
 text, with its raw protocol command, stays in `exc.firmware_message`.
 
@@ -872,7 +875,7 @@ whichever you set first:
 | none, gpio input, gpio output, swd_clk, step | ok | ok |
 | gpio open_drain | ok (it needs one, or an external pull-up) | refused — a released line would read low |
 | uart_rx, uart_tx | ok | refused — the line idles high |
-| i2c_sda, i2c_scl | ok (needed) | refused — the bus needs pull-ups |
+| sensor:<instance> on an I2C bus | ok (needed) | refused — the bus needs pull-ups |
 | swd_dio | ok | refused |
 
 A `pulse()` or `la_step()` on a GPIO output keeps the channel GPIO (its level returns afterwards); on a
@@ -880,84 +883,141 @@ free channel the train owns it only while it runs. `pin_levels()` reads the pins
 v35+ and falls back to a short capture on older gateware. GPIO needs pod firmware that advertises
 `Capabilities.la_pins`.
 
-## Emulated I2C sensor
+## Emulated sensors
 
-The pod can **be an I2C sensor** on two LA channels, so firmware that probes a sensor can be tested
-with it present, absent, or reporting chosen values. It emulates a Bosch **BMP280**
-(`Sensor.BMP280`: temperature, pressure), a **BME280** (`Sensor.BME280`: plus humidity), a Sensirion
-**SHT4x** (`Sensor.SHT4X`: temperature, humidity) and an InvenSense **MPU-6050** (`Sensor.MPU6050`:
-accelerometer, gyroscope, die temperature); `bp.i2c_sensor_types()` lists each model's address and
-the readings it takes (key, unit, range, default):
+The pod can **play sensors** for the DUT: I2C, SPI and UART sensors on LA channels and analog
+sensors on its analog outputs. What a sensor does is not built into the firmware: the SDK sends the
+pod a **sensor definition** (YAML or JSON, the format of the public
+[sensor library](https://github.com/embeddedci-com/benchpod-sensors), `docs/format.md`) and the pod
+compiles and plays it. So firmware that probes a sensor can be tested with it present, absent,
+reporting chosen values, following a curve over time, or failing in a chosen way. Up to 4 I2C
+sensors (on one bus or several), 1 SPI sensor, 1 UART sensor and the analog sensors run at once;
+each is an **instance** with a name you pick (`[a-z0-9_]{1,32}`, the definition's `name` by
+default). Needs pod firmware with the `sensors` capability (`Capabilities.sensors`,
+`Capabilities.sensors_format`); older firmware raises `UnsupportedFeatureError`: "this pod's
+firmware is too old for sensor emulation; update the firmware".
 
 ```python
-from embeddedci.benchpod import BMP280_ADDR_PRIMARY, PIN1, PIN2, Sensor, i2c
+from embeddedci.benchpod import PIN1, PIN2, i2c
 
-bp.enable_pullup(PIN1, PIN2)                      # the open-drain bus must idle high
-bp.enable_i2c_sensor(Sensor.BMP280, sda=PIN2, scl=PIN1, address=BMP280_ADDR_PRIMARY,
-                     temperature_c=22.5, pressure_pa=101_000)
-bp.set_i2c_sensor(temperature_c=40.0)             # change the readings mid-test
-print(bp.i2c_sensor_status())                     # activity counters: transactions, reads, writes, …
-print(bp.i2c_sensor_regs(start=0xD0, length=1))   # the emulated register image
-
-txns = bp.i2c_sensor_capture(4096, sample_rate_hz=500_000)   # capture the bus and decode it
-print(i2c.format_transactions(txns))              # e.g. S 0x76W+ 0xD0+ Sr 0x76R+ 0x58- P
-assert i2c.read_register(txns, BMP280_ADDR_PRIMARY, 0xD0) == [0x58]
-bp.disable_i2c_sensor()
+bp.enable_pullup(PIN1, PIN2)                       # the open-drain bus must idle high
+env = bp.sensors.start("bme280", pins={"sda": PIN2, "scl": PIN1}, address=0x76,
+                       values={"temperature_c": 22.5, "humidity_pct": 40})
+env.set(temperature_c=40.0)                        # the DUT's next read sees it
+print(env.params)                                  # key, unit, min, max, default of each value
+print(env.regs(0xD0, 1))                           # [0x60]: the register image the DUT reads
+print(env.status())                                # values, faults, bus counters (transfers, writes)
+txns = env.i2c_transactions(4096)                  # capture the instance's bus and decode it
+print(i2c.format_transactions(txns))
+env.stop()                                         # pins released, definition forgotten
 ```
 
 `i2c.timed_transactions(la.words, sda_ch, scl_ch, la.sample_rate_hz)` decodes an LA capture into
 transactions with the time of each START, address, data byte, ACK and STOP in microseconds (dicts
 in the shape the EmbeddedCI capture view draws), for placing decoded bytes on a waveform.
 
-Any model's readings go in as keywords, on `enable_i2c_sensor` or later on `set_i2c_sensor`; the
-reply lists every value:
+`bp.sensors` is a `SensorEmulation`; `start()` returns a `Sensor` handle (also a context manager
+that stops the instance). I2C, SPI and UART sensors need the pod's emulation FPGA image: `start()`
+loads it when another image runs (about a second; `sensor.started["image_loaded"]`), and while it
+runs the DAC control loop and deep DAC replay are unavailable (`sensor.started["unavailable"]`).
+Set the LA voltage first, and the pull-ups for I2C.
+
+| `SensorEmulation` | Does |
+|---|---|
+| `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)` | define and start; returns a `Sensor` |
+| `define(definition, *, instance=None, dry_run=False)` | upload and compile only (chunked `sensor_define`); returns the pod's compile report |
+| `validate(definition)` | compile on the pod and keep nothing: the report, or a `FirmwareError` naming the place, e.g. `registers[4].s16be: unknown name 'ax' at 17` |
+| `sensor(instance)` | a `Sensor` handle for an instance that already runs |
+| `set(instance, values=None, **values)` | change readings; a value outside its param's range is refused with the range |
+| `fault(instance, type, *, duration_s=None, **fields)`, `clear_fault(instance)` | inject a fault now (`stuck`, `offset`, `gain`, `no_response`, `corrupt`, `bus_stuck`, `garbage`, `drop`, `baud_error`, `open`, `short`; fields `param`, `value`, `at`, `mask`, `rate_hz`); without `duration_s` it lasts until cleared |
+| `load_stimulus(stimulus, *, base_dir=None)`, `start_stimulus(at_s=None)`, `stop_stimulus()` | values over time (below) |
+| `stop(instance=None)` | stop one instance, or all of them |
+| `status()` | `image`, `stimulus` (`loaded`, `running`, `t_s`) and `instances` with their `pins`, `values`, `faults`, `bus` |
+| `regs(instance, *, start=0, length=256)` | the bytes an I2C/SPI instance answers now (the DUT's own writes included) |
+| `capture(instance, samples=4096)`, `i2c_transactions(instance, samples=4096)` | a raw capture of the instance's bus pins (`sensor_la`), and that capture decoded as I2C |
+| `library(version=None, *, offline=False)`, `library_version` | the sensor library used for names such as `"bme280"` |
+
+The `Sensor` handle has `instance`, `kind`, `name`, `params`, `info` (the compile report: `label`,
+`program_bytes`, the bus settings), `started` (the start reply: `slot`, `image`) and the per-instance
+methods `set()`, `fault()`, `clear_fault()`, `status()`, `regs()`, `capture()`,
+`i2c_transactions()` and `stop()`.
+
+**Pins** map roles to LA channels or wiring names: I2C `sda`, `scl` (default: the profile's
+`i2c_sda`/`i2c_scl`) and an optional `drdy`; SPI `sclk`, `mosi`, `miso`, `cs` (default: the
+profile's `spi_*`) and `drdy`; UART `tx` (pod to DUT) and an optional `rx` (DUT to pod); analog
+`output`, `"dac"` (default) or `"current"` (the 4-20 mA output). Several I2C instances may share
+`sda`/`scl` when their addresses differ. `la_pins()` shows an instance's channels as owner
+`sensor:<instance>`; a pin conflict names `bp.sensors.stop("<instance>")`.
+
+**Definitions** come from a library name (`"bme280"`, or its library path
+`"sensors/i2c/bme280.yaml"`), a `.yaml`/`.json` file, a dict, or YAML/JSON text. Your own part is a
+file next to your tests; copy a library definition (`bp.sensors.library().text("bmp280")`) and edit it:
 
 ```python
-bp.enable_i2c_sensor(Sensor.SHT4X, sda=PIN2, scl=PIN1, temperature_c=21.0, humidity_pct=45.0)
-bp.set_i2c_sensor(humidity_pct=95.0)              # condensation alarm?
-
-bp.enable_i2c_sensor(Sensor.MPU6050, sda=PIN2, scl=PIN1, accel_z_g=1.0)   # lying flat
-bp.set_i2c_sensor(accel_x_g=0.0, accel_y_g=0.0, accel_z_g=-1.0)          # turned upside down
-bp.set_i2c_sensor(gyro_z_dps=180.0)              # spinning
+probe = bp.sensors.start("tests/sensors/my_adc.yaml", instance="adc", pins={"sda": 2, "scl": 1})
+bp.sensors.validate("tests/sensors/my_adc.yaml")   # compile check without starting it
 ```
 
-The address defaults to the model's own (the wiring profile's `i2c_addr` for the BMP280/BME280).
-Registers the DUT writes stay as it wrote them: the MPU-6050's readings follow the full-scale range
-the DUT selects, read 0 until the driver wakes the part, and a soft reset clears itself as on the
-real chip. Models other than the BMP280 need firmware with the `sensor_types` capability.
+YAML is read with the YAML 1.2 rules (PyYAML when installed, the `yaml` extra, else a built-in
+reader): only `true`/`false` are booleans, so a key such as `on:` stays the word "on". The SDK
+checks the header before sending (`format: 1`, `kind`, `name`, `params`, at most 32 KB of JSON) and
+raises `DefinitionError` (a `ValueError`) listing every problem; the pod checks the rest.
+`load_definition(source)` and `load_stimulus(source)` return the dict the pod receives.
 
-`i2c_sensor_capture` samples fast enough to resolve the bus at around 500 kS/s – 1 MS/s; one call
-covers a few tens of milliseconds, so to catch a one-shot boot probe, call it repeatedly right after
-powering the DUT on. The `benchpod.i2c` decoder handles START / repeated START / STOP, R/W, per-byte
-ACK/NACK and the "write register pointer, then read" pattern (`read_register`, `addressed`). It also
-decodes `(scl, sda)` streams (`i2c.decode_samples`) and synthesizes traces (`i2c.synthesize`), so
-decode logic can be tested without hardware. For a bus on arbitrary channels, use `capture_la` +
-`decode` (below).
-
-## Emulated GPS receiver
-
-The pod can **play a GPS module**: NMEA sentences on one LA channel wired to the DUT's UART RX, the
-way a u-blox NEO-6M/M8N prints them out of the box (9600 baud, one fix a second, RMC VTG GGA GSA GSV
-GLL, checksummed). It runs on a second UART in the gateware (v48+, the `gps` capability), so the
-UART proxy stays free for the DUT's console:
+**Stimuli** play values over time, and **faults** at chosen moments. One stimulus is loaded at a
+time and may drive several instances (`env.temperature_c`, or `temperature_c` when one runs):
 
 ```python
-st = bp.enable_gps("PIN9", latitude_deg=50.8466, longitude_deg=4.3528, altitude_m=56,
-                   satellites=9)                # utc defaults to now: the pod has no clock
-bp.set_gps(speed_kmh=36, course_deg=90)          # drive east: the position moves between fixes
-bp.set_gps(fix=0)                                # lose the lock: empty position, RMC status V
-print(bp.gps_status())                           # epochs sent, overruns, the current fix
-bp.disable_gps()
+bp.sensors.load_stimulus("tests/stimuli/hot_afternoon.yaml")   # data `file:` CSVs are inlined
+bp.sensors.start_stimulus()                                    # from t = 0 (or at_s=12.5)
+env.fault("no_response", duration_s=2)                         # or a fault right now
+bp.sensors.stop_stimulus()                                     # values hold where they are
 ```
 
-`enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)` takes an LA channel or a
-wiring name for `tx`, up to 10 fixes a second, and a subset of sentences (`"RMC,GGA"`). The fix
-fields are `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`
-(0-12), `hdop` and `fix` (0 none, 1 GPS, 2 DGPS); they keep their values across sessions.
-`utc` is a `datetime`, an ISO 8601 string or seconds since 1970. One fix must fit the period at the
-baud rate (the full set is ~450 bytes: 9600 baud carries 1-2 a second; 10 Hz needs 115200 or
-fewer sentences); the pod refuses a setting that cannot keep up. To check what the DUT receives,
-capture the channel (`capture_la`) and decode it with `decode_uart`.
+A **GPS module** is the library's `gps_nmea` UART sensor: NMEA sentences (RMC VTG GGA GSA GSV GLL,
+u-blox style, 9600 baud, 1 Hz) on the LA channel wired to the DUT's RX:
+
+```python
+gps = bp.sensors.start("gps_nmea", pins={"tx": 9}, values={
+    "lat_deg": 50.8466, "lon_deg": 4.3528, "sats": 9, "utc_start": 1791462896})
+gps.set(speed_kmh=36, course_deg=90)    # drive east: the position moves between fixes
+gps.set(fix=0)                          # lose the lock
+```
+
+The `benchpod.i2c` decoder handles START / repeated START / STOP, R/W, per-byte ACK/NACK and the
+"write register pointer, then read" pattern (`read_register`, `addressed`). It also decodes
+`(scl, sda)` streams (`i2c.decode_samples`) and synthesizes traces (`i2c.synthesize`), so decode
+logic can be tested without hardware. For a bus on arbitrary channels, use `capture_la` + `decode`
+(below).
+
+### The sensor library
+
+The SDK pins a library version, `SENSOR_LIBRARY_VERSION` (`"0.1.0"`), and ships its files inside
+the package, so the default works offline and never changes under a test suite. Pick another
+version, or `"latest"`, with (first match wins) the `version` argument, `bp.sensors.library_version`,
+the `--benchpod-sensor-library` pytest option (for `benchpod_sensors`), `BENCHPOD_SENSOR_LIBRARY`,
+or `sensor_library` in benchpod-cli's `config.json`. Other versions are downloaded once from the
+library's GitHub release archive and cached per version (`BENCHPOD_SENSOR_CACHE`, default
+`<user cache>/embeddedci/benchpod-sensors`, shared with the CLI); `latest` is resolved from GitHub
+once per process. Without a network the cache serves, then the bundled copy, with a logged warning
+in `SensorLibrary.warning`.
+
+```python
+from embeddedci.benchpod import sensor_library
+
+lib = sensor_library()                 # or sensor_library("latest"), sensor_library("0.2.0")
+print(lib.version, lib.source)         # 0.1.0 bundled (or cache / download)
+for e in lib.entries:                  # LibraryEntry: path, name, kind, label
+    print(e.name, e.kind, e.label)
+print(lib.text("sht4x"))               # the YAML, to copy and edit
+doc = lib.load("sht4x")                # the dict
+print(lib.format_doc()[:200])          # docs/format.md of that version
+```
+
+`SensorLibrary` also has `find(name)` (None when missing), `get(name)` (a `LibraryEntry`, or
+`LibraryError`), `path(name)` and `root`; `LibraryEntry.to_dict()` gives its `library.json` row.
+The `embeddedci.benchpod.sensors` module has the lower-level pieces (`upload_requests`,
+`requested_version`, `latest_version`, `cached_versions`, `bundled_library`).
 
 ## Analog paths, DC output and single readings
 
@@ -1412,8 +1472,9 @@ The pod's FPGA runs one of two gateware images, both stored on the pod:
 | `FpgaImage.LOOP` (0) | the [in-fabric control loop](#in-fabric-dac-control-loop) | `dac_control_loop` |
 | `FpgaImage.DEEP_REPLAY` (1) | replays longer than 2048 samples, streamed from PSRAM | `dac_deep_replay` |
 
-Everything else — captures, the generator, DC output, short replays, UART, I2C sensor emulation,
-CAN — works on both.
+Everything else — captures, the generator, DC output, short replays, UART, CAN — works on both.
+I2C, SPI and UART sensor emulation runs on a third image, which `bp.sensors.start()` loads by
+itself (see [Emulated sensors](#emulated-sensors)).
 
 **Switching is automatic.** `control_loop()`, `replay()` and `replay_waveform()` switch the pod to
 the image they need (`switch_image=True`, the default), log a warning on the `embeddedci.benchpod`
@@ -1767,8 +1828,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
 | GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
-| I2C sensor | `enable_i2c_sensor(sensor=Sensor.BMP280, *, sda=None, scl=None, address=None, **values)`, `set_i2c_sensor(**values)`, `disable_i2c_sensor()`, `i2c_sensor_status()`, `i2c_sensor_types()`, `i2c_sensor_regs()`, `i2c_sensor_capture(...)` |
-| GPS receiver | `enable_gps(tx, *, baud=9600, rate_hz=1, sentences=None, utc=None, **fix)`, `set_gps(*, utc=None, **fix)`, `disable_gps()`, `gps_status()` |
+| Emulated sensors | `sensors` (a `SensorEmulation`: `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)`, `define()`, `validate()`, `set()`, `fault()`, `clear_fault()`, `load_stimulus()`, `start_stimulus()`, `stop_stimulus()`, `stop()`, `status()`, `regs()`, `capture()`, `i2c_transactions()`, `library()`); see [Emulated sensors](#emulated-sensors) |
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
@@ -1804,8 +1864,11 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
 | `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
 | `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
-| `Sensor` (enum) | `enable_i2c_sensor` | `Sensor.BMP280`, `Sensor.BME280`, `Sensor.SHT4X`, `Sensor.MPU6050` |
-| `I2CTransaction` | `i2c_sensor_capture`, `decode("i2c")` | `messages`, `complete`, `address`, `to(address)` |
+| `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=256)`, `capture(samples)`, `i2c_transactions(samples)`, `stop()` |
+| `SensorEmulation` (class) | `BenchPod.sensors` | see [Emulated sensors](#emulated-sensors) |
+| `SensorLibrary` (class) | `sensor_library`, `sensors.library` | `version`, `source`, `warning`, `root`, `entries`, `find(name)`, `get(name)`, `path(name)`, `text(name)`, `load(name)`, `format_doc()` |
+| `LibraryEntry` | `SensorLibrary.entries` | `path`, `name`, `kind`, `label`, `to_dict()` |
+| `I2CTransaction` | `Sensor.i2c_transactions`, `decode("i2c")` | `messages`, `complete`, `address`, `to(address)` |
 | `I2CMessage` | `I2CTransaction.messages` | `address`, `read`, `address_ack`, `data`, `values` |
 | `I2CByte` | `I2CMessage.data` | `value`, `ack` |
 | `UartFrame` | `decode("uart")` | `index`, `start_us`, `end_us`, `value`, `hex`, `text`, `ok`, `error` |
@@ -1862,7 +1925,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensor_types` (the BME280/SHT4x/MPU-6050 models), `gps` (the GPS receiver, gateware v48+), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |
@@ -1898,13 +1961,15 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 | `parse_connection(raw)` | parse a connection string into a `ConnSpec` (raises `ConnectionConfigError`) |
 | `resolve_connection(connection=None)` | the same, falling back to `BENCHPOD_CONNECTION` |
 | `trust_lan_tls(host, port=8080, *, sha256=None)`, `forget_lan_tls(host, port=8080)` | pin the TLS certificate the pod presents now (returns its SHA-256), or drop the pin (see [TLS on the LAN](#tls-on-the-lan)) |
+| `sensor_library(version=None, *, cache_dir=None, offline=False, refresh=False, timeout=30.0)` | the sensor library (see [The sensor library](#the-sensor-library)); `SENSOR_LIBRARY_VERSION` is the pinned version |
+| `load_definition(source, *, library=None, base_dir=None)`, `load_stimulus(source, *, library=None, base_dir=None)` | a definition or stimulus (name, path, dict or YAML/JSON text) as the dict the pod receives; header problems raise `DefinitionError` |
 | `make_build_reporter(*, api_base=None, audience=None, target="", name="")` | a `BuildReporter` inside GitHub Actions, else a `NoopBuildReporter` |
 | `build_panel_curve(voc_code, sharpness=4.0, points=256)`, `build_linear_curve(max_code, rising=True, points=256)`, `build_constant_curve(value_code, points=256)` | control-loop curves (see [In-fabric DAC control loop](#in-fabric-dac-control-loop)) |
 | `curve_output_at(curve, input_code)`, `input_percent_to_code(percent)` | evaluate a curve the way the gateware does; an input percentage as a code |
 | `encode_curve_b64url(codes)` | 16-bit DAC codes as little-endian base64url, the wire form of a curve |
 | `INTERNAL`, `EXTERNAL`, `PIN1` … `PIN14`, `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | named constants (see [API conventions](#api-conventions-and-stability)) |
 | `DacPath`, `DacOutputPath`, `AnalogPath`, `AdcSource`, `CalibrateSource` (`"current_in"`), `DacCalPath` (`"3v3"`, `"5v"`, `"12v"`), `AdcGainSource` (`"cal1"`, `"cal2"`, `"ext"`), `CalibrationPart` (`"offset"`, `"dac"`, `"adc"`), `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`, `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge` | the `Literal` string types |
-| `decode`, `i2c`, `can`, `control_loop`, `motor_emulator`, `dsp` | submodules: off-device decoders, I2C helpers, CAN types, curve helpers, the emulator's registers, and `dsp`, a pure-Python mirror of the server's record-to-replay processing |
+| `decode`, `i2c`, `sensors`, `can`, `control_loop`, `motor_emulator`, `dsp` | submodules: off-device decoders, I2C helpers, sensor definitions and the library, CAN types, curve helpers, the emulator's registers, and `dsp`, a pure-Python mirror of the server's record-to-replay processing |
 
 ## Examples
 

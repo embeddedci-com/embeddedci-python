@@ -147,11 +147,11 @@ def test_la_voltage_not_set_names_the_sdk_ways_to_set_it():
      "close the UART session from bp.open_uart() first (session.close(), or leave its with block)"),
     ("swd_clk", "end the SWD session first", "wait for the running flash (its SWD session) to finish"),
     ("i2c_sda", 'stop the sensor emulation first ({"cmd":"sensor_stop"})',
-     "stop the sensor emulation first with bp.disable_i2c_sensor()"),
+     "stop the sensor emulation first with bp.sensors.stop()"),
+    ("sensor:env", 'stop the sensor emulation first ({"cmd":"sensor_stop","instance":"env"})',
+     'stop the sensor emulation first (bp.sensors.stop("env"))'),
     ("spi_sck", 'stop the SPI session first ({"cmd":"spi_stop"})',
      "close the SPI session from bp.open_spi() first (spi.close(), or leave its with block)"),
-    ("gps_tx", 'stop the GPS receiver first ({"cmd":"gps_stop"})',
-     "stop the GPS emulation first with bp.disable_gps()"),
     ("step", "wait for the step train to finish", "wait for the step train to finish"),
     ("can_rx", 'stop it with {"cmd":"can_stop"}', 'stop it with {"cmd":"can_stop"}'),  # unknown: as is
 ])

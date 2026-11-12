@@ -116,15 +116,14 @@ def test_held_reset_keeps_the_dut_quiet_until_released(reset_wired, bench):
 
 def test_firmware_detects_the_emulated_bmp280(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
-    dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76,
-                          temperature_c=22.5, pressure_pa=101_000)
+    sensor = _bmp280(dut, bench, temperature_c=22.5, pressure_pa=101_000)
     try:
         boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, efuse=bench.efuse,
                                            delay=0.5, duration=BOOT_TIMEOUT, until=APP_OK)
         assert "chip id match=0x58" in boot.text, boot.text[-2000:]
-        assert dut.i2c_sensor_status().get("transactions", 0) > 0
+        assert _transfers(sensor) > 0
     finally:
-        dut.disable_i2c_sensor()
+        sensor.stop()
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
 
 
@@ -140,8 +139,7 @@ def test_firmware_reads_back_the_value_we_injected(dut, bench):
     pressure = 101_000
 
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
-    dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76,
-                          temperature_c=injected, pressure_pa=pressure)
+    sensor = _bmp280(dut, bench, temperature_c=injected, pressure_pa=pressure)
     try:
         with dut.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
             dut.power_on(bench.efuse)
@@ -153,15 +151,28 @@ def test_firmware_reads_back_the_value_we_injected(dut, bench):
                 f"injected {injected} C, the DUT reported {first} C"
 
             # Change it underneath a running DUT and ask again: the app re-reads over I2C.
-            dut.set_i2c_sensor(temperature_c=changed, pressure_pa=pressure)
+            sensor.set(temperature_c=changed, pressure_pa=pressure)
             second = _reported_temperature(uart)
             assert second == pytest.approx(changed, abs=0.6), \
                 f"changed to {changed} C, the DUT reported {second} C"
             assert abs(second - first) > 5.0, "the reading did not follow the emulated sensor"
     finally:
         dut.power_off(bench.efuse)
-        dut.disable_i2c_sensor()
+        sensor.stop()
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
+
+
+def _bmp280(pod, bench, **values):
+    """The library's BMP280 at 0x76 on the bench's I2C channels."""
+    if not pod.supports("sensors"):
+        pytest.skip("firmware without sensor emulation (no 'sensors' capability)")
+    return pod.sensors.start("bmp280", pins={"sda": bench.i2c_sda, "scl": bench.i2c_scl},
+                             address=0x76, values=values)
+
+
+def _transfers(sensor) -> int:
+    """The I2C transfers the pod's emulated sensor has served."""
+    return int(sensor.status().get("bus", {}).get("transfers", 0))
 
 
 def _reported_temperature(uart) -> float:
@@ -180,9 +191,9 @@ def _reported_temperature(uart) -> float:
 BMP280_PROBE_AT = 2.31
 
 
-def test_i2c_sensor_capture_sees_the_boot_probe(dut, bench):
+def test_sensor_capture_sees_the_boot_probe(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
-    dut.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76)
+    sensor = _bmp280(dut, bench)
     try:
         lead, misses = BMP280_PROBE_AT, []
         for _ in range(3):
@@ -190,7 +201,7 @@ def test_i2c_sensor_capture_sees_the_boot_probe(dut, bench):
             time.sleep(0.5)
             dut.power_on(bench.efuse)
             time.sleep(lead)
-            txns = dut.i2c_sensor_capture(4096, sample_rate_hz=500_000)  # 5 samples per 100 kHz bit
+            txns = sensor.i2c_transactions(4096)
             if i2c.addressed(txns, 0x76):
                 break
             misses.append((lead, len(txns)))
@@ -198,7 +209,7 @@ def test_i2c_sensor_capture_sees_the_boot_probe(dut, bench):
         assert i2c.addressed(txns, 0x76), f"(lead s, transactions) per miss: {misses}\n" \
                                           f"{i2c.format_transactions(txns)}"
     finally:
-        dut.disable_i2c_sensor()
+        sensor.stop()
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
 
 
@@ -215,17 +226,17 @@ def boot_capture(flashed, pod, bench):
     if not flashed.ok:
         pytest.skip("flashing failed (see test_flash)")
     pod.enable_pullup(bench.i2c_sda, bench.i2c_scl)
-    pod.enable_i2c_sensor(sda=bench.i2c_sda, scl=bench.i2c_scl, address=0x76)
+    sensor = _bmp280(pod, bench)
     try:
         pod.power_off(bench.efuse)
         time.sleep(1.5)
-        before = pod.i2c_sensor_status().get("transactions", 0)
+        before = _transfers(sensor)
         pod.power_on(bench.efuse, delay=0.1)    # pod-side delay, so the capture below is armed first
         la = pod.capture_la(4_000_000, sample_rate_hz=1_000_000)  # the NUCLEO boots ~2.4 s in
-        served = pod.i2c_sensor_status().get("transactions", 0) - before
+        served = _transfers(sensor) - before
     finally:
         pod.power_off(bench.efuse)
-        pod.disable_i2c_sensor()
+        sensor.stop()
         pod.disable_pullup(bench.i2c_sda, bench.i2c_scl)
     return la, served
 
