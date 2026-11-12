@@ -268,10 +268,12 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
             if getattr(caps, name, False):
                 continue
             image = _IMAGE_CAPABILITIES.get(name)
-            if image is not None and (caps.dac_control_loop or caps.dac_deep_replay):
-                pod._ensure_image(FpgaImage[image], switch=True,
-                                  needed_for=f"a test marked benchpod_capability({name!r})")
-                continue
+            if image is not None and (caps.dac_control_loop or caps.dac_deep_replay
+                                      or caps.sensors_digital):
+                # From the emulation image too, when no I2C/SPI/UART sensor holds it.
+                if pod._ensure_image(FpgaImage[image], switch=True,
+                                     needed_for=f"a test marked benchpod_capability({name!r})"):
+                    continue
             pytest.skip(f"device does not advertise capability {name!r}")
 
 

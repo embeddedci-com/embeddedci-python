@@ -313,6 +313,7 @@
       "dac_limits",
       "sensors",
       "sensors_format",
+      "sensors_digital",
       "flash_kb",
       "blob_slots",
       "ota_sig",
@@ -849,10 +850,10 @@
     "kind": "property",
     "name": "property",
     "params": "property",
-    "regs": "(self, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
+    "regs": "(self, start: 'int' = 0, length: 'Optional[int]' = None) -> 'List[int]'",
     "set": "(self, values: 'Optional[Mapping[str, Any]]' = None, **kw: 'Any') -> 'Dict[str, Any]'",
     "status": "(self) -> 'Dict[str, Any]'",
-    "stop": "(self) -> 'None'"
+    "stop": "(self) -> 'List[str]'"
   },
   "SensorEmulation": {
     "__init__": "(self, pod: \"'BenchPod'\", *, library_version: 'Optional[str]' = None) -> 'None'",
@@ -863,13 +864,14 @@
     "i2c_transactions": "(self, instance: 'str', samples: 'int' = 4096) -> \"List['I2CTransaction']\"",
     "library": "(self, version: 'Optional[str]' = None, *, offline: 'bool' = False) -> 'SensorLibrary'",
     "load_stimulus": "(self, stimulus: 'DefinitionSource', *, base_dir: \"Union[str, 'os.PathLike[str]', None]\" = None) -> 'Dict[str, Any]'",
-    "regs": "(self, instance: 'str', *, start: 'int' = 0, length: 'int' = 256) -> 'List[int]'",
+    "regs": "(self, instance: 'str', *, start: 'int' = 0, length: 'Optional[int]' = None) -> 'List[int]'",
+    "running_digital": "(self) -> 'List[str]'",
     "sensor": "(self, instance: 'str') -> 'Sensor'",
     "set": "(self, instance: 'str', values: 'Optional[Mapping[str, Any]]' = None, **kw: 'Any') -> 'Dict[str, Any]'",
     "start": "(self, definition: 'DefinitionSource', *, instance: 'Optional[str]' = None, pins: 'Optional[Mapping[str, PinValue]]' = None, address: 'Union[int, str, None]' = None, baud: 'Optional[int]' = None, values: 'Optional[Mapping[str, Any]]' = None) -> 'Sensor'",
     "start_stimulus": "(self, at_s: 'Optional[float]' = None) -> 'Dict[str, Any]'",
-    "status": "(self) -> 'Dict[str, Any]'",
-    "stop": "(self, instance: 'Optional[str]' = None) -> 'None'",
+    "status": "(self, instance: 'Optional[str]' = None) -> 'Dict[str, Any]'",
+    "stop": "(self, instance: 'Optional[str]' = None) -> 'List[str]'",
     "stop_stimulus": "(self) -> 'Dict[str, Any]'",
     "validate": "(self, definition: 'DefinitionSource') -> 'Dict[str, Any]'"
   },

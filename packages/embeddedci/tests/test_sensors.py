@@ -108,10 +108,11 @@ def test_stimulus_data_files_are_inlined(tmp_path):
 @pytest.mark.parametrize("size", [1, 500, 2000, 32768])
 def test_upload_chunks_fit_a_cloud_command_and_reassemble(size):
     data = bytes((i * 7) % 256 for i in range(size))
-    reqs = sensors.upload_requests("sensor_define", data, instance="x" * 32, dry_run=True)
+    reqs = sensors.upload_requests("sensor_define", data, instance="x" * 16, dry_run=True)
     out = b""
     for req in reqs:
         assert len(json.dumps(req, separators=(",", ":"))) <= sensors.MAX_COMMAND_BYTES - 128
+        assert len(base64.b64decode(req["data_b64"])) <= sensors.MAX_CHUNK_BYTES
         assert req["offset"] == len(out) and req["total"] == size
         out += base64.b64decode(req["data_b64"])
     assert out == data
@@ -122,7 +123,10 @@ def test_upload_chunks_fit_a_cloud_command_and_reassemble(size):
 # -- the pod API -----------------------------------------------------------------------
 
 class FakePod:
-    """A transport that plays the draft sensor commands."""
+    """A transport that plays the pod's sensor commands (firmware docs/API.md, Emulated sensors)."""
+
+    #: Instances per sensor_status page, small so the tests page.
+    PAGE = 2
 
     def __init__(self, caps=("sensors",)) -> None:
         self.caps = list(caps)
@@ -142,11 +146,20 @@ class FakePod:
 
     def samples(self, req: dict) -> List[int]:
         self.commands.append(req)
-        return list(range(int(req.get("len", req.get("samples", 0)))))
+        assert req["cmd"] == "sensor_la"
+        return list(range(int(req["samples"])))
+
+    def _known(self, req: dict) -> str:
+        name = req["instance"]
+        if name not in self.instances:
+            raise FirmwareError(f"unknown sensor instance '{name}'", cmd=req["cmd"])
+        return name
 
     def command(self, req: dict) -> Any:
         self.commands.append(req)
         cmd = req["cmd"]
+        if "instance" in req and not (1 <= len(req["instance"]) <= 16):
+            raise FirmwareError("instance must be 1..16 characters of a-z, 0-9 and _", cmd=cmd)
         if cmd in ("sensor_define", "sensor_stimulus"):
             key = req.get("instance", "_stimulus")
             buf = self.uploads.get(key, b"") if req["offset"] else b""
@@ -170,14 +183,32 @@ class FakePod:
             self.instances[req["instance"]].update(running=True, pins=req["pins"])
             return {"instance": req["instance"], "slot": "i2c0", "image": "emulation",
                     "image_loaded": True, "unavailable": ["dac_control_loop", "deep_replay"]}
+        if cmd == "sensor_set":
+            self._known(req)
+            return {"instance": req["instance"], "values": req["values"]}
         if cmd == "sensor_status":
-            return {"image": "emulation", "instances": [dict(i, instance=k) for k, i in self.instances.items()]}
+            items = [dict(i, instance=k) for k, i in self.instances.items()
+                     if "instance" not in req or k == req["instance"]]
+            first = int(req.get("first", 0))
+            page = items[first:first + self.PAGE]
+            out = {"image": "emulation", "stimulus": {"loaded": False, "running": False},
+                   "instances": page}
+            if first + self.PAGE < len(items):
+                out["next"] = first + self.PAGE
+            return out
+        if cmd == "sensor_regs":
+            self._known(req)
+            start, n = int(req["start"], 16), int(req["len"])
+            return {"instance": req["instance"], "start": req["start"], "len": n,
+                    "data_b64": base64.b64encode(bytes(range(n))).decode()}
         if cmd == "sensor_stop":
             if req.get("all"):
+                names = list(self.instances)
                 self.instances.clear()
             else:
-                self.instances.pop(req["instance"], None)
-            return {}
+                names = [self._known(req)]
+                self.instances.pop(req["instance"])
+            return {"stopped": names}
         return {}
 
 
@@ -223,13 +254,22 @@ def test_pins_are_checked_per_kind():
         bp.sensors.start(uart)
     with pytest.raises(ValueError, match="not mosi"):
         bp.sensors.start("bmp280", pins={"mosi": 3})
+    spi = {"format": 1, "kind": "spi", "name": "acc", "spi": {"mode": 3}}
+    with pytest.raises(ValueError, match="no data-ready pin"):
+        bp.sensors.start(spi, pins={"sclk": 1, "mosi": 2, "miso": 3, "cs": 4, "drdy": 5})
     analog = {"format": 1, "kind": "analog", "name": "ntc"}
     bp.sensors.start(analog)
     assert bp.transport.commands[-1]["pins"] == {"output": "dac"}
     with pytest.raises(ValueError, match="'dac' or 'current'"):
         bp.sensors.start(analog, pins={"output": "adc"})
-    with pytest.raises(ValueError, match=r"\[a-z0-9_\]"):
+    with pytest.raises(ValueError, match="1 to 16 characters"):
         bp.sensors.start("bmp280", instance="Bad-Name")
+    with pytest.raises(ValueError, match="1 to 16 characters"):
+        bp.sensors.start("bmp280", instance="a" * 17)
+    long_name = {"format": 1, "kind": "analog", "name": "a_rather_long_ntc_name"}
+    with pytest.raises(ValueError, match="pass instance="):
+        bp.sensors.start(long_name)
+    assert bp.sensors.start(long_name, instance="ntc2").instance == "ntc2"
 
 
 def test_handle_drives_set_fault_regs_capture_and_stop():
@@ -247,13 +287,46 @@ def test_handle_drives_set_fault_regs_capture_and_stop():
         assert fake.commands[-1] == {"cmd": "sensor_fault_clear", "instance": "bmp280"}
         assert s.regs(0xF7, 8) == list(range(8))
         assert fake.commands[-1] == {"cmd": "sensor_regs", "instance": "bmp280", "start": "0xF7", "len": 8}
+        assert s.regs(0xF8) == list(range(8))
+        assert fake.commands[-1]["len"] == 8
+        with pytest.raises(ValueError, match="start is 0..255"):
+            s.regs(0x100)
+        with pytest.raises(ValueError, match="length is 1..9"):
+            s.regs(0xF7, 10)
         assert len(s.capture(64)) == 64
+        with pytest.raises(ValueError, match="1..4096"):
+            s.capture(4097)
         with pytest.raises(ValueError, match="at least one value"):
             s.set()
         with pytest.raises(ValueError, match="must be a number"):
             s.set(temperature_c="hot")
     assert fake.commands[-1] == {"cmd": "sensor_stop", "instance": "bmp280"}
     assert bp.sensors.status()["instances"] == []
+    with pytest.raises(FirmwareError, match="unknown sensor instance 'bmp280'"):
+        bp.sensors.set("bmp280", temperature_c=1)
+
+
+def test_status_asks_for_every_page():
+    bp, fake = make_pod()
+    analog = {"format": 1, "kind": "analog", "name": "ntc"}
+    for name in ("a", "b", "c", "d", "e"):
+        bp.sensors.start(analog, instance=name)
+    status = bp.sensors.status()
+    assert [i["instance"] for i in status["instances"]] == ["a", "b", "c", "d", "e"]
+    assert "next" not in status and status["image"] == "emulation"
+    firsts = [c.get("first") for c in fake.commands if c["cmd"] == "sensor_status"]
+    assert firsts == [None, 2, 4]
+    assert bp.sensors.status("c")["instances"][0]["instance"] == "c"
+    assert fake.commands[-1] == {"cmd": "sensor_status", "instance": "c"}
+    assert bp.sensors.stop() == ["a", "b", "c", "d", "e"]
+
+
+def test_capture_of_a_uart_or_spi_sensor_points_at_la_capture():
+    bp, _ = make_pod()
+    s = bp.sensors.start({"format": 1, "kind": "uart", "name": "gps", "uart": {"baud": 9600}},
+                         pins={"tx": 5})
+    with pytest.raises(ValueError, match="la_capture"):
+        s.capture()
 
 
 def test_stimulus_upload_start_stop_and_stop_all(tmp_path):

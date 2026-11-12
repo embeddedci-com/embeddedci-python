@@ -206,6 +206,9 @@ class Capabilities:
     sensors: bool = False
     #: The sensor definition format the pod reads (``1``); 0 when not reported.
     sensors_format: int = 0
+    #: The emulation gateware image (I2C, SPI and UART sensors) is installed or running; analog
+    #: sensors work without it.
+    sensors_digital: bool = False
 
     # firmware updates and policies
     #: Internal flash of the pod's MCU in KiB (2048 or 1024); 0 when not reported.
@@ -293,6 +296,8 @@ class Capabilities:
             c.flash_kb = v
         if (v := _as_int(status, "sensors_format")) is not None and v > 0:
             c.sensors_format = v
+        if status.get("sensors_digital") is True:
+            c.sensors_digital = True
         if (v := _as_int(status, "sig_keys")) is not None and v > 0:
             c.sig_keys = v
         c.sig_policy = str(status.get("sig_policy", "") or "")
@@ -410,6 +415,7 @@ class Capabilities:
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
             ("adc_low_range", "cap.adc_low_range"),
             ("sensors", "cap.sensors"),
+            ("sensors_digital", "cap.sensors_digital"),
             ("dac_limits", "cap.dac_limits"),
             ("ws_auth_v2", "cap.ws_auth_v2"),
             *((f, f"cap.{f}") for f in _STATUS_FLAGS),

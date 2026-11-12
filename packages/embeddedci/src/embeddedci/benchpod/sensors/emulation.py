@@ -3,8 +3,9 @@
 The pod plays I2C, SPI and UART sensors on LA channels and analog sensors on its analog outputs,
 from a **definition** the host sends (the sensor library's format, ``docs/format.md``). The pod
 keeps nothing: definitions are gone after ``sensor_stop``, a reboot or a firmware update. Up to
-4 I2C sensors, 1 SPI, 1 UART and the analog sensors run at once, each an **instance** with a
-name the host picks (``[a-z0-9_]{1,32}``, the definition's ``name`` by default).
+4 I2C sensors, 1 SPI, 1 UART and 2 analog sensors (one per analog output) run at once, each an
+**instance** with a name the host picks (``[a-z0-9_]{1,16}``, the definition's ``name`` by
+default; a longer name needs an explicit ``instance``).
 
 Wire protocol: ``sensor_define`` and ``sensor_stimulus`` (base64 chunks, each command small
 enough for the cloud), ``sensor_start``, ``sensor_set``, ``sensor_stimulus_start``/``_stop``,
@@ -16,14 +17,15 @@ enough for the cloud), ``sensor_start``, ``sensor_set``, ``sensor_stimulus_start
 from __future__ import annotations
 
 import base64
+import binascii
 import json
+import re
 import math
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
 
 from ..errors import BenchPodError, UnsupportedFeatureError
 from .definition import (
-    NAME_RE,
     DefinitionSource,
     check_definition,
     check_stimulus,
@@ -40,6 +42,13 @@ if TYPE_CHECKING:  # pragma: no cover
 MAX_COMMAND_BYTES = 1280
 #: Bytes kept free for the transport's envelope around a command.
 COMMAND_RESERVE_BYTES = 128
+#: Raw bytes per ``sensor_define``/``sensor_stimulus`` chunk at most (1024 base64 characters: a
+#: command of at most 1152 bytes, the size the firmware documents).
+MAX_CHUNK_BYTES = 768
+#: Instance names the pod takes (the definition ``name`` allows 32 characters, an instance 16).
+INSTANCE_RE = re.compile(r"^[a-z0-9_]{1,16}$")
+#: Packed bytes one ``sensor_la`` capture takes at most (4 samples per byte).
+MAX_LA_BYTES = 4096
 #: The message a pod without the ``sensors`` capability gives.
 TOO_OLD = "this pod's firmware is too old for sensor emulation; update the firmware"
 
@@ -47,8 +56,7 @@ TOO_OLD = "this pod's firmware is too old for sensor emulation; update the firmw
 #: or optional without a default).
 PIN_ROLES: Dict[str, Dict[str, Optional[str]]] = {
     "i2c": {"sda": "i2c_sda", "scl": "i2c_scl", "drdy": None},
-    "spi": {"sclk": "spi_sclk", "mosi": "spi_mosi", "miso": "spi_miso", "cs": "spi_cs",
-            "drdy": None},
+    "spi": {"sclk": "spi_sclk", "mosi": "spi_mosi", "miso": "spi_miso", "cs": "spi_cs"},
     "uart": {"tx": None, "rx": None},
     "analog": {"output": None},
 }
@@ -78,8 +86,20 @@ def _values(values: Optional[Mapping[str, Any]], extra: Mapping[str, Any]) -> Di
 
 def _instance_name(instance: Any) -> str:
     name = str(instance).strip()
-    if not NAME_RE.match(name):
-        raise ValueError(f"an instance name matches [a-z0-9_]{{1,32}}, got {instance!r}")
+    if not INSTANCE_RE.match(name):
+        raise ValueError("an instance name is 1 to 16 characters of a-z, 0-9 and _, got "
+                         f"{instance!r}")
+    return name
+
+
+def _default_instance(instance: Optional[str], doc: Mapping[str, Any]) -> str:
+    """``instance``, else the definition's ``name`` when it fits an instance name."""
+    if instance is not None:
+        return _instance_name(instance)
+    name = str(doc.get("name", ""))
+    if not INSTANCE_RE.match(name):
+        raise ValueError(f"the definition's name {name!r} is longer than an instance name (at "
+                         "most 16 characters): pass instance=")
     return name
 
 
@@ -99,7 +119,7 @@ def chunk_size(base: Mapping[str, Any], limit: int = MAX_COMMAND_BYTES - COMMAND
     room = limit - overhead
     if room < 4:
         raise ValueError("the command leaves no room for data")
-    return (room // 4) * 3
+    return min((room // 4) * 3, MAX_CHUNK_BYTES)
 
 
 def upload_requests(cmd: str, data: bytes, *, instance: Optional[str] = None,
@@ -127,6 +147,18 @@ def upload_requests(cmd: str, data: bytes, *, instance: Optional[str] = None,
         reqs.append(req)
         if last:
             return reqs
+
+
+def decode_regs(reply: Mapping[str, Any]) -> List[int]:
+    """The bytes of a ``sensor_regs`` reply (``{"instance","start","len","data_b64"}``)."""
+    data = reply.get("data_b64") if isinstance(reply, Mapping) else None
+    if not isinstance(data, str):
+        raise BenchPodError(f"sensor_regs reply has no data_b64: {dict(reply or {})!r}")
+    try:
+        raw = base64.b64decode(data + "=" * (-len(data) % 4), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise BenchPodError(f"sensor_regs reply: data_b64 is not base64 ({exc})") from exc
+    return list(raw)
 
 
 class Sensor:
@@ -178,26 +210,33 @@ class Sensor:
     def status(self) -> Dict[str, Any]:
         """This instance's entry of :meth:`SensorEmulation.status` (``values``, ``faults``,
         ``bus`` counters), ``{}`` when it no longer runs."""
-        for entry in self._emulation.status().get("instances") or []:
+        for entry in self._emulation.status(self.instance).get("instances") or []:
             if isinstance(entry, dict) and entry.get("instance") == self.instance:
                 return entry
         return {}
 
-    def regs(self, start: int = 0, length: int = 256) -> List[int]:
-        """The register bytes the DUT reads now (I2C and SPI)."""
+    def regs(self, start: int = 0, length: Optional[int] = None) -> List[int]:
+        """The register bytes the DUT reads now (I2C and SPI), see :meth:`SensorEmulation.regs`."""
         return self._emulation.regs(self.instance, start=start, length=length)
 
-    def capture(self, samples: int = 4096) -> List[int]:
-        """A raw capture of this instance's bus pins (``sensor_la``)."""
+    def capture(self, samples: int = MAX_LA_BYTES) -> List[int]:
+        """A raw capture of this I2C instance's bus pins (``sensor_la``). SPI and UART sensors:
+        capture their pins with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
+        if self.kind and self.kind != "i2c":
+            raise ValueError(f"sensor capture records I2C sensors only; capture the pins of "
+                             f"{self.instance} (a {self.kind} sensor) with la_capture")
         return self._emulation.capture(self.instance, samples)
 
-    def i2c_transactions(self, samples: int = 4096) -> List["I2CTransaction"]:
+    def i2c_transactions(self, samples: int = MAX_LA_BYTES) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance, decoded into transactions."""
-        return self._emulation.i2c_transactions(self.instance, samples)
+        from .. import i2c as _i2c
 
-    def stop(self) -> None:
-        """Stop the instance: the pod releases its pins and forgets the definition."""
-        self._emulation.stop(self.instance)
+        return _i2c.decode(self.capture(samples))
+
+    def stop(self) -> List[str]:
+        """Stop the instance: the pod releases its pins and forgets the definition. Returns the
+        names the pod stopped."""
+        return self._emulation.stop(self.instance)
 
     def __enter__(self) -> "Sensor":
         return self
@@ -251,6 +290,8 @@ class SensorEmulation:
             raise ValueError(f"unknown sensor kind {kind!r}")
         given = {str(k).lower(): v for k, v in (pins or {}).items() if v is not None}
         unknown = sorted(set(given) - set(roles))
+        if kind == "spi" and "drdy" in unknown:
+            raise ValueError("the emulated SPI target has no data-ready pin")
         if unknown:
             raise ValueError(f"a {kind} sensor takes pins {', '.join(roles)}, not "
                              f"{', '.join(unknown)}")
@@ -282,7 +323,7 @@ class SensorEmulation:
         self._require()
         doc = self._document(definition)
         check_definition(doc)
-        name = _instance_name(instance if instance is not None else doc["name"])
+        name = _default_instance(instance, doc)
         reply: Dict[str, Any] = {}
         for req in upload_requests("sensor_define", to_json_bytes(doc), instance=name,
                                    dry_run=dry_run):
@@ -294,7 +335,7 @@ class SensorEmulation:
         definition with an error raises :class:`~embeddedci.benchpod.errors.FirmwareError`
         whose message names the place (``registers[4].s16be: unknown name 'ax' at 17``)."""
         doc = self._document(definition)
-        instance = doc.get("name") if isinstance(doc.get("name"), str) and NAME_RE.match(
+        instance = doc.get("name") if isinstance(doc.get("name"), str) and INSTANCE_RE.match(
             str(doc.get("name"))) else "validate"
         return self.define(doc, instance=instance, dry_run=True)
 
@@ -306,15 +347,17 @@ class SensorEmulation:
 
         ``pins`` maps roles to LA channels or wiring names: I2C ``sda``, ``scl`` (default: the
         profile's ``i2c_sda``/``i2c_scl``) and ``drdy``; SPI ``sclk``, ``mosi``, ``miso``, ``cs``
-        (default: the profile's ``spi_*``) and ``drdy``; UART ``tx`` (pod to DUT) and ``rx``;
+        (default: the profile's ``spi_*``; the emulated SPI target has no data-ready pin); UART ``tx`` (pod to DUT) and ``rx``;
         analog ``output``, ``"dac"`` (default) or ``"current"``. ``address`` picks one of an I2C
         definition's addresses, ``baud`` overrides a UART one, ``values`` sets initial readings.
         Set the LA voltage and the I2C pull-ups first. I2C, SPI and UART sensors need the
-        emulation FPGA image, which the pod loads when another runs (``started["image_loaded"]``).
+        emulation FPGA image, which the pod loads when another runs (``started["image_loaded"]``);
+        it stays loaded after :meth:`stop` until :meth:`~embeddedci.benchpod.BenchPod.fpga_image`
+        switches it (the SDK's control loop and deep replay do that when no such sensor runs).
         """
         doc = self._document(definition)
         check_definition(doc)
-        name = _instance_name(instance if instance is not None else doc["name"])
+        name = _default_instance(instance, doc)
         req: Dict[str, Any] = {"cmd": "sensor_start", "instance": name,
                                "pins": self._pins(str(doc["kind"]), pins)}
         addr = _address(address)
@@ -333,7 +376,7 @@ class SensorEmulation:
         """A :class:`Sensor` handle for an instance that already runs (its ``info`` from
         :meth:`status`)."""
         name = _instance_name(instance)
-        for entry in self.status().get("instances") or []:
+        for entry in self.status(name).get("instances") or []:
             if isinstance(entry, dict) and entry.get("instance") == name:
                 return Sensor(self, name, info=entry)
         raise BenchPodError(f"no sensor instance {name!r} runs on the pod")
@@ -397,39 +440,75 @@ class SensorEmulation:
 
     # -- lifecycle and inspection ----------------------------------------------------
 
-    def stop(self, instance: Optional[str] = None) -> None:
+    def stop(self, instance: Optional[str] = None) -> List[str]:
         """Stop ``instance``, or every instance when None. The pod releases the pins and forgets
-        the definitions."""
+        the definitions; the emulation image stays loaded. Returns the names it stopped."""
         self._require()
         if instance is None:
-            self._command({"cmd": "sensor_stop", "all": True})
+            reply = self._command({"cmd": "sensor_stop", "all": True})
         else:
-            self._command({"cmd": "sensor_stop", "instance": _instance_name(instance)})
+            reply = self._command({"cmd": "sensor_stop", "instance": _instance_name(instance)})
+        return [str(n) for n in reply.get("stopped") or []]
 
-    def status(self) -> Dict[str, Any]:
+    def status(self, instance: Optional[str] = None) -> Dict[str, Any]:
         """``image``, ``stimulus`` (``loaded``, ``running``, ``t_s``) and ``instances``, each with
-        its ``pins``, ``values``, ``faults`` and ``bus`` counters."""
+        its ``slot``, ``pins``, ``values``, ``faults`` (objects with ``type`` and ``left_s``) and
+        ``bus`` counters (``writes``, ``last_write``...; ``transfers`` is always None: the
+        gateware counts written bytes). ``instance`` reports that one only. The pod pages a long
+        list (``next``); this asks for every page and returns them as one."""
         self._require()
-        return self._command({"cmd": "sensor_status"})
+        req: Dict[str, Any] = {"cmd": "sensor_status"}
+        if instance is not None:
+            req["instance"] = _instance_name(instance)
+        out = self._command(dict(req))
+        instances = list(out.get("instances") or [])
+        seen = {0}
+        while isinstance(out.get("next"), int) and not isinstance(out.get("next"), bool):
+            first = int(out["next"])
+            if first in seen or first <= 0:
+                break
+            seen.add(first)
+            page = self._command({**req, "first": first})
+            instances.extend(page.get("instances") or [])
+            out = {**out, **{k: v for k, v in page.items() if k != "instances"}}
+            if "next" not in page:
+                out.pop("next", None)
+        out.pop("next", None)
+        out["instances"] = instances
+        return out
 
-    def regs(self, instance: str, *, start: int = 0, length: int = 256) -> List[int]:
+    def regs(self, instance: str, *, start: int = 0, length: Optional[int] = None) -> List[int]:
         """The register bytes of an I2C/SPI instance the DUT reads now (its own writes
-        included)."""
+        included): ``length`` bytes from ``start`` (0..255) of its 256-byte image (``i2c.page``
+        is the window), default to the end of the image."""
         self._require()
-        if not 0 <= int(start) <= 0xFFFF or not 1 <= int(length) <= 256:
-            raise ValueError("start is 0..0xFFFF and length 1..256")
-        return self._samples({"cmd": "sensor_regs", "instance": _instance_name(instance),
-                              "start": f"0x{int(start):02X}", "len": int(length)})
+        start = int(start)
+        if not 0 <= start <= 255:
+            raise ValueError(f"start is 0..255 (the offset in the 256-byte image), got {start}")
+        n = 256 - start if length is None else int(length)
+        if not 1 <= n <= 256 - start:
+            raise ValueError(f"length is 1..{256 - start} from start {start}, got {length!r}")
+        reply = self._command({"cmd": "sensor_regs", "instance": _instance_name(instance),
+                               "start": f"0x{start:02X}", "len": n})
+        return decode_regs(reply)
 
-    def capture(self, instance: str, samples: int = 4096) -> List[int]:
-        """A raw capture of an instance's bus pins (``sensor_la``)."""
+    def capture(self, instance: str, samples: int = MAX_LA_BYTES) -> List[int]:
+        """A raw capture of an I2C instance's bus pins (``sensor_la``): ``samples`` packed bytes
+        (1..4096, four ``{SCL,SDA}`` samples per byte). SPI and UART instances are refused by the
+        pod: capture their pins with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         self._require()
-        if int(samples) <= 0:
-            raise ValueError(f"samples must be > 0, got {samples!r}")
+        n = int(samples)
+        if not 1 <= n <= MAX_LA_BYTES:
+            raise ValueError(f"samples is 1..{MAX_LA_BYTES} packed bytes, got {samples!r}")
         return self._samples({"cmd": "sensor_la", "instance": _instance_name(instance),
-                              "samples": int(samples)})
+                              "samples": n})
 
-    def i2c_transactions(self, instance: str, samples: int = 4096) -> List["I2CTransaction"]:
+    def running_digital(self) -> List[str]:
+        """The I2C, SPI and UART instances that run (they hold the emulation image)."""
+        return [str(e.get("instance")) for e in self.status().get("instances") or []
+                if isinstance(e, dict) and e.get("running") and e.get("kind") != "analog"]
+
+    def i2c_transactions(self, instance: str, samples: int = MAX_LA_BYTES) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance decoded into transactions (packed ``{SCL,SDA}``
         samples, as the pod's I2C bus capture has always sent them)."""
         from .. import i2c as _i2c

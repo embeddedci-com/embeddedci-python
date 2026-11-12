@@ -156,9 +156,11 @@ _log = logging.getLogger("embeddedci.benchpod")
 _ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_control_loop", "dac_cotrig",
                            "dac_loop_sources", "dac_loop_input_map", "calibrate", "current_out"})
 
-#: The capability flag and FPGA_FEATURES bit each gateware image carries.
+#: The capability flag and FPGA_FEATURES bit each gateware image carries. The emulation image has
+#: no flag of its own while it runs (``sensors_digital`` says it is installed or running): the
+#: pod is on it when it shows neither of the other two, which ``fpga_image`` confirms.
 _IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay",
-               FpgaImage.EMULATION: "sensors"}
+               FpgaImage.EMULATION: "sensors_digital"}
 _IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02, FpgaImage.EMULATION: 0x04}
 
 #: Seconds to wait for the server's cached capabilities to follow an image switch.
@@ -169,6 +171,12 @@ def _images_switchable(caps: Capabilities) -> bool:
     """Whether the pod carries both gateware images: it advertises one of the image-bound
     features (the rule the web UI uses too)."""
     return bool(caps.dac_control_loop or caps.dac_deep_replay)
+
+
+def _maybe_on_emulation(caps: Capabilities) -> bool:
+    """Whether the pod may be running the emulation image: it has one (``sensors_digital``) and
+    shows neither the loop nor the deep-replay image's feature."""
+    return bool(caps.sensors_digital and not _images_switchable(caps))
 
 
 def _dict(data: Any) -> Dict[str, Any]:
@@ -2103,7 +2111,10 @@ class BenchPod:
         """Switch the iCE40 to another gateware image stored on the pod.
 
         ``FpgaImage.LOOP`` (0) is the control-loop image, ``FpgaImage.DEEP_REPLAY`` (1) the deep
-        DAC replay image, ``FpgaImage.EMULATION`` (2) the sensor emulation image. The pod reprograms the FPGA from its config flash and cold-resets it
+        DAC replay image, ``FpgaImage.EMULATION`` (2) the sensor emulation image (gateware v54+,
+        W25Q slot ``gw2``; ``bp.sensors.start()`` loads it by itself, and the pod never switches
+        back on its own; leaving it is refused while I2C, SPI or UART sensors run). The pod
+        reprograms the FPGA from its config flash and cold-resets it
         (~2-3 s), which stops anything running in the FPGA: a DAC output or control loop, a UART
         session, sensor emulation. The selection is written to the config flash, so the pod
         normally stays on it after a power cycle. Drops the cached :attr:`capabilities` so the next
@@ -2131,7 +2142,23 @@ class BenchPod:
         """
         flag = _IMAGE_FLAG[image]
         caps = self.capabilities
-        if getattr(caps, flag) or not _images_switchable(caps):
+        if image is FpgaImage.EMULATION:
+            running = self._running_image()
+            if running is None or running.image == FpgaImage.EMULATION:
+                return None
+        elif getattr(caps, flag):
+            return None
+        elif _maybe_on_emulation(caps):
+            running = self._running_image()
+            if running is None or running.image != FpgaImage.EMULATION:
+                return None
+            digital = self.sensors.running_digital()
+            if digital:
+                raise BenchPodError(
+                    f"{needed_for} needs the {image.name} gateware image, but the pod runs the "
+                    f"emulation image for the emulated sensors {', '.join(digital)}: stop them "
+                    f"first (bp.sensors.stop()); then the SDK switches back by itself")
+        elif not _images_switchable(caps):
             return None
         if not switch:
             raise BenchPodError(
@@ -2142,6 +2169,8 @@ class BenchPod:
                      "FPGA, so any DAC output, UART session or sensor emulation stops",
                      image.name, needed_for)
         info = self.fpga_image(image)
+        if image is FpgaImage.EMULATION:
+            return info
         # Judge by the reply's feature bits: on a cloud connection the merged capabilities can lag.
         if not info.features & _IMAGE_FEATURE[image]:
             raise BenchPodError(
@@ -2149,6 +2178,16 @@ class BenchPod:
                 f"booted does not carry it (features=0x{info.features:02x})")
         self._wait_for_server_caps(flag)
         return info
+
+    def _running_image(self) -> Optional[FpgaImageInfo]:
+        """The image the iCE40 runs (``{"cmd":"fpga_image"}``), None when the pod does not say."""
+        try:
+            data = self.command({"cmd": "fpga_image"})
+        except BenchPodError:
+            return None
+        if not isinstance(data, dict) or not isinstance(data.get("image"), int):
+            return None
+        return FpgaImageInfo.from_reply(data)
 
     def _wait_for_server_caps(self, flag: str) -> None:
         """After an image switch, wait until the server's cached capabilities show ``flag`` (the pod
@@ -2199,7 +2238,7 @@ class BenchPod:
         if deep and caps.dac_replay and not caps.dac_deep_replay:
             # The loop image accepts a PSRAM replay and then outputs nothing (measured on a pod), so
             # switch to the deep-replay image — or refuse — rather than arm a silent DAC.
-            if not _images_switchable(caps):
+            if not _images_switchable(caps) and not _maybe_on_emulation(caps):
                 raise BenchPodError(
                     f"a {n_samples}-sample replay streams from PSRAM, which this pod's gateware "
                     "cannot play (capabilities.dac_deep_replay is False): replay at most 2048 samples")

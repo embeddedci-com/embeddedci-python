@@ -268,6 +268,11 @@ _SDK_FIXES = (
      "close the UART session from bp.open_uart() first (session.close(), or leave its with block)"),
     (re.compile(r"end the SWD session first"),
      "wait for the running flash (its SWD session) to finish"),
+    (re.compile(r'\{"cmd":"sensor_stop","all":true\} then \{"cmd":"fpga_image","image":"(loop|deep)"\}'),
+     lambda m: "bp.sensors.stop() then bp.fpga_image(FpgaImage."
+               + ("LOOP" if m.group(1) == "loop" else "DEEP_REPLAY") + ")"),
+    (re.compile(r'stop them first \(\{"cmd":"sensor_stop","all":true\}\)'),
+     "stop them first with bp.sensors.stop()"),
     (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'bp.sensors.stop("\1")'),
     (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
      "stop the sensor emulation first with bp.sensors.stop()"),
@@ -277,7 +282,7 @@ _SDK_FIXES = (
      "(close the SPI session from bp.open_spi() first)"),
     (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"bp.set_pull(\1, False)"),
     (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'bp.gpio(\1, "output")'),
-    (re.compile(r'\{"cmd":"fpga_image","image":0\}'), "bp.fpga_image(0)"),
+    (re.compile(r'\{"cmd":"fpga_image","image":([012])\}'), r"bp.fpga_image(\1)"),
     (re.compile(r'\{"cmd":"dac_loop_input"\}'), "bp.loop_input()"),
 )
 

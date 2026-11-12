@@ -20,7 +20,18 @@ from .definition import (
     stimulus_errors,
     to_json_bytes,
 )
-from .emulation import MAX_COMMAND_BYTES, PIN_ROLES, TOO_OLD, Sensor, SensorEmulation, upload_requests
+from .emulation import (
+    INSTANCE_RE,
+    MAX_CHUNK_BYTES,
+    MAX_COMMAND_BYTES,
+    MAX_LA_BYTES,
+    PIN_ROLES,
+    TOO_OLD,
+    Sensor,
+    SensorEmulation,
+    decode_regs,
+    upload_requests,
+)
 from .library import (
     SENSOR_CACHE_ENV,
     SENSOR_LIBRARY_ENV,
@@ -38,12 +49,12 @@ from .library import (
 from .yaml12 import YamlError, load_yaml
 
 __all__ = [
-    "MAX_COMMAND_BYTES", "MAX_DOCUMENT_BYTES", "PIN_ROLES", "SENSOR_CACHE_ENV", "SENSOR_FORMAT",
+    "INSTANCE_RE", "MAX_CHUNK_BYTES", "MAX_COMMAND_BYTES", "MAX_LA_BYTES", "MAX_DOCUMENT_BYTES", "PIN_ROLES", "SENSOR_CACHE_ENV", "SENSOR_FORMAT",
     "SENSOR_KINDS", "SENSOR_LIBRARY_ENV", "SENSOR_LIBRARY_VERSION", "TOO_OLD",
     "DefinitionError", "LibraryEntry", "LibraryError", "Sensor", "SensorEmulation",
     "SensorLibrary", "YamlError",
     "bundled_library", "cache_root", "cached_versions", "check_definition", "check_stimulus",
-    "definition_errors", "latest_version", "load_definition", "load_document", "load_stimulus",
+    "decode_regs", "definition_errors", "latest_version", "load_definition", "load_document", "load_stimulus",
     "load_yaml", "parse_text", "requested_version", "sensor_library", "stimulus_errors",
     "to_json_bytes", "upload_requests",
 ]
