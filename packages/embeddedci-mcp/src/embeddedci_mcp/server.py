@@ -1616,7 +1616,10 @@ async def decode_la(
         if protocol == "spi":
             channels["mode"] = mode
         frames = pod.decode(la, protocol, **channels)
-        SESSION.last_decode = _decode_view(la, protocol, channels, frames)
+        try:
+            SESSION.last_decode = _decode_view(la, protocol, channels, frames)
+        except Exception:  # the capture view's copy never fails the decode itself
+            SESSION.last_decode = None
         text = None
         if protocol == "i2c":
             items = i2c.format_transactions(frames).splitlines()
