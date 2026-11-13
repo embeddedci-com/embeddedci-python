@@ -49,6 +49,9 @@ MAX_CHUNK_BYTES = 768
 INSTANCE_RE = re.compile(r"^[a-z0-9_]{1,16}$")
 #: Packed bytes one ``sensor_la`` capture takes at most (4 samples per byte).
 MAX_LA_BYTES = 4096
+#: The I2C bus capture's default rate: the pod's own default is its highest LA rate, which fills
+#: 16384 samples in well under a millisecond, shorter than one transaction.
+CAPTURE_RATE_HZ = 500_000.0
 #: The message a pod without the ``sensors`` capability gives.
 TOO_OLD = "this pod's firmware is too old for sensor emulation; update the firmware"
 
@@ -225,19 +228,21 @@ class Sensor:
         """The register bytes the DUT reads now (I2C and SPI), see :meth:`SensorEmulation.regs`."""
         return self._emulation.regs(self.instance, start=start, length=length)
 
-    def capture(self, samples: int = MAX_LA_BYTES) -> List[int]:
+    def capture(self, samples: int = MAX_LA_BYTES,
+                sample_rate_hz: float = CAPTURE_RATE_HZ) -> List[int]:
         """A raw capture of this I2C instance's bus pins (``sensor_la``). SPI and UART sensors:
         capture their pins with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         if self.kind and self.kind != "i2c":
             raise ValueError(f"sensor capture records I2C sensors only; capture the pins of "
                              f"{self.instance} (a {self.kind} sensor) with la_capture")
-        return self._emulation.capture(self.instance, samples)
+        return self._emulation.capture(self.instance, samples, sample_rate_hz)
 
-    def i2c_transactions(self, samples: int = MAX_LA_BYTES) -> List["I2CTransaction"]:
+    def i2c_transactions(self, samples: int = MAX_LA_BYTES,
+                         sample_rate_hz: float = CAPTURE_RATE_HZ) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance, decoded into transactions."""
         from .. import i2c as _i2c
 
-        return _i2c.decode(self.capture(samples))
+        return _i2c.decode(self.capture(samples, sample_rate_hz))
 
     def stop(self) -> List[str]:
         """Stop the instance: the pod releases its pins and forgets the definition. Returns the
@@ -502,28 +507,38 @@ class SensorEmulation:
                                "start": f"0x{start:02X}", "len": n})
         return decode_regs(reply)
 
-    def capture(self, instance: str, samples: int = MAX_LA_BYTES) -> List[int]:
+    def capture(self, instance: str, samples: int = MAX_LA_BYTES,
+                sample_rate_hz: float = CAPTURE_RATE_HZ) -> List[int]:
         """A raw capture of an I2C instance's bus pins (``sensor_la``): ``samples`` packed bytes
-        (1..4096, four ``{SCL,SDA}`` samples per byte). SPI and UART instances are refused by the
-        pod: capture their pins with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
+        (1..4096, four ``{SCL,SDA}`` samples per byte) at ``sample_rate_hz`` (default 500 kHz: 16384
+        samples cover about 33 ms). The capture starts at once, it does not wait for bus traffic:
+        call it right after the DUT starts talking (a power-on probe, a command that reads the
+        sensor), or lower the rate for a longer window (100 kHz: about 160 ms, enough for a bus
+        clocked at 100 kHz or less). SPI and UART
+        instances are refused by the pod: capture their pins with
+        :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         self._require()
         n = int(samples)
         if not 1 <= n <= MAX_LA_BYTES:
             raise ValueError(f"samples is 1..{MAX_LA_BYTES} packed bytes, got {samples!r}")
+        rate = float(sample_rate_hz)
+        if not rate > 0:
+            raise ValueError(f"sample_rate_hz must be positive, got {sample_rate_hz!r}")
         return self._samples({"cmd": "sensor_la", "instance": _instance_name(instance),
-                              "samples": n})
+                              "samples": n, "sample_rate_mhz": rate / 1e6})
 
     def running_digital(self) -> List[str]:
         """The I2C, SPI and UART instances that run (they hold the emulation image)."""
         return [str(e.get("instance")) for e in self.status().get("instances") or []
                 if isinstance(e, dict) and e.get("running") and e.get("kind") != "analog"]
 
-    def i2c_transactions(self, instance: str, samples: int = MAX_LA_BYTES) -> List["I2CTransaction"]:
+    def i2c_transactions(self, instance: str, samples: int = MAX_LA_BYTES,
+                         sample_rate_hz: float = CAPTURE_RATE_HZ) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance decoded into transactions (packed ``{SCL,SDA}``
         samples, as the pod's I2C bus capture has always sent them)."""
         from .. import i2c as _i2c
 
-        return _i2c.decode(self.capture(instance, samples))
+        return _i2c.decode(self.capture(instance, samples, sample_rate_hz))
 
     def _samples(self, req: Dict[str, Any]) -> List[int]:
         fn = getattr(self._pod.transport, "samples", None)
