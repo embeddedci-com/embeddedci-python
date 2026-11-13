@@ -2551,7 +2551,7 @@
         },
         "from_wiring": {
           "default": false,
-          "description": "Send the wiring profile's directions instead (uart_rx, spi_miso and input signals are DUT outputs).",
+          "description": "Send the wiring profile's directions again (each role's and signal's default, or the profile's dut_dirs).",
           "title": "From Wiring",
           "type": "boolean"
         },

@@ -59,9 +59,27 @@ def test_la_dir_sets_lists_and_follows_the_wiring(connected):
 
 
 def test_set_wiring_sends_the_directions(connected):
-    r = call("set_wiring", profile={"uart_rx": 7, "uart_tx": 8})
+    from embeddedci_mcp.session import SESSION
+
+    connected.version = "3.10.4"
+    SESSION.require().refresh_capabilities()
+    r = call("set_wiring", profile={"uart_rx": 7, "uart_tx": 8,
+                                    "signals": [{"name": "READY", "la": 9}],
+                                    "dut_dirs": {"READY": "bidir"}})
     assert r["directions"] == "sent"
     assert connected.dirs[7] == "dut_output" and connected.dirs[8] == "dut_input"
+    assert connected.dirs[9] == "bidir" and connected.dirs[5] == "unknown"
+    pins = {p["la"]: p for p in call("wiring")["pins"]}
+    assert pins[7]["dut_dir"] == "dut_output" and pins[9]["dut_dir"] == "bidir"
+    assert pins[3]["dut_dir"] is None
+
+
+def test_older_firmware_skips_the_directions(connected):
+    r = call("set_wiring", profile={"uart_rx": 7, "uart_tx": 8})
+    assert r["directions"] == "not sent: this pod's firmware (2.0.0) has no la_dir (3.10.4+)"
+    assert 7 not in connected.dirs
+    # Older firmware is not a problem to warn about.
+    assert not any("pin directions" in w for w in call("status")["warnings"])
 
 
 def test_spi_modes_1_and_2(connected):

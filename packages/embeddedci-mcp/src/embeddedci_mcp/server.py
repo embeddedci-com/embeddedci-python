@@ -348,6 +348,10 @@ def _status() -> m.StatusResult:
         wiring_source: Optional[str] = pod.wiring.source
     except (BenchPodError, ValueError, OSError):
         wiring_source = None
+    dirs = getattr(pod, "pin_directions_status", "")
+    if isinstance(dirs, str) and dirs.startswith("not sent") and "firmware" not in dirs:
+        warnings.append(f"the wiring's pin directions were {dirs} (call la_dir(from_wiring=true) "
+                        "once that pin is released)")
     if la is None:
         warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
                         "the DUT) before flash, UART, LA capture, pulls or sensor emulation")
@@ -424,7 +428,13 @@ async def wiring() -> m.WiringResult:
     plus warnings about risky wiring. Every tool whose channel, baud, rail or SWD arguments are
     omitted takes them from this profile, and channel arguments accept these names.
     """
-    return await _call(lambda: wiring_summary(SESSION.require().wiring))
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        result = wiring_summary(pod.wiring)
+        result.directions = pod.pin_directions_status
+        return result
+
+    return await _call(op)
 
 
 @mcp.tool(annotations=_ann("Set the wiring profile", idempotent=True, cloud=True))
@@ -449,21 +459,11 @@ async def set_wiring(
         if save:
             pod.save_wiring()
         result = wiring_summary(pod.wiring, saved=save)
-        result.directions = _push_directions(pod)
+        # Assigning the profile sent its pin directions (la_dir) on firmware that has it.
+        result.directions = pod.pin_directions_status
         return result
 
     return await _call(op)
-
-
-def _push_directions(pod: Any) -> str:
-    """Send the profile's pin directions (la_dir); 'sent', or why not (older firmware, a driven pin)."""
-    try:
-        pod.apply_pin_directions()
-        return "sent"
-    except _errors.UnsupportedFeatureError:
-        return "not sent: this pod's firmware has no la_dir"
-    except BenchPodError as exc:
-        return f"not sent: {_error_text(exc)}"
 
 
 # -- power ----------------------------------------------------------------------------
@@ -1349,12 +1349,13 @@ async def la_dir(
     dir: Annotated[Optional[Literal["dut_input", "dut_output", "bidir", "unknown"]], Field(description=(
         "Which way the DUT signal goes. On dut_output the pod refuses push-pull drivers."))] = None,
     from_wiring: Annotated[bool, Field(description=(
-        "Send the wiring profile's directions instead (uart_rx, spi_miso and input signals are "
-        "DUT outputs)."))] = False,
+        "Send the wiring profile's directions again (each role's and signal's default, or the "
+        "profile's dut_dirs)."))] = False,
 ) -> m.GpioPinsResult:
     """Tell the pod which way each pin's DUT signal goes, so it never drives against a DUT output.
 
-    The pod forgets this on a reboot; set_wiring sends the profile's directions.
+    connect and set_wiring already send the wiring profile's directions (firmware 3.10.4+);
+    use this for a pin the profile doesn't name. The pod forgets them on a reboot.
     """
     def op() -> m.GpioPinsResult:
         pod = SESSION.require()

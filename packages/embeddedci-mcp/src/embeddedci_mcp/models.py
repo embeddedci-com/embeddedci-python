@@ -150,6 +150,10 @@ class WiringPin(BaseModel):
     wired_to: Optional[str] = Field(None, description=(
         "The role (uart_rx, i2c_sda, swd_swclk, …) or signal name on this channel; null = unused."))
     pull: Optional[str] = Field(None, description="Fixed bias resistor, e.g. '4.7k up'; null on LA9-LA14.")
+    dut_dir: Optional[str] = Field(None, description=(
+        "Which way the DUT's signal on this channel goes (dut_input, dut_output or bidir): the "
+        "role's or signal's default, or the profile's dut_dirs. The pod gets it with la_dir and "
+        "refuses push-pull drivers on dut_output pins. Null when nothing is wired."))
 
 
 class WiringResult(BaseModel):
@@ -173,7 +177,8 @@ class WiringResult(BaseModel):
     profile: Dict[str, Any] = Field(default_factory=dict, description="The profile as its JSON object.")
     saved: bool = Field(False, description="set_wiring stored this profile on embeddedci.com.")
     directions: Optional[str] = Field(None, description=(
-        "set_wiring: 'sent' when the pod now has the profile's pin directions (la_dir), else why not."))
+        "'sent' when the pod has the profile's pin directions (la_dir: sent on connect and by "
+        "set_wiring), else 'not sent: <why>' (older firmware, or a DUT output pin driven right now)."))
 
 
 # -- LA pin ownership + GPIO -------------------------------------------------------

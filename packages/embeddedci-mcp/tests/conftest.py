@@ -117,7 +117,7 @@ class FakeTransport(Transport):
         caps = list(self.caps)
         if self.image is not None:
             caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
-        return {"version": "2.0.0", "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
+        return {"version": getattr(self, "version", "2.0.0"), "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
                 "caps": caps, "gateware": 55}
 
     def ping(self) -> Any:
