@@ -130,7 +130,9 @@ def rev3(pod: BenchPod, bench: Bench) -> bool:
     """
     status = pod.status()
     detected = str(status.get("board_rev", ""))
-    if bench.board_rev and detected != bench.board_rev:
+    # "v3" accepts any v3 board revision ("v3r2"); "v3r2" asks for exactly that one.
+    want = bench.board_rev
+    if want and not (detected == want or (len(want) == 2 and detected.startswith(want + "r"))):
         pytest.fail(f"the pod reports board_rev={detected!r} (strap {status.get('board_rev_mv')} mV), "
                     f"the bench expects {bench.board_rev!r} (BENCHPOD_E2E_BOARD_REV)")
     return bool(status.get("nrst_pin"))
