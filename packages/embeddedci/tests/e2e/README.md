@@ -94,8 +94,8 @@ back-power it through its I/O pins while its rail is off. Run with:
 ```bash
 BENCHPOD_E2E_FREE_LA=none BENCHPOD_E2E_TOP_LA=none \
 BENCHPOD_E2E_FREE_PULL_LA=none BENCHPOD_E2E_FREE_PULLDOWN_LA=none \
-BENCHPOD_E2E_UART_SENSOR_TX=8 BENCHPOD_E2E_BOARD_REV=v3 \
-    python -m pytest -v -rs packages/embeddedci/tests/e2e --benchpod-connection=<pod host>
+BENCHPOD_E2E_UART_SENSOR_TX=8 \
+    make e2e POD=<pod host> REV=v3
 ```
 
 `BENCHPOD_E2E_UART_SENSOR_TX=8` lets the GPS test transmit into the DUT's USART3 RX (PC11, an input
@@ -106,12 +106,12 @@ channels, every GPIO/ownership/trigger test in `test_e2e_gpio.py`, the 1.8 V pul
 in `test_e2e_rev3.py`, the LA13/LA14 drive tests in `test_e2e_la13_14.py`, and the UART-session and
 LA13/LA14 tests of the cloud tier. Everything else runs: captures (which only observe all 14
 channels), the analog tiers, sensor emulation on the I2C pins, the pull-resistor directions, the
-14-channel pin table, the GPS on LA8, the reset pin and the DUT tier.
+14-channel pin table, the GPS on LA8 and the reset pin. The DUT tier needs `FIRMWARE=`: it flashes
+that app onto the NUCLEO, so reflash the process-node firmware afterwards.
 
-`make e2e` also runs the MCP server's e2e file (`packages/embeddedci-mcp/tests/test_e2e_mcp.py`),
-which does not read these variables yet: its `test_top_la_channels` drives LA13/LA14 and its GPS
-test transmits on LA9. That is why the command above runs this directory with pytest instead of
-`make e2e`.
+The MCP server's e2e file (`packages/embeddedci-mcp/tests/test_e2e_mcp.py`), which `make e2e` also
+runs, reads the same profile from `e2e_bench.py`: there `test_top_la_channels` skips and
+`test_gps_sensor` transmits on LA8. The OpenHTF e2e file drives only the DUT console.
 
 ## Not covered here
 

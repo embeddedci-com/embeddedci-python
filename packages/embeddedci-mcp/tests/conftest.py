@@ -22,6 +22,12 @@ from embeddedci_mcp.server import mcp
 from embeddedci_mcp.session import SESSION
 
 
+def pytest_configure(config):
+    # test_e2e_mcp.py loads the SDK e2e suite's e2e_bench.py, which defines the bench_needs marks
+    # that suite uses; registered here too so loading it does not warn.
+    config.addinivalue_line("markers", "bench_needs(*names): SDK e2e bench resources (e2e_bench.py)")
+
+
 class FakeRawLink:
     """A bounded byte stream: yields ``data`` once, then EOF (``b""``)."""
 
