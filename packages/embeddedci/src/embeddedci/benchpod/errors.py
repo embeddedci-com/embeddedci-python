@@ -175,6 +175,18 @@ class PullConflictError(FirmwareError):
         self.la = la
 
 
+class DirectionConflictError(FirmwareError):
+    """The pod refused to drive a pin that :meth:`BenchPod.la_dir
+    <embeddedci.benchpod.BenchPod.la_dir>` marks as wired to a DUT output (a push-pull GPIO output,
+    UART TX, SPI SCK / MOSI / CS, SWD, ...), because two push-pull outputs would drive against each
+    other. ``la`` is the channel. Use an ``open_drain`` GPIO, or fix the wiring if the pin is not a
+    DUT output. There is no override."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0) -> None:
+        super().__init__(message, cmd=cmd)
+        self.la = la
+
+
 class TriggerTimeout(FirmwareError):
     """A triggered capture's condition (``edge`` on LA ``la``) never happened within its timeout."""
 
@@ -236,6 +248,9 @@ class PermissionDeniedError(FirmwareError, TransportError):
 
 _PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by ([\w:]+)")
 _PULL_CONFLICT = re.compile(r"pull conflict: LA(\d+)")
+_DIRECTION_CONFLICT = re.compile(r"direction conflict: LA(\d+)")
+#: "the I2C master needs gateware v55+", "SPI modes 1 and 2 need gateware v55+".
+_NEEDS_GATEWARE = re.compile(r"needs? gateware v\d+")
 _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
 #: "busy: a cloud job holds this pod (<holder>, <n> s left)" (command_handler.c dispatch_line).
 _LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
@@ -280,6 +295,16 @@ _SDK_FIXES = (
      "close the SPI session from bp.open_spi() first (spi.close(), or leave its with block)"),
     (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
      "(close the SPI session from bp.open_spi() first)"),
+    (re.compile(r'stop the I2C session first \(\{"cmd":"i2c_stop"\}\)'),
+     "close the I2C session from bp.open_i2c() first (i2c.close(), or leave its with block)"),
+    (re.compile(r"i2c busy: send i2c_stop first"),
+     "i2c busy: close the I2C session from bp.open_i2c() first"),
+    (re.compile(r"send i2c_start first"), "open one with bp.open_i2c() first"),
+    (re.compile(r"i2c_start again"), "open it again with bp.open_i2c()"),
+    (re.compile(r'switch on LA(\d+)\'s with \{"cmd":"la","la":\d+,"pullup":"on"\}'),
+     r"switch on LA\1's with bp.enable_pullup(\1)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"on"\}'), r"bp.enable_pullup(\1)"),
+    (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
     (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"bp.set_pull(\1, False)"),
     (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'bp.gpio(\1, "output")'),
     (re.compile(r'\{"cmd":"fpga_image","image":([012])\}'), r"bp.fpga_image(\1)"),
@@ -312,6 +337,11 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
     m = _PULL_CONFLICT.search(msg)
     if m:
         return PullConflictError(msg, cmd=exc.cmd, la=int(m.group(1)))
+    m = _DIRECTION_CONFLICT.search(msg)
+    if m:
+        return DirectionConflictError(msg, cmd=exc.cmd, la=int(m.group(1)))
+    if _NEEDS_GATEWARE.search(msg):
+        return UnsupportedFeatureError(msg, cmd=exc.cmd, feature=exc.cmd or "")
     m = _TRIGGER_TIMEOUT.search(msg)
     if m:
         return TriggerTimeout(msg, cmd=exc.cmd, la=int(m.group(2)), edge=m.group(1))

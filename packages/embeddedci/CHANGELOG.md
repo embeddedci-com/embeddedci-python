@@ -1,5 +1,24 @@
 # Changelog — `embeddedci`
 
+## 2.13.13
+
+- The pod as a bus master (gateware v55+). `bp.open_i2c(sda, scl, *, hz=100_000, pullups="pod")`
+  returns an `I2CMaster`: `write()`, `read()`, `write_read()`, `read_reg()`, `write_reg()`,
+  `probe()`, `scan()`, `xfer()` (an `I2CResult`) and `close()`, also as a context manager. A NACK
+  raises `I2CNackError` with `addr` and `nack_at`. Pins take wiring names.
+- `open_spi()` takes modes 1 and 2 on gateware v55+; older gateware raises
+  `UnsupportedFeatureError` before anything is sent.
+- Send and capture: `capture_la(..., send=I2CSend(...) | SpiSend(...) | GpioSend(...))` runs one
+  transaction right after the capture arms, in the same command (over the cloud too). The result
+  is `LaCapture.send_result` (a `SendResult`). With an edge trigger and no `pre_samples`, a send
+  keeps 64 samples from before the trigger, so the decoder sees the first START.
+- Pin directions: `bp.la_dir(la, dir)`, `bp.pin_directions()` (from the wiring profile) and
+  `bp.apply_pin_directions()`. A push-pull driver on a DUT output raises
+  `DirectionConflictError`. `LaPinState` has `dir`, `warn` and `warnings`.
+- `Capabilities.gateware` (the running gateware version) and `Capabilities.bus_master`.
+- Pod refusals about the I2C master and pull-ups name the SDK call (`bp.open_i2c()`,
+  `bp.enable_pullup(1)`); "needs gateware vNN" refusals raise `UnsupportedFeatureError`.
+
 ## 2.13.12
 
 - `Sensor.capture()` / `i2c_transactions()` (and `SensorEmulation.capture()`) wait for the DUT's

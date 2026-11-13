@@ -21,6 +21,7 @@ from typing import Any, List, Optional
 
 from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .errors import BenchPodError
+from .i2c_master import SendResult
 from .results import Capture, CorrelatedCapture, LaCapture, Trigger
 
 _log = logging.getLogger(__name__)
@@ -217,8 +218,11 @@ def capture_adc_oversampled(transport: Any, caps: Capabilities, *, samples: int 
 
 def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[float] = None,
                stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
-               trigger_timeout: float = 10.0) -> LaCapture:
+               trigger_timeout: float = 10.0, send: Optional[dict] = None) -> LaCapture:
     """Capture ``samples`` raw 14-channel LA words and return a :class:`LaCapture`.
+
+    ``send`` is a resolved ``send`` request (``{"bus":"i2c",...}``): the pod runs it right after
+    the capture arms, and its result lands on :attr:`LaCapture.send_result`.
 
     ``stop_dac_after`` (seconds) auto-stops a concurrently-running DAC that far into the capture —
     the iCE40 cuts the DAC at exactly that offset from the capture's hardware t0 (sample-precise),
@@ -233,13 +237,18 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
     _apply_trigger(req, trigger, trigger_timeout)
+    if send is not None:
+        req["send"] = dict(send)
     dense: List[int] = []
     edges: List[List[int]] = []
     upto = 0
     rate = 0.0
     pre = 0
     truncated = ""
+    sent: Optional[SendResult] = None
     for chunk in _stream_or_samples(transport, req):
+        if isinstance(chunk.get("send"), dict):
+            sent = SendResult.from_reply(chunk["send"])
         if chunk.get("la_rate_hz"):
             rate = float(chunk["la_rate_hz"])
         if chunk.get("pre_samples"):
@@ -261,7 +270,7 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     if truncated:
         _log.warning("capture_la stopped early (%s): %d of %d samples", truncated, len(words), samples)
     return LaCapture(words=words, sample_rate_hz=_rate_hz(rate, sample_rate_hz), trigger=trigger,
-                     pre_samples=pre, truncated=truncated)
+                     pre_samples=pre, truncated=truncated, send_result=sent)
 
 
 def _expand_la_edges(edges: List[List[int]], upto: int) -> List[int]:

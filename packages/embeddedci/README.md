@@ -689,7 +689,8 @@ print(res.artifact["name"], res.artifact.get("sha"))         # which file was fl
 ## SPI flash and SPI devices
 
 Pods with gateware v45+ (`bp.capabilities.spi_master`) run an SPI master on any four LA pins, up
-to 6 MHz, modes 0 and 3. Wire a 25-series SPI NOR flash (W25Q, MX25, GD25, ...) with its SCK, DI,
+to 6 MHz, modes 0 and 3. Gateware v55+ also runs modes 1 and 2 (`open_spi(mode=1)`); on older
+gateware they raise `UnsupportedFeatureError` before anything is sent. Wire a 25-series SPI NOR flash (W25Q, MX25, GD25, ...) with its SCK, DI,
 DO and CS on LA channels (power it at the LA voltage, tie /WP and /HOLD high) and program it:
 
 ```python
@@ -717,6 +718,44 @@ is open. Expect about 30 KB/s written (verified) over the LAN, less over the clo
 into the pod's PSRAM first, then clocked out 512 bytes at a time (an FPGA bitstream into a
 slave-SPI configuration port). It needs a LAN or cloud connection and firmware with the
 `spi_stream` command (`bp.capabilities.spi_stream`).
+
+## I2C master
+
+Pods with gateware v55+ (`bp.capabilities.gateware`, `bp.capabilities.bus_master`) are an I2C master
+on any two LA pins, 10 kHz to 1 MHz: read and write registers of a chip on the DUT's board, or scan
+the bus. The pins are open drain, so the bus needs pull-ups: the pod's own on LA1-LA6 (switch them
+on first; they pull to 3.3 V, so the LA voltage must be 3.3 V), or the board's with
+`pullups="external"`.
+
+```python
+from embeddedci.benchpod import I2CNackError
+
+bp.enable_pullup(1, 2)                             # SDA, SCL on LA1, LA2
+with bp.open_i2c(hz=400_000) as i2c:               # pins from the wiring profile's i2c_sda, i2c_scl
+    print([hex(a) for a in i2c.scan()])            # [0x76]
+    chip_id = i2c.read_reg(0x76, 0xD0)[0]          # write 0xD0, repeated START, read 1 byte
+    i2c.write_reg(0x76, 0xF4, b"\x27")
+    raw = i2c.write_read(0x76, b"\xf7", 6)
+    assert i2c.probe(0x76)
+    try:
+        i2c.read(0x50, 2)
+    except I2CNackError as exc:                    # exc.addr, exc.nack_at (0 = the address)
+        print(exc)
+    r = i2c.xfer(0x50, b"\x00", read=2)            # the I2CResult, without raising
+    print(r.ack, r.nack_at, r.data)
+```
+
+`open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` takes channels or wiring names. A
+transfer writes up to 128 bytes and reads up to 248; `read_reg` and `write_reg` take a register
+as an int (one byte) or as bytes (a wider address). `scan(start=0x08, end=0x77)` lists the
+addresses that answer. The session's `hz` is the rate the pod runs; a real bus runs somewhat
+slower, because the master waits for SCL to read high (which lets a target stretch the clock), so
+the SCL rise time adds to each period: with the pod's pull-ups on a short cable, 400 kHz measured
+about 333 kHz and 1 MHz about 774 kHz. Stronger pull-ups bring it closer. `i2c.status()` is the
+pod's view of the session.
+
+SWD, SPI and I2C sessions share one engine in the pod, so they exclude each other. Every command
+fits one cloud frame: this works over the LAN, USB and the cloud alike.
 
 ## Motor & battery emulator
 
@@ -866,6 +905,35 @@ and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()`
 Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
 disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),
 and the LA voltage can't change while any channel is in use.
+
+**Pin directions.** `bp.la_dir(la, dir)` tells the pod which way a pin's DUT signal goes:
+`dut_input`, `dut_output`, `bidir` or `unknown` (the default after a reboot). On a `dut_output` pin
+the pod refuses every push-pull driver (a GPIO `output`, UART TX, SPI SCK / MOSI / CS, SWD, ...)
+with `DirectionConflictError` (`.la`), because two push-pull outputs would drive against each
+other; open drain and inputs still work, and there is no override. A pin that is driven can't be
+marked `dut_output` until it is released.
+
+```python
+from embeddedci.benchpod import DirectionConflictError
+
+bp.la_dir([9, 10], "dut_output")
+try:
+    bp.gpio(9, "output")
+except DirectionConflictError:                # use "open_drain", or fix the wiring
+    bp.gpio(9, "open_drain")
+
+bp.apply_pin_directions()                     # the wiring profile's directions, in one go
+print(bp.pin_directions())                    # {5: 'dut_output', 4: 'dut_input', 1: 'bidir', ...}
+print(bp.la_dir())                            # every pin's LaPinState, dir included
+```
+
+`pin_directions()` reads them from the wiring profile: `uart_rx` and `spi_miso` are DUT outputs,
+`uart_tx`, `spi_sclk`, `spi_mosi` and `spi_cs` DUT inputs, the I2C pins `bidir`; a signal with
+direction `input` (the pod watches it) is a DUT output, `output` a DUT input, `open_drain` and
+`bidir` are `bidir`. The pod forgets the directions on a reboot, so send them after connecting.
+`LaPinState.dir` is a pin's direction (`None` when unknown), and `LaPinState.warn` holds warning
+bits that `LaPinState.warnings` spells out: a pull-up under a push-pull output, and a pin driven high
+or pulled up while the target power is off (it powers an unpowered DUT through its I/O pins).
 
 **Bias resistors must suit the function** — the pod refuses the combination with `PullConflictError`,
 whichever you set first:
@@ -1379,6 +1447,39 @@ Above 12 MS/s (gateware v50+) the pod records only the changes, at up to about 6
 for all channels together. A signal that changes faster for long ends such a capture early: it then
 holds the samples up to that point and `truncated` says why (`"busy"` or `"memory"`).
 
+### Send and capture
+
+`capture_la(..., send=...)` (gateware v55+) runs one transaction right after the capture arms, in the
+same command, so a trigger on the bus line catches it. It works over the cloud too, which runs one
+command at a time. Trigger on the line the transaction starts with: SDA falling (I2C START), CS
+falling (SPI), or the GPIO pin's edge.
+
+```python
+from embeddedci.benchpod import GpioSend, I2CSend, SpiSend, Trigger
+
+bp.enable_pullup(1, 2)
+with bp.open_i2c(hz=400_000) as i2c:
+    cap = bp.capture_la(8192, sample_rate_hz=12_000_000, trigger=Trigger("i2c_sda", "falling"),
+                        send=i2c.send(0x76, b"\xd0", read=1))    # the same as I2CSend(0x76, b"\xd0", 1)
+print(cap.send_result)                      # SendResult(bus='i2c', ack=True, data=b'X', ...)
+print(bp.decode(cap, "i2c", sda=1, scl=2))  # the transfer as the bus saw it
+
+with bp.open_spi(mode=1) as spi:
+    cap = bp.capture_la(4096, trigger=Trigger("spi_cs", "falling"), send=SpiSend(b"\x9f\x00"))
+
+bp.gpio(6, "output", level=1)
+cap = bp.capture_la(1024, trigger=Trigger(6, "falling"), send=GpioSend(6, 0))
+```
+
+`I2CSend(addr, write=None, read=0)` needs an open `open_i2c` session and writes and reads up to 32
+bytes; `SpiSend(tx)` needs an open `open_spi` session and sends 1-32 bytes in one CS frame;
+`GpioSend(la, level)` sets a pin that is already a GPIO `output` or `open_drain`. The capture's
+`send_result` is a `SendResult`: `bus`, `ack` and `nack_at` (I2C), `data` (the bytes read, or clocked
+in on MISO), `la` and `level` (GPIO), `error` (`""`, or why the transfer failed, for example
+`"SCL held low"`; the capture still returns) and `ok`. A send that does not validate (no session)
+raises before anything is armed. With an edge trigger and no `pre_samples`, a send keeps 64 samples
+from before the trigger, so the decoder sees the first START.
+
 ## DAC: generator, replay and faults
 
 Every DAC output keeps running until stopped. The returned `DacHandle` / `ReplayHandle` is a
@@ -1804,6 +1905,8 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
 | `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |
+| `DirectionConflictError` | a push-pull driver on a pin `la_dir` marks as a DUT output (a `FirmwareError`) | `la` |
+| `I2CNackError` | an I2C device did not acknowledge (`I2CMaster.write`, `read`, `write_read`, `read_reg`, `write_reg`) | `addr`, `nack_at` |
 | `PullConflictError` | an engaged bias resistor can't work with the channel's function (a `FirmwareError`) | `la` |
 | `TriggerTimeout` | a triggered capture's condition never happened (a `FirmwareError`) | `la`, `edge` |
 | `CanTimeout` | `CanBus.expect` timed out | `frames` |
@@ -1838,12 +1941,13 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
+| I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
-| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
+| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | Emulated sensors | `sensors` (a `SensorEmulation`: `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)`, `define()`, `validate()`, `set()`, `fault()`, `clear_fault()`, `load_stimulus()`, `start_stimulus()`, `stop_stimulus()`, `stop()`, `status()`, `regs()`, `capture()`, `i2c_transactions()`, `library()`); see [Emulated sensors](#emulated-sensors) |
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
-| Captures | `capture_adc(...)`, `capture_la(...)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
+| Captures | `capture_adc(...)`, `capture_la(..., send=None)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
 | DAC | `generate(...)`, `replay(...)`, `replay_waveform(...)`, `dac_stop()`, `control_loop(...)`, `loop_input(...)`, `loop_probe()` |
 | CAN | `open_can(*, bitrate=500000, mode="normal", term=False, fd=False, data_bitrate=None)`, `can_config(...)`, `can_disable()`, `can_status()`, `can_term(on)`, `can_write(...)`, `can_read(...)`, `can_respond(...)`, `can_respond_clear()` |
 | Cloud library and server | `waveforms`, `save_capture_as_recording(...)`, `server_api` (the `ServerApi`; needs an API key or a cloud session) |
@@ -1868,10 +1972,14 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
-| `LaPinState` | `la_pins`, `configure_gpio` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `in_use` |
+| `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `dir`, `warn`, `warnings`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
 | `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled`, `artifact` (the uploaded build, for `flash(build=...)`) |
 | `SpiSession` (class) | `open_spi` | `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
+| `I2CMaster` (class) | `open_i2c` (a context manager) | `sda`, `scl`, `hz`, `pullups`, `xfer(addr, write=None, read=0)`, `write(addr, data)`, `read(addr, n)`, `write_read(addr, data, n)`, `read_reg(addr, reg, n=1)`, `write_reg(addr, reg, data)`, `probe(addr)`, `scan(start=0x08, end=0x77)`, `send(addr, write=None, read=0)` (an `I2CSend`), `status()`, `close()` |
+| `I2CResult` | `I2CMaster.xfer` | `addr`, `ack`, `data`, `nack_at`, `check()` (raises `I2CNackError` on a NACK) |
+| `I2CSend`, `SpiSend`, `GpioSend` | `capture_la(send=)` | `addr`, `write`, `read`; `tx`; `la`, `level`; `to_request()` |
+| `SendResult` | `LaCapture.send_result` | `bus`, `ack`, `data`, `nack_at`, `la`, `level`, `error`, `ok` |
 | `SpiFlashInfo` | `SpiSession.flash_id` | `jedec_id`, `present`, `size`, `status` |
 | `SpiFlashResult` | `spi_flash`, `SpiSession.flash_program` | `jedec_id`, `addr`, `length`, `erased`, `verified`, `seconds` |
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
@@ -1896,7 +2004,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `Calibration` | `calibrate`, `calibration`, `clear_calibration`, `calibrate_dac`, `calibrate_adc_gain` | `source`, `calibrated`, `offset`, `a`, `b`, `count`, `span`, `samples`, `dac`, `adc_gain_ppm`, `adc_low_gain_ppm`, `dmm`, `measured`, `zero_count` |
 | `DacLine` | `Calibration.dac` | `a`, `b`, `offset`, `gain_ppm` |
 | `Capture` | `capture_adc` | `counts`, `volts`, `currents`, `sample_rate_hz`, `source`, `trigger`, `range`, `overrange`, `clipped_samples`, `duration`, `times()`, `mean()`, `min()`, `max()`, `rms()`, `rms_ac()`, `peak_to_peak()`, `first_crossing()`, `crossing_times()`, `fft()`, `dominant_frequency()` |
-| `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |
+| `LaCapture` | `capture_la` | `words`, `channels`, `sample_rate_hz`, `trigger`, `send_result`, `duration`, `channel(la)`, `level_at()`, `edges()`, `edge_times()`, `first_edge()`, `delay()`, `frequency()`, `duty_cycle()`, `pulse_widths()`, `decode()` |
 | `CorrelatedCapture` | `capture_correlated` | `adc` (a `Capture`), `la` (a `LaCapture`), sharing one hardware trigger |
 | `Trigger` | `capture_adc`, `capture_la`, `capture_correlated` | `la`, `edge` |
 | `DacHandle` (class) | `generate` (a context manager) | `stop()` |

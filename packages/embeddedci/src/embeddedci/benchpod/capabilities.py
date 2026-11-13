@@ -83,6 +83,9 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
 
 #: Boolean capabilities the firmware's ``status`` reports as top-level ``true`` fields (and the
 #: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
+#: The first gateware with the I2C master, SPI modes 1 and 2 and send-and-capture.
+BUS_MASTER_GATEWARE = 55
+
 _STATUS_FLAGS = ("ota_sig", "sig_policy_cmd", "lan_policy_cmd", "tunnel_max_tier", "lease_state",
                  "cloud_ca", "cloud_proxy", "blob_slots", "can_fd")
 
@@ -181,6 +184,8 @@ class Capabilities:
     #: ``spi_stream``: send an upload staged in PSRAM through the SPI master in one CS frame
     #: (an FPGA bitstream): :meth:`SpiSession.stream <embeddedci.benchpod.spi.SpiSession.stream>`.
     spi_stream: bool = False
+    #: The running gateware version (``status`` ``gateware``); 0 when not reported.
+    gateware: int = 0
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
     calibrate: bool = False
     #: ``calibrate`` also takes the DMM-guided forms (firmware 3.9.4+): this pod's own DAC line
@@ -297,6 +302,8 @@ class Capabilities:
             c.analog = v
         if (v := _as_int(status, "flash_kb")) is not None and v > 0:
             c.flash_kb = v
+        if (v := _as_int(status, "gateware")) is not None and v > 0:
+            c.gateware = v
         if (v := _as_int(status, "sensors_format")) is not None and v > 0:
             c.sensors_format = v
         if status.get("sensors_digital") is True:
@@ -431,6 +438,8 @@ class Capabilities:
         c.analog = _as_bool(params, "cap.analog")
         if (v := _as_int(params, "cap.flash_kb")) is not None and v > 0:
             c.flash_kb = v
+        if (v := _as_int(params, "cap.gateware")) is not None and v > 0:
+            c.gateware = v
         if (v := _as_int(params, "cap.sensors_format")) is not None and v > 0:
             c.sensors_format = v
         if (v := _as_int(params, "cap.sig_keys")) is not None and v > 0:
@@ -489,6 +498,11 @@ class Capabilities:
         return None
 
     # -- scaling ------------------------------------------------------------
+
+    @property
+    def bus_master(self) -> bool:
+        """The I2C master, SPI modes 1 and 2 and send-and-capture (gateware v55+)."""
+        return self.gateware >= BUS_MASTER_GATEWARE
 
     @property
     def adc_max_count(self) -> int:
