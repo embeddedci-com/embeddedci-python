@@ -237,29 +237,34 @@ description, ranges and enums, so an agent sees more than this table.
 | `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout=2` |
 | `uart_close` | Stop the background UART session. | none |
 
-### Emulated I2C sensor
+### Emulated sensors
+
+The pod plays I2C, SPI, UART and analog sensors from a **definition** (YAML or JSON, the format of
+the public [sensor library](https://github.com/embeddedci-com/benchpod-sensors)): a library entry
+such as `bme280`, `sht4x`, `mpu6050` or `gps_nmea`, or one the agent writes from a datasheet. Up to
+4 I2C sensors, 1 SPI and 1 UART sensor run at once, each a named instance. Needs pod firmware with
+the `sensors` capability; older firmware fails with "this pod's firmware is too old for sensor
+emulation; update the firmware". The library tools need no pod. The server uses the library
+version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI's
+`sensor_library` setting or a `version` argument says otherwise.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `enable_i2c_sensor` | Make the pod act as an I2C sensor for the DUT to read (engage pull-ups first): `sensor` is `bmp280`, `bme280`, `sht4x` or `mpu6050`. | `sda`, `scl`, `address`, `temperature_c`, `pressure_pa`, `sensor="bmp280"`, `values` (readings by key, e.g. `{"humidity_pct": 55}`) |
-| `set_i2c_sensor` | Change what the emulated sensor reports; the reply lists every reading. | `temperature_c`, `pressure_pa`, `values` |
-| `i2c_sensor_types` | The models the pod emulates, with their addresses and readings (key, unit, range, default). | none |
-| `disable_i2c_sensor` | Disarm the emulated sensor. | none |
-| `i2c_sensor_status` | Sensor state and bus activity counters: did the DUT talk to it? | none |
-| `i2c_sensor_regs` | Read the emulated sensor's register image. | `start=0`, `length=256` |
-| `i2c_sensor_capture` | Capture and decode the sensor's I2C bus into a transaction trace. | `samples=4096`, `sample_rate_hz=500000`, `address`, `register` |
-
-### Emulated GPS receiver
-
-NMEA sentences (u-blox style: RMC VTG GGA GSA GSV GLL) on one LA channel for the DUT's UART, from
-the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gps` capability).
-
-| Tool | Purpose | Parameters |
-| --- | --- | --- |
-| `enable_gps` | Start the receiver on `tx`, the channel wired to the DUT's RX. The position moves along `course_deg` at `speed_kmh` between fixes. | `tx`, `baud=9600`, `rate_hz=1`, `sentences`, `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`, `hdop`, `fix`, `utc` (default now) |
-| `set_gps` | Change the fix (any subset); `fix=0` drops the lock. | `latitude_deg`, `longitude_deg`, `altitude_m`, `speed_kmh`, `course_deg`, `satellites`, `hdop`, `fix`, `utc` |
-| `disable_gps` | Stop the receiver and release its pin. | none |
-| `gps_status` | The session (tx, baud, rate, epochs, overruns) and the fix it prints. | none |
+| `sensor_library` | The library's sensors and stimuli (name, kind, label) and the version in use; `version` switches it for the other sensor tools. | `version` (`latest`, `0.2.0`, `default`) |
+| `sensor_show` | One library entry: its YAML (a starting point for your own part) and the params `sensor_set` takes. | **`name`**, `version` |
+| `sensor_format` | The definition and stimulus format reference (Markdown), to write a definition from a datasheet. | `version` |
+| `sensor_validate` | Check a definition: the header here, then a dry-run compile on the pod (header only when no pod is connected). | **`definition`** (a library name, YAML/JSON text, a JSON object or a path) |
+| `sensor_start` | Upload a definition and start it on `pins` (set the LA voltage and, for I2C, the pull-ups first); returns the params and whether the emulation FPGA image was loaded. | **`definition`**, `instance` (1 to 16 characters; default: its name), `pins` (`sda`/`scl`/`drdy`, `sclk`/`mosi`/`miso`/`cs` (no data-ready pin on SPI), `tx`/`rx`, `output`; channels or wiring names, I2C and SPI default to the profile), `address`, `baud`, `values` |
+| `sensor_set` | Change what a running sensor reports; out-of-range values are refused with the range. | **`instance`**, **`values`** |
+| `sensor_stimulus_load` | Upload values over time (and timed faults) for the running sensors. | **`stimulus`** (YAML/JSON text, a JSON object or a path) |
+| `sensor_stimulus_start` | Play the loaded stimulus. | `at_s` |
+| `sensor_stimulus_stop` | Stop it; values stay where it left them. | none |
+| `sensor_fault` | Make a sensor misbehave now: `stuck`, `offset`, `gain`, `no_response`, `corrupt`, `bus_stuck`, `garbage`, `drop`, `baud_error`, `open`, `short`. | **`instance`**, **`type`**, `duration_s` (default: until cleared), `param`, `value`, `at`, `mask`, `rate_hz` |
+| `sensor_fault_clear` | End a sensor's faults. | **`instance`** |
+| `sensor_stop` | Stop one sensor, or all; the pod releases the pins and forgets the definition; returns the names it stopped. The emulation image stays loaded. | `instance` (default: all) |
+| `sensor_status` | Running sensors (slot, pins, values, faults with `left_s`, bus counters such as `writes`; `transfers` is always null), the stimulus and the FPGA image, every page in one reply. | none |
+| `sensor_regs` | The bytes an I2C/SPI sensor answers now. | **`instance`**, `start=0` (0..255), `length` (default: to the end of the 256-byte image) |
+| `sensor_capture` | Capture an I2C sensor's bus and decode it into a transaction trace (I2C only; `capture_la` for SPI and UART sensors). | **`instance`**, `samples=4096` (1..4096 packed bytes), `address`, `register` |
 
 ### Pull resistors
 
@@ -324,7 +329,7 @@ the pod's second UART, so `uart_open` keeps the console. Needs gateware v48 (`gp
 | `control_loop` | Run a tabulated transfer function in the FPGA (for example a solar panel I-V curve). | `curve`, `voc_code`, `sharpness=4`, `points=256`, `k=8192`, `vmin=0`, `vmax=65535`, `tick_div=64`, `source`, `input_code=0`, `step=0`, `input_map`, `switch_image=true` |
 | `loop_input` | Re-target the running loop's input without re-arming. | `input_code`, `source`, `step` |
 | `loop_probe` | The running loop's live operating point. | none |
-| `fpga_image` | Switch the FPGA to the `loop` or `deep_replay` gateware image (~2-3 s). | **`image`** |
+| `fpga_image` | Switch the FPGA to the `loop`, `deep_replay` or `emulation` gateware image (~2-3 s); refused while I2C, SPI or UART sensors run on the emulation image. | **`image`** |
 
 ### CAN
 
@@ -413,11 +418,11 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   Refusals whose fix the firmware spells as a raw protocol command name the tool instead:
   `FirmwareError: uart_proxy_start: la voltage not set; call set_la_voltage first with the DUT's
   I/O voltage (1.8 or 3.3)` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
-  by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close`,
-  `disable_i2c_sensor` and `disable_gps`; a pull conflict to `set_pull(las=[7], enabled=false)`.
+  by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
+  `sensor_stop`; a pull conflict to `set_pull(las=[7], enabled=false)`.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
-  `nrst_pin`, `can`, `calibrate`, `cal_dmm`, `current_out`, `pod_current` and `analog` (false on the
+  `nrst_pin`, `can`, `calibrate`, `cal_dmm`, `current_out`, `pod_current`, `sensors` and `analog` (false on the
   digital-only board), plus the pod's policy and cloud settings (`dac_limits`, `flash_kb`,
   `ota_sig`, `sig_policy`, `lan_policy`, `tunnel_max_tier`, `lease_state`, `cloud_ca`,
   `cloud_proxy`).
@@ -446,7 +451,7 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   t = 0 is the trigger — and the summary echoes it as `trigger: "LA9 rising"`. A condition that
   never happens fails with `TriggerTimeout: …`.
 - **Pins and GPIO.** Each LA channel has one owner at a time: none, GPIO, a UART proxy, SWD, the
-  emulated sensor or a step train. `la_pins` shows the table, `gpio_mode` / `gpio_write` /
+  an emulated sensor (owner `sensor:<instance>`) or a step train. `la_pins` shows the table, `gpio_mode` / `gpio_write` /
   `gpio_read` / `gpio_wait` / `gpio_pulse` drive and watch channels, `gpio_release` frees them. A
   second claim fails with `PinConflictError: pin conflict: LA5 is in use by uart_rx; …` naming the
   owner and how to free it — so the agent releases GPIO before opening a UART session on that
@@ -464,8 +469,10 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   `deep_replay` image (replays longer than 2048 samples). `control_loop`, `replay` and
   `replay_waveform` switch automatically (~3 s) and report it as `switched_image`;
   `switch_image: false` fails instead. A switch resets the FPGA — a running DAC output, UART session
-  or I2C sensor emulation stops — and the server instructions tell the agent to start those after it.
-  `fpga_image` switches explicitly.
+  or sensor emulation stops — and the server instructions tell the agent to start those after it.
+  `fpga_image` switches explicitly. I2C, SPI and UART sensors run on a third, emulation image that
+  `sensor_start` loads by itself; the pod never switches back, so `control_loop` and the deep
+  replays switch back once no such sensor runs (and name `sensor_stop` while one does).
 - **Non-blocking.** Tools run on worker threads under one device lock: a 5-minute flash doesn't
   freeze the server, sends progress notifications, and concurrent calls can't interleave commands.
 - **Annotations.** Read-only tools (`status`, `power_status`, `adc_read`, …) are marked so clients

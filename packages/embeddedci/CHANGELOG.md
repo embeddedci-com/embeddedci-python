@@ -1,5 +1,38 @@
 # Changelog — `embeddedci`
 
+## 2.13.10
+
+- User-defined sensors (pod firmware with the `sensors` capability) replace the built-in sensor
+  models and the GPS receiver. `bp.sensors` (`SensorEmulation`) sends the pod a sensor definition
+  (YAML or JSON, the format of github.com/embeddedci-com/benchpod-sensors) and plays it: I2C, SPI,
+  UART and analog sensors, several at once, each a named instance. `start()` returns a `Sensor`
+  handle with `set()`, `fault()`, `clear_fault()`, `status()`, `regs()`, `capture()`,
+  `i2c_transactions()` and `stop()`; `define()`, `validate()` (a dry-run compile on the pod),
+  `load_stimulus()`, `start_stimulus()`, `stop_stimulus()` and `status()` complete it. Definitions
+  come from a library name, a file, a dict or YAML/JSON text, read with the YAML 1.2 rules
+  (`load_definition`, `load_stimulus`, `DefinitionError`; PyYAML with the new `yaml` extra, else a
+  built-in reader). Uploads are chunked so each command fits a cloud command (768 raw bytes at
+  most). Instance names are 1 to 16 characters; `status()` reads every page the pod sends;
+  `regs()` reads one base64 reply (`start` 0..255); `capture()` is for I2C sensors only; `stop()`
+  returns the names the pod stopped. `control_loop()` and the deep replays switch back from the
+  emulation image (`FpgaImage.EMULATION`) once no I2C, SPI or UART sensor runs, and raise naming
+  `bp.sensors.stop()` while one does.
+- The sensor library: `sensor_library()` and `SENSOR_LIBRARY_VERSION` (`0.1.0`, bundled in the
+  package). `latest` or another release via an argument, `BENCHPOD_SENSOR_LIBRARY` or
+  `sensor_library` in benchpod-cli's config; downloads are cached per version
+  (`BENCHPOD_SENSOR_CACHE`), with the cache and then the bundled copy used offline.
+- pytest: the `benchpod_sensors` fixture (stops every sensor and the stimulus at teardown) and
+  `--benchpod-sensor-library`.
+- `Capabilities.sensors`, `Capabilities.sensors_format` and `Capabilities.sensors_digital` (the
+  emulation image is installed or running).
+- Removed, with no compatibility layer: `enable_i2c_sensor`, `set_i2c_sensor`,
+  `i2c_sensor_types`, `disable_i2c_sensor`, `i2c_sensor_status`, `i2c_sensor_regs`,
+  `i2c_sensor_capture`, `enable_gps`, `set_gps`, `disable_gps`, `gps_status`, the `Sensor` enum
+  (the name is now the handle class), `Capabilities.sensor_types` and `Capabilities.gps`, and the
+  `benchpod_sensor` fixture. A pod without the `sensors` capability raises
+  `UnsupportedFeatureError`: "this pod's firmware is too old for sensor emulation; update the
+  firmware".
+
 ## 2.13.9
 
 - `i2c.timed_transactions(words, sda_ch, scl_ch, sample_rate_hz)`: I2C from an LA capture with

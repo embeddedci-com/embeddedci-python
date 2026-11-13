@@ -97,10 +97,11 @@ def test_la_voltage_not_set_names_set_la_voltage(connected):
     ("uart_rx", "stop the uart proxy first", "close the UART session first with uart_close"),
     ("swd_dio", "end the SWD session first", "wait for the running flash (its SWD session) to finish"),
     ("i2c_scl", 'stop the sensor emulation first ({"cmd":"sensor_stop"})',
-     "stop the sensor emulation first with disable_i2c_sensor"),
+     "stop the sensor emulation first with sensor_stop"),
+    ("sensor:env", 'stop the sensor emulation first ({"cmd":"sensor_stop","instance":"env"})',
+     'stop the sensor emulation first (sensor_stop(instance="env"))'),
     ("spi_cs", 'stop the SPI session first ({"cmd":"spi_stop"})',
      'stop the SPI session first: another client holds it (the command tool can send {"cmd":"spi_stop"})'),
-    ("gps_tx", 'stop the GPS receiver first ({"cmd":"gps_stop"})', "stop the GPS emulation first with disable_gps"),
     ("step", "wait for the step train to finish", "wait for the step train to finish"),
     ("can_rx", 'stop it with {"cmd":"can_stop"}', 'stop it with {"cmd":"can_stop"}'),  # unknown: as is
 ])

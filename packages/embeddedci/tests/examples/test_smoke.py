@@ -114,18 +114,19 @@ def test_flash_the_attached_board(benchpod_target, firmware):
     assert result.ok, result.log
 
 
-def test_i2c_sensor_emulation_activates(benchpod):
+def test_sensor_emulation_activates(benchpod):
     """The pod can pretend to be the BMP280 the DUT expects, on the profile's I2C channels."""
     wiring = benchpod.wiring
     if wiring.i2c_sda is None or wiring.i2c_scl is None:
         pytest.skip("this bench's wiring profile has no I2C channels")
+    if not benchpod.supports("sensors"):
+        pytest.skip("the pod's firmware has no sensor emulation")
 
-    benchpod.enable_i2c_sensor(bp.Sensor.BMP280)
+    sensor = benchpod.sensors.start("bmp280")
     try:
-        status = benchpod.i2c_sensor_status()
-        # `active` explicitly — a status dict is truthy even when the emulator is off.
-        assert status.get("active") is True, status
+        # `running` explicitly: a status dict is truthy even when the instance is gone.
+        assert sensor.status().get("running") is True, benchpod.sensors.status()
     finally:
-        benchpod.disable_i2c_sensor()
+        sensor.stop()
 
-    assert benchpod.i2c_sensor_status().get("active") is False
+    assert sensor.status() == {}

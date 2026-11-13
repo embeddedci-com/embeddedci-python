@@ -1,5 +1,23 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.11
+
+- Sensor tools for user-defined sensors (pod firmware with the `sensors` capability) replace the
+  built-in models and the GPS receiver: `sensor_library`, `sensor_show`, `sensor_format`,
+  `sensor_validate`, `sensor_start`, `sensor_set`, `sensor_stimulus_load`,
+  `sensor_stimulus_start`, `sensor_stimulus_stop`, `sensor_fault`, `sensor_fault_clear`,
+  `sensor_stop`, `sensor_status`, `sensor_regs` and `sensor_capture`. `sensor_start` and
+  `sensor_validate` take a library name or a definition as YAML or JSON text, so an agent can
+  write one from a datasheet (`sensor_format` is the reference). The capability flags report
+  `sensors` and `sensors_format` instead of `sensor_types` and `gps`. Instance names are 1 to 16
+  characters; `sensor_stop` returns the instances it stopped; `sensor_regs` takes `start` 0..255;
+  `sensor_capture` (I2C only) takes 1..4096 packed bytes; `fpga_image` takes `emulation`, and the
+  emulation image refusals name `sensor_stop` and `fpga_image`.
+- Removed: `enable_i2c_sensor`, `set_i2c_sensor`, `i2c_sensor_types`, `disable_i2c_sensor`,
+  `i2c_sensor_status`, `i2c_sensor_regs`, `i2c_sensor_capture`, `enable_gps`, `set_gps`,
+  `disable_gps` and `gps_status`.
+- Requires `embeddedci` 2.13.10 with its `yaml` extra.
+
 ## 2.13.10
 
 - Three resources for a capture view (the BenchPod desktop app draws them with zoom and decode

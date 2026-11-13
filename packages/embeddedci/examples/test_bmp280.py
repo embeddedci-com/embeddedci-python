@@ -41,7 +41,7 @@
 # open-drain I2C lines must sit on LA1-LA6. The resistors are referenced to 3V3,
 # which is why this example runs the LA bank at 3.3 V.
 #
-# The `benchpod_sensor`, `pins` and `firmware` fixtures come from the installed
+# The `benchpod`, `benchpod_sensors`, `pins` and `firmware` fixtures come from the installed
 # plugin; the test skips when no --benchpod-connection or --benchpod-firmware is set.
 
 import re
@@ -50,7 +50,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from embeddedci.benchpod import BMP280_ADDR_PRIMARY, Sensor, i2c
+from embeddedci.benchpod import BMP280_ADDR_PRIMARY, i2c
 
 APP_OK = re.compile(r"APP_OK")
 PRESENT = re.compile(r"chip id match=0x58|bmp280_detected=yes")
@@ -77,9 +77,9 @@ def wiring(pins):
 
 
 @pytest.mark.hardware
-def test_bmp280_sensor_present(benchpod_sensor, wiring, firmware):
+def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
     """Flash the DUT, emulate a BMP280 on I2C, power-cycle, assert on UART and the I2C bus."""
-    bp = benchpod_sensor  # the plain `benchpod` device; also disarms the sensor at teardown
+    bp = benchpod  # benchpod_sensors stops every emulated sensor at teardown
 
     try:
         # 1. Flash the firmware onto the DUT over SWD. Raises FlashError (with
@@ -92,14 +92,14 @@ def test_bmp280_sensor_present(benchpod_sensor, wiring, firmware):
             verify=False,  # programming is reliable; the read-back verify is the slow part
         )
 
-        # 2. Have the pod emulate a BMP280 on the DUT's I2C bus. I2C is open-drain,
-        #    so engage the pod's pull-ups first to idle the bus high.
+        # 2. Have the pod emulate a BMP280 (the sensor library's definition) on the DUT's
+        #    I2C bus. I2C is open-drain, so engage the pod's pull-ups first to idle the bus high.
         bp.enable_pullup(wiring.i2c_sda, wiring.i2c_scl)
-        bp.enable_i2c_sensor(
-            Sensor.BMP280,
-            sda=wiring.i2c_sda, scl=wiring.i2c_scl,
+        sensor = benchpod_sensors.start(
+            "bmp280",
+            pins={"sda": wiring.i2c_sda, "scl": wiring.i2c_scl},
             address=BMP280_ADDR_PRIMARY,
-            temperature_c=22.5, pressure_pa=101_000,
+            values={"temperature_c": 22.5, "pressure_pa": 101_000},
         )
 
         # 3. Power-cycle the DUT and capture its boot log over UART. The power-on is
@@ -112,18 +112,17 @@ def test_bmp280_sensor_present(benchpod_sensor, wiring, firmware):
         )
         assert boot.match(APP_OK), f"no APP_OK banner:\n{boot.text}"
         assert boot.match(PRESENT), f"BMP280 not detected:\n{boot.text}"
-        assert bp.i2c_sensor_status().get("transactions", 0) > 0
+        assert sensor.status()["running"]  # the pod counts written bytes, not transfers
 
         # 4. Boot again and decode the I2C bus. The chip-id probe is a one-shot a few
-        #    ms after power-up, so sweep a handful of back-to-back ~33 ms windows
-        #    (4096 bytes at 500 kS/s ≈ 5 samples per bit at 100 kHz I2C).
+        #    ms after power-up, so sweep a handful of back-to-back capture windows.
         bp.power_off(wiring.efuse)
         time.sleep(0.3)
         bp.power_on(wiring.efuse)  # returns immediately; the captures below cover the boot
         txns = []
         chip_id = None
         for _ in range(6):
-            txns = bp.i2c_sensor_capture(4096, sample_rate_hz=500_000)
+            txns = sensor.i2c_transactions(4096)
             chip_id = i2c.read_register(txns, BMP280_ADDR_PRIMARY, BMP280_CHIP_ID_REG)
             if chip_id is not None:
                 break

@@ -62,9 +62,10 @@ class CapabilitiesInfo(BaseModel):
         "The board has the analog front end (ADC, DAC, 4-20 mA); false on the digital-only board, "
         "null when the firmware does not say."))
     dac_limits: bool = Field(False, description="Output limits on the DAC paths.")
-    sensor_types: bool = Field(False, description=(
-        "Emulated BME280, SHT4x and MPU-6050 besides the BMP280 (i2c_sensor_types, enable_i2c_sensor sensor=...)."))
-    gps: bool = Field(False, description="Emulated GPS receiver on a second UART (enable_gps, set_gps).")
+    sensors: bool = Field(False, description=(
+        "Sensor emulation from definitions (sensor_start and the other sensor_* tools). Without it "
+        "the firmware is too old for sensor emulation."))
+    sensors_format: int = Field(0, description="The sensor definition format the pod reads (0 = not reported).")
     flash_kb: int = Field(0, description="Internal flash of the pod's MCU in KiB (0 = not reported).")
     ota_sig: bool = Field(False, description="Firmware updates are signed and the pod checks them.")
     sig_policy: str = Field("", description="Signature policy: audit (report only) or required.")
@@ -147,7 +148,7 @@ class WiringResult(BaseModel):
     efuse: int = Field(description=(
         "Target-power rail the tools default to: internal 5 V (efuse 1) or external (efuse 2)."))
     uart_baud: int
-    i2c_address: int = Field(description="Emulated-sensor address as a 7-bit integer.")
+    i2c_address: int = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer.")
     swd_nreset: bool
     swd_target: str
     pins: List[WiringPin] = Field(description="LA1-LA14 with what is wired to each and its bias resistor.")
@@ -357,7 +358,47 @@ class UartReadResult(BaseModel):
     truncated: bool
 
 
-# -- I2C sensor + pulls ---------------------------------------------------------------
+# -- emulated sensors + pulls ---------------------------------------------------------
+
+class SensorLibraryResult(BaseModel):
+    version: str = Field(description="The library version the sensor tools use.")
+    source: str = Field(description="bundled (shipped with the SDK), cache or download.")
+    warning: str = Field("", description="Why a fallback version is used (offline, say); empty otherwise.")
+    entries: List[Dict[str, str]] = Field(description="path, name, kind (i2c/spi/uart/analog/stimulus), label.")
+
+
+class SensorShowResult(BaseModel):
+    version: str
+    path: str
+    name: str
+    kind: str
+    label: str
+    params: List[Dict[str, Any]] = Field(description="key, unit, min, max, default: what sensor_set takes.")
+    yaml: str = Field(description="The definition as stored in the library.")
+
+
+class TextResult(BaseModel):
+    text: str
+
+
+class SensorValidateResult(BaseModel):
+    ok: bool
+    checked: str = Field(description="header (no pod connected: header and size only) or pod (compiled on the pod).")
+    name: str
+    kind: str
+    report: Dict[str, Any] = Field(default_factory=dict, description=(
+        "The pod's compile report: params, program_bytes, bus settings."))
+
+
+class SensorStarted(BaseModel):
+    instance: str
+    kind: str
+    name: str
+    params: List[Dict[str, Any]] = Field(description="key, unit, min, max, default: what sensor_set takes.")
+    info: Dict[str, Any] = Field(description="The pod's compile report.")
+    started: Dict[str, Any] = Field(description=(
+        "The start reply: slot, image, image_loaded (the emulation FPGA image was loaded), unavailable."))
+
 
 class I2cCaptureResult(BaseModel):
     transactions: int
@@ -582,6 +623,10 @@ class GenerateResult(BaseModel):
 
 class StopResult(BaseModel):
     stopped: bool = True
+
+
+class SensorStopResult(StopResult):
+    instances: List[str] = Field(default_factory=list, description="The instances the pod stopped.")
 
 
 class ReplayResult(BaseModel):

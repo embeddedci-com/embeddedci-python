@@ -102,7 +102,7 @@ Byte = Annotated[int, Field(ge=0, le=255)]
 Code16 = Annotated[int, Field(ge=0, le=65535)]
 SwitchImage = Annotated[bool, Field(description=(
     "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, "
-    "stopping any DAC output, UART session or I2C sensor emulation. false = fail instead."))]
+    "stopping any DAC output, UART session or sensor emulation. false = fail instead."))]
 
 
 # -- plumbing --------------------------------------------------------------------
@@ -160,13 +160,16 @@ _MCP_FIXES = (
      "close the UART session first with uart_close"),
     (re.compile(r"end the SWD session first"),
      "wait for the running flash (its SWD session) to finish"),
-    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"\}\)'),
-     "stop the sensor emulation first with disable_i2c_sensor"),
+    (re.compile(r'\{"cmd":"sensor_stop","all":true\} then \{"cmd":"fpga_image","image":"(loop|deep)"\}'),
+     lambda m: 'sensor_stop() then fpga_image(image="'
+               + ("loop" if m.group(1) == "loop" else "deep_replay") + '")'),
+    (re.compile(r'stop them first \(\{"cmd":"sensor_stop","all":true\}\)'), "stop them first with sensor_stop"),
+    (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'sensor_stop(instance="\1")'),
+    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
+     "stop the sensor emulation first with sensor_stop"),
     (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
      'stop the SPI session first: another client holds it (the command tool can send '
      '{"cmd":"spi_stop"})'),
-    (re.compile(r'stop the GPS receiver first \(\{"cmd":"gps_stop"\}\)'),
-     "stop the GPS emulation first with disable_gps"),
     (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
      '(another client holds the SPI session; the command tool can send {"cmd":"spi_stop"})'),
     (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"set_pull(las=[\1], enabled=false)"),
@@ -337,7 +340,7 @@ def _status() -> m.StatusResult:
         wiring_source = None
     if la is None:
         warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
-                        "the DUT) before flash, UART, LA capture, pulls or I2C-sensor emulation")
+                        "the DUT) before flash, UART, LA capture, pulls or sensor emulation")
     return m.StatusResult(
         connected=True, connection=SESSION.connection, kind=SESSION.kind, leased=pod.leased,
         la_voltage=la, capabilities=m.CapabilitiesInfo.from_caps(pod.capabilities),
@@ -394,7 +397,7 @@ async def status() -> m.StatusResult:
 async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
     """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod).
 
-    Required before flash, UART, LA capture, pull resistors or I2C-sensor emulation.
+    Required before flash, UART, LA capture, pull resistors or sensor emulation.
     """
     state = await _call(lambda: SESSION.require().set_la_voltage(voltage))
     return m.LaVoltageResult(voltage=state.voltage, readback=state.readback)
@@ -898,88 +901,234 @@ async def uart_close() -> m.UartSessionResult:
     return m.UartSessionResult(open=False)
 
 
-# -- emulated I2C sensor --------------------------------------------------------------
+# -- emulated sensors --------------------------------------------------------------------
 
-SensorType = Literal["bmp280", "bme280", "sht4x", "mpu6050"]
-SensorValues = Annotated[Optional[Dict[str, float]], Field(description=(
-    "Readings by parameter key, e.g. {\"humidity_pct\": 55} (BME280/SHT4x) or "
-    "{\"accel_z_g\": 1.0, \"gyro_x_dps\": 20} (MPU-6050); i2c_sensor_types lists each model's keys, "
-    "units and ranges."))]
+#: The sensor library version the sensor tools use (None: BENCHPOD_SENSOR_LIBRARY, the CLI's
+#: sensor_library setting, else the version the SDK pins). sensor_library(version=...) sets it.
+_SENSOR_LIBRARY: Dict[str, Optional[str]] = {"version": None}
+
+SensorDefinition = Annotated[Union[str, Dict[str, Any]], Field(description=(
+    "A library sensor name ('bme280', see sensor_library), a .yaml/.json path on the machine "
+    "running this server, the definition itself as YAML or JSON text, or a JSON object. Write "
+    "your own from a datasheet in the format sensor_format describes."))]
+SensorInstance = Annotated[str, Field(pattern=r"^[a-z0-9_]{1,16}$", description=(
+    "Instance name, 1 to 16 lowercase letters, digits or _; sensor_start defaults it to the "
+    "definition's name (pass one when that name is longer)."))]
+SensorPins = Annotated[Optional[Dict[str, Union[int, str]]], Field(description=(
+    "Role -> LA channel (1-14) or wiring name. I2C: sda, scl (default: the profile's i2c_sda/i2c_scl), "
+    "optional drdy. SPI: sclk, mosi, miso, cs (default: the profile's spi_*; no data-ready pin). UART: "
+    "tx (pod to DUT RX, required), optional rx. Analog: output 'dac' (default) or 'current'."))]
+SensorValuesArg = Annotated[Dict[str, float], Field(description=(
+    "Param key -> value, e.g. {\"temperature_c\": 31.5}; the keys, units and ranges are the "
+    "definition's params (sensor_show, or the params sensor_start returns)."))]
+LibraryVersion = Annotated[Optional[str], Field(description=(
+    "Sensor library version: 'latest', a release such as '0.2.0', or 'default' (the version the "
+    "SDK pins). Sets it for the other sensor tools too. Omit to keep the current one."))]
 
 
-@mcp.tool(annotations=_ann("Emulate an I2C sensor"))
-async def enable_i2c_sensor(
-    sda: Annotated[Optional[LaRef], Field(description=(
-        "LA channel (or wiring name) of the bus's SDA; omit for the profile's i2c_sda."))] = None,
-    scl: Annotated[Optional[LaRef], Field(description=(
-        "LA channel (or wiring name) of the bus's SCL; omit for the profile's i2c_scl."))] = None,
-    address: Annotated[Optional[int], Field(ge=0x03, le=0x77, description=(
-        "7-bit address; omit for the profile's i2c_addr (BMP280/BME280) or the model's default "
-        "(SHT4x 0x44, MPU-6050 0x68)."))] = None,
-    temperature_c: Optional[float] = None,
-    pressure_pa: Optional[float] = None,
-    sensor: Annotated[SensorType, Field(description=(
-        "bmp280 (temperature, pressure), bme280 (+ humidity), sht4x (temperature, humidity) or "
-        "mpu6050 (accelerometer, gyroscope, die temperature)."))] = "bmp280",
-    values: SensorValues = None,
-) -> m.DeviceReply:
-    """Make the pod act as an I2C sensor on sda/scl for the DUT to read. Engage pull-ups on both lines first (set_pull).
+def _library(version: Optional[str] = None) -> Any:
+    from embeddedci.benchpod.sensors import sensor_library
 
-    The channels come from the wiring profile when omitted. Readings start at the model's
-    defaults; seed them with temperature_c/pressure_pa or values.
+    if version is not None:
+        _SENSOR_LIBRARY["version"] = version
+    return sensor_library(_SENSOR_LIBRARY["version"])
+
+
+def _emulation() -> Any:
+    sensors = SESSION.require().sensors
+    sensors.library_version = _SENSOR_LIBRARY["version"]
+    return sensors
+
+
+def _sensor_result(sensor: Any) -> m.SensorStarted:
+    return m.SensorStarted(instance=sensor.instance, kind=sensor.kind, name=sensor.name,
+                           params=sensor.params, info=sensor.info, started=sensor.started)
+
+
+@mcp.tool(annotations=_ann("List library sensors", read_only=True, cloud=True))
+async def sensor_library(version: LibraryVersion = None) -> m.SensorLibraryResult:
+    """The sensor library: ready definitions the pod can emulate (name, kind, label) and the version in use.
+
+    Sensor flow: sensor_library -> sensor_show(name) for its params -> set_la_voltage and, for I2C,
+    set_pull on SDA/SCL -> sensor_start(definition=name, pins) -> sensor_set / sensor_fault /
+    sensor_stimulus_load + sensor_stimulus_start -> sensor_status, sensor_regs -> sensor_stop.
+    No library entry for the part? Write a definition from its datasheet (sensor_format) and pass
+    the YAML to sensor_validate, then sensor_start. Needs no pod.
     """
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().enable_i2c_sensor(
-        sensor, sda=sda, scl=scl, address=address, temperature_c=temperature_c,
-        pressure_pa=pressure_pa, **(values or {}))) or {})
+    def op() -> m.SensorLibraryResult:
+        lib = _library(version)
+        return m.SensorLibraryResult(version=lib.version, source=lib.source, warning=lib.warning,
+                                     entries=[e.to_dict() for e in lib.entries])
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Show a library sensor", read_only=True, cloud=True))
+async def sensor_show(name: Annotated[str, Field(description="Library entry name ('sht4x') or path.")],
+                      version: LibraryVersion = None) -> m.SensorShowResult:
+    """One library definition: its YAML (a starting point for your own part) and the params sensor_set takes. Needs no pod."""
+    def op() -> m.SensorShowResult:
+        from embeddedci.benchpod.sensors import load_definition
+
+        lib = _library(version)
+        entry = lib.get(name)
+        doc = load_definition(entry.name, library=lib)
+        return m.SensorShowResult(version=lib.version, path=entry.path, name=entry.name,
+                                  kind=entry.kind, label=entry.label,
+                                  params=list(doc.get("params") or []), yaml=lib.text(entry.name))
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Sensor definition format", read_only=True, cloud=True))
+async def sensor_format(version: LibraryVersion = None) -> m.TextResult:
+    """The sensor definition and stimulus format (Markdown): read it before writing a definition from a datasheet. Needs no pod."""
+    def op() -> m.TextResult:
+        text = _library(version).format_doc()
+        return m.TextResult(text=text or "this library version has no docs/format.md")
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Validate a sensor definition", read_only=True))
+async def sensor_validate(definition: SensorDefinition) -> m.SensorValidateResult:
+    """Check a definition: its header here, then a dry-run compile on the pod (nothing is kept).
+
+    Without a connected pod only the header (format, kind, name, params, size) is checked. A
+    compile error names the place, e.g. "registers[4].s16be: unknown name 'ax' at 17": fix it
+    and validate again.
+    """
+    def op() -> m.SensorValidateResult:
+        from embeddedci.benchpod.sensors import load_definition
+
+        doc = load_definition(definition, library=_library())
+        if not SESSION.connected:
+            return m.SensorValidateResult(ok=True, checked="header", name=doc["name"],
+                                          kind=doc["kind"], report={})
+        with SESSION.lock:
+            report = _emulation().validate(doc)
+        return m.SensorValidateResult(ok=True, checked="pod", name=doc["name"], kind=doc["kind"],
+                                      report=report)
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Start an emulated sensor"))
+async def sensor_start(
+    definition: SensorDefinition,
+    instance: Optional[SensorInstance] = None,
+    pins: SensorPins = None,
+    address: Annotated[Optional[Union[int, str]], Field(description=(
+        "I2C: the definition's address or one of its alt_addresses (0x77 or \"0x77\"); omit for its address."))] = None,
+    baud: Annotated[Optional[int], Field(ge=300, le=4_000_000, description="UART: override the definition's baud rate.")] = None,
+    values: Annotated[Optional[Dict[str, float]], Field(description="Initial param values; omitted ones start at their defaults.")] = None,
+) -> m.SensorStarted:
+    """Make the pod play a sensor for the DUT: upload the definition (library name or your own YAML/JSON) and start it on pins.
+
+    Set the LA voltage first, and the pull-ups for I2C (set_pull on sda and scl, LA1-LA6).
+    Starting an instance name that runs replaces it. Up to 4 I2C sensors (several may share one
+    bus at different addresses), 1 SPI, 1 UART and 2 analog sensors (one per output) run at once.
+    I2C/SPI/UART sensors load the pod's emulation FPGA image if another runs (image_loaded in the
+    result); it stays after sensor_stop, and control_loop / deep replays switch back by themselves
+    once no I2C/SPI/UART sensor runs. Pod limits: UART 8N1 only, one FIFO sensor at a time,
+    conversion/command times at most 65.535 ms (4 distinct per I2C sensor), no excitation: adc.
+    The result lists the params sensor_set takes.
+    """
+    return await _call(lambda: _sensor_result(_emulation().start(
+        definition, instance=instance, pins=pins, address=address, baud=baud, values=values)))
 
 
 @mcp.tool(annotations=_ann("Set emulated sensor values", idempotent=True))
-async def set_i2c_sensor(temperature_c: Optional[float] = None,
-                         pressure_pa: Optional[float] = None,
-                         values: SensorValues = None) -> m.DeviceReply:
-    """Change what the emulated sensor reports (at least one value); the reply lists every reading."""
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().set_i2c_sensor(
-        temperature_c=temperature_c, pressure_pa=pressure_pa, **(values or {}))) or {})
+async def sensor_set(instance: SensorInstance, values: SensorValuesArg) -> m.DeviceReply:
+    """Change what a running sensor reports; the DUT sees it on its next read or message. Out-of-range values are refused with the range."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().set(instance, values)) or {})
 
 
-@mcp.tool(annotations=_ann("Emulated sensor models", read_only=True))
-async def i2c_sensor_types() -> m.DeviceReply:
-    """The sensor models the pod can emulate, with their addresses and settable readings (key, unit, range, default)."""
-    types = await _call(lambda: SESSION.require().i2c_sensor_types())
-    return m.DeviceReply(reply={"types": types or []})
+@mcp.tool(annotations=_ann("Load a sensor stimulus"))
+async def sensor_stimulus_load(stimulus: Annotated[Union[str, Dict[str, Any]], Field(description=(
+        "A stimulus (kind: stimulus): YAML or JSON text, a JSON object, or a path on the machine running "
+        "this server. Signals are params ('temperature_c', or 'env.temperature_c' with several sensors); "
+        "segments hold, step, ramp, sine, saw, pulse, noise, data, repeat; optional faults at_s."))]) -> m.DeviceReply:
+    """Upload values over time (and timed faults) for the running sensors; replaces the loaded stimulus. sensor_stimulus_start plays it."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().load_stimulus(stimulus)) or {})
 
 
-@mcp.tool(annotations=_ann("Stop the emulated sensor", idempotent=True))
-async def disable_i2c_sensor() -> m.StopResult:
-    """Disarm the emulated sensor (safe when none is active)."""
-    await _call(lambda: SESSION.require().disable_i2c_sensor())
-    return m.StopResult()
+@mcp.tool(annotations=_ann("Play the sensor stimulus"))
+async def sensor_stimulus_start(at_s: Annotated[Optional[float], Field(ge=0, description=(
+        "Start this many seconds into the stimulus; omit for t = 0."))] = None) -> m.DeviceReply:
+    """Play the loaded stimulus; it ends after its last segment (signals hold their last value) unless it has repeat: true."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().start_stimulus(at_s)) or {})
+
+
+@mcp.tool(annotations=_ann("Stop the sensor stimulus", idempotent=True))
+async def sensor_stimulus_stop() -> m.DeviceReply:
+    """Stop the stimulus; the values stay where it left them."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().stop_stimulus()) or {})
+
+
+@mcp.tool(annotations=_ann("Inject a sensor fault"))
+async def sensor_fault(
+    instance: SensorInstance,
+    type: Annotated[Literal["stuck", "offset", "gain", "no_response", "corrupt", "bus_stuck",
+                            "garbage", "drop", "baud_error", "open", "short"], Field(description=(
+        "stuck (readings freeze), offset/gain (param + value), no_response (I2C NACK, SPI MISO "
+        "released, UART silent), corrupt (register at XOR mask), bus_stuck (I2C SDA low, at most "
+        "1 s), garbage/drop/baud_error (UART), open/short (analog)."))],
+    duration_s: Annotated[Optional[float], Field(gt=0, description="Omit to last until sensor_fault_clear.")] = None,
+    param: Annotated[Optional[str], Field(description="The param a stuck/offset/gain fault applies to.")] = None,
+    value: Annotated[Optional[float], Field(description="offset/gain amount, drop probability, baud error percent, or a stuck/open/short value.")] = None,
+    at: Annotated[Optional[int], Field(ge=0, le=0xFFFF, description="corrupt: the register.")] = None,
+    mask: Annotated[Optional[int], Field(ge=0, le=255, description="corrupt: the XOR mask.")] = None,
+    rate_hz: Annotated[Optional[float], Field(gt=0, description="garbage: bytes per second (default 100).")] = None,
+) -> m.DeviceReply:
+    """Make a running sensor misbehave now, to test the DUT's error handling."""
+    fields = {"param": param, "value": value, "at": at, "mask": mask, "rate_hz": rate_hz}
+    return m.DeviceReply(reply=await _call(lambda: _emulation().fault(
+        instance, type, duration_s=duration_s, **fields)) or {})
+
+
+@mcp.tool(annotations=_ann("Clear sensor faults", idempotent=True))
+async def sensor_fault_clear(instance: SensorInstance) -> m.DeviceReply:
+    """End a sensor's faults (injected with sensor_fault or by the stimulus)."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().clear_fault(instance)) or {})
+
+
+@mcp.tool(annotations=_ann("Stop emulated sensors", idempotent=True))
+async def sensor_stop(instance: Annotated[Optional[SensorInstance], Field(description=(
+        "The instance to stop; omit to stop every sensor."))] = None) -> m.SensorStopResult:
+    """Stop a sensor (or all): the pod releases its pins and forgets the definition. The emulation FPGA image stays loaded."""
+    names = await _call(lambda: _emulation().stop(instance))
+    return m.SensorStopResult(instances=list(names or []))
 
 
 @mcp.tool(annotations=_ann("Emulated sensor status", read_only=True))
-async def i2c_sensor_status() -> m.DeviceReply:
-    """Emulated sensor state plus bus activity counters — did the DUT talk to it at all?"""
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().i2c_sensor_status()) or {})
+async def sensor_status() -> m.DeviceReply:
+    """Running sensors (slot, pins, values, faults with left_s, bus counters: writes and last_write say the DUT talked to it; transfers is always null), the stimulus and the FPGA image."""
+    return m.DeviceReply(reply=await _call(lambda: _emulation().status()) or {})
 
 
 @mcp.tool(annotations=_ann("Emulated sensor registers", read_only=True))
-async def i2c_sensor_regs(start: Annotated[int, Field(ge=0, le=255)] = 0,
-                          length: Annotated[int, Field(ge=1, le=256)] = 256) -> m.I2cRegsResult:
-    """Read the emulated sensor's register image."""
-    data = await _call(lambda: SESSION.require().i2c_sensor_regs(start=start, length=length))
+async def sensor_regs(instance: SensorInstance,
+                      start: Annotated[int, Field(ge=0, le=255, description=(
+                          "Offset in the 256-byte register image (i2c.page is its window)."))] = 0,
+                      length: Annotated[Optional[int], Field(ge=1, le=256, description=(
+                          "Bytes to read; omit for the rest of the image."))] = None) -> m.I2cRegsResult:
+    """The bytes an I2C/SPI sensor answers now (the DUT's own writes included)."""
+    data = await _call(lambda: _emulation().regs(instance, start=start, length=length))
     return m.I2cRegsResult(start=start, bytes=list(data))
 
 
-@mcp.tool(annotations=_ann("Capture the sensor's I2C bus"))
-async def i2c_sensor_capture(
-    samples: Annotated[int, Field(ge=64, le=65536)] = 4096,
-    sample_rate_hz: Annotated[float, Field(gt=0, le=50_000_000)] = 500_000,
+@mcp.tool(annotations=_ann("Capture a sensor's I2C bus"))
+async def sensor_capture(
+    instance: SensorInstance,
+    samples: Annotated[int, Field(ge=1, le=4096, description=(
+        "Packed bytes to capture (4 samples each)."))] = 4096,
     address: Annotated[Optional[int], Field(description="Also report whether the DUT addressed this device.")] = None,
     register: Annotated[Optional[int], Field(description="With address: the bytes the DUT read from this register.")] = None,
 ) -> m.I2cCaptureResult:
-    """Capture and decode the emulated sensor's I2C bus into a transaction trace (S/Sr/P, addr, data, ACK)."""
+    """Capture an I2C sensor's bus pins and decode them into a transaction trace (S/Sr/P, addr, data, ACK). I2C only: capture an SPI or UART sensor's pins with capture_la."""
     def op() -> m.I2cCaptureResult:
-        txns = SESSION.require().i2c_sensor_capture(samples, sample_rate_hz=sample_rate_hz)
+        txns = _emulation().i2c_transactions(instance, samples)
         addrs = sorted({msg.address for t in txns for msg in t.messages if msg.address is not None})
         trace = i2c.format_transactions(txns)
         result = m.I2cCaptureResult(transactions=len(txns), addresses=[f"0x{a:02X}" for a in addrs],
@@ -991,71 +1140,6 @@ async def i2c_sensor_capture(
         return result
 
     return await _call(op)
-
-
-# -- emulated GPS receiver --------------------------------------------------------------
-
-GpsUtc = Annotated[Optional[str], Field(description=(
-    "UTC time of the fix, \"2026-10-08T12:00:00Z\"; enable_gps defaults to now (the pod has no clock)."))]
-
-
-@mcp.tool(annotations=_ann("Emulate a GPS receiver"))
-async def enable_gps(
-    tx: Annotated[LaRef, Field(description="LA channel (or wiring name) wired to the DUT's UART RX.")],
-    baud: Annotated[int, Field(ge=300, le=921600)] = 9600,
-    rate_hz: Annotated[int, Field(ge=1, le=10, description="Fixes per second.")] = 1,
-    sentences: Annotated[Optional[str], Field(description=(
-        "Comma-separated subset of RMC, VTG, GGA, GSA, GSV, GLL; omit for all six."))] = None,
-    latitude_deg: Annotated[Optional[float], Field(ge=-90, le=90)] = None,
-    longitude_deg: Annotated[Optional[float], Field(ge=-180, le=180)] = None,
-    altitude_m: Optional[float] = None,
-    speed_kmh: Annotated[Optional[float], Field(ge=0, le=2000)] = None,
-    course_deg: Annotated[Optional[float], Field(ge=0, le=360)] = None,
-    satellites: Annotated[Optional[int], Field(ge=0, le=12)] = None,
-    hdop: Annotated[Optional[float], Field(ge=0.5, le=99)] = None,
-    fix: Annotated[Optional[int], Field(ge=0, le=2, description="0 no fix, 1 GPS, 2 DGPS.")] = None,
-    utc: GpsUtc = None,
-) -> m.DeviceReply:
-    """Make the pod play a GPS module: NMEA sentences (u-blox style, 9600 baud, 1 Hz by default) on tx for the DUT's UART.
-
-    It runs on a second UART, so uart_open keeps working for the DUT's console. The position
-    moves along course_deg at speed_kmh between fixes. Needs gateware v48 ("gps" in status caps).
-    """
-    fields = dict(latitude_deg=latitude_deg, longitude_deg=longitude_deg, altitude_m=altitude_m,
-                  speed_kmh=speed_kmh, course_deg=course_deg, satellites=satellites, hdop=hdop, fix=fix)
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().enable_gps(
-        tx, baud=baud, rate_hz=rate_hz, sentences=sentences, utc=utc, **fields)) or {})
-
-
-@mcp.tool(annotations=_ann("Set the emulated GPS fix", idempotent=True))
-async def set_gps(
-    latitude_deg: Annotated[Optional[float], Field(ge=-90, le=90)] = None,
-    longitude_deg: Annotated[Optional[float], Field(ge=-180, le=180)] = None,
-    altitude_m: Optional[float] = None,
-    speed_kmh: Annotated[Optional[float], Field(ge=0, le=2000)] = None,
-    course_deg: Annotated[Optional[float], Field(ge=0, le=360)] = None,
-    satellites: Annotated[Optional[int], Field(ge=0, le=12)] = None,
-    hdop: Annotated[Optional[float], Field(ge=0.5, le=99)] = None,
-    fix: Annotated[Optional[int], Field(ge=0, le=2, description="0 no fix, 1 GPS, 2 DGPS.")] = None,
-    utc: GpsUtc = None,
-) -> m.DeviceReply:
-    """Change the fix the emulated GPS prints (any subset); the next sentences carry it."""
-    fields = dict(latitude_deg=latitude_deg, longitude_deg=longitude_deg, altitude_m=altitude_m,
-                  speed_kmh=speed_kmh, course_deg=course_deg, satellites=satellites, hdop=hdop, fix=fix)
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().set_gps(utc=utc, **fields)) or {})
-
-
-@mcp.tool(annotations=_ann("Stop the emulated GPS", idempotent=True))
-async def disable_gps() -> m.StopResult:
-    """Stop the GPS receiver and release its pin (safe when none runs)."""
-    await _call(lambda: SESSION.require().disable_gps())
-    return m.StopResult()
-
-
-@mcp.tool(annotations=_ann("Emulated GPS status", read_only=True))
-async def gps_status() -> m.DeviceReply:
-    """The GPS receiver's session (tx, baud, rate, epochs, overruns) and the fix it prints."""
-    return m.DeviceReply(reply=await _call(lambda: SESSION.require().gps_status()) or {})
 
 
 # -- bias resistors ---------------------------------------------------------------------
@@ -1182,7 +1266,7 @@ async def gpio_mode(
     """Claim LA channels as GPIO so the pod can drive or read them.
 
     A channel stays GPIO — across disconnects — until gpio_release, and while it is GPIO nothing
-    else can use it: release it before uart_open, flash or enable_i2c_sensor on that channel.
+    else can use it: release it before uart_open, flash or sensor_start on that channel.
     A channel already owned by another function is refused with a PinConflictError naming the
     owner and the tool that frees it, and an engaged bias resistor that would fight the mode with a PullConflictError.
     """
@@ -1734,7 +1818,8 @@ def _image_name(info: Any) -> Optional[str]:
     """The tool-level name of the image an SDK switch went to (None when there was no switch)."""
     if info is None:
         return None
-    return "loop" if int(info.image) == int(FpgaImage.LOOP) else "deep_replay"
+    return {int(FpgaImage.LOOP): "loop", int(FpgaImage.DEEP_REPLAY): "deep_replay",
+            int(FpgaImage.EMULATION): "emulation"}.get(int(info.image), str(int(info.image)))
 
 
 def _replay_result(handle: Any) -> m.ReplayResult:
@@ -1939,16 +2024,20 @@ async def loop_probe() -> m.LoopProbeResult:
 
 @mcp.tool(annotations=_ann("Switch gateware image", destructive=True))
 async def fpga_image(
-    image: Annotated[Literal["loop", "deep_replay"], Field(description=(
-        "loop = control-loop image; deep_replay = deep DAC replay from PSRAM."))],
+    image: Annotated[Literal["loop", "deep_replay", "emulation"], Field(description=(
+        "loop = control-loop image; deep_replay = deep DAC replay from PSRAM; "
+        "emulation = sensor emulation (sensor_start loads it by itself)."))],
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FpgaImageResult:
     """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
 
-    Rarely needed: control_loop, replay and replay_waveform switch automatically. The switch resets
-    the FPGA (any DAC output, UART session or I2C sensor emulation stops).
+    Rarely needed: control_loop, replay and replay_waveform switch automatically (also back from
+    the emulation image once no I2C/SPI/UART sensor runs). The pod never switches back by itself,
+    and refuses to leave the emulation image while I2C/SPI/UART sensors run (sensor_stop first).
+    The switch resets the FPGA (any DAC output or UART session stops).
     """
-    img = FpgaImage.LOOP if image == "loop" else FpgaImage.DEEP_REPLAY
+    img = {"loop": FpgaImage.LOOP, "deep_replay": FpgaImage.DEEP_REPLAY,
+           "emulation": FpgaImage.EMULATION}[image]
     info = await _call_reporting(ctx, "switching gateware", lambda: SESSION.require().fpga_image(img))
     return m.FpgaImageResult(image=image, version=info.version, features=info.features)
 

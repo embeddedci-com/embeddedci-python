@@ -17,7 +17,8 @@ from embeddedci.benchpod import BenchPod, BenchPodError, FpgaImage
 
 
 class ImagePod:
-    """A fake pod with two gateware images: ``image`` 0 = loop, 1 = deep replay.
+    """A fake pod with three gateware images: ``image`` 0 = loop, 1 = deep replay, 2 = sensor
+    emulation (it shows neither image feature; ``sensors_digital`` says it is there).
 
     ``image=None`` is a single-image pod that advertises neither feature; ``switch_works=False``
     makes a switch boot an image without the requested feature.
@@ -28,6 +29,8 @@ class ImagePod:
         self.switch_works = switch_works
         self.commands: List[dict] = []
         self.uploads: List[bool] = []
+        #: sensor_status instances (kind, running) on the emulation image.
+        self.sensors: List[dict] = []
 
     def status(self) -> Dict[str, Any]:
         caps = ["dac", "dac_replay", "dac_loop_sources"]
@@ -35,18 +38,29 @@ class ImagePod:
             caps.append("dac_control_loop")
         elif self.image == 1:
             caps.append("dac_deep_replay")
-        return {"board": "stm32h563", "adc_bits": 16, "caps": caps}
+        if self.image is not None:
+            caps.append("sensors")
+        return {"board": "stm32h563", "adc_bits": 16, "caps": caps,
+                "sensors_digital": self.image is not None}
 
     def ping(self) -> Any:
         return "pong"
 
     def command(self, req: dict) -> Any:
         self.commands.append(req)
+        if req["cmd"] == "fpga_image" and "image" not in req:
+            if self.image is None:
+                raise BenchPodError("unknown command")
+            return {"image": self.image, "version": 54, "features": 1 << self.image}
+        if req["cmd"] == "sensor_status":
+            return {"image": "emulation", "instances": self.sensors}
         if req["cmd"] == "fpga_image":
+            if self.image == 2 and any(i["running"] and i["kind"] != "analog" for i in self.sensors):
+                raise BenchPodError("image switch refused")
             if not self.switch_works:
                 return {"image": req["image"], "version": 31, "features": 0}
             self.image = req["image"]
-            return {"image": req["image"], "version": 31, "features": 0x01 if self.image == 0 else 0x02}
+            return {"image": req["image"], "version": 54, "features": 1 << self.image}
         if req["cmd"] == "dac_control_loop":
             return {"armed": True, "k": req["k"], "vmin": req["vmin"], "vmax": req["vmax"],
                     "tick_div": req["tick_div"]}
@@ -109,6 +123,49 @@ def test_a_switch_that_does_not_take_raises():
     with pytest.raises(BenchPodError, match="does not carry"):
         _bp(pod).control_loop(curve=[0, 60000])
     assert "dac_control_loop" not in pod.cmds()
+
+
+def test_control_loop_switches_back_from_the_emulation_image_once_the_sensors_stopped():
+    pod = ImagePod(image=2)
+    pod.sensors = [{"instance": "ntc", "kind": "analog", "running": True}]
+    loop = _bp(pod).control_loop(curve=[0, 60000])
+    assert {"cmd": "fpga_image"} in pod.commands
+    assert {"cmd": "fpga_image", "image": 0} in pod.commands
+    assert loop.switched_image is not None and loop.switched_image.image == FpgaImage.LOOP
+
+
+def test_control_loop_on_the_emulation_image_with_digital_sensors_names_the_fix():
+    pod = ImagePod(image=2)
+    pod.sensors = [{"instance": "env", "kind": "i2c", "running": True}]
+    with pytest.raises(BenchPodError, match=r"sensors env: stop them first \(bp\.sensors\.stop\(\)\)"):
+        _bp(pod).control_loop(curve=[0, 60000])
+    assert {"cmd": "fpga_image", "image": 0} not in pod.commands
+    assert "dac_control_loop" not in pod.cmds()
+
+
+def test_control_loop_on_the_emulation_image_switch_image_false_is_refused():
+    pod = ImagePod(image=2)
+    with pytest.raises(BenchPodError, match=r"switch_image=True.*FpgaImage\.LOOP"):
+        _bp(pod).control_loop(curve=[0, 60000], switch_image=False)
+    assert "dac_control_loop" not in pod.cmds()
+
+
+def test_deep_replay_switches_from_the_emulation_image():
+    pod = ImagePod(image=2)
+    handle = _bp(pod).replay([1.0] * 4096, dac_path="5v")
+    assert {"cmd": "fpga_image", "image": 1} in pod.commands and handle.deep
+
+
+def test_the_emulation_image_refusal_reads_as_sdk_calls():
+    from embeddedci.benchpod.errors import _sdk_refusal_text
+
+    msg = ('control loop is not in the emulation image, which the emulated sensors use: '
+           '{"cmd":"sensor_stop","all":true} then {"cmd":"fpga_image","image":"loop"}')
+    assert _sdk_refusal_text(msg).endswith(
+        "use: bp.sensors.stop() then bp.fpga_image(FpgaImage.LOOP)")
+    msg = ('image switch refused: the emulated sensors env, imu need the emulation image; stop '
+           'them first ({"cmd":"sensor_stop","all":true})')
+    assert _sdk_refusal_text(msg).endswith("stop them first with bp.sensors.stop()")
 
 
 # -- replay --------------------------------------------------------------------------------

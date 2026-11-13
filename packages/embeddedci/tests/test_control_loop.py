@@ -143,7 +143,7 @@ def test_fpga_image_swaps_and_invalidates_caps():
     assert t.commands[-1] == {"cmd": "fpga_image", "image": 0}
     assert bp._caps is None  # cache invalidated so the new image's caps re-read
     with pytest.raises(ValueError):
-        bp.fpga_image(2)
+        bp.fpga_image(3)
 
 
 def cl_image_loop():

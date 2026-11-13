@@ -202,11 +202,13 @@ class Capabilities:
     analog: Optional[bool] = None
     #: Output limits on the DAC paths (``{"cmd":"dac_limits"}``).
     dac_limits: bool = False
-    #: The emulated I2C sensor models beyond the BMP280 (BME280, SHT4x, MPU-6050) and
-    #: :meth:`BenchPod.i2c_sensor_types`.
-    sensor_types: bool = False
-    #: The emulated GPS receiver on UART2 (gateware >= v48): :meth:`BenchPod.enable_gps`.
-    gps: bool = False
+    #: User-defined sensor emulation from a definition (:attr:`BenchPod.sensors`).
+    sensors: bool = False
+    #: The sensor definition format the pod reads (``1``); 0 when not reported.
+    sensors_format: int = 0
+    #: The emulation gateware image (I2C, SPI and UART sensors) is installed or running; analog
+    #: sensors work without it.
+    sensors_digital: bool = False
 
     # firmware updates and policies
     #: Internal flash of the pod's MCU in KiB (2048 or 1024); 0 when not reported.
@@ -292,6 +294,10 @@ class Capabilities:
             c.analog = v
         if (v := _as_int(status, "flash_kb")) is not None and v > 0:
             c.flash_kb = v
+        if (v := _as_int(status, "sensors_format")) is not None and v > 0:
+            c.sensors_format = v
+        if status.get("sensors_digital") is True:
+            c.sensors_digital = True
         if (v := _as_int(status, "sig_keys")) is not None and v > 0:
             c.sig_keys = v
         c.sig_policy = str(status.get("sig_policy", "") or "")
@@ -339,8 +345,7 @@ class Capabilities:
                 ("pod_current", "pod_current"),
                 ("adc_low_range", "adc_low_range"),
                 ("dac_limits", "dac_limits"),
-                ("sensor_types", "sensor_types"),
-                ("gps", "gps"),
+                ("sensors", "sensors"),
                 *((f, f) for f in _STATUS_FLAGS),
             ):
                 if name in names and hasattr(c, attr):
@@ -409,7 +414,8 @@ class Capabilities:
             ("calibrate", "cap.calibrate"), ("cal_dmm", "cap.cal_dmm"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
             ("adc_low_range", "cap.adc_low_range"),
-            ("sensor_types", "cap.sensor_types"), ("gps", "cap.gps"),
+            ("sensors", "cap.sensors"),
+            ("sensors_digital", "cap.sensors_digital"),
             ("dac_limits", "cap.dac_limits"),
             ("ws_auth_v2", "cap.ws_auth_v2"),
             *((f, f"cap.{f}") for f in _STATUS_FLAGS),
@@ -421,6 +427,8 @@ class Capabilities:
         c.analog = _as_bool(params, "cap.analog")
         if (v := _as_int(params, "cap.flash_kb")) is not None and v > 0:
             c.flash_kb = v
+        if (v := _as_int(params, "cap.sensors_format")) is not None and v > 0:
+            c.sensors_format = v
         if (v := _as_int(params, "cap.sig_keys")) is not None and v > 0:
             c.sig_keys = v
         c.sig_policy = str(params.get("cap.sig_policy", "") or "")

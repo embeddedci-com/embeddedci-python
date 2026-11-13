@@ -21,9 +21,10 @@ EXPECTED_TOOLS = {
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
-    "enable_i2c_sensor", "set_i2c_sensor", "disable_i2c_sensor", "i2c_sensor_status",
-    "i2c_sensor_regs", "i2c_sensor_capture", "i2c_sensor_types",
-    "enable_gps", "set_gps", "disable_gps", "gps_status",
+    "sensor_library", "sensor_show", "sensor_format", "sensor_validate", "sensor_start",
+    "sensor_set", "sensor_stimulus_load", "sensor_stimulus_start", "sensor_stimulus_stop",
+    "sensor_fault", "sensor_fault_clear", "sensor_stop", "sensor_status", "sensor_regs",
+    "sensor_capture",
     "set_pull", "pull_status", "usb_network", "lan_tls",
     "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
@@ -378,14 +379,91 @@ def test_uart_session_read_write(connected):
 
 # -- I2C sensor + pulls ----------------------------------------------------------------
 
-def test_i2c_sensor_tools(connected):
+def test_sensor_library_tools_need_no_pod():
+    lib = call("sensor_library")
+    assert lib["version"] == "0.1.0" and lib["source"] == "bundled" and lib["warning"] == ""
+    assert {"bme280", "gps_nmea"} <= {e["name"] for e in lib["entries"]}
+    shown = call("sensor_show", name="sht4x")
+    assert shown["kind"] == "i2c" and shown["path"] == "sensors/i2c/sht4x.yaml"
+    assert [p["key"] for p in shown["params"]] == ["temperature_c", "humidity_pct"]
+    assert shown["yaml"].startswith("format: 1")
+    assert "# BenchPod sensor definition format" in call("sensor_format")["text"]
+    # Not connected: the header is checked here, nothing reaches a pod.
+    res = call("sensor_validate", definition=shown["yaml"])
+    assert res == {"ok": True, "checked": "header", "name": "sht4x", "kind": "i2c", "report": {}}
+    with pytest.raises(ToolError, match="invalid argument: .*kind"):
+        call("sensor_validate", definition="format: 1\nkind: can\nname: x\n")
+    with pytest.raises(ToolError, match="no entry 'nope'"):
+        call("sensor_show", name="nope")
+
+
+INLINE = """format: 1
+kind: i2c
+name: probe
+label: "A probe written from a datasheet"
+params:
+  - { key: level, min: 0, max: 100, default: 5 }
+i2c: { address: 0x40 }
+registers:
+  - { at: 0x00, u8: level }
+"""
+
+
+def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
     call("set_pull", las=[1, 2], enabled=True)
-    assert call("enable_i2c_sensor", sda=2, scl=1, temperature_c=22.5)["reply"]["type"] == "bmp280"
-    assert call("i2c_sensor_status")["reply"]["active"] is True
-    assert call("i2c_sensor_regs", start=0, length=4)["bytes"] == [0, 1, 2, 3]
-    cap = call("i2c_sensor_capture", address=0x76, register=0xD0)
-    assert cap["transactions"] == 0 and cap["addressed"] is False and cap["register_value"] is None
-    assert call("disable_i2c_sensor") == {"stopped": True}
+    started = call("sensor_start", definition="bme280", instance="env", pins={"sda": 2, "scl": 1},
+                   address="0x77", values={"temperature_c": 22.5})
+    assert started["instance"] == "env" and started["kind"] == "i2c" and started["name"] == "bme280"
+    assert started["started"]["image_loaded"] is True
+    assert [p["key"] for p in started["params"]][:1] == ["temperature_c"]
+    start = [r for r in connected.requests if r["cmd"] == "sensor_start"][-1]
+    assert start == {"cmd": "sensor_start", "instance": "env", "pins": {"sda": 2, "scl": 1},
+                     "address": "0x77", "values": {"temperature_c": 22.5}}
+    probe = call("sensor_start", definition=INLINE, pins={"sda": "i2c_sda", "scl": 1})
+    assert probe["instance"] == "probe" and probe["params"][0]["key"] == "level"
+
+    assert call("sensor_set", instance="env", values={"humidity_pct": 80})["reply"]["values"]["humidity_pct"] == 80
+    call("sensor_fault", instance="env", type="no_response", duration_s=2)
+    assert [r for r in connected.requests if r["cmd"] == "sensor_fault"][-1] == {
+        "cmd": "sensor_fault", "instance": "env", "type": "no_response", "duration_s": 2.0}
+    assert call("sensor_fault_clear", instance="env")["reply"]["faults"] == []
+    status = call("sensor_status")["reply"]
+    assert {i["instance"] for i in status["instances"]} == {"env", "probe"}
+    assert [r.get("first") for r in connected.requests if r["cmd"] == "sensor_status"][-2:] == [None, 1]
+    assert call("sensor_regs", instance="env", start=0xF7, length=4)["bytes"] == [0, 1, 2, 3]
+    cap = call("sensor_capture", instance="env", address=0x77, register=0xD0)
+    assert cap["transactions"] == 0 and cap["addressed"] is False
+
+    report = call("sensor_validate", definition=INLINE)
+    assert report["checked"] == "pod" and report["report"]["program_bytes"] == 512
+    with pytest.raises(ToolError, match="unknown name 'bogus'"):
+        call("sensor_validate", definition=INLINE.replace("u8: level", "u8: bogus"))
+
+    with pytest.raises(ToolError):
+        call("sensor_set", instance="a" * 17, values={"x": 1})
+    with pytest.raises(ToolError, match="unknown sensor instance 'nope'"):
+        call("sensor_set", instance="nope", values={"x": 1})
+    assert call("sensor_stop", instance="probe") == {"stopped": True, "instances": ["probe"]}
+    assert call("sensor_stop") == {"stopped": True, "instances": ["env"]}
+    assert connected.requests[-1] == {"cmd": "sensor_stop", "all": True}
+    assert call("sensor_status")["reply"]["instances"] == []
+
+
+def test_sensor_stimulus_tools(connected):
+    call("sensor_start", definition="bmp280", pins={"sda": 2, "scl": 1})
+    stim = {"format": 1, "kind": "stimulus", "name": "warm",
+            "signals": {"temperature_c": [{"shape": "ramp", "start": 20, "end": 30, "duration_s": 5}]}}
+    assert call("sensor_stimulus_load", stimulus=stim)["reply"] == {"name": "warm", "signals": 1}
+    assert call("sensor_stimulus_start", at_s=1.5)["reply"]["running"] is True
+    assert call("sensor_stimulus_stop")["reply"]["running"] is False
+    with pytest.raises(ToolError, match="must be stimulus"):
+        call("sensor_stimulus_load", stimulus=INLINE)
+
+
+def test_sensor_tools_refuse_old_firmware(connected):
+    without_caps(connected, "sensors")
+    with pytest.raises(ToolError, match="too old for sensor emulation; update the firmware"):
+        call("sensor_start", definition="bmp280", pins={"sda": 2, "scl": 1})
 
 
 def test_pulls(connected):

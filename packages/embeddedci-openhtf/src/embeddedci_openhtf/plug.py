@@ -43,7 +43,7 @@ wherever a channel does::
         gpio(bench, "TRIGGER").pulse(0.001)  # the channel the profile names TRIGGER
 
 **LA voltage.** The pod refuses every LA-bank operation — flashing, the UART
-proxy, LA capture, pull resistors, I2C-sensor emulation — until the LA I/O-bank
+proxy, LA capture, pull resistors, sensor emulation — until the LA I/O-bank
 voltage (1.8 or 3.3 V) is selected. Pass ``la_voltage=`` to :func:`benchpod_plug`,
 set the ``benchpod_la_voltage`` conf key, or export ``BENCHPOD_LA_VOLTAGE``; it is
 applied right after connecting.
@@ -100,7 +100,7 @@ htf.conf.declare(
     "benchpod_la_voltage",
     description=(
         "LA I/O-bank voltage in volts (1.8 or 3.3), selected right after connecting. The pod "
-        "refuses flashing, UART, LA capture, pull resistors and I2C-sensor emulation until one "
+        "refuses flashing, UART, LA capture, pull resistors and sensor emulation until one "
         f"is set. Falls back to the {LA_VOLTAGE_ENV_VAR} env var."
     ),
     default_value=None,

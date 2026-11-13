@@ -98,7 +98,7 @@ class WiredFake:
         self.power: List[tuple] = []
 
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16}
+        return {"board": "stm32h563", "adc_bits": 16, "caps": ["sensors"]}
 
     def ping(self) -> Any:
         return "pong"
@@ -131,9 +131,9 @@ def test_benchpod_uses_the_profile_for_omitted_channels(monkeypatch):
     bp.power_on()
     bp.power_off(1)
     assert t.power == [(2, True, 0), (1, False, 0)]
-    bp.enable_i2c_sensor()
+    bp.sensors.start("bmp280")
     start = next(c for c in t.commands if c["cmd"] == "sensor_start")
-    assert 5 in start.values() and 4 in start.values()
+    assert start["pins"] == {"sda": 5, "scl": 4}
     assert bp.signal("t").la == 9
 
 
