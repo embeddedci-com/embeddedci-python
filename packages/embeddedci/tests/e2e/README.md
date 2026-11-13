@@ -64,11 +64,55 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 | DAC 0-5 V output wired to the ADC's front SMA | no | `BENCHPOD_E2E_EXT_LOOP=1` |
 | DUT power rail | eFuse 1 | `BENCHPOD_E2E_EFUSE` |
 | OpenOCD target | `target/stm32f4x.cfg` | `BENCHPOD_E2E_TARGET_CFG` |
-| Unwired LA channels | 9, 10 | `BENCHPOD_E2E_FREE_LA=9,10` |
-| Biased channel nothing uses | LA6 | `BENCHPOD_E2E_FREE_PULL_LA` |
+| Unwired LA channels (the tests drive them) | 9, 10 | `BENCHPOD_E2E_FREE_LA=9,10` or `none` |
+| LA13/LA14 with nothing driving them | 13, 14 | `BENCHPOD_E2E_TOP_LA=13,14` or `none` |
+| Biased channel nothing uses (LA1-LA6, pull-up) | LA6 | `BENCHPOD_E2E_FREE_PULL_LA` or `none` |
+| Pulled-down channel nothing is attached to (LA7/LA8) | LA7 | `BENCHPOD_E2E_FREE_PULLDOWN_LA` or `none` |
+| Where the emulated GPS transmits (a DUT UART RX line, or a free channel) | first free channel | `BENCHPOD_E2E_UART_SENSOR_TX` |
 | Highest DAC output voltage | 3.3 V | `BENCHPOD_E2E_DAC_MAX_V` |
 | Drive the bipolar 12v output (±1 V) | no | `BENCHPOD_E2E_ALLOW_12V=1` |
 | Something connected to the 4-20 mA input (J8) | no, J8 is open | `BENCHPOD_E2E_J8_WIRED=1` |
+
+## Bench profiles
+
+Some tests drive LA channels as outputs (step trains, GPIO, triggers, a UART session, the pull
+resistors), so they need channels nothing else drives. A test that uses one carries a
+`bench_needs` marker (`FREE_LA`, `TOP_LA`, `FREE_PULL_LA`, `FREE_PULLDOWN_LA`, `UART_SENSOR_TX`
+from `e2e_bench.py`). Setting the variable to `none` says the bench has no such channel: those
+tests skip at collection, before anything talks to the pod, and the skip reason names the variable.
+A malformed value (one channel where two are needed, LA7 as a pull-up channel) stops the run with a
+usage error instead of driving the wrong pin.
+
+**Free-channel bench** (the defaults; `examples/scenario-sensors-stm32`): LA9/LA10, LA13/LA14 and
+the LA6/LA7 resistors have nothing attached. No variables needed.
+
+**Fully wired process-node bench** (`examples/process-node-stm32`, wiring in its README): all 14
+channels go to the NUCLEO, and several of them are DUT outputs (LA7 USART3 TX, LA9 SCK, LA10 MOSI,
+LA14 CS) or reach a DUT pin through a resistor (LA6). Driving them would fight the DUT, or
+back-power it through its I/O pins while its rail is off. Run with:
+
+```bash
+BENCHPOD_E2E_FREE_LA=none BENCHPOD_E2E_TOP_LA=none \
+BENCHPOD_E2E_FREE_PULL_LA=none BENCHPOD_E2E_FREE_PULLDOWN_LA=none \
+BENCHPOD_E2E_UART_SENSOR_TX=8 \
+    make e2e POD=192.168.1.150 FIRMWARE=… REV=v3
+```
+
+`BENCHPOD_E2E_UART_SENSOR_TX=8` lets the GPS test transmit into the DUT's USART3 RX (PC11, an input
+until the firmware opens it), the line the process node's own UART sensor tests use; the capture
+reads it back from LA8. What skips there: the LA step-train, achieved-rate, above-12 MS/s,
+pre-trigger and host-clock tests in `test_e2e_pod.py`, the pull-up toggle, the UART session on free
+channels, every GPIO/ownership/trigger test in `test_e2e_gpio.py`, the 1.8 V pull-up and GPIO tests
+in `test_e2e_rev3.py`, the LA13/LA14 drive tests in `test_e2e_la13_14.py`, and the UART-session and
+LA13/LA14 tests of the cloud tier. Everything else runs: captures (which only observe all 14
+channels), the analog tiers, sensor emulation on the I2C pins, the pull-resistor directions, the
+14-channel pin table, the GPS on LA8, the reset pin and the DUT tier.
+
+`make e2e` also runs the MCP server's e2e file (`packages/embeddedci-mcp/tests/test_e2e_mcp.py`),
+which does not read these variables yet: its `test_top_la_channels` drives LA13/LA14 and its GPS
+test transmits on LA9. On the fully wired bench run this directory with pytest directly
+(`python -m pytest -v -rs packages/embeddedci/tests/e2e --benchpod-connection=…`), or deselect
+those two.
 
 ## Not covered here
 
