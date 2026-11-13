@@ -1020,7 +1020,7 @@ def _i2c_pins(bench):
     return {"sda": bench.i2c_sda, "scl": bench.i2c_scl}
 
 
-def test_sensor_emulation(sensors, bench):
+def test_sensor_emulation(pod, sensors, bench):
     s = sensors.start("bmp280", pins=_i2c_pins(bench),
                       values={"temperature_c": 21.0, "pressure_pa": 100_000})
     assert s.kind == "i2c" and s.started.get("image") == "emulation"
@@ -1030,7 +1030,20 @@ def test_sensor_emulation(sensors, bench):
     assert s.status()["running"]
     # A changed value must reach the register image: the BMP280 temperature lives in 0xFA..0xFC.
     assert s.regs(0xFA, 3) != before_regs, "set did not change the emulated temperature registers"
-    assert isinstance(s.capture(1024), list)
+    assert isinstance(s.capture(1024, wait_for_traffic=False), list)
+    if pod.supports("sensor_la_trigger"):
+        # sensor_la waits for the DUT's next transaction: either the bus is quiet on this bench
+        # (TriggerTimeout after the timeout) or the capture holds the transaction that fired it.
+        from embeddedci.benchpod.errors import TriggerTimeout
+
+        t0 = time.monotonic()
+        try:
+            txns = s.i2c_transactions(1024, timeout_s=0.5)
+        except TriggerTimeout as exc:
+            assert exc.la == bench.i2c_sda and exc.edge == "falling", exc
+            assert time.monotonic() - t0 >= 0.4, "the pod gave up before the timeout"
+        else:
+            assert txns, "a triggered sensor capture holds no transaction"
     status = s.status()
     assert status["slot"].startswith("i2c") and status["bus"]["transfers"] is None
     assert s.stop() == ["bmp280"]

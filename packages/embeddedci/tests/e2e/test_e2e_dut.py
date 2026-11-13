@@ -182,7 +182,7 @@ def _reported_temperature(uart) -> float:
 # ~2.30 s after power_on() returns; the rest of the ~170 ms burst probes the VL53L0X (0x29). A
 # 4096-byte sensor capture at 500 kHz is 16384 samples = ~33 ms and calls are ~250 ms apart, so
 # polling misses the probe about half the time: time one window to it instead. On the bench a call
-# made 2.28-2.34 s after power_on() catches it.
+# made 2.28-2.34 s after power_on() catches it. Firmware with sensor_la_trigger waits for the burst.
 BMP280_PROBE_AT = 2.31
 
 
@@ -190,13 +190,23 @@ def test_sensor_capture_sees_the_boot_probe(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
     sensor = _bmp280(dut, bench)
     try:
+        if dut.supports("sensor_la_trigger"):
+            # The capture waits for the bus's next START, so one call made well before the boot
+            # burst catches its start, the BMP280 probe, with no timing.
+            dut.power_off(bench.efuse)
+            time.sleep(0.5)
+            dut.power_on(bench.efuse)
+            time.sleep(1.0)
+            txns = sensor.i2c_transactions(4096, timeout_s=5.0)
+            assert i2c.addressed(txns, 0x76), i2c.format_transactions(txns)
+            return
         lead, misses = BMP280_PROBE_AT, []
         for _ in range(3):
             dut.power_off(bench.efuse)
             time.sleep(0.5)
             dut.power_on(bench.efuse)
             time.sleep(lead)
-            txns = sensor.i2c_transactions(4096)
+            txns = sensor.i2c_transactions(4096, wait_for_traffic=False)
             if i2c.addressed(txns, 0x76):
                 break
             misses.append((lead, len(txns)))
