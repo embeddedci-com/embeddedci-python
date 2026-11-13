@@ -94,8 +94,8 @@ back-power it through its I/O pins while its rail is off. Run with:
 ```bash
 BENCHPOD_E2E_FREE_LA=none BENCHPOD_E2E_TOP_LA=none \
 BENCHPOD_E2E_FREE_PULL_LA=none BENCHPOD_E2E_FREE_PULLDOWN_LA=none \
-BENCHPOD_E2E_UART_SENSOR_TX=8 \
-    make e2e POD=192.168.1.150 FIRMWARE=… REV=v3
+BENCHPOD_E2E_UART_SENSOR_TX=8 BENCHPOD_E2E_BOARD_REV=v3 \
+    python -m pytest -v -rs packages/embeddedci/tests/e2e --benchpod-connection=<pod host>
 ```
 
 `BENCHPOD_E2E_UART_SENSOR_TX=8` lets the GPS test transmit into the DUT's USART3 RX (PC11, an input
@@ -110,9 +110,8 @@ channels), the analog tiers, sensor emulation on the I2C pins, the pull-resistor
 
 `make e2e` also runs the MCP server's e2e file (`packages/embeddedci-mcp/tests/test_e2e_mcp.py`),
 which does not read these variables yet: its `test_top_la_channels` drives LA13/LA14 and its GPS
-test transmits on LA9. On the fully wired bench run this directory with pytest directly
-(`python -m pytest -v -rs packages/embeddedci/tests/e2e --benchpod-connection=…`), or deselect
-those two.
+test transmits on LA9. That is why the command above runs this directory with pytest instead of
+`make e2e`.
 
 ## Not covered here
 
