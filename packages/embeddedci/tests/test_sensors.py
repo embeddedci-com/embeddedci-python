@@ -295,6 +295,9 @@ def test_handle_drives_set_fault_regs_capture_and_stop():
         with pytest.raises(ValueError, match="length is 1..9"):
             s.regs(0xF7, 10)
         assert len(s.capture(64)) == 64
+        assert fake.commands[-1]["sample_rate_mhz"] == 0.5, "500 kHz by default: the pod's own default is too fast"
+        s.capture(16, sample_rate_hz=2_000_000)
+        assert fake.commands[-1]["sample_rate_mhz"] == 2.0
         with pytest.raises(ValueError, match="1..4096"):
             s.capture(4097)
         with pytest.raises(ValueError, match="at least one value"):

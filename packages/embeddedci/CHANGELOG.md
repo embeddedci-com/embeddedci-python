@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## 2.13.11
+
+- `Sensor.capture()` / `i2c_transactions()` (and `SensorEmulation.capture()`) take
+  `sample_rate_hz`, 500 kHz by default. Without a rate the pod captured at its highest LA rate,
+  well under a millisecond, too short for one I2C transaction. The capture starts at once: lower
+  the rate for a longer window.
+
 ## 2.13.10
 
 - User-defined sensors (pod firmware with the `sensors` capability) replace the built-in sensor
