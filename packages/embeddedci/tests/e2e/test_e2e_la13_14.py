@@ -5,6 +5,8 @@
 LA13/LA14 must be free of drivers (device INPUTS are fine; override with BENCHPOD_E2E_TOP_LA). Each path that used to stop
 at 12 gets one check: the pin table, GPIO drive + read-back, a capture, a trigger, a UART session.
 Firmware older than 3.1 only has 12 channels, so these skip there; on 3.1+ a missing channel fails.
+On a bench where the DUT drives one of them, BENCHPOD_E2E_TOP_LA=none skips every test that drives
+them; the pin table check still runs.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ import time
 import pytest
 
 from embeddedci.benchpod import Trigger
+
+from e2e_bench import TOP_LA
 
 pytestmark = pytest.mark.hardware
 
@@ -27,8 +31,8 @@ def _version(v: str):
 
 
 @pytest.fixture
-def top(pod, bench):
-    """(LA13, LA14), with every GPIO released before and after."""
+def fourteen(pod):
+    """The pod, on firmware with 14 LA channels, with every GPIO released before and after."""
     if not pod.capabilities.la_pins:
         pytest.skip("the pod firmware has no LA pin modes (capability la_pins)")
     count = len(pod.la_pins())
@@ -37,18 +41,25 @@ def top(pod, bench):
             pytest.fail(f"firmware {pod.capabilities.firmware_version} reports {count} LA channels, want 14")
         pytest.skip(f"firmware {pod.capabilities.firmware_version} has {count} LA channels; LA13/LA14 need 3.1+")
     pod.release_gpio()
-    yield bench.top_la
+    yield pod
     pod.release_gpio()
 
 
-def test_pin_table_lists_all_fourteen_channels(pod, top):
+@pytest.fixture
+def top(fourteen, bench):
+    """The two top channels the tests drive (LA13, LA14 unless BENCHPOD_E2E_TOP_LA says otherwise)."""
+    return bench.top_la
+
+
+def test_pin_table_lists_all_fourteen_channels(pod, fourteen):
     pins = {p.la: p for p in pod.la_pins()}
     assert sorted(pins) == list(range(1, 15))
-    for la in top:
+    for la in (13, 14):
         assert pins[la].function == "none" and pins[la].pull is None   # LA9-LA14 have no resistor
     assert set(pod.pin_levels()) == set(range(1, 15))
 
 
+@TOP_LA
 def test_gpio_drives_each_top_channel_independently(pod, top):
     la13, la14 = top
     a = pod.gpio(la13, "output", level=1)
@@ -62,6 +73,7 @@ def test_gpio_drives_each_top_channel_independently(pod, top):
     assert state[la14].gpio == "output" and state[la14].level == 1
 
 
+@TOP_LA
 def test_capture_sees_both_top_channels_and_triggers_on_la14(pod, top):
     """LA13 held high, a rising trigger on LA14, then 10 pulses on LA14 in the capture."""
     if not pod.capabilities.capture_trigger:
@@ -93,6 +105,7 @@ def test_capture_sees_both_top_channels_and_triggers_on_la14(pod, top):
     assert len(widths) >= 8 and all(abs(w - 0.002) < 0.0002 for w in widths), widths
 
 
+@TOP_LA
 def test_level_trigger_on_la13(pod, top):
     if not pod.capabilities.capture_trigger:
         pytest.skip("the pod gateware has no capture triggers (capability capture_trigger)")
@@ -103,6 +116,7 @@ def test_level_trigger_on_la13(pod, top):
     assert time.monotonic() - start < 4.0 and la.duty_cycle(la13) == 1.0
 
 
+@TOP_LA
 def test_step_train_on_la14_is_captured(pod, top):
     """An exact count: the 40 ms train starts 0.5 s into a 2 s capture, so none of it is missed.
 
@@ -125,6 +139,7 @@ def test_step_train_on_la14_is_captured(pod, top):
     assert rising == 20, f"{rising} step pulses on LA{la14}, want 20"
 
 
+@TOP_LA
 def test_uart_session_on_the_top_channels(pod, top):
     la13, la14 = top
     with pod.open_uart(rx=la13, tx=la14, baud=115200) as uart:

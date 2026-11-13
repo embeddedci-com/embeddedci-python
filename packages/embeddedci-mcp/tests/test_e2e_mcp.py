@@ -7,12 +7,20 @@ Skips without a connection. The DUT part expects the examples/scenario-sensors-s
 UART on BENCHPOD_E2E_UART_RX/TX (default LA3/LA4) and SWD on LA11/LA12. On the digital-only board
 the analog tests skip and test_digital_board_refuses_the_analog_tools runs instead;
 BENCHPOD_EXPECT_BOARD=analog|digital fails the run on the other board.
+
+The channels the tests drive come from the SDK e2e suite's bench profile
+(packages/embeddedci/tests/e2e/e2e_bench.py, loaded from that file): BENCHPOD_E2E_TOP_LA and
+BENCHPOD_E2E_UART_SENSOR_TX / BENCHPOD_E2E_FREE_LA. Set to ``none`` on a bench that wires every LA
+channel to the DUT, the tests that need them skip (that README's "Bench profiles").
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import sys
 import time
+from pathlib import Path
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
@@ -20,6 +28,29 @@ from mcp.server.fastmcp.exceptions import ToolError
 from conftest import call
 
 pytestmark = pytest.mark.hardware
+
+#: The SDK e2e suite's bench profile, the one place that parses the BENCHPOD_E2E_* channels.
+BENCH_PROFILE = Path(__file__).resolve().parents[2] / "embeddedci" / "tests" / "e2e" / "e2e_bench.py"
+
+
+def _load_bench_profile():
+    if "e2e_bench" in sys.modules:
+        return sys.modules["e2e_bench"]
+    spec = importlib.util.spec_from_file_location("e2e_bench", BENCH_PROFILE)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["e2e_bench"] = module      # its dataclass needs to find its own module
+    spec.loader.exec_module(module)
+    return module
+
+
+e2e_bench = _load_bench_profile()
+BENCH = e2e_bench.bench_from_env(os.environ)
+
+
+def bench_needs(*names: str, bench=None) -> pytest.MarkDecorator:
+    """Skip, at collection and naming the variable to set, when the bench has none of ``names``."""
+    reason = e2e_bench.missing_reason(BENCH if bench is None else bench, names)
+    return pytest.mark.skipif(reason is not None, reason=reason or "")
 
 LA_VOLTAGE = 3.3  # the bench board's I/O voltage — change to 1.8 for a 1V8 board
 
@@ -140,20 +171,22 @@ def test_logic_capture_and_decode(connected):
     assert call("decode_la", protocol="uart", rx=5, baud=115200)["protocol"] == "uart"
 
 
+@bench_needs("top_la")
 def test_top_la_channels(connected):
     """LA13/LA14 (firmware 3.1+) through the MCP tools: pin table, GPIO, capture summary."""
     if len(call("la_pins")["pins"]) < 14:
         pytest.skip("the pod firmware has 12 LA channels; LA13/LA14 need 3.1+")
+    hi, lo = BENCH.top_la
     try:
-        call("gpio_mode", la=[13, 14], mode="output", level=0)
-        call("gpio_write", la=[13], level=1)
-        levels = {lv["la"]: lv["level"] for lv in call("gpio_read", la=[13, 14])["levels"]}
-        assert levels == {13: 1, 14: 0}
+        call("gpio_mode", la=[hi, lo], mode="output", level=0)
+        call("gpio_write", la=[hi], level=1)
+        levels = {lv["la"]: lv["level"] for lv in call("gpio_read", la=[hi, lo])["levels"]}
+        assert levels == {hi: 1, lo: 0}
         la = call("capture_la", samples=4096, sample_rate_hz=1_000_000)
         by_la = {ch["la"]: ch for ch in la["channels"]}
-        assert by_la[13]["high_fraction"] == 1.0 and by_la[14]["high_fraction"] == 0.0
+        assert by_la[hi]["high_fraction"] == 1.0 and by_la[lo]["high_fraction"] == 0.0
     finally:
-        call("gpio_release", la=[13, 14])
+        call("gpio_release", la=[hi, lo])
 
 
 def _require_sensors(connected) -> None:
@@ -174,8 +207,8 @@ def test_sensor_and_can(connected):
         call("can_close")
 
 
-def test_library_and_inline_sensors_and_gps(connected):
-    """Library sensors, a definition written inline (as an agent would) and the NMEA GPS."""
+def test_library_and_inline_sensors(connected):
+    """Library sensors and a definition written inline (as an agent would)."""
     _require_sensors(connected)
     pins = {"sda": _pin("I2C_SDA", 2), "scl": _pin("I2C_SCL", 1)}
     try:
@@ -196,8 +229,17 @@ def test_library_and_inline_sensors_and_gps(connected):
         call("sensor_set", instance="probe", values={"level": 42})
         assert call("sensor_regs", instance="probe", start=0, length=1)["bytes"] == [42]
         call("sensor_stop", instance="probe")
+    finally:
+        call("sensor_stop")
 
-        call("sensor_start", definition="gps_nmea", instance="gps", pins={"tx": _pin("FREE_LA_A", 9)},
+
+@bench_needs("uart_sensor_tx")
+def test_gps_sensor(connected):
+    """The NMEA GPS on a free channel or a DUT UART RX line (BENCHPOD_E2E_UART_SENSOR_TX): the pod
+    only transmits, and a DUT RX pin is an input."""
+    _require_sensors(connected)
+    try:
+        call("sensor_start", definition="gps_nmea", instance="gps", pins={"tx": BENCH.uart_sensor_tx},
              values={"lat_deg": 40.7128, "lon_deg": -74.006, "fix": 1})
         call("sensor_set", instance="gps", values={"speed_kmh": 50, "course_deg": 180})
         time.sleep(1.2)

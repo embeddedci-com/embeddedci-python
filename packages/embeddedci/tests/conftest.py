@@ -15,6 +15,15 @@ if os.environ.get("EMBEDDEDCI_TEST_INSTALLED") != "1" and _SRC not in sys.path:
 pytest_plugins = ["pytester"]
 
 
+def pytest_configure(config):
+    # e2e/conftest.py applies this marker, but e2e_bench.py creates it when that conftest is
+    # imported, before the conftest's own pytest_configure could register it.
+    config.addinivalue_line(
+        "markers", "bench_needs(*names): the e2e test uses these optional bench resources (free "
+        "LA channels and the like, e2e/e2e_bench.py NEEDS); it skips when the bench sets them to "
+        "'none'")
+
+
 @pytest.fixture(scope="session")
 def benchpod_la_voltage():
     """I/O voltage of the bench boards the hardware tests run against: 3.3 V.
