@@ -2,7 +2,11 @@
 
 The LA voltage comes from ``tests/conftest.py`` (3.3 V). The bench wiring below matches the
 EmbeddedCI bench (NUCLEO-F446RE running examples/scenario-sensors-stm32); override any of it with
-``BENCHPOD_E2E_*`` environment variables for another bench.
+``BENCHPOD_E2E_*`` environment variables for another bench (parsed in e2e_bench.py).
+
+Tests that drive "free" LA channels carry ``bench_needs`` markers (``FREE_LA`` and friends from
+e2e_bench.py). A bench that wires every channel to the DUT sets those variables to ``none`` and
+the marked tests skip, saying which variable to set.
 
 On the digital-only board (no analog front end) the analog tests skip: they carry
 ``ANALOG`` (``@pytest.mark.benchpod_capability("analog")``) or call ``require_analog`` (both in
@@ -14,13 +18,12 @@ so a pod whose analog section went undetected cannot skip half the suite and pas
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import pytest
 
 from embeddedci.benchpod import BenchPod, BenchPodError, FpgaImage
 
+from e2e_bench import Bench, bench_from_env, missing_reason
 from e2e_helpers import check_expected_board, require_analog
 
 
@@ -34,57 +37,35 @@ def pytest_report_header(config):
     return f"embeddedci under test: {os.path.dirname(embeddedci.__file__)} (installed dist: {ver})"
 
 
-def _env(name: str, default: str) -> str:
-    return os.environ.get(f"BENCHPOD_E2E_{name}", default)
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "bench_needs(*names): the test uses these optional bench resources (free LA "
+        "channels and the like, e2e_bench.NEEDS); it skips when the bench sets them to 'none'")
 
 
-@dataclass(frozen=True)
-class Bench:
-    """How the DUT is wired to the pod, and what the tests may drive."""
+def _bench_or_usage_error() -> Bench:
+    try:
+        return bench_from_env(os.environ)
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from None
 
-    uart_rx: int          # LA channel wired to the DUT's TX (the pod samples it)
-    uart_tx: int          # LA channel wired to the DUT's RX (the pod drives it)
-    i2c_sda: int
-    i2c_scl: int
-    swclk: int
-    swdio: int
-    nreset: bool          # DUT reset wired to the pod's reset pin (rev3 pods only)
-    efuse: int            # target-power rail the DUT is on
-    target_cfg: str       # OpenOCD target config
-    free_la: Tuple[int, int]   # two LA channels nothing is wired to
-    top_la: Tuple[int, int]    # LA13/LA14 (firmware 3.1+), nothing wired to them either
-    free_pull_la: int     # a biased channel (LA1-LA8) nothing depends on
-    dac_max_v: float      # the highest voltage the tests drive on a DAC output
-    allow_12v: bool       # whether the bipolar 12v output may be driven (±1 V)
-    board_rev: str        # the PCB revision this bench's pod must report ("" = accept any)
-    nrst_la: Optional[int]  # LA channel jumpered to the pod's reset pin (J1 pin 22), if any
-    ext_loop: bool = False  # the DAC 0-5 V output is wired to the ADC's front SMA
-    spi: Optional[Tuple[int, int, int, int]] = None   # SPI flash on (sck, mosi, miso, cs), or none
+
+def pytest_collection_modifyitems(config, items):
+    """Skip the tests whose ``bench_needs`` resources this bench does not have (set to 'none')."""
+    marked = [item for item in items if item.get_closest_marker("bench_needs")]
+    if not marked:
+        return
+    bench = _bench_or_usage_error()
+    for item in marked:
+        names = [n for mark in item.iter_markers("bench_needs") for n in mark.args]
+        reason = missing_reason(bench, names)
+        if reason:
+            item.add_marker(pytest.mark.skip(reason=reason))
 
 
 @pytest.fixture(scope="session")
 def bench() -> Bench:
-    free = tuple(int(x) for x in _env("FREE_LA", "9,10").split(","))
-    return Bench(
-        uart_rx=int(_env("UART_RX", "3")),
-        uart_tx=int(_env("UART_TX", "4")),
-        i2c_sda=int(_env("I2C_SDA", "2")),
-        i2c_scl=int(_env("I2C_SCL", "1")),
-        swclk=int(_env("SWCLK", "11")),
-        swdio=int(_env("SWDIO", "12")),
-        nreset=_env("NRESET", "0") == "1",
-        efuse=int(_env("EFUSE", "1")),
-        target_cfg=_env("TARGET_CFG", "target/stm32f4x.cfg"),
-        free_la=(free[0], free[1]),
-        top_la=tuple(int(x) for x in _env("TOP_LA", "13,14").split(",")),  # type: ignore[arg-type]
-        free_pull_la=int(_env("FREE_PULL_LA", "6")),
-        dac_max_v=float(_env("DAC_MAX_V", "3.3")),
-        allow_12v=_env("ALLOW_12V", "0") == "1",
-        board_rev=_env("BOARD_REV", ""),
-        nrst_la=int(_env("NRST_LA", "0")) or None,
-        ext_loop=_env("EXT_LOOP", "0") == "1",
-        spi=tuple(int(x) for x in _env("SPI", "").split(",")) if _env("SPI", "") else None,  # type: ignore[arg-type]
-    )
+    return _bench_or_usage_error()
 
 
 def quiesce(pod: BenchPod) -> None:
