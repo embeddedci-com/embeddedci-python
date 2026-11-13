@@ -376,6 +376,10 @@ class SensorEmulation:
             req["values"] = initial
         info = self.define(doc, instance=name)
         started = self._command(req)
+        if isinstance(started, dict) and started.get("image_loaded"):
+            # The pod switched to the emulation image: the cached capabilities (control loop,
+            # deep replay) describe the previous one.
+            self._pod._caps = None
         return Sensor(self, name, info=info, started=started)
 
     def sensor(self, instance: str) -> Sensor:

@@ -237,6 +237,7 @@ def test_start_defines_in_chunks_then_starts_with_wired_pins():
                          values={"temperature_c": 30})
     assert isinstance(s, Sensor) and s.instance == "env" and s.kind == "i2c" and s.name == "bme280"
     assert s.started["image_loaded"] is True
+    assert bp._caps is None, "an image switch drops the cached capabilities (control loop is gone)"
     defines = [c for c in fake.commands if c["cmd"] == "sensor_define"]
     assert len(defines) > 1 and all(c["instance"] == "env" for c in defines)
     assert json.loads(fake.uploads["env"]) == load_definition("bme280")
