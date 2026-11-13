@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.14
+
+- Pin directions are on by default: `connect` and `set_wiring` send the wiring profile's DUT
+  directions to the pod (`la_dir`, firmware 3.10.4+; older firmware is skipped). `wiring` shows
+  each channel's `dut_dir` and both report `directions`; `status` warns when a driven pin kept
+  them from going out. Profiles take `dut_dirs` to override a role's or signal's default.
+- Needs embeddedci 2.13.14.
+
 ## 2.13.13
 
 - I2C master tools (gateware v55+): `i2c_open`, `i2c_transfer` (a NACK returns `ack: false` and

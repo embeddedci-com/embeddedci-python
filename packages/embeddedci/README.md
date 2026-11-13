@@ -511,7 +511,7 @@ with bp.open_uart() as uart:                   # rx=3, tx=4, 115200 baud from th
 bp.flash(file="app.elf")                        # swclk/swdio/nreset/target from the profile
 bp.sensors.start("bmp280")                      # sda/scl from the profile
 la = bp.capture_la(100_000, trigger=Trigger("READY"))
-print(wiring.describe())                        # a pin table with each channel's bias resistor
+print(wiring.describe())                        # a pin table: bias resistor and DUT direction per channel
 ```
 
 | Key | Default | Meaning |
@@ -523,6 +523,7 @@ print(wiring.describe())                        # a pin table with each channel'
 | `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | `11`, `12`, `False`, `""` | flashing |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
 | `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
+| `dut_dirs` | `{}` | the DUT direction of a role or signal where its default is wrong: `{"uart_rx": "bidir", "READY": "dut_input"}` (role key or signal name to `dut_input`, `dut_output` or `bidir`); see [pin directions](#gpio-on-the-la-pins) |
 
 A role set to `None` is not wired. Construction validates the whole profile and raises `ValueError`
 listing every problem — including two roles or signals on one LA channel; `wiring.warnings()` lists
@@ -922,15 +923,27 @@ try:
 except DirectionConflictError:                # use "open_drain", or fix the wiring
     bp.gpio(9, "open_drain")
 
-bp.apply_pin_directions()                     # the wiring profile's directions, in one go
+print(bp.pin_directions_status)               # "sent": the wiring's directions went out on connect
 print(bp.pin_directions())                    # {5: 'dut_output', 4: 'dut_input', 1: 'bidir', ...}
+bp.apply_pin_directions()                     # send them again (raises on a conflict)
 print(bp.la_dir())                            # every pin's LaPinState, dir included
 ```
 
-`pin_directions()` reads them from the wiring profile: `uart_rx` and `spi_miso` are DUT outputs,
-`uart_tx`, `spi_sclk`, `spi_mosi` and `spi_cs` DUT inputs, the I2C pins `bidir`; a signal with
-direction `input` (the pod watches it) is a DUT output, `output` a DUT input, `open_drain` and
-`bidir` are `bidir`. The pod forgets the directions on a reboot, so send them after connecting.
+**The wiring profile's directions are on by default.** On a pod with firmware 3.10.4 or later (`bp.capabilities.la_dir`)
+the SDK sends them with `la_dir` when it connects and whenever `bp.wiring` changes, and marks the pins
+the profile doesn't name `unknown`. On older firmware it skips this quietly.
+`bp.pin_directions_status` says how it went: `"sent"`, or `"not sent: <why>"` (older firmware, or
+a pin the profile calls a DUT output that is driven right now; the other directions still go out).
+The connection never fails over it. The pod forgets the directions on a reboot; the next connect
+sends them again.
+
+Every wired role and signal has a direction. The defaults: `uart_rx` and `spi_miso` are DUT
+outputs (the DUT drives them); `uart_tx`, `spi_sclk`, `spi_mosi`, `spi_cs` and `swd_swclk` DUT
+inputs; the I2C pins and `swd_swdio` `bidir`; a signal with direction `input` (the pod watches it)
+is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. The profile's
+`dut_dirs` overrides any of them (`wiring.dut_dir(name)` is one role's or signal's direction,
+`wiring.pin_dut_dirs()` the per-channel map). Note the point of view: `la_dir` and `dut_dirs`
+describe the DUT's signal, while a signal's `direction` is seen from the pod.
 `LaPinState.dir` is a pin's direction (`None` when unknown), and `LaPinState.warn` holds warning
 bits that `LaPinState.warnings` spells out: a pull-up under a push-pull output, and a pin driven high
 or pulled up while the target power is off (it powers an unpowered DUT through its I/O pins).
@@ -1944,7 +1957,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
-| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
+| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `pin_directions_status`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | Emulated sensors | `sensors` (a `SensorEmulation`: `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)`, `define()`, `validate()`, `set()`, `fault()`, `clear_fault()`, `load_stimulus()`, `start_stimulus()`, `stop_stimulus()`, `stop()`, `status()`, `regs()`, `capture()`, `i2c_transactions()`, `library()`); see [Emulated sensors](#emulated-sensors) |
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(..., send=None)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
@@ -2023,7 +2036,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `MotorEmulator` (class) | `open_motor_emulator` | `configure()`, `boards()`, `probe()`, `read()`, `read_signed(reg)`, `write()`, `status()`, `trips()`, `clear_trips()`, `arm()`, `set_control()`, `set_pwm()`, `set_duties(a, b, c)`, `set_shape(shape)`, `set_protection()`, `set_battery()`, `battery_state()`, `set_pv_calibration(offset, gain)`, `sample()`, `time()`, `start_log()`, `stop_log()`, `read_log()`, `eeprom_read(addr, length)`, `eeprom_write(addr, data)`, `close()` |
 | `BatteryModel` | `MotorEmulator.set_battery` | `capacity_ah`, `ocv`, `r0_ohm`, `r1_ohm`, `tau_s`, `soc`, `v_min`, `v_max`, `invert_current` |
 | `EmulatorCalibration` | `open_motor_emulator(calibration=...)` | `codes_per_amp`, `codes_per_volt`, `offsets`, `sample_rate_hz`, `amps()`, `volts()`, `current_code()`, `bus_code()`, `resistance_code()` |
-| `Wiring` | `wiring`, `save_wiring` | see [Wiring profile](#wiring-profile); also `defaults()`, `load(path)`, `coerce(value)` (a `Wiring`, dict or file path), `from_dict(data, *, strict=True)` (`strict=False` keeps unknown keys in `extra`), `to_dict()`, `with_changes(**changes)`, `assignments()`, `pins()`, `la(name)`, `signal(name)`, `describe()`, `warnings()`, `la_voltage`, `i2c_address` |
+| `Wiring` | `wiring`, `save_wiring` | see [Wiring profile](#wiring-profile); also `defaults()`, `load(path)`, `coerce(value)` (a `Wiring`, dict or file path), `from_dict(data, *, strict=True)` (`strict=False` keeps unknown keys in `extra`), `to_dict()`, `with_changes(**changes)`, `assignments()`, `pins()`, `la(name)`, `signal(name)`, `dut_dir(name)`, `pin_dut_dirs()`, `describe()`, `warnings()`, `la_voltage`, `i2c_address`, `dut_dirs` |
 | `Signal` | `Wiring.signals` | `name`, `la`, `direction`, `active_low`, `description`, `to_dict()` |
 | `Waveform` | `WaveformLibrary` | `id`, `name`, `kind`, `sample_count`, `sample_rate_hz`, `bits`, `full_scale_v`, `recording_size_bytes`, `created_at`, `dac_path`, `segments`, `unit`, `is_recording` |
 | `WaveformLibrary` (class) | `waveforms` | `list()`, `get()`, `find()`, `save_recording()`, `save_waveform()`, `save_segments()`, `rename()`, `delete()`, `preview()`, `download_recording()`, `samples_b64(waveform_id)` |

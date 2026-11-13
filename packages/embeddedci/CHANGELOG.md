@@ -1,5 +1,19 @@
 # Changelog — `embeddedci`
 
+## 2.13.14
+
+- Pin directions are on by default. On a pod with firmware 3.10.4+ the SDK sends the wiring
+  profile's directions with `la_dir` when it connects and whenever `bp.wiring` changes, and marks
+  the pins the profile doesn't name `unknown`; older firmware is skipped quietly. The connection
+  never fails over it: `bp.pin_directions_status` is `"sent"` or `"not sent: <why>"`.
+- Every wired role and signal has a DUT direction. New defaults: `swd_swclk` is a DUT input,
+  `swd_swdio` is `bidir` (SWD pins were left out before). The profile's new `dut_dirs` key
+  overrides any role or signal (`{"uart_rx": "bidir", "READY": "dut_input"}`). Old profiles stay
+  valid. `Wiring.dut_dir(name)`, `Wiring.pin_dut_dirs()`; `describe()` shows the direction.
+- `apply_pin_directions()` sends DUT outputs last, so a driven pin refusing its mark leaves the
+  other directions in place.
+- `Capabilities.la_dir`: the firmware takes pin directions (3.10.4+).
+
 ## 2.13.13
 
 - The pod as a bus master (gateware v55+). `bp.open_i2c(sda, scl, *, hz=100_000, pullups="pod")`

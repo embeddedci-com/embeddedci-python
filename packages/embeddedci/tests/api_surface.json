@@ -346,6 +346,7 @@
     "counts_to_volts": "(self, count: 'float') -> 'float'",
     "from_parameters": "(cls, params: 'Mapping[str, Any]') -> \"'Capabilities'\"",
     "from_status": "(cls, status: 'Mapping[str, Any]') -> \"'Capabilities'\"",
+    "la_dir": "property",
     "merge": "(self, other: \"'Capabilities'\") -> \"'Capabilities'\""
   },
   "Capture": {
@@ -1175,17 +1176,20 @@
       "signals",
       "extra",
       "source",
-      "version"
+      "version",
+      "dut_dirs"
     ],
     "assignments": "(self) -> 'Iterator[Tuple[str, int]]'",
     "coerce": "(cls, value: \"Union['Wiring', Mapping[str, Any], str, Path]\") -> \"'Wiring'\"",
     "defaults": "(cls) -> \"'Wiring'\"",
     "describe": "(self) -> 'str'",
+    "dut_dir": "(self, name: 'str') -> 'str'",
     "from_dict": "(cls, data: 'Mapping[str, Any]', *, source: 'str' = 'dict', strict: 'bool' = True) -> \"'Wiring'\"",
     "i2c_address": "property",
     "la": "(self, name: 'str') -> 'int'",
     "la_voltage": "property",
     "load": "(cls, path: 'Union[str, Path]') -> \"'Wiring'\"",
+    "pin_dut_dirs": "(self) -> 'Dict[int, str]'",
     "pins": "(self) -> 'Dict[int, str]'",
     "signal": "(self, name: 'str') -> 'Signal'",
     "to_dict": "(self) -> 'Dict[str, Any]'",

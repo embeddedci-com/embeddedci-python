@@ -120,11 +120,13 @@ def _bias(la: int) -> Optional[str]:
 def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
     """The effective profile, its 14-row pin table and anything risky about it."""
     pins = wiring.pins()
+    dirs = wiring.pin_dut_dirs()
     return m.WiringResult(
         source=wiring.source, version=wiring.version, la_voltage=wiring.la_voltage,
         efuse=wiring.efuse, uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
         swd_nreset=wiring.swd_nreset, swd_target=wiring.swd_target,
-        pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la)) for la in range(1, 15)],
+        pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la), dut_dir=dirs.get(la))
+              for la in range(1, 15)],
         signals=[m.WiringSignal(name=s.name, la=s.la, direction=s.direction,
                                 active_low=s.active_low, description=s.description)
                  for s in wiring.signals],

@@ -21,8 +21,9 @@ voltage. This keeps client-side capture volts consistent with what the server st
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 # Built-in nominal front-end calibration per board — the affine fit ``volts = a + b*count``
 # for boards whose analog front-end is inverting (so the naive count/full-scale model would
@@ -85,6 +86,14 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
 #: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
 #: The first gateware with the I2C master, SPI modes 1 and 2 and send-and-capture.
 BUS_MASTER_GATEWARE = 55
+#: The first firmware with ``la_dir`` (pin directions).
+LA_DIR_FIRMWARE = (3, 10, 4)
+
+
+def _version_tuple(version: str) -> Optional[Tuple[int, int, int]]:
+    """``"3.10.4"`` / ``"v3.10.4-dev"`` as ``(3, 10, 4)``; None when it is not a version."""
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", (version or "").strip())
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 _STATUS_FLAGS = ("ota_sig", "sig_policy_cmd", "lan_policy_cmd", "tunnel_max_tier", "lease_state",
                  "cloud_ca", "cloud_proxy", "blob_slots", "can_fd")
@@ -498,6 +507,13 @@ class Capabilities:
         return None
 
     # -- scaling ------------------------------------------------------------
+
+    @property
+    def la_dir(self) -> bool:
+        """The pod takes pin directions (``la_dir``, firmware 3.10.4+). False when the firmware
+        version is unknown."""
+        v = _version_tuple(self.firmware_version)
+        return v is not None and v >= LA_DIR_FIRMWARE
 
     @property
     def bus_master(self) -> bool:

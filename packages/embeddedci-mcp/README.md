@@ -192,7 +192,7 @@ description, ranges and enums, so an agent sees more than this table.
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `wiring` | Which DUT signal is on which LA channel, plus the power rail, UART baud and SWD target. | none |
-| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. Also sends the profile's pin directions to the pod (`la_dir`; `directions` in the result says whether it worked). | **`profile`**, `save=false` |
+| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. Also sends the profile's pin directions to the pod (`la_dir`, firmware 3.10.4+; `directions` in the result says whether it worked). | **`profile`**, `save=false` |
 
 ### Power
 
@@ -301,7 +301,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout=5` |
 | `gpio_pulse` | FPGA-timed pulses on an LA channel: `width` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width`**, `count=1` |
 | `gpio_release` | Return channels to high-Z, watched by captures. | `la` |
-| `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `from_wiring` sends the wiring profile's directions; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
+| `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `connect` and `set_wiring` already send the wiring profile's; `from_wiring` sends them again; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
 
 ### Analog
 
@@ -458,6 +458,14 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   registered, server unreachable, another account) the defaults apply and nothing fails; over the
   LAN or USB it gives up after about 3 seconds. The STM32 pod's USB text console cannot report its
   registration, so over USB the defaults apply. `BENCHPOD_WIRING_SOURCE=local` skips the lookup.
+- **Pin directions on by default.** Every wired role and signal has a DUT direction, shown per
+  channel in `wiring` (`dut_dir`): `uart_rx` and `spi_miso` are DUT outputs; `uart_tx`, the other
+  SPI pins and SWCLK DUT inputs; I2C and SWDIO bidirectional; a signal the pod watches (`input`) a
+  DUT output, one it drives (`output`) a DUT input. The profile's `dut_dirs` overrides any of them.
+  On firmware 3.10.4+ `connect` and `set_wiring` send them to the pod (`la_dir`), which then
+  refuses a push-pull driver on a DUT output pin, so the pod never drives against the DUT. Older
+  firmware is skipped quietly. `wiring` and `set_wiring` report `directions`, and `status` warns
+  when a driven pin kept them from going out.
 - **Agent-sized captures.** `capture_adc` returns calibrated statistics, the dominant frequency and a
   min/max envelope; `capture_la` returns per-channel levels, edges and frequencies. The last captures
   stay in the session, so `decode_la`, `replay(from_last_capture=true)` and

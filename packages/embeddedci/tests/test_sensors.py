@@ -228,7 +228,8 @@ def test_old_firmware_gets_a_clear_error_before_anything_is_sent():
         assert str(info.value) == ("this pod's firmware is too old for sensor emulation; "
                                    "update the firmware")
         assert info.value.feature == "sensors"
-    assert fake.commands == []
+    # Only the pin directions the SDK sends from the wiring on connect.
+    assert [c for c in fake.commands if c["cmd"] != "la_dir"] == []
 
 
 def test_start_defines_in_chunks_then_starts_with_wired_pins():
