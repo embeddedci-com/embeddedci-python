@@ -52,6 +52,10 @@ MAX_LA_BYTES = 4096
 #: The I2C bus capture's default rate: the pod's own default is its highest LA rate, which fills
 #: 16384 samples in well under a millisecond, shorter than one transaction.
 CAPTURE_RATE_HZ = 500_000.0
+#: How long a capture waits for the DUT's next I2C transaction by default, in seconds.
+CAPTURE_TIMEOUT_S = 2.0
+#: The longest wait the pod takes (``timeout_ms``), in milliseconds.
+MAX_CAPTURE_TIMEOUT_MS = 600_000
 #: The message a pod without the ``sensors`` capability gives.
 TOO_OLD = "this pod's firmware is too old for sensor emulation; update the firmware"
 
@@ -229,20 +233,28 @@ class Sensor:
         return self._emulation.regs(self.instance, start=start, length=length)
 
     def capture(self, samples: int = MAX_LA_BYTES,
-                sample_rate_hz: float = CAPTURE_RATE_HZ) -> List[int]:
-        """A raw capture of this I2C instance's bus pins (``sensor_la``). SPI and UART sensors:
-        capture their pins with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
+                sample_rate_hz: float = CAPTURE_RATE_HZ, *,
+                timeout_s: float = CAPTURE_TIMEOUT_S,
+                wait_for_traffic: bool = True) -> List[int]:
+        """A raw capture of this I2C instance's bus pins (``sensor_la``), see
+        :meth:`SensorEmulation.capture`: it waits up to ``timeout_s`` for the DUT's next
+        transaction. SPI and UART sensors: capture their pins with
+        :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         if self.kind and self.kind != "i2c":
             raise ValueError(f"sensor capture records I2C sensors only; capture the pins of "
                              f"{self.instance} (a {self.kind} sensor) with la_capture")
-        return self._emulation.capture(self.instance, samples, sample_rate_hz)
+        return self._emulation.capture(self.instance, samples, sample_rate_hz,
+                                       timeout_s=timeout_s, wait_for_traffic=wait_for_traffic)
 
     def i2c_transactions(self, samples: int = MAX_LA_BYTES,
-                         sample_rate_hz: float = CAPTURE_RATE_HZ) -> List["I2CTransaction"]:
+                         sample_rate_hz: float = CAPTURE_RATE_HZ, *,
+                         timeout_s: float = CAPTURE_TIMEOUT_S,
+                         wait_for_traffic: bool = True) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance, decoded into transactions."""
         from .. import i2c as _i2c
 
-        return _i2c.decode(self.capture(samples, sample_rate_hz))
+        return _i2c.decode(self.capture(samples, sample_rate_hz, timeout_s=timeout_s,
+                                        wait_for_traffic=wait_for_traffic))
 
     def stop(self) -> List[str]:
         """Stop the instance: the pod releases its pins and forgets the definition. Returns the
@@ -508,15 +520,21 @@ class SensorEmulation:
         return decode_regs(reply)
 
     def capture(self, instance: str, samples: int = MAX_LA_BYTES,
-                sample_rate_hz: float = CAPTURE_RATE_HZ) -> List[int]:
+                sample_rate_hz: float = CAPTURE_RATE_HZ, *,
+                timeout_s: float = CAPTURE_TIMEOUT_S,
+                wait_for_traffic: bool = True) -> List[int]:
         """A raw capture of an I2C instance's bus pins (``sensor_la``): ``samples`` packed bytes
         (1..4096, four ``{SCL,SDA}`` samples per byte) at ``sample_rate_hz`` (default 500 kHz: 16384
-        samples cover about 33 ms). The capture starts at once, it does not wait for bus traffic:
-        call it right after the DUT starts talking (a power-on probe, a command that reads the
-        sensor), or lower the rate for a longer window (100 kHz: about 160 ms, enough for a bus
-        clocked at 100 kHz or less). SPI and UART
-        instances are refused by the pod: capture their pins with
-        :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
+        samples cover about 33 ms).
+
+        By default the pod waits up to ``timeout_s`` (default 2 s) for the DUT's next transaction
+        and starts the capture on its START, with 1/8 of the samples from before it, so a DUT
+        that reads its sensor now and then is caught. No bus traffic in time raises
+        :class:`~embeddedci.benchpod.errors.TriggerTimeout`. ``wait_for_traffic=False`` captures
+        at once. Firmware without the ``sensor_la_trigger`` capability (3.10.3 and earlier)
+        always captures at once: call it right after the DUT starts talking, or lower the rate
+        for a longer window. SPI and UART instances are refused by the pod: capture their pins
+        with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         self._require()
         n = int(samples)
         if not 1 <= n <= MAX_LA_BYTES:
@@ -524,8 +542,18 @@ class SensorEmulation:
         rate = float(sample_rate_hz)
         if not rate > 0:
             raise ValueError(f"sample_rate_hz must be positive, got {sample_rate_hz!r}")
-        return self._samples({"cmd": "sensor_la", "instance": _instance_name(instance),
-                              "samples": n, "sample_rate_mhz": rate / 1e6})
+        timeout_ms = int(round(float(timeout_s) * 1000.0))
+        if wait_for_traffic and not 1 <= timeout_ms <= MAX_CAPTURE_TIMEOUT_MS:
+            raise ValueError(f"timeout_s is 0.001..{MAX_CAPTURE_TIMEOUT_MS // 1000} s, got {timeout_s!r}")
+        req: Dict[str, Any] = {"cmd": "sensor_la", "instance": _instance_name(instance),
+                               "samples": n, "sample_rate_mhz": rate / 1e6}
+        if self._pod.supports("sensor_la_trigger"):
+            if wait_for_traffic:
+                req["trigger"] = "start"
+                req["timeout_ms"] = timeout_ms
+            else:
+                req["trigger"] = "none"
+        return self._samples(req)
 
     def running_digital(self) -> List[str]:
         """The I2C, SPI and UART instances that run (they hold the emulation image)."""
@@ -533,12 +561,16 @@ class SensorEmulation:
                 if isinstance(e, dict) and e.get("running") and e.get("kind") != "analog"]
 
     def i2c_transactions(self, instance: str, samples: int = MAX_LA_BYTES,
-                         sample_rate_hz: float = CAPTURE_RATE_HZ) -> List["I2CTransaction"]:
+                         sample_rate_hz: float = CAPTURE_RATE_HZ, *,
+                         timeout_s: float = CAPTURE_TIMEOUT_S,
+                         wait_for_traffic: bool = True) -> List["I2CTransaction"]:
         """:meth:`capture` of an I2C instance decoded into transactions (packed ``{SCL,SDA}``
-        samples, as the pod's I2C bus capture has always sent them)."""
+        samples, as the pod's I2C bus capture has always sent them). Waits for the DUT's next
+        transaction like :meth:`capture`."""
         from .. import i2c as _i2c
 
-        return _i2c.decode(self.capture(instance, samples, sample_rate_hz))
+        return _i2c.decode(self.capture(instance, samples, sample_rate_hz, timeout_s=timeout_s,
+                                        wait_for_traffic=wait_for_traffic))
 
     def _samples(self, req: Dict[str, Any]) -> List[int]:
         fn = getattr(self._pod.transport, "samples", None)

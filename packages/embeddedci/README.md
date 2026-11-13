@@ -907,7 +907,7 @@ env.set(temperature_c=40.0)                        # the DUT's next read sees it
 print(env.params)                                  # key, unit, min, max, default of each value
 print(env.regs(0xD0, 1))                           # [0x60]: the register image the DUT reads
 print(env.status())                                # slot, values, faults, bus counters (writes, last_write)
-txns = env.i2c_transactions(4096)                  # capture the instance's bus and decode it
+txns = env.i2c_transactions(4096)                  # wait for the DUT's next transaction, capture, decode
 print(i2c.format_transactions(txns))
 env.stop()                                         # pins released, definition forgotten
 ```
@@ -943,7 +943,7 @@ message.
 | `status(instance=None)` | `image`, `stimulus` (`loaded`, `running`, `t_s`) and `instances` with their `slot` (`i2c0`..`i2c3`, `spi0`, `uart0`, `analog0` the DAC, `analog1` the 4-20 mA output), `pins`, `values`, `faults` (objects with `type` and `left_s`, `None` until cleared) and `bus` (`writes`, `last_write`, `log_lost`...; `transfers` is always `None`: the gateware counts written bytes); every page the pod sends, as one |
 | `running_digital()` | the I2C, SPI and UART instances that run (they hold the emulation image) |
 | `regs(instance, *, start=0, length=None)` | the bytes an I2C/SPI instance answers now (the DUT's own writes included): `start` 0..255 in its 256-byte image, to its end by default |
-| `capture(instance, samples=4096)`, `i2c_transactions(instance, samples=4096)` | a raw capture of an I2C instance's bus pins (`sensor_la`, 1..4096 packed bytes of four samples), and that capture decoded; SPI and UART sensors: `la_capture()` their pins |
+| `capture(instance, samples=4096, sample_rate_hz=500000, *, timeout_s=2.0, wait_for_traffic=True)`, `i2c_transactions(...)` (same arguments) | a raw capture of an I2C instance's bus pins (`sensor_la`, 1..4096 packed bytes of four samples), and that capture decoded. It waits up to `timeout_s` for the DUT's next transaction and starts on its START, with 1/8 of the samples from before it (`TriggerTimeout` when the bus stays quiet); `wait_for_traffic=False` captures at once. Firmware without the `sensor_la_trigger` capability (3.10.3 and earlier) always captures at once. SPI and UART sensors: `la_capture()` their pins |
 | `library(version=None, *, offline=False)`, `library_version` | the sensor library used for names such as `"bme280"` |
 
 The `Sensor` handle has `instance`, `kind`, `name`, `params`, `info` (the compile report: `label`,
@@ -1877,7 +1877,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
 | `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
 | `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
-| `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=None)`, `capture(samples)`, `i2c_transactions(samples)`, `stop()` |
+| `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=None)`, `capture(samples, sample_rate_hz, *, timeout_s, wait_for_traffic)`, `i2c_transactions(...)`, `stop()` |
 | `SensorEmulation` (class) | `BenchPod.sensors` | see [Emulated sensors](#emulated-sensors) |
 | `SensorLibrary` (class) | `sensor_library`, `sensors.library` | `version`, `source`, `warning`, `root`, `entries`, `find(name)`, `get(name)`, `path(name)`, `text(name)`, `load(name)`, `format_doc()` |
 | `LibraryEntry` | `SensorLibrary.entries` | `path`, `name`, `kind`, `label`, `to_dict()` |

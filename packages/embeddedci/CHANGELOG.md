@@ -1,5 +1,14 @@
 # Changelog — `embeddedci`
 
+## 2.13.12
+
+- `Sensor.capture()` / `i2c_transactions()` (and `SensorEmulation.capture()`) wait for the DUT's
+  next I2C transaction: the pod starts the capture on the bus's START, with 1/8 of the samples from
+  before it, so a DUT that reads its sensor every 200 ms is caught every time. `timeout_s`
+  (default 2.0) bounds the wait; a quiet bus raises `TriggerTimeout`. `wait_for_traffic=False`
+  captures at once. This needs pod firmware with the new `sensor_la_trigger` capability
+  (`Capabilities.sensor_la_trigger`); older firmware keeps capturing at once, as before.
+
 ## 2.13.11
 
 - `Sensor.capture()` / `i2c_transactions()` (and `SensorEmulation.capture()`) take

@@ -325,6 +325,36 @@ def test_status_asks_for_every_page():
     assert bp.sensors.stop() == ["a", "b", "c", "d", "e"]
 
 
+def test_capture_waits_for_the_dut_on_firmware_with_sensor_la_trigger():
+    from embeddedci.benchpod.errors import TriggerTimeout, classify_firmware_error
+
+    bp, fake = make_pod(caps=("sensors", "sensor_la_trigger"))
+    s = bp.sensors.start(MINIMAL, pins={"sda": 2, "scl": 1})
+    s.capture(64)
+    req = fake.commands[-1]
+    assert req["trigger"] == "start" and req["timeout_ms"] == 2000 and req["sample_rate_mhz"] == 0.5
+    s.i2c_transactions(16, timeout_s=0.25)
+    assert fake.commands[-1]["timeout_ms"] == 250
+    bp.sensors.capture("probe", 16, wait_for_traffic=False)
+    assert fake.commands[-1]["trigger"] == "none" and "timeout_ms" not in fake.commands[-1]
+    with pytest.raises(ValueError, match="timeout_s"):
+        s.capture(16, timeout_s=0)
+    with pytest.raises(ValueError, match="timeout_s"):
+        s.capture(16, timeout_s=601)
+    # the pod's answer when the DUT stays quiet is a TriggerTimeout on the SDA channel
+    err = classify_firmware_error(FirmwareError(
+        "trigger timeout: no falling edge on LA2 (SDA of probe) within 2000 ms; the DUT did not use the I2C bus"))
+    assert isinstance(err, TriggerTimeout) and (err.la, err.edge) == (2, "falling")
+
+
+def test_capture_on_firmware_without_the_trigger_sends_the_old_request():
+    bp, fake = make_pod()
+    s = bp.sensors.start(MINIMAL, pins={"sda": 2, "scl": 1})
+    for wait in (True, False):
+        s.capture(16, wait_for_traffic=wait)
+        assert set(fake.commands[-1]) == {"cmd", "instance", "samples", "sample_rate_mhz"}
+
+
 def test_capture_of_a_uart_or_spi_sensor_points_at_la_capture():
     bp, _ = make_pod()
     s = bp.sensors.start({"format": 1, "kind": "uart", "name": "gps", "uart": {"baud": 9600}},

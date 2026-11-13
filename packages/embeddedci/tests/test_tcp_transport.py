@@ -277,4 +277,6 @@ def test_request_timeout_adds_the_pods_own_wait():
     assert request_timeout({"cmd": "power_profile", "max_duration_ms": 90000}, 30) == 30
     assert request_timeout({"cmd": "capture", "trigger_timeout_ms": 60000}, 30) == 90
     assert request_timeout({"cmd": "dap_start", "wait_ms": 2000}, 30) == 32
+    assert request_timeout({"cmd": "sensor_la", "trigger": "start", "timeout_ms": 2000}, 30) == 32
+    assert request_timeout({"cmd": "sensor_status", "timeout_ms": 2000}, 30) == 30
     assert request_timeout({"cmd": "generate", "duration_ms": 10_000_000}, 30) == 30
