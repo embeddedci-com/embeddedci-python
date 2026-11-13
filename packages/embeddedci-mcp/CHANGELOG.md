@@ -1,10 +1,5 @@
 # Changelog — `embeddedci-mcp`
 
-## 2.13.12
-
-- `sensor_capture` decodes again: it captures at 500 kHz (embeddedci 2.13.11) instead of the pod's
-  highest rate, which held less than one I2C transaction. Requires embeddedci 2.13.11.
-
 ## 2.13.11
 
 - Sensor tools for user-defined sensors (pod firmware with the `sensors` capability) replace the
