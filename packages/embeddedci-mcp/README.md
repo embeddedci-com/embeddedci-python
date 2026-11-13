@@ -192,7 +192,7 @@ description, ranges and enums, so an agent sees more than this table.
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `wiring` | Which DUT signal is on which LA channel, plus the power rail, UART baud and SWD target. | none |
-| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. | **`profile`**, `save=false` |
+| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. Also sends the profile's pin directions to the pod (`la_dir`; `directions` in the result says whether it worked). | **`profile`**, `save=false` |
 
 ### Power
 
@@ -225,6 +225,21 @@ description, ranges and enums, so an agent sees more than this table.
 | `spi_flash_program` | Erase, write and verify an image in the SPI NOR flash. | **`file`**, `addr=0`, `erase=true`, `verify=true`, `hold_reset=false`, `sck`, `mosi`, `miso`, `cs`, `hz=6000000`, `mode=0` |
 | `spi_flash_read` | Read flash bytes to a file, or up to 4096 bytes as hex. | **`addr`**, **`length`**, `file`, `sck`, `mosi`, `miso`, `cs`, `hz=6000000`, `mode=0` |
 | `spi_transfer` | One full-duplex SPI transaction with any device on the SPI pins. | **`tx_hex`**, `sck`, `mosi`, `miso`, `cs`, `hz=1000000`, `mode=0` |
+
+`mode` is 0 to 3; modes 1 and 2 need gateware v55+.
+
+### I2C master
+
+The pod as an I2C master on two LA pins (gateware v55+), to read and write registers of a chip on
+the DUT's board. The bus needs pull-ups: the pod's on LA1-LA6 (`set_pull` first, LA voltage 3.3), or
+the board's with `pullups="external"`.
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `i2c_open` | Make the pod an I2C master on two LA pins; `hz` in the result is the SCL rate the pod runs (a real bus is somewhat slower: the rise time adds to each period). | `sda`, `scl`, `hz=100000`, `pullups=pod` |
+| `i2c_transfer` | Write, read, or write then read (repeated START); neither is a probe. A NACK returns `ack: false` and `nack_at`. | **`addr`**, `write_hex`, `read=0` |
+| `i2c_scan` | Which addresses answer. | `start=8`, `end=119` |
+| `i2c_close` | Release the I2C master's pins. | none |
 
 ### UART
 
@@ -286,6 +301,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout=5` |
 | `gpio_pulse` | FPGA-timed pulses on an LA channel: `width` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width`**, `count=1` |
 | `gpio_release` | Return channels to high-Z, watched by captures. | `la` |
+| `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `from_wiring` sends the wiring profile's directions; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
 
 ### Analog
 
@@ -306,7 +322,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope; `clipped_samples` counts samples past the range's full scale. `oversample` converts at 400 kS/s and averages down to `sample_rate_hz` for lower noise, about 5 s at most. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `range`, `oversample` |
-| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. Up to 48 MS/s on gateware v50+. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `trigger_pre_samples=0` |
+| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. Up to 48 MS/s on gateware v50+. `send` (gateware v55+) runs one transaction right after the capture arms: `{"bus":"i2c","addr":118,"write_hex":"d0","read":1}` (the `i2c_open` session, else one from the wiring), `{"bus":"spi","tx_hex":"9f00"}` (SPI pins from the wiring) or `{"bus":"gpio","la":6,"level":0}` (a GPIO output); without `trigger_la` it triggers on SDA or CS falling or the pin's edge, and the result's `send` has the reply. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `trigger_pre_samples=0`, `send` |
 | `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `source` |
 | `decode_la` | Decode I2C, UART or SPI from the last LA capture (or a new one). | **`protocol`**, `sda`, `scl`, `rx`, `baud`, `sclk`, `mosi`, `miso`, `cs`, `mode=0`, `capture=last`, `samples=16384`, `sample_rate_hz=1000000`, `max_items=200` |
 | `la_timing` | Edge timestamps, pulse widths, frequency, duty cycle and channel-to-channel delay from the last capture. | **`la`**, `edge=rising`, `to_la`, `to_edge=rising`, `after=0`, `max_edges=100` |

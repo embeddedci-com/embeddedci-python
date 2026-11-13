@@ -1,5 +1,18 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.13
+
+- I2C master tools (gateware v55+): `i2c_open`, `i2c_transfer` (a NACK returns `ack: false` and
+  `nack_at`), `i2c_scan` and `i2c_close`.
+- `capture_la` takes `send`: one I2C, SPI or gpio transaction right after the capture arms, with
+  its reply in the result's `send`. Without `trigger_la` it triggers on SDA or CS falling, or the
+  gpio pin's edge, and keeps 64 samples from before the trigger.
+- `la_dir` sets which way each pin's DUT signal goes (the pod then refuses push-pull drivers on a
+  DUT output); `set_wiring` sends the profile's directions. `la_pins` rows have `dir` and
+  `warnings`.
+- The SPI tools take modes 1 and 2 (gateware v55+).
+- Needs embeddedci 2.13.13.
+
 ## 2.13.12
 
 - `sensor_capture` waits for the DUT's next I2C transaction (up to 2 s) and captures it from its

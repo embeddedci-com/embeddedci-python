@@ -98,7 +98,16 @@ def la_summary(la: LaCapture) -> m.LaCaptureResult:
         ))
     return m.LaCaptureResult(samples=len(la), sample_rate_hz=rate, duration=la.duration,
                              channels=channels, trigger=trigger_text(la.trigger),
-                             pre_samples=la.pre_samples, truncated=la.truncated or None)
+                             pre_samples=la.pre_samples, truncated=la.truncated or None,
+                             send=send_summary(la.send_result))
+
+
+def send_summary(r: Any) -> Optional[m.SendResultModel]:
+    """A capture's :class:`~embeddedci.benchpod.SendResult` as a tool result, or ``None``."""
+    if r is None:
+        return None
+    return m.SendResultModel(bus=r.bus, ack=r.ack, rx_hex=r.data.hex(), nack_at=r.nack_at, la=r.la,
+                             level=r.level, error=r.error or None)
 
 
 # -- wiring, pins and power ------------------------------------------------------------
@@ -127,7 +136,7 @@ def pin_state(pin: Any) -> m.LaPinResult:
     """One :class:`~embeddedci.benchpod.LaPinState` as a tool result row."""
     return m.LaPinResult(la=pin.la, function=pin.function, gpio=pin.gpio, level=pin.level,
                          pull=pin.pull, pull_ohms=pin.pull_ohms, pull_on=pin.pull_on,
-                         in_use=pin.in_use)
+                         in_use=pin.in_use, dir=pin.dir, warnings=pin.warnings or None)
 
 
 def power_summary(profile: PowerProfile, points: int) -> m.PowerProfileResult:

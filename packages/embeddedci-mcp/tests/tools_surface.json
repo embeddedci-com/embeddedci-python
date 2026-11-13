@@ -852,6 +852,111 @@
       "title": "Capture logic channels"
     },
     "input": {
+      "$defs": {
+        "SendSpec": {
+          "description": "One transaction capture_la runs right after it arms (gateware v55+).",
+          "properties": {
+            "addr": {
+              "anyOf": [
+                {
+                  "maximum": 127,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "i2c: 7-bit address.",
+              "title": "Addr"
+            },
+            "bus": {
+              "enum": [
+                "i2c",
+                "spi",
+                "gpio"
+              ],
+              "title": "Bus",
+              "type": "string"
+            },
+            "la": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "gpio: an LA channel already a GPIO output.",
+              "title": "La"
+            },
+            "level": {
+              "anyOf": [
+                {
+                  "enum": [
+                    0,
+                    1
+                  ],
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "gpio: the level to set.",
+              "title": "Level"
+            },
+            "read": {
+              "default": 0,
+              "description": "i2c: bytes to read after the write.",
+              "maximum": 32,
+              "minimum": 0,
+              "title": "Read",
+              "type": "integer"
+            },
+            "spi_hz": {
+              "default": 1000000,
+              "description": "spi: SCK rate.",
+              "maximum": 6000000,
+              "minimum": 190000,
+              "title": "Spi Hz",
+              "type": "integer"
+            },
+            "spi_mode": {
+              "default": 0,
+              "description": "spi: mode 0-3.",
+              "maximum": 3,
+              "minimum": 0,
+              "title": "Spi Mode",
+              "type": "integer"
+            },
+            "tx_hex": {
+              "default": "",
+              "description": "spi: one CS frame, hex (1-32 bytes); SPI pins from the wiring.",
+              "title": "Tx Hex",
+              "type": "string"
+            },
+            "write_hex": {
+              "default": "",
+              "description": "i2c: bytes to write, hex (up to 32).",
+              "title": "Write Hex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "bus"
+          ],
+          "title": "SendSpec",
+          "type": "object"
+        }
+      },
       "properties": {
         "sample_rate_hz": {
           "anyOf": [
@@ -872,6 +977,18 @@
           "minimum": 1,
           "title": "Samples",
           "type": "integer"
+        },
+        "send": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SendSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run one transaction right after the capture arms (gateware v55+): i2c (the i2c_open session, else one from the wiring), spi (SPI pins from the wiring) or gpio (a GPIO output). Without trigger_la it triggers on SDA / CS falling or the gpio pin's edge."
         },
         "stop_dac_after": {
           "anyOf": [
@@ -2240,6 +2357,236 @@
         "level"
       ],
       "title": "gpio_writeArguments",
+      "type": "object"
+    }
+  },
+  "i2c_close": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Close the I2C master"
+    },
+    "input": {
+      "properties": {},
+      "title": "i2c_closeArguments",
+      "type": "object"
+    }
+  },
+  "i2c_open": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Open the I2C master"
+    },
+    "input": {
+      "properties": {
+        "hz": {
+          "default": 100000,
+          "description": "SCL rate.",
+          "maximum": 1000000,
+          "minimum": 10000,
+          "title": "Hz",
+          "type": "integer"
+        },
+        "pullups": {
+          "default": "pod",
+          "description": "pod: LA1-LA6 with the pod's pull-ups on (set_pull first, LA voltage 3.3); external: the board has its own.",
+          "enum": [
+            "pod",
+            "external"
+          ],
+          "title": "Pullups",
+          "type": "string"
+        },
+        "scl": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SCL channel; omit for the profile's i2c_scl.",
+          "title": "Scl"
+        },
+        "sda": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SDA channel; omit for the profile's i2c_sda.",
+          "title": "Sda"
+        }
+      },
+      "title": "i2c_openArguments",
+      "type": "object"
+    }
+  },
+  "i2c_scan": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Scan the I2C bus"
+    },
+    "input": {
+      "properties": {
+        "end": {
+          "default": 119,
+          "maximum": 127,
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "start": {
+          "default": 8,
+          "maximum": 127,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "title": "i2c_scanArguments",
+      "type": "object"
+    }
+  },
+  "i2c_transfer": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "I2C transfer"
+    },
+    "input": {
+      "properties": {
+        "addr": {
+          "description": "7-bit address.",
+          "maximum": 127,
+          "minimum": 0,
+          "title": "Addr",
+          "type": "integer"
+        },
+        "read": {
+          "default": 0,
+          "description": "Bytes to read after a repeated START.",
+          "maximum": 248,
+          "minimum": 0,
+          "title": "Read",
+          "type": "integer"
+        },
+        "write_hex": {
+          "default": "",
+          "description": "Bytes to write, hex (up to 128), e.g. a register.",
+          "title": "Write Hex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "addr"
+      ],
+      "title": "i2c_transferArguments",
+      "type": "object"
+    }
+  },
+  "la_dir": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set pin directions"
+    },
+    "input": {
+      "properties": {
+        "dir": {
+          "anyOf": [
+            {
+              "enum": [
+                "dut_input",
+                "dut_output",
+                "bidir",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which way the DUT signal goes. On dut_output the pod refuses push-pull drivers.",
+          "title": "Dir"
+        },
+        "from_wiring": {
+          "default": false,
+          "description": "Send the wiring profile's directions instead (uart_rx, spi_miso and input signals are DUT outputs).",
+          "title": "From Wiring",
+          "type": "boolean"
+        },
+        "la": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "maximum": 14,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              },
+              "type": "array"
+            },
+            {
+              "const": "all",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Channels or wiring names, or 'all'. Omit with dir to list every pin.",
+          "title": "La"
+        }
+      },
+      "title": "la_dirArguments",
       "type": "object"
     }
   },
@@ -4069,8 +4416,11 @@
         },
         "mode": {
           "default": 0,
+          "description": "SPI mode; 1 and 2 need gateware v55+.",
           "enum": [
             0,
+            1,
+            2,
             3
           ],
           "title": "Mode",
@@ -4217,8 +4567,11 @@
         },
         "mode": {
           "default": 0,
+          "description": "SPI mode; 1 and 2 need gateware v55+.",
           "enum": [
             0,
+            1,
+            2,
             3
           ],
           "title": "Mode",
@@ -4366,8 +4719,11 @@
         },
         "mode": {
           "default": 0,
+          "description": "SPI mode; 1 and 2 need gateware v55+.",
           "enum": [
             0,
+            1,
+            2,
             3
           ],
           "title": "Mode",
@@ -4493,8 +4849,11 @@
         },
         "mode": {
           "default": 0,
+          "description": "SPI mode; 1 and 2 need gateware v55+.",
           "enum": [
             0,
+            1,
+            2,
             3
           ],
           "title": "Mode",
