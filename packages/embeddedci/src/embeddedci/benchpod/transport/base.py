@@ -16,7 +16,8 @@ from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
 def request_timeout(req: Mapping[str, Any], base: float) -> float:
     """How long to wait for the reply to ``req``: ``base`` plus the time the pod spends on
-    purpose before it answers (a blocking power profile's duration, a trigger's timeout, the
+    purpose before it answers (a blocking power profile's duration, a trigger's timeout or
+    ``sensor_la``'s wait for bus traffic, the
     ``dap_start`` wait for the target, a reset pulse). A fixed timeout would end a 60 s
     ``measure_power`` after 30 s."""
     extra_ms = 0.0
@@ -25,6 +26,8 @@ def request_timeout(req: Mapping[str, Any], base: float) -> float:
         keys.append("duration_ms")
     if req.get("cmd") == "dap_start":
         keys.append("wait_ms")
+    if req.get("cmd") == "sensor_la":
+        keys.append("timeout_ms")
     for key in keys:
         v = req.get(key)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:

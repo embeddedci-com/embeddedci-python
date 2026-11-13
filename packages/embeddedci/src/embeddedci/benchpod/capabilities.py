@@ -209,6 +209,9 @@ class Capabilities:
     #: The emulation gateware image (I2C, SPI and UART sensors) is installed or running; analog
     #: sensors work without it.
     sensors_digital: bool = False
+    #: ``sensor_la`` waits for the bus's next START (``trigger``, ``timeout_ms``); without it the
+    #: capture starts at once.
+    sensor_la_trigger: bool = False
 
     # firmware updates and policies
     #: Internal flash of the pod's MCU in KiB (2048 or 1024); 0 when not reported.
@@ -346,6 +349,7 @@ class Capabilities:
                 ("adc_low_range", "adc_low_range"),
                 ("dac_limits", "dac_limits"),
                 ("sensors", "sensors"),
+                ("sensor_la_trigger", "sensor_la_trigger"),
                 *((f, f) for f in _STATUS_FLAGS),
             ):
                 if name in names and hasattr(c, attr):
