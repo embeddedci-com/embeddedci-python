@@ -4,7 +4,7 @@ Every tool returns one of these, so FastMCP publishes an output schema for it an
 structured content. Units follow the SDK: volts, amps, seconds, hertz.
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,20 @@ class FaultSpec(BaseModel):
     width: int = Field(0, ge=0, description="Samples covered; 0 = to the end.")
     level: Optional[int] = Field(None, ge=0, le=65535,
                                  description="Raw DAC code to hold (default per fault type).")
+
+
+class SendSpec(BaseModel):
+    """One transaction capture_la runs right after it arms (gateware v55+)."""
+
+    bus: Literal["i2c", "spi", "gpio"]
+    addr: Optional[int] = Field(None, ge=0, le=127, description="i2c: 7-bit address.")
+    write_hex: str = Field("", description="i2c: bytes to write, hex (up to 32).")
+    read: int = Field(0, ge=0, le=32, description="i2c: bytes to read after the write.")
+    tx_hex: str = Field("", description="spi: one CS frame, hex (1-32 bytes); SPI pins from the wiring.")
+    spi_mode: int = Field(0, ge=0, le=3, description="spi: mode 0-3.")
+    spi_hz: int = Field(1_000_000, ge=190_000, le=6_000_000, description="spi: SCK rate.")
+    la: Optional[Union[int, str]] = Field(None, description="gpio: an LA channel already a GPIO output.")
+    level: Optional[Literal[0, 1]] = Field(None, description="gpio: the level to set.")
 
 
 class InputMapSpec(BaseModel):
@@ -89,6 +103,7 @@ class CapabilitiesInfo(BaseModel):
 class SessionInfo(BaseModel):
     uart_open: bool = False
     can_open: bool = False
+    i2c_open: bool = False
     power_profile_running: bool = Field(False, description="power_profile_start ran without power_profile_stop.")
     last_adc_capture_samples: Optional[int] = None
     last_la_capture_samples: Optional[int] = None
@@ -157,6 +172,8 @@ class WiringResult(BaseModel):
                                 description="Wiring that works but is risky (e.g. an I2C bus with no pull-up).")
     profile: Dict[str, Any] = Field(default_factory=dict, description="The profile as its JSON object.")
     saved: bool = Field(False, description="set_wiring stored this profile on embeddedci.com.")
+    directions: Optional[str] = Field(None, description=(
+        "set_wiring: 'sent' when the pod now has the profile's pin directions (la_dir), else why not."))
 
 
 # -- LA pin ownership + GPIO -------------------------------------------------------
@@ -165,13 +182,16 @@ class LaPinResult(BaseModel):
     la: int
     function: str = Field(description=(
         "What owns the channel: none (free, watched by captures), gpio, uart_rx, uart_tx, swd_clk, "
-        "swd_dio, i2c_sda, i2c_scl, step or step_dir."))
+        "swd_dio, i2c_sda, i2c_scl, step, step_dir, spi_*, sensor_*, or i2cm_sda/i2cm_scl (i2c_open)."))
     gpio: Optional[str] = Field(None, description="GPIO mode when function is gpio: input, output or open_drain.")
     level: Optional[int] = Field(None, description="Commanded level of a GPIO output / open-drain channel.")
     pull: Optional[str] = Field(None, description="Bias direction: up, down, or null on LA9-LA14.")
     pull_ohms: Optional[str] = None
     pull_on: bool = False
     in_use: bool = Field(description="A function other than none owns the channel.")
+    dir: Optional[str] = Field(None, description=(
+        "The DUT signal's direction set with la_dir: dut_input, dut_output or bidir; null when unknown."))
+    warnings: Optional[List[str]] = Field(None, description="Pin warnings from the pod, if any.")
 
 
 class PinLevel(BaseModel):
@@ -325,6 +345,38 @@ class SpiFlashReadResult(BaseModel):
     length: int
     file: str = ""
     hex: str = ""
+
+
+class I2cSessionResult(BaseModel):
+    open: bool
+    sda: Optional[int] = None
+    scl: Optional[int] = None
+    hz: Optional[int] = Field(None, description=(
+        "SCL rate the pod runs; a real bus is somewhat slower (the rise time adds to each period)."))
+    pullups: Optional[str] = None
+
+
+class I2cTransferResult(BaseModel):
+    addr: int
+    ack: bool = Field(description="Every byte was acknowledged.")
+    rx_hex: str = Field("", description="The bytes read.")
+    nack_at: Optional[int] = Field(None, description=(
+        "When ack is false: 0 = the address, 1..N = the Nth written byte, N+1 = the read address."))
+
+
+class I2cScanResult(BaseModel):
+    found: List[int] = Field(description="7-bit addresses that answered.")
+    found_hex: List[str]
+
+
+class SendResultModel(BaseModel):
+    bus: str
+    ack: Optional[bool] = None
+    rx_hex: str = ""
+    nack_at: Optional[int] = None
+    la: Optional[int] = None
+    level: Optional[int] = None
+    error: Optional[str] = Field(None, description="Why the transfer failed; the capture still returned.")
 
 
 class SpiTransferResult(BaseModel):
@@ -572,6 +624,7 @@ class LaCaptureResult(BaseModel):
     truncated: Optional[str] = Field(None, description=(
         "Above 12 MS/s only: why the capture stopped early ('busy': the signals changed too often, "
         "'memory'), so it holds fewer samples than asked; null when complete."))
+    send: Optional[SendResultModel] = Field(None, description="What the capture's send did.")
 
 
 class PulseStats(BaseModel):

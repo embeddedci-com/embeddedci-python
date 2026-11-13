@@ -44,9 +44,12 @@ from embeddedci.benchpod import (
     Fault,
     FpgaImage,
     GpioMode,
+    GpioSend,
+    I2CSend,
     LoopInputMap,
     LoopSource,
     ReplayMapping,
+    SpiSend,
     Trigger,
     TriggerEdge,
     Waveshape,
@@ -172,6 +175,13 @@ _MCP_FIXES = (
      '{"cmd":"spi_stop"})'),
     (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
      '(another client holds the SPI session; the command tool can send {"cmd":"spi_stop"})'),
+    (re.compile(r'stop the I2C session first \(\{"cmd":"i2c_stop"\}\)'),
+     "close the I2C session first with i2c_close"),
+    (re.compile(r"send i2c_stop first"), "call i2c_close first"),
+    (re.compile(r"send i2c_start first"), "call i2c_open first"),
+    (re.compile(r"i2c_start again"), "call i2c_open again"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"on"\}'), r"set_pull(las=[\1], enabled=true)"),
+    (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
     (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"set_pull(las=[\1], enabled=false)"),
     (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'gpio_mode(la=[\1], mode="output")'),
     (re.compile(r'\{"cmd":"fpga_image","image":0\}'), 'fpga_image(image="loop")'),
@@ -438,9 +448,22 @@ async def set_wiring(
         pod.wiring = Wiring.from_dict(profile)
         if save:
             pod.save_wiring()
-        return wiring_summary(pod.wiring, saved=save)
+        result = wiring_summary(pod.wiring, saved=save)
+        result.directions = _push_directions(pod)
+        return result
 
     return await _call(op)
+
+
+def _push_directions(pod: Any) -> str:
+    """Send the profile's pin directions (la_dir); 'sent', or why not (older firmware, a driven pin)."""
+    try:
+        pod.apply_pin_directions()
+        return "sent"
+    except _errors.UnsupportedFeatureError:
+        return "not sent: this pod's firmware has no la_dir"
+    except BenchPodError as exc:
+        return f"not sent: {_error_text(exc)}"
 
 
 # -- power ----------------------------------------------------------------------------
@@ -574,6 +597,7 @@ async def reset_target(
 # -- SPI flash --------------------------------------------------------------------------
 
 _SPI_PIN = ("LA channel (or wiring name) for {}; omit for the profile's {}.")
+SpiMode = Annotated[Literal[0, 1, 2, 3], Field(description="SPI mode; 1 and 2 need gateware v55+.")]
 
 
 def _spi_kwargs(sck: Any, mosi: Any, miso: Any, cs: Any, hz: int, mode: int) -> Dict[str, Any]:
@@ -587,7 +611,7 @@ async def spi_flash_info(
     miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
     cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
     hz: Annotated[int, Field(ge=190_000, le=6_000_000, description="SCK rate; rounded down to what the pod can do.")] = 1_000_000,
-    mode: Literal[0, 3] = 0,
+    mode: SpiMode = 0,
 ) -> m.SpiFlashInfoResult:
     """Read the JEDEC ID of the SPI NOR flash on the SPI pins (gateware v45+, capability spi_master).
 
@@ -617,7 +641,7 @@ async def spi_flash_program(
     miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
     cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
     hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 6_000_000,
-    mode: Literal[0, 3] = 0,
+    mode: SpiMode = 0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.SpiFlashProgramResult:
     """Erase, write and verify an image into the SPI NOR flash wired to the SPI pins.
@@ -647,7 +671,7 @@ async def spi_flash_read(
     miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO (the chip's DO)", "spi_miso"))] = None,
     cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
     hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 6_000_000,
-    mode: Literal[0, 3] = 0,
+    mode: SpiMode = 0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.SpiFlashReadResult:
     """Read bytes back from the SPI NOR flash, to a file or (up to 4096 bytes) as hex."""
@@ -675,7 +699,7 @@ async def spi_transfer(
     miso: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("MISO", "spi_miso"))] = None,
     cs: Annotated[Optional[LaRef], Field(description=_SPI_PIN.format("CS", "spi_cs"))] = None,
     hz: Annotated[int, Field(ge=190_000, le=6_000_000)] = 1_000_000,
-    mode: Literal[0, 3] = 0,
+    mode: SpiMode = 0,
 ) -> m.SpiTransferResult:
     """One full-duplex SPI transaction (CS asserted for all of tx) with any SPI device on the SPI pins.
 
@@ -691,6 +715,70 @@ async def spi_transfer(
             return m.SpiTransferResult(rx_hex=spi.transfer(data).hex(), hz=spi.hz)
 
     return await _call(op)
+
+
+# -- I2C master -------------------------------------------------------------------------
+
+@mcp.tool(annotations=_ann("Open the I2C master", destructive=True))
+async def i2c_open(
+    sda: Annotated[Optional[LaRef], Field(description="SDA channel; omit for the profile's i2c_sda.")] = None,
+    scl: Annotated[Optional[LaRef], Field(description="SCL channel; omit for the profile's i2c_scl.")] = None,
+    hz: Annotated[int, Field(ge=10_000, le=1_000_000, description="SCL rate.")] = 100_000,
+    pullups: Annotated[Literal["pod", "external"], Field(description=(
+        "pod: LA1-LA6 with the pod's pull-ups on (set_pull first, LA voltage 3.3); "
+        "external: the board has its own."))] = "pod",
+) -> m.I2cSessionResult:
+    """Make the pod an I2C master on two LA pins (gateware v55+), replacing any open session.
+
+    Then i2c_transfer, i2c_scan, or capture_la with send. SWD, SPI and I2C exclude each other.
+    """
+    def op() -> m.I2cSessionResult:
+        pod = SESSION.require()
+        SESSION.close_i2c()
+        i2c = pod.open_i2c(sda, scl, hz=hz, pullups=pullups)
+        SESSION.i2c = i2c
+        return m.I2cSessionResult(open=True, sda=i2c.sda, scl=i2c.scl, hz=i2c.hz, pullups=i2c.pullups)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("I2C transfer", destructive=True))
+async def i2c_transfer(
+    addr: Annotated[int, Field(ge=0, le=127, description="7-bit address.")],
+    write_hex: Annotated[str, Field(description="Bytes to write, hex (up to 128), e.g. a register.")] = "",
+    read: Annotated[int, Field(ge=0, le=248, description="Bytes to read after a repeated START.")] = 0,
+) -> m.I2cTransferResult:
+    """Write, read, or write then read on the open I2C session. Neither = a probe.
+
+    A NACK is not an error: ack is false and nack_at says which byte.
+    """
+    data = bytes.fromhex(write_hex.replace(" ", ""))
+
+    def op() -> m.I2cTransferResult:
+        r = SESSION.require_i2c().xfer(addr, data, read)
+        return m.I2cTransferResult(addr=r.addr, ack=r.ack, rx_hex=r.data.hex(), nack_at=r.nack_at)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Scan the I2C bus", read_only=True))
+async def i2c_scan(
+    start: Annotated[int, Field(ge=0, le=127)] = 0x08,
+    end: Annotated[int, Field(ge=0, le=127)] = 0x77,
+) -> m.I2cScanResult:
+    """Which addresses answer on the open I2C session."""
+    def op() -> m.I2cScanResult:
+        found = SESSION.require_i2c().scan(start, end)
+        return m.I2cScanResult(found=found, found_hex=[f"0x{a:02x}" for a in found])
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Close the I2C master", idempotent=True))
+async def i2c_close() -> m.I2cSessionResult:
+    """Release the I2C master's pins (safe when none is open)."""
+    await _call(SESSION.close_i2c)
+    return m.I2cSessionResult(open=False)
 
 
 # -- flash ------------------------------------------------------------------------------
@@ -1254,6 +1342,32 @@ async def la_pins() -> m.LaPinsResult:
     return await _call(op)
 
 
+@mcp.tool(annotations=_ann("Set pin directions", idempotent=True))
+async def la_dir(
+    la: Annotated[Optional[Union[List[LaRef], Literal["all"]]], Field(description=(
+        "Channels or wiring names, or 'all'. Omit with dir to list every pin."))] = None,
+    dir: Annotated[Optional[Literal["dut_input", "dut_output", "bidir", "unknown"]], Field(description=(
+        "Which way the DUT signal goes. On dut_output the pod refuses push-pull drivers."))] = None,
+    from_wiring: Annotated[bool, Field(description=(
+        "Send the wiring profile's directions instead (uart_rx, spi_miso and input signals are "
+        "DUT outputs)."))] = False,
+) -> m.GpioPinsResult:
+    """Tell the pod which way each pin's DUT signal goes, so it never drives against a DUT output.
+
+    The pod forgets this on a reboot; set_wiring sends the profile's directions.
+    """
+    def op() -> m.GpioPinsResult:
+        pod = SESSION.require()
+        if from_wiring:
+            pins = pod.apply_pin_directions()
+        else:
+            target = la if la == "all" or la is None else [_la(pod, ch) for ch in la]
+            pins = pod.la_dir(target, dir)
+        return m.GpioPinsResult(pins=[pin_state(p) for p in pins])
+
+    return await _call(op)
+
+
 @mcp.tool(annotations=_ann("Use LA channels as GPIO", destructive=True, idempotent=True))
 async def gpio_mode(
     la: GpioChannels,
@@ -1603,6 +1717,10 @@ async def capture_la(
     trigger_pre_samples: Annotated[int, Field(ge=0, le=16_777_215, description=(
         "With trigger_la: also return up to this many samples from before the trigger "
         "(gateware v50+)."))] = 0,
+    send: Annotated[Optional[m.SendSpec], Field(description=(
+        "Run one transaction right after the capture arms (gateware v55+): i2c (the i2c_open "
+        "session, else one from the wiring), spi (SPI pins from the wiring) or gpio (a GPIO "
+        "output). Without trigger_la it triggers on SDA / CS falling or the gpio pin's edge."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.LaCaptureResult:
     """Capture all 14 LA channels and summarise each: levels, edge count, first edge, estimated frequency.
@@ -1614,14 +1732,47 @@ async def capture_la(
     retry at 12 MS/s.
     """
     def op() -> m.LaCaptureResult:
-        la = SESSION.require().capture_la(samples, sample_rate_hz=sample_rate_hz,
-                                          stop_dac_after=stop_dac_after,
-                                          trigger=_trigger(trigger_la, trigger_edge, trigger_pre_samples),
-                                          trigger_timeout=trigger_timeout)
+        pod = SESSION.require()
+        if send is not None:
+            la = _capture_with_send(pod, send, samples, sample_rate_hz, stop_dac_after, trigger_la,
+                                    trigger_edge, trigger_timeout, trigger_pre_samples)
+        else:
+            la = pod.capture_la(samples, sample_rate_hz=sample_rate_hz,
+                                stop_dac_after=stop_dac_after,
+                                trigger=_trigger(trigger_la, trigger_edge, trigger_pre_samples),
+                                trigger_timeout=trigger_timeout)
         SESSION.last_la = la
         return la_summary(la)
 
     return await _call_reporting(ctx, "capturing LA", op)
+
+
+def _capture_with_send(pod: Any, spec: m.SendSpec, samples: int, rate: Optional[float],
+                       stop_dac_after: Optional[float], trigger_la: Any, edge: str, timeout: float,
+                       pre: int) -> Any:
+    """capture_la with a send: the session it needs (opened from the wiring when none is), and the
+    trigger on the line the transaction starts with when none is given."""
+    def capture(send: Any, auto_la: int, auto_edge: str) -> Any:
+        trig = _trigger(trigger_la, edge, pre) if trigger_la is not None else Trigger(auto_la, auto_edge, pre)
+        return pod.capture_la(samples, sample_rate_hz=rate, stop_dac_after=stop_dac_after,
+                              trigger=trig, trigger_timeout=timeout, send=send)
+
+    if spec.bus == "i2c":
+        if spec.addr is None:
+            raise ValueError("an i2c send needs addr")
+        send = I2CSend(spec.addr, bytes.fromhex(spec.write_hex.replace(" ", "")), spec.read)
+        if SESSION.i2c is not None:
+            return capture(send, SESSION.i2c.sda, "falling")
+        with pod.open_i2c() as i2c:
+            return capture(send, i2c.sda, "falling")
+    if spec.bus == "spi":
+        send = SpiSend(bytes.fromhex(spec.tx_hex.replace(" ", "")))
+        with pod.open_spi(hz=spec.spi_hz, mode=spec.spi_mode) as spi:
+            return capture(send, spi.cs, "falling")
+    if spec.la is None or spec.level is None:
+        raise ValueError("a gpio send needs la and level")
+    la_i = _la(pod, spec.la)
+    return capture(GpioSend(la_i, spec.level), la_i, "falling" if spec.level == 0 else "rising")
 
 
 @mcp.tool(annotations=_ann("Capture ADC and logic together"))

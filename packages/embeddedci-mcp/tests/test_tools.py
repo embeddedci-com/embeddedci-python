@@ -20,6 +20,7 @@ EXPECTED_TOOLS = {
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
+    "i2c_open", "i2c_transfer", "i2c_scan", "i2c_close", "la_dir",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "sensor_library", "sensor_show", "sensor_format", "sensor_validate", "sensor_start",
     "sensor_set", "sensor_stimulus_load", "sensor_stimulus_start", "sensor_stimulus_stop",

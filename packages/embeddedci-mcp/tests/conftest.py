@@ -96,6 +96,10 @@ class FakeTransport(Transport):
         #: Set to a firmware message to make the next streamed capture / power profile fail with it.
         self.error: Optional[str] = None
         self.power_profile_running = False
+        #: The I2C master session (i2c_start) and the DUT directions (la_dir).
+        self.i2c: Optional[Dict[str, Any]] = None
+        self.spi: Optional[Dict[str, Any]] = None
+        self.dirs: Dict[int, str] = {}
         self.power_efuse = 1
         #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
         self.power_samples: Dict[str, Any] = {
@@ -114,7 +118,7 @@ class FakeTransport(Transport):
         if self.image is not None:
             caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
         return {"version": "2.0.0", "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
-                "caps": caps}
+                "caps": caps, "gateware": 55}
 
     def ping(self) -> Any:
         return "pong"
@@ -292,8 +296,61 @@ class FakeTransport(Transport):
         if la in PULL_OHMS:
             pull = {"dir": "down" if la in PULLDOWN_CHANNELS else "up", "ohms": PULL_OHMS[la],
                     "on": self.pull_on[la]}
-        return {"la": la, "function": self.function[la], "gpio": self.mode[la],
-                "level": self.level[la], "pull": pull}
+        e = {"la": la, "function": self.function[la], "gpio": self.mode[la],
+             "level": self.level[la], "pull": pull}
+        if self.dirs.get(la, "unknown") != "unknown":
+            e["dir"] = self.dirs[la]
+        return e
+
+    # -- bus master (i2c_*, spi_start, la_dir) --
+    def _cmd_i2c_start(self, req):
+        if self.i2c is not None:
+            raise FirmwareError("i2c busy: send i2c_stop first", cmd="i2c_start")
+        self.i2c = req
+        self.function[req["sda"]], self.function[req["scl"]] = "i2cm_sda", "i2cm_scl"
+        return {"sda": req["sda"], "scl": req["scl"], "hz": req["hz"], "pullups": req["pullups"]}
+
+    def _cmd_i2c_stop(self, req):
+        if self.i2c is not None:
+            self.function[self.i2c["sda"]] = self.function[self.i2c["scl"]] = "none"
+        self.i2c = None
+        return "i2c stopped"
+
+    def _i2c_xfer(self, addr, write, read):
+        if self.i2c is None:
+            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_xfer")
+        if addr != 0x76:
+            return {"addr": addr, "ack": False, "nack_at": 0, "rx": ""}
+        rx = base64.urlsafe_b64encode(bytes([0x58] * read)).decode().rstrip("=")
+        return {"addr": addr, "ack": True, "rx": rx}
+
+    def _cmd_i2c_xfer(self, req):
+        return self._i2c_xfer(req["addr"], req.get("write", ""), req.get("read", 0))
+
+    def _cmd_i2c_scan(self, req):
+        if self.i2c is None:
+            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_scan")
+        return {"from": req.get("from", 8), "to": req.get("to", 119), "found": [0x76]}
+
+    def _cmd_spi_start(self, req):
+        self.spi = req
+        return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+
+    def _cmd_spi_xfer(self, req):
+        return {"rx": req["tx"], "cs": "released"}
+
+    def _cmd_spi_stop(self, req):
+        self.spi = None
+        return "spi stopped"
+
+    def _cmd_la_dir(self, req):
+        if "la" not in req:
+            return {"pins": [self._pin(la) for la in range(1, 15)]}
+        raw = req["la"]
+        las = list(range(1, 15)) if raw == "all" else (raw if isinstance(raw, list) else [raw])
+        for la in las:
+            self.dirs[la] = req["dir"]
+        return {"pins": [self._pin(la) for la in las]}
 
     def _levels(self) -> int:
         mask = self.inputs
@@ -500,8 +557,17 @@ class FakeTransport(Transport):
             n = req["samples"]
             # LA1 toggles every 50 samples (10 kHz at 1 MS/s); LA3 stays high.
             edges = [[i, (0b100 | ((i // 50) % 2))] for i in range(0, n, 50)]
-            yield {"status": "ok", "la": True, "la_edges": edges, "la_upto": n,
-                   "la_rate_hz": 1_000_000.0, "more": False}
+            last = {"status": "ok", "la": True, "la_edges": edges, "la_upto": n,
+                    "la_rate_hz": 1_000_000.0, "more": False}
+            send = req.get("send")
+            if send and send["bus"] == "i2c":
+                r = self._i2c_xfer(send["addr"], send.get("write", ""), send.get("read", 0))
+                last["send"] = {"bus": "i2c", **{k: v for k, v in r.items() if k != "addr"}}
+            elif send and send["bus"] == "spi":
+                last["send"] = {"bus": "spi", "rx": send["tx"]}
+            elif send:
+                last["send"] = dict(send)
+            yield last
         elif cmd == "capture_dual":
             yield {"status": "ok", "data": sine_counts(req["adc_samples"]),
                    "adc_rate_hz": 100_000.0, "la_rate_hz": 1_000_000.0, "more": True}

@@ -22,7 +22,8 @@ def unb64(t: str) -> bytes:
 class SpiPod:
     """The firmware's SPI commands over a 1 MB flash model (limits as in command_handler_spi.c)."""
 
-    def __init__(self, *, caps=None, present=True) -> None:
+    def __init__(self, *, caps=None, present=True, gateware=None) -> None:
+        self.gateware = gateware
         self.caps = ["la", "la_pins", "spi_master", "nrst_pin"] if caps is None else caps
         self.mem = bytearray(b"\xff" * (1 << 20))
         self.present = present
@@ -33,8 +34,11 @@ class SpiPod:
         self.fail_write_at = None
 
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "3.3.0", "caps": self.caps,
-                "nrst_pin": True}
+        st = {"board": "stm32h563", "adc_bits": 16, "version": "3.3.0", "caps": self.caps,
+              "nrst_pin": True}
+        if self.gateware is not None:
+            st["gateware"] = self.gateware
+        return st
 
     def ping(self) -> Any:
         return "pong"
@@ -115,7 +119,24 @@ def test_open_spi_needs_the_capability_and_a_valid_mode():
         bp.open_spi()
     bp = BenchPod(transport=SpiPod(), wiring=Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
     with pytest.raises(ValueError):
-        bp.open_spi(mode=1)
+        bp.open_spi(mode=4)
+
+
+def test_spi_modes_1_and_2_need_gateware_55():
+    from embeddedci.benchpod import UnsupportedFeatureError
+
+    wiring = Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10)
+    old = SpiPod(gateware=54)
+    with pytest.raises(UnsupportedFeatureError, match="gateware v55"):
+        BenchPod(transport=old, wiring=wiring).open_spi(mode=1)
+    assert not [c for c in old.commands if c["cmd"] == "spi_start"]
+    new = SpiPod(gateware=55)
+    for mode in (1, 2):
+        with BenchPod(transport=new, wiring=wiring).open_spi(mode=mode) as spi:
+            assert spi.mode == mode
+    # a pod that does not report its gateware decides itself
+    with BenchPod(transport=SpiPod(), wiring=wiring).open_spi(mode=2) as spi:
+        assert spi.mode == 2
 
 
 def test_open_spi_without_wiring_pins_says_which_is_missing():

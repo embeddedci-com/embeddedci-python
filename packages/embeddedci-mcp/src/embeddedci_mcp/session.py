@@ -24,6 +24,7 @@ from embeddedci.benchpod import (
     BenchPod,
     CanBus,
     Capture,
+    I2CMaster,
     LaCapture,
     PowerProfileSession,
     UartSession,
@@ -146,6 +147,8 @@ class Session:
         self.uart: Optional[UartSession] = None
         self.uart_port: Optional[Tuple[int, int, int]] = None
         self.can: Optional[CanBus] = None
+        #: An I2C master session from ``i2c_open``.
+        self.i2c: Optional[I2CMaster] = None
         self.can_config: Optional[Tuple[int, str, bool]] = None
         #: A power profile started by ``power_profile_start`` and not yet stopped.
         self.power_profile: Optional[PowerProfileSession] = None
@@ -243,6 +246,7 @@ class Session:
     def _close_device(self) -> None:
         self.close_uart()
         self.close_can()
+        self.close_i2c()
         self.power_profile = None  # pod-side sampling stops by itself at its max_duration
         if self._pod is not None:
             try:
@@ -317,6 +321,19 @@ class Session:
         self.can = None
         self.can_config = None
 
+    def require_i2c(self) -> I2CMaster:
+        if self.i2c is None:
+            raise SessionStateError("no I2C session is open: call i2c_open first")
+        return self.i2c
+
+    def close_i2c(self) -> None:
+        if self.i2c is not None:
+            try:
+                self.i2c.close()
+            except Exception:
+                pass
+        self.i2c = None
+
     def require_power_profile(self) -> PowerProfileSession:
         if self.power_profile is None:
             raise SessionStateError("no power profile is running — call power_profile_start first "
@@ -326,7 +343,7 @@ class Session:
     def info(self) -> m.SessionInfo:
         leased = self._pod is not None and self._pod.leased
         return m.SessionInfo(
-            uart_open=self.uart is not None, can_open=self.can is not None,
+            uart_open=self.uart is not None, can_open=self.can is not None, i2c_open=self.i2c is not None,
             power_profile_running=self.power_profile is not None,
             last_adc_capture_samples=len(self.last_adc) if self.last_adc is not None else None,
             last_la_capture_samples=len(self.last_la) if self.last_la is not None else None,

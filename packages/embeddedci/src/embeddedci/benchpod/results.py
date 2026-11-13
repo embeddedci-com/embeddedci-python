@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from .constants import TRIGGER_EDGES, Edge, TriggerEdge
+from .i2c_master import SendResult
 
 _EDGES = ("rising", "falling", "both")
 
@@ -253,6 +254,9 @@ class LaCapture:
     #: ``""``, or why a capture above 12 MS/s stopped early and holds fewer samples than asked:
     #: ``"busy"`` (the signals changed faster than the pod can store) or ``"memory"``.
     truncated: str = ""
+    #: What ``capture_la(send=...)`` did (:class:`~embeddedci.benchpod.i2c_master.SendResult`),
+    #: or ``None`` without a send.
+    send_result: Optional["SendResult"] = None
 
     def __len__(self) -> int:
         return len(self.words)

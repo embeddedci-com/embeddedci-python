@@ -101,6 +101,7 @@ from .errors import (
     ConnectionClosedError,
     ConnectionConfigError,
     DeviceBusyError,
+    DirectionConflictError,
     FirmwareError,
     FlashError,
     PermissionDeniedError,
@@ -121,6 +122,7 @@ from .errors import (
 from .flash import FlashResult
 from .gpio import GpioPin, LaPinState
 from .i2c import I2CByte, I2CMessage, I2CTransaction
+from .i2c_master import GpioSend, I2CMaster, I2CNackError, I2CResult, I2CSend, SendResult, SpiSend
 from .lease import DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
@@ -214,6 +216,14 @@ __all__ = [
     "I2CByte",
     "I2CMessage",
     "I2CTransaction",
+    "I2CMaster",
+    "I2CResult",
+    "I2CNackError",
+    # send and capture
+    "I2CSend",
+    "SpiSend",
+    "GpioSend",
+    "SendResult",
     # capture / analysis
     "decode",
     "dsp",
@@ -326,6 +336,7 @@ __all__ = [
     "CanTimeout",
     "PinConflictError",
     "PullConflictError",
+    "DirectionConflictError",
     "TriggerTimeout",
     "UnsupportedFeatureError",
     # device lease

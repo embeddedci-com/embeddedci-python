@@ -85,6 +85,7 @@
     "adc_range_test": "(self) -> 'AdcRangeTest'",
     "adc_read": "(self, source: 'AdcSource' = 'ext', *, range: 'Optional[AdcRange]' = None) -> 'AdcReading'",
     "analog_path": "(self, path: 'AnalogPath', *, range: 'Optional[AdcRange]' = None) -> 'AnalogPathState'",
+    "apply_pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'List[LaPinState]'",
     "calibrate": "(self, source: 'CalibrateSource' = 'current_in') -> 'Calibration'",
     "calibrate_adc_gain": "(self, source: 'AdcGainSource', *, range: 'AdcRange' = 'normal') -> 'Calibration'",
     "calibrate_dac": "(self, path: 'DacCalPath', points: 'Sequence[Tuple[int, float]]') -> 'Calibration'",
@@ -108,7 +109,7 @@
     "capabilities": "property",
     "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None, oversample: 'bool' = False) -> 'Capture'",
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
-    "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0) -> 'LaCapture'",
+    "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, send: 'Optional[_i2c_master.Send]' = None) -> 'LaCapture'",
     "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None) -> '_uart.UartCapture'",
     "clear_calibration": "(self, part: 'Optional[CalibrationPart]' = None) -> 'Calibration'",
     "close": "(self) -> 'None'",
@@ -131,6 +132,7 @@
     "get_la_voltage": "(self) -> 'LaVoltage'",
     "gpio": "(self, la: 'Union[Pin, int, str]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'GpioPin'",
     "gpio_pins": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[GpioPin]'",
+    "la_dir": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]], None]' = None, dir: 'Optional[str]' = None) -> 'List[LaPinState]'",
     "la_pins": "(self) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
     "lan_tls": "(self) -> \"'LanTls'\"",
@@ -140,9 +142,11 @@
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
+    "open_i2c": "(self, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, *, hz: 'int' = 100000, pullups: 'str' = 'pod') -> '_i2c_master.I2CMaster'",
     "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
     "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576) -> '_uart.UartSession'",
+    "pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'Dict[int, str]'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
     "ping": "(self) -> 'Any'",
     "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3) -> '_uart.UartCapture'",
@@ -303,6 +307,7 @@
       "usb_cc",
       "spi_master",
       "spi_stream",
+      "gateware",
       "calibrate",
       "cal_dmm",
       "current_out",
@@ -337,6 +342,7 @@
     ],
     "adc_max_count": "property",
     "boot_warning": "(self) -> 'Optional[str]'",
+    "bus_master": "property",
     "counts_to_volts": "(self, count: 'float') -> 'float'",
     "from_parameters": "(cls, params: 'Mapping[str, Any]') -> \"'Capabilities'\"",
     "from_status": "(cls, status: 'Mapping[str, Any]') -> \"'Capabilities'\"",
@@ -445,6 +451,9 @@
     "lease_id": "property",
     "release": "(self) -> 'None'"
   },
+  "DirectionConflictError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0) -> 'None'"
+  },
   "EXTERNAL": "Efuse.EXTERNAL",
   "Edge": "Literal['rising', 'falling', 'both']",
   "Efuse": {
@@ -531,11 +540,32 @@
     "state": "(self) -> 'LaPinState'",
     "wait_for": "(self, level: 'int', *, timeout: 'float', poll: 'float' = 0.005) -> 'bool'"
   },
+  "GpioSend": {
+    "__fields__": [
+      "la",
+      "level"
+    ],
+    "to_request": "(self) -> 'Dict[str, Any]'"
+  },
   "I2CByte": {
     "__fields__": [
       "value",
       "ack"
     ]
+  },
+  "I2CMaster": {
+    "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]') -> 'None'",
+    "close": "(self) -> 'None'",
+    "probe": "(self, addr: 'int') -> 'bool'",
+    "read": "(self, addr: 'int', n: 'int') -> 'bytes'",
+    "read_reg": "(self, addr: 'int', reg: 'Union[int, Data]', n: 'int' = 1) -> 'bytes'",
+    "scan": "(self, start: 'int' = 8, end: 'int' = 119) -> 'List[int]'",
+    "send": "(self, addr: 'int', write: 'Optional[Data]' = None, read: 'int' = 0) -> \"'I2CSend'\"",
+    "status": "(self) -> 'Dict[str, Any]'",
+    "write": "(self, addr: 'int', data: 'Data') -> 'None'",
+    "write_read": "(self, addr: 'int', data: 'Data', n: 'int') -> 'bytes'",
+    "write_reg": "(self, addr: 'int', reg: 'Union[int, Data]', data: 'Data') -> 'None'",
+    "xfer": "(self, addr: 'int', write: 'Optional[Data]' = None, read: 'int' = 0) -> 'I2CResult'"
   },
   "I2CMessage": {
     "__fields__": [
@@ -545,6 +575,28 @@
       "data"
     ],
     "values": "property"
+  },
+  "I2CNackError": {
+    "__init__": "(self, addr: 'int', nack_at: 'int') -> 'None'"
+  },
+  "I2CResult": {
+    "__fields__": [
+      "addr",
+      "ack",
+      "data",
+      "nack_at",
+      "raw"
+    ],
+    "check": "(self) -> \"'I2CResult'\"",
+    "from_reply": "(cls, reply: 'Any', addr: 'int' = 0) -> \"'I2CResult'\""
+  },
+  "I2CSend": {
+    "__fields__": [
+      "addr",
+      "write",
+      "read"
+    ],
+    "to_request": "(self) -> 'Dict[str, Any]'"
   },
   "I2CTransaction": {
     "__fields__": [
@@ -572,7 +624,8 @@
       "channels",
       "trigger",
       "pre_samples",
-      "truncated"
+      "truncated",
+      "send_result"
     ],
     "channel": "(self, la: 'int') -> 'List[int]'",
     "decode": "(self, protocol: 'str' = 'i2c', **channels)",
@@ -595,10 +648,13 @@
       "pull",
       "pull_ohms",
       "pull_on",
+      "dir",
+      "warn",
       "raw"
     ],
     "from_reply": "(cls, entry: 'Any') -> \"'LaPinState'\"",
-    "in_use": "property"
+    "in_use": "property",
+    "warnings": "property"
   },
   "LaVoltage": {
     "__fields__": [
@@ -842,6 +898,20 @@
     ],
     "to_dict": "(self) -> 'Dict[str, Any]'"
   },
+  "SendResult": {
+    "__fields__": [
+      "bus",
+      "ack",
+      "data",
+      "nack_at",
+      "la",
+      "level",
+      "error",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'SendResult'\"",
+    "ok": "property"
+  },
   "Sensor": {
     "__init__": "(self, emulation: \"'SensorEmulation'\", instance: 'str', *, info: 'Optional[Mapping[str, Any]]' = None, started: 'Optional[Mapping[str, Any]]' = None) -> 'None'",
     "capture": "(self, samples: 'int' = 4096, sample_rate_hz: 'float' = 500000.0, *, timeout_s: 'float' = 2.0, wait_for_traffic: 'bool' = True) -> 'List[int]'",
@@ -945,6 +1015,12 @@
       "mosi_hex",
       "miso_hex"
     ]
+  },
+  "SpiSend": {
+    "__fields__": [
+      "tx"
+    ],
+    "to_request": "(self) -> 'Dict[str, Any]'"
   },
   "SpiSession": {
     "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]', *, stage: 'Optional[Callable[[bytes], int]]' = None) -> 'None'",
@@ -1160,6 +1236,7 @@
     "DefinitionError",
     "DeviceBusyError",
     "DeviceLease",
+    "DirectionConflictError",
     "EXTERNAL",
     "Edge",
     "Efuse",
@@ -1174,8 +1251,13 @@
     "FpgaImageInfo",
     "GpioMode",
     "GpioPin",
+    "GpioSend",
     "I2CByte",
+    "I2CMaster",
     "I2CMessage",
+    "I2CNackError",
+    "I2CResult",
+    "I2CSend",
     "I2CTransaction",
     "INTERNAL",
     "IVPoint",
@@ -1222,6 +1304,7 @@
     "ResetState",
     "SENSOR_LIBRARY_VERSION",
     "Segment",
+    "SendResult",
     "Sensor",
     "SensorEmulation",
     "SensorLibrary",
@@ -1232,6 +1315,7 @@
     "SpiFlashInfo",
     "SpiFlashResult",
     "SpiFrame",
+    "SpiSend",
     "SpiSession",
     "SpiStreamResult",
     "TargetStatus",

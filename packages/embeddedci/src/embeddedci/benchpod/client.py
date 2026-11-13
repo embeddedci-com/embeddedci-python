@@ -40,10 +40,11 @@ from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import flash as _flash
 from . import i2c as _i2c
+from . import i2c_master as _i2c_master
 from . import motor_emulator as _motor_emulator
 from . import spi as _spi
 from . import uart as _uart
-from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, AffineCal, Capabilities
+from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE, AffineCal, Capabilities
 from .constants import (
     ADC_SOURCE_PATHS,
     ADC_GAIN_SOURCES,
@@ -92,7 +93,7 @@ from .constants import (
 from .connection import resolve_connection
 from .errors import BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error
 from .flash import FlashResult
-from .gpio import GpioPin, LaPinState
+from .gpio import LA_DIRS, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
@@ -151,6 +152,13 @@ _CURRENT_OUT_ZERO_UA = 4000
 
 _log = logging.getLogger("embeddedci.benchpod")
 
+#: The DUT direction of each wiring role (:meth:`BenchPod.pin_directions`).
+_ROLE_DIRS = {"uart_rx": "dut_output", "uart_tx": "dut_input", "i2c_sda": "bidir", "i2c_scl": "bidir",
+              "spi_sclk": "dut_input", "spi_mosi": "dut_input", "spi_miso": "dut_output",
+              "spi_cs": "dut_input"}
+#: A wiring signal's direction (seen from the pod) as the DUT's (:meth:`BenchPod.pin_directions`).
+_SIGNAL_DIRS = {"input": "dut_output", "output": "dut_input", "open_drain": "bidir", "bidir": "bidir"}
+
 #: Capability flags only the analog board announces: the digital-only board lacks them whatever its
 #: firmware (cloud_caps_hw.c).
 _ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_control_loop", "dac_cotrig",
@@ -162,6 +170,10 @@ _ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_contro
 _IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_deep_replay",
                FpgaImage.EMULATION: "sensors_digital"}
 _IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02, FpgaImage.EMULATION: 0x04}
+
+#: Pre-trigger samples a capture with a ``send`` keeps, so the decoder sees the first START (an
+#: edge trigger fires on that START itself; without them the first message is lost).
+_SEND_PRE_SAMPLES = 64
 
 #: Seconds to wait for the server's cached capabilities to follow an image switch.
 _SERVER_CAPS_WAIT = 15.0
@@ -474,6 +486,15 @@ class BenchPod:
                 f"{what} need newer pod firmware (the {flag!r} capability is missing; "
                 f"this pod runs firmware {fw})",
                 feature=flag, firmware_version=self.capabilities.firmware_version)
+
+    def _require_gateware(self, version: int, what: str) -> None:
+        """Refuse ahead when the pod reports gateware older than ``version``; when it reports none,
+        the pod decides."""
+        gw = self.capabilities.gateware
+        if gw and gw < version:
+            raise UnsupportedFeatureError(
+                f"{what} need gateware v{version}+ (this pod runs v{gw}): update the pod's firmware",
+                feature=f"gateware_v{version}", firmware_version=self.capabilities.firmware_version)
 
     # -- wiring profile -------------------------------------------------------
 
@@ -1566,17 +1587,64 @@ class BenchPod:
 
         Omitted pins come from the wiring profile (``spi_sclk``, ``spi_mosi``, ``spi_miso``,
         ``spi_cs``). ``hz`` is rounded down to 24 MHz / (2 * n), n = 2..63 (6 MHz .. 190 kHz); the
-        session's ``hz`` is the rate used. ``mode`` is 0 or 3. Needs gateware v45+
-        (capability ``spi_master``); an SWD flash cannot run while a session is open.
+        session's ``hz`` is the rate used. ``mode`` is 0..3 (CPOL = mode / 2, CPHA = mode % 2);
+        modes 1 and 2 need gateware v55+. Needs gateware v45+ (capability ``spi_master``); an SWD
+        flash or an I2C session cannot run while a session is open.
         """
         self._require_capability("spi_master", "the SPI master")
-        if mode not in (0, 3):
-            raise ValueError("mode must be 0 or 3")
+        if isinstance(mode, bool) or mode not in (0, 1, 2, 3):
+            raise ValueError(f"mode must be 0, 1, 2 or 3, got {mode!r}")
+        if mode in (1, 2):
+            self._require_gateware(BUS_MASTER_GATEWARE, "SPI modes 1 and 2")
         req = {"cmd": "spi_start", "sck": self._wired(sck, "spi_sclk"), "mosi": self._wired(mosi, "spi_mosi"),
                "miso": self._wired(miso, "spi_miso"), "cs": self._wired(cs, "spi_cs"),
                "hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
-        return _spi.SpiSession(self.command, _dict(self.command(req)), stage=stage)
+        with _classified_errors():
+            info = _dict(self.command(req))
+        return _spi.SpiSession(self.command, info, stage=stage)
+
+    # -- I2C master --------------------------------------------------------------
+
+    def open_i2c(
+        self,
+        sda: Union[Pin, int, str, None] = None,
+        scl: Union[Pin, int, str, None] = None,
+        *,
+        hz: int = 100_000,
+        pullups: str = "pod",
+    ) -> _i2c_master.I2CMaster:
+        """Arm the pod's I2C master on two LA pins and return an
+        :class:`~embeddedci.benchpod.i2c_master.I2CMaster` (a context manager; closing it releases
+        the pins)::
+
+            bp.enable_pullup(1, 2)                      # SDA, SCL on LA1, LA2
+            with bp.open_i2c(hz=400_000) as i2c:
+                print([hex(a) for a in i2c.scan()])
+                chip_id = i2c.read_reg(0x76, 0xD0)[0]
+
+        Omitted pins come from the wiring profile (``i2c_sda``, ``i2c_scl``). ``hz`` is
+        10 kHz..1 MHz; the session's ``hz`` is the rate the pod runs, and a real bus runs somewhat
+        slower because the SCL rise time adds to each period. ``pullups="pod"`` (the default) needs
+        both pins on LA1..LA6 with the pod's pull-ups switched on (:meth:`enable_pullup`; they pull to
+        3.3 V, so the LA voltage must be 3.3 V); ``"external"`` when the board has its own. Needs
+        gateware v55+. SWD, SPI and I2C sessions exclude each other.
+        """
+        check_choice(pullups, _i2c_master.PULLUPS, "pullups")
+        if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= int(hz) <= _i2c_master.HZ_MAX:
+            raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
+        self._require_gateware(BUS_MASTER_GATEWARE, "the I2C master")
+        req = {"cmd": "i2c_start", "sda": self._wired(sda, "i2c_sda"), "scl": self._wired(scl, "i2c_scl"),
+               "hz": int(hz), "pullups": pullups}
+        if req["sda"] == req["scl"]:
+            raise ValueError("sda and scl must be different LA pins")
+        with _classified_errors():
+            info = _dict(self.command(req))
+        return _i2c_master.I2CMaster(self._classified_command, info)
+
+    def _classified_command(self, req: Dict[str, Any]) -> Any:
+        with _classified_errors():
+            return self.command(req)
 
     def spi_flash(
         self,
@@ -1737,7 +1805,8 @@ class BenchPod:
 
     def capture_la(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
                    stop_dac_after: Optional[float] = None, trigger: Optional[Trigger] = None,
-                   trigger_timeout: float = 10.0) -> LaCapture:
+                   trigger_timeout: float = 10.0,
+                   send: Optional[_i2c_master.Send] = None) -> LaCapture:
         """Capture raw 14-channel logic-analyzer words and return a :class:`LaCapture`.
 
         ``sample_rate_hz`` goes up to 12 MS/s, or 48 MS/s on gateware v50 and later
@@ -1757,12 +1826,42 @@ class BenchPod:
         :class:`Trigger`, gateware >= v35) makes t0 an edge or level on an LA channel —
         ``capture_la(..., trigger=Trigger("READY", "rising"))`` — and raises
         :class:`~embeddedci.benchpod.errors.TriggerTimeout` after ``trigger_timeout`` seconds without it.
+
+        ``send`` (gateware v55+) runs one transaction right after the capture arms, in the same
+        command, so a trigger on the bus line catches it (over the cloud too): an
+        :class:`~embeddedci.benchpod.i2c_master.I2CSend` (an open :meth:`open_i2c` session), a
+        :class:`~embeddedci.benchpod.i2c_master.SpiSend` (an open :meth:`open_spi` session) or a
+        :class:`~embeddedci.benchpod.i2c_master.GpioSend` (a GPIO output). Trigger on the line it
+        starts with: SDA falling, CS falling, or the GPIO pin's edge. Its result is
+        :attr:`LaCapture.send_result`; a failed transfer is reported there and the capture still
+        returns. With an edge trigger and no ``pre_samples``, a send keeps 64 samples from before
+        the trigger, so the decoder sees the first START::
+
+            with bp.open_i2c() as i2c:
+                cap = bp.capture_la(8192, sample_rate_hz=12e6, trigger=Trigger("i2c_sda", "falling"),
+                                    send=i2c.send(0x76, b"\xd0", read=1))
+            assert cap.send_result.ok
+            print(bp.decode(cap, "i2c", sda=1, scl=2))
         """
         trig = self._resolve_trigger(trigger)
+        send_req = None
+        if send is not None:
+            send_req = self._send_request(send)
+            if trig is not None and trig.edge in ("rising", "falling") and not trig.pre_samples:
+                trig = Trigger(trig.la, trig.edge, _SEND_PRE_SAMPLES)
         with _classified_errors():
             return _capture.capture_la(self._transport, samples=samples,
                                        sample_rate_hz=sample_rate_hz, stop_dac_after=stop_dac_after,
-                                       trigger=trig, trigger_timeout=trigger_timeout)
+                                       trigger=trig, trigger_timeout=trigger_timeout, send=send_req)
+
+    def _send_request(self, send: Any) -> Dict[str, Any]:
+        if isinstance(send, _i2c_master.GpioSend) and isinstance(send.la, str):
+            send = _i2c_master.GpioSend(self._resolve_la(send.la, "send la")[0], send.level)
+        if not isinstance(send, (_i2c_master.I2CSend, _i2c_master.SpiSend, _i2c_master.GpioSend)):
+            raise ValueError(f"send must be an I2CSend, SpiSend or GpioSend, got {send!r}")
+        req = send.to_request()
+        self._require_gateware(BUS_MASTER_GATEWARE, "send and capture")
+        return req
 
     def capture_correlated(self, *, adc_samples: int = 4096,
                            adc_sample_rate_hz: Optional[float] = None,
@@ -2511,6 +2610,62 @@ class BenchPod:
         with _classified_errors():
             data = _dict(self.command({"cmd": "la_pins"}))
         return [LaPinState.from_reply(e) for e in data.get("pins") or []]
+
+    def la_dir(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]], None] = None,
+               dir: Optional[str] = None) -> List[LaPinState]:
+        """Tell the pod which way each pin's DUT signal goes, and return the changed pins' state.
+
+        ``la`` is a channel, a wiring name, a list of them, or ``"all"``; ``dir`` is ``dut_input``,
+        ``dut_output``, ``bidir`` or ``unknown`` (the default after a reboot). On a ``dut_output``
+        pin the pod refuses every push-pull driver (a GPIO ``output``, UART TX, SPI SCK / MOSI /
+        CS, SWD, ...) with :class:`~embeddedci.benchpod.errors.DirectionConflictError`; open
+        drain and inputs still work. A pin that is driven can't be marked ``dut_output`` until it is
+        released. With no arguments, it lists every pin. :meth:`apply_pin_directions` sends the
+        wiring profile's directions.
+        """
+        req: Dict[str, Any] = {"cmd": "la_dir"}
+        if la is not None or dir is not None:
+            if la is None or dir is None:
+                raise ValueError("give both la and dir, or neither to list every pin")
+            check_choice(dir, LA_DIRS, "dir")
+            req["la"] = "all" if la == "all" else _one_or_many(self._resolve_las(la))
+            req["dir"] = dir
+        with _classified_errors():
+            data = self.command(req)
+        entries = data.get("pins") if isinstance(data, dict) else data
+        return [LaPinState.from_reply(e) for e in entries or []] if isinstance(entries, list) else []
+
+    def pin_directions(self, wiring: Optional[Wiring] = None) -> Dict[int, str]:
+        """The DUT direction of every pin the wiring profile names, as :meth:`la_dir` takes it:
+        ``{5: "dut_output", 4: "dut_input", 1: "bidir", ...}``.
+
+        Roles: ``uart_rx`` and ``spi_miso`` are DUT outputs, ``uart_tx``, ``spi_sclk``,
+        ``spi_mosi`` and ``spi_cs`` DUT inputs, the I2C pins ``bidir``. Signals: ``input`` (the
+        pod watches it) is a DUT output, ``output`` a DUT input, ``open_drain`` and ``bidir`` are
+        ``bidir``. SWD pins are left out."""
+        w = wiring if wiring is not None else self.wiring
+        out: Dict[int, str] = {}
+        for key, d in _ROLE_DIRS.items():
+            la = getattr(w, key, None)
+            if la:
+                out[int(la)] = d
+        for sig in w.signals:
+            out[int(sig.la)] = _SIGNAL_DIRS.get(sig.direction, "unknown")
+        return out
+
+    def apply_pin_directions(self, wiring: Optional[Wiring] = None) -> List[LaPinState]:
+        """Send :meth:`pin_directions` of the wiring profile to the pod (:meth:`la_dir`), one
+        command per direction, and return the pins' new state. The pod forgets them on a reboot;
+        call this after connecting or changing the wiring. Raises
+        :class:`~embeddedci.benchpod.errors.DirectionConflictError` when a pin the profile calls a
+        DUT output is driven right now."""
+        by_dir: Dict[str, List[int]] = {}
+        for la, d in sorted(self.pin_directions(wiring).items()):
+            by_dir.setdefault(d, []).append(la)
+        out: List[LaPinState] = []
+        for d, las in by_dir.items():
+            out += self.la_dir(las, d)
+        return out
 
     def gpio(self, la: Union[Pin, int, str], mode: GpioMode = "output", *,
              level: Optional[int] = None) -> GpioPin:

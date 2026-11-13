@@ -20,7 +20,8 @@ def test_la_pins_reports_every_channel_with_levels(connected):
     result = call("la_pins")
     assert [p["la"] for p in result["pins"]] == list(range(1, 15))
     assert _pin(result, 1) == {"la": 1, "function": "none", "gpio": None, "level": None,
-                               "pull": "up", "pull_ohms": "4.7k", "pull_on": False, "in_use": False}
+                               "pull": "up", "pull_ohms": "4.7k", "pull_on": False, "in_use": False,
+                               "dir": None, "warnings": None}
     assert _pin(result, 7)["pull"] == "down" and _pin(result, 12)["pull"] is None
     assert _pin(result, 14)["pull"] is None
     assert {lv["la"]: lv["level"] for lv in result["levels"]}[11] == 1
@@ -52,7 +53,8 @@ def test_gpio_mode_claims_channels_in_one_command(connected):
     result = call("gpio_mode", la=[3, 4], mode="output", level=1)
     assert [p["la"] for p in result["pins"]] == [3, 4]
     assert result["pins"][0] == {"la": 3, "function": "gpio", "gpio": "output", "level": 1,
-                                 "pull": "up", "pull_ohms": "2.2k", "pull_on": False, "in_use": True}
+                                 "pull": "up", "pull_ohms": "2.2k", "pull_on": False, "in_use": True,
+                                 "dir": None, "warnings": None}
     assert connected.requests[-1] == {"cmd": "gpio", "la": [3, 4], "mode": "output", "level": 1}
 
 

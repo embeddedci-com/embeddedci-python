@@ -18,12 +18,19 @@ These are the pod's LA pins on the iCE40, driven at the LA I/O voltage through 3
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import BenchPod
     from .constants import GpioMode
     from .wiring import Signal
+
+
+#: :attr:`LaPinState.warn` bits.
+WARN_PULL_UNDER_PUSH_PULL = 1
+WARN_UNPOWERED_DUT = 2
+#: :meth:`BenchPod.la_dir` directions.
+LA_DIRS = ("dut_input", "dut_output", "bidir", "unknown")
 
 
 @dataclass(frozen=True)
@@ -32,7 +39,8 @@ class LaPinState:
 
     la: int
     #: ``none``, ``gpio``, ``uart_rx``, ``uart_tx``, ``swd_clk``, ``swd_dio``, ``i2c_sda``, ``i2c_scl``,
-    #: ``step`` or ``step_dir``.
+    #: ``step``, ``step_dir``, the ``spi_*`` and ``sensor_*`` functions, or ``i2cm_sda`` /
+    #: ``i2cm_scl`` (the I2C master).
     function: str
     #: The GPIO mode (``input``/``output``/``open_drain``) when ``function`` is ``gpio``.
     gpio: Optional[str] = None
@@ -42,7 +50,27 @@ class LaPinState:
     pull: Optional[str] = None
     pull_ohms: Optional[str] = None
     pull_on: bool = False
+    #: Which way the DUT's signal goes, when set with :meth:`BenchPod.la_dir`: ``dut_input``,
+    #: ``dut_output`` or ``bidir``; ``None`` when unknown.
+    dir: Optional[str] = None
+    #: Warning bits, 0 when none: :data:`WARN_PULL_UNDER_PUSH_PULL` (a pull is on under a push-pull
+    #: output) and :data:`WARN_UNPOWERED_DUT` (target power is off while the pin is driven high or
+    #: pulled up). :attr:`warnings` spells them out.
+    warn: int = 0
     raw: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+    @property
+    def warnings(self) -> List[str]:
+        """:attr:`warn` as sentences."""
+        out = []
+        if self.warn & WARN_PULL_UNDER_PUSH_PULL:
+            out.append(f"LA{self.la}: a pull resistor is on under a push-pull output (it only costs "
+                       "current; use open_drain or switch the pull off)")
+        if self.warn & WARN_UNPOWERED_DUT:
+            out.append(f"LA{self.la}: target power is off while the pin is driven high or pulled up "
+                       "(this powers an unpowered DUT through its I/O pins; ignore it when the DUT "
+                       "has its own supply)")
+        return out
 
     @property
     def in_use(self) -> bool:
@@ -57,7 +85,7 @@ class LaPinState:
         return cls(la=int(e.get("la", 0) or 0), function=str(e.get("function") or "none"),
                    gpio=e.get("gpio") or None, level=None if level is None else int(level),
                    pull=pull.get("dir"), pull_ohms=pull.get("ohms"), pull_on=bool(pull.get("on", False)),
-                   raw=dict(e))
+                   dir=e.get("dir") or None, warn=int(e.get("warn") or 0), raw=dict(e))
 
 
 class GpioPin:
