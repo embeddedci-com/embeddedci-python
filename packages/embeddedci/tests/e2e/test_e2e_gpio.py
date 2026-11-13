@@ -3,8 +3,9 @@
     pytest packages/embeddedci/tests/e2e/test_e2e_gpio.py --benchpod-connection=<pod host>
 
 Uses the unwired channels from the ``bench`` fixture (LA9/LA10 by default), the biased channel
-``free_pull_la`` (LA6) and LA7's pull-down with nothing attached. Needs firmware with LA pin modes
-(``la_pins``); the trigger tests need gateware v35+ (``capture_trigger``).
+``free_pull_la`` (LA6) and ``free_pulldown_la`` (LA7's pull-down) with nothing attached; each test
+skips on a bench that sets its channels to ``none`` (README.md, "Bench profiles"). Needs firmware
+with LA pin modes (``la_pins``); the trigger tests need gateware v35+ (``capture_trigger``).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from embeddedci.benchpod import (
     Wiring,
 )
 
+from e2e_bench import FREE_LA, FREE_PULL_LA, FREE_PULLDOWN_LA
 from e2e_helpers import ANALOG
 
 pytestmark = pytest.mark.hardware
@@ -50,6 +52,7 @@ def _function(pod, la):
 
 # -- GPIO + ownership ---------------------------------------------------------------------
 
+@FREE_LA
 def test_gpio_output_drives_and_reads_back(gpio_pod, bench):
     out = bench.free_la[0]
     pin = gpio_pod.gpio(out, "output", level=1)
@@ -61,6 +64,7 @@ def test_gpio_output_drives_and_reads_back(gpio_pod, bench):
     assert state.function == "none" and not state.in_use
 
 
+@FREE_PULL_LA
 def test_open_drain_releases_to_the_pull_up(gpio_pod, bench):
     ch = bench.free_pull_la
     gpio_pod.enable_pullup(ch)
@@ -74,25 +78,28 @@ def test_open_drain_releases_to_the_pull_up(gpio_pod, bench):
         gpio_pod.disable_pullup(ch)
 
 
-def test_pull_down_conflicts_with_open_drain_both_ways(gpio_pod):
-    gpio_pod.enable_pulldown(7)
+@FREE_PULLDOWN_LA
+def test_pull_down_conflicts_with_open_drain_both_ways(gpio_pod, bench):
+    ch = bench.free_pulldown_la
+    gpio_pod.enable_pulldown(ch)
     try:
         with pytest.raises(PullConflictError) as ei:
-            gpio_pod.gpio(7, "open_drain")
-        assert ei.value.la == 7 and "pull-down" in str(ei.value)
+            gpio_pod.gpio(ch, "open_drain")
+        assert ei.value.la == ch and "pull-down" in str(ei.value)
     finally:
-        gpio_pod.disable_pulldown(7)
-    gpio_pod.gpio(7, "open_drain")
+        gpio_pod.disable_pulldown(ch)
+    gpio_pod.gpio(ch, "open_drain")
     try:
         with pytest.raises(PullConflictError):
-            gpio_pod.enable_pulldown(7)
+            gpio_pod.enable_pulldown(ch)
     finally:
-        gpio_pod.release_gpio(7)
-    gpio_pod.gpio(7, "output", level=1)                # a push-pull output may sit on a pull-down
-    gpio_pod.enable_pulldown(7)
-    gpio_pod.disable_pulldown(7)
+        gpio_pod.release_gpio(ch)
+    gpio_pod.gpio(ch, "output", level=1)               # a push-pull output may sit on a pull-down
+    gpio_pod.enable_pulldown(ch)
+    gpio_pod.disable_pulldown(ch)
 
 
+@FREE_LA
 def test_uart_is_refused_on_a_gpio_pin_until_released(gpio_pod, bench):
     rx, tx = bench.free_la
     gpio_pod.gpio(tx)
@@ -109,6 +116,7 @@ def test_uart_is_refused_on_a_gpio_pin_until_released(gpio_pod, bench):
     assert not _function(gpio_pod, tx).in_use            # the session released its pins
 
 
+@FREE_LA
 def test_step_train_on_a_gpio_output_keeps_it_gpio(gpio_pod, bench):
     ch = bench.free_la[0]
     pin = gpio_pod.gpio(ch, "output", level=0)
@@ -118,6 +126,7 @@ def test_step_train_on_a_gpio_output_keeps_it_gpio(gpio_pod, bench):
     assert state.function == "gpio" and state.level == 0
 
 
+@FREE_LA
 def test_la_voltage_cannot_change_while_pins_are_in_use(gpio_pod, bench, rev3):
     if not rev3:
         pytest.skip("switching the LA bank needs a rev3 pod")
@@ -127,6 +136,7 @@ def test_la_voltage_cannot_change_while_pins_are_in_use(gpio_pod, bench, rev3):
     gpio_pod.set_la_voltage(3.3)                          # the current voltage is always fine
 
 
+@FREE_LA
 def test_wiring_signal_names(gpio_pod, bench):
     out, inp = bench.free_la
     previous = gpio_pod.wiring
@@ -160,6 +170,7 @@ def _capture_in_thread(pod, **kwargs):
     return thread, result
 
 
+@FREE_LA
 def test_rising_trigger_starts_the_capture_at_the_edge(trigger_pod, bench):
     ch = bench.free_la[0]
     pin = trigger_pod.gpio(ch, "output", level=0)
@@ -176,6 +187,7 @@ def test_rising_trigger_starts_the_capture_at_the_edge(trigger_pod, bench):
     assert la.first_edge(ch, "falling") is None
 
 
+@FREE_LA
 def test_level_trigger_fires_at_once(trigger_pod, bench):
     ch = bench.free_la[0]
     trigger_pod.gpio(ch, "output", level=1)
@@ -185,6 +197,7 @@ def test_level_trigger_fires_at_once(trigger_pod, bench):
     assert time.monotonic() - start < 4.0 and la.duty_cycle(ch) == 1.0
 
 
+@FREE_LA
 def test_trigger_timeout_aborts_and_later_captures_are_untriggered(trigger_pod, bench):
     quiet = bench.free_la[1]
     with pytest.raises(TriggerTimeout) as ei:
@@ -196,6 +209,7 @@ def test_trigger_timeout_aborts_and_later_captures_are_untriggered(trigger_pod, 
     assert time.monotonic() - start < 5.0
 
 
+@FREE_LA
 @ANALOG
 def test_triggered_adc_capture(trigger_pod, bench):
     ch = bench.free_la[0]
@@ -214,6 +228,7 @@ def test_triggered_adc_capture(trigger_pod, bench):
     assert len(result["capture"]) == 8192 and result["capture"].trigger.la == ch
 
 
+@FREE_LA
 @ANALOG
 def test_triggered_capture_of_the_current_input(trigger_pod, bench):
     """An LA edge starts a capture of the 4-20 mA input (J8) like any other: amps, t = 0 on the
@@ -247,6 +262,7 @@ def test_triggered_capture_of_the_current_input(trigger_pod, bench):
     assert both.la.channel(ch)[-1] == 1                 # the edge that started it is in the logic half
 
 
+@FREE_LA
 def test_step_train_is_timed_from_the_trigger(trigger_pod, bench):
     ch = bench.free_la[0]
     pin = trigger_pod.gpio(ch, "output", level=0)

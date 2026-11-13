@@ -15,6 +15,7 @@ import pytest
 
 from embeddedci.benchpod import BenchPod
 
+from e2e_bench import FREE_LA, TOP_LA
 from e2e_helpers import check_expected_board, require_analog
 
 # Not marked `hardware`: that gate wants --benchpod-connection, and this tier opens its own cloud
@@ -65,9 +66,11 @@ def test_adc_capture_over_the_tunnel(cloud):
     assert len(set(adc.counts)) > 1, "every ADC sample identical: the tunnel delivered filler"
 
 
-def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud):
+@FREE_LA
+def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud, bench):
     """The point is that the command channel still answers while the tunnel is busy."""
-    with cloud.open_uart(rx=9, tx=10) as uart:
+    rx, tx = bench.free_la
+    with cloud.open_uart(rx=rx, tx=tx) as uart:
         assert cloud.power_status().internal.ok
         # Nothing is wired to these channels, so the content is not the point — but the session
         # must stay usable and return promptly rather than raising or hanging.
@@ -91,16 +94,18 @@ def test_waveform_library_save_and_replay(cloud):
         cloud.dac_stop()
 
 
-def test_top_la_channels_over_the_cloud(cloud):
+@TOP_LA
+def test_top_la_channels_over_the_cloud(cloud, bench):
     """LA13/LA14 (firmware 3.1+) through the command channel and the tunnel: drive, read, capture."""
     if len(cloud.la_pins()) < 14:
         pytest.skip("the pod firmware has 12 LA channels; LA13/LA14 need 3.1+")
+    hi, lo = bench.top_la
     try:
-        cloud.gpio(13, "output", level=1)
-        cloud.gpio(14, "output", level=0)
+        cloud.gpio(hi, "output", level=1)
+        cloud.gpio(lo, "output", level=0)
         levels = cloud.pin_levels()
-        assert (levels[13], levels[14]) == (1, 0)
+        assert (levels[hi], levels[lo]) == (1, 0)
         la = cloud.capture_la(4096, sample_rate_hz=1_000_000)
-        assert la.duty_cycle(13) == 1.0 and la.duty_cycle(14) == 0.0
+        assert la.duty_cycle(hi) == 1.0 and la.duty_cycle(lo) == 0.0
     finally:
-        cloud.release_gpio(13, 14)
+        cloud.release_gpio(hi, lo)

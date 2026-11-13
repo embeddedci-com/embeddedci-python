@@ -22,6 +22,7 @@ import pytest
 
 from embeddedci.benchpod import FirmwareError, ResetState, UsbCcStatus
 
+from e2e_bench import FREE_LA, FREE_PULL_LA
 from e2e_helpers import events_during
 
 pytestmark = pytest.mark.hardware
@@ -103,6 +104,7 @@ def test_bank_voltage_reads_back_from_the_mux(v3):
         assert v3.get_la_voltage().readback == volts
 
 
+@FREE_PULL_LA
 def test_1v8_releases_and_refuses_the_pull_ups(v3, bench):
     ch = bench.free_pull_la
     v3.set_la_voltage(3.3)
@@ -119,6 +121,7 @@ def test_1v8_releases_and_refuses_the_pull_ups(v3, bench):
         v3.set_pull(ch, before)
 
 
+@FREE_LA
 def test_gpio_and_capture_work_on_the_1v8_bank(v3, bench):
     if not v3.capabilities.la_pins:
         pytest.skip("the pod firmware has no LA pin modes (capability la_pins)")

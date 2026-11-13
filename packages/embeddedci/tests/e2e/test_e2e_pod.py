@@ -38,6 +38,7 @@ from embeddedci.benchpod.constants import ANALOG_PATHS
 from embeddedci.benchpod.control_loop import CURVE_POINTS
 from embeddedci.benchpod.decode import decode_uart
 
+from e2e_bench import FREE_LA, FREE_PULL_LA, UART_SENSOR_TX
 from e2e_helpers import (ANALOG, HOST_CLOCK_REL, SETTLE, adc_levels, events_during, host_clock_rate, p2p,
                          split_levels, has_dac_mux, require_shared_dac,
 )
@@ -640,6 +641,7 @@ def test_capture_correlated(pod):
     assert len(cc.adc) == 4096 and len(cc.la) == 4096
 
 
+@FREE_LA
 def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
     ch = bench.free_la[0]
     steps, delay = 400, 0.002
@@ -669,6 +671,7 @@ def test_la_step_pulses_show_up_in_a_logic_capture(pod, bench):
 # divider (2.304 MHz -> 24/11 = 2.18 MHz), or, with no rate given, the fastest that fits the burst
 # ring (100K samples -> 4.8 MHz, 300K -> 3.43 MHz). Firmware that reports the request instead fails
 # by 5-25%.
+@FREE_LA
 @pytest.mark.parametrize("samples,rate_hz", [(20_000, 2_304_000), (20_000, 12_000_000),
                                              (100_000, None), (300_000, None)])
 def test_la_reports_the_rate_it_achieved(pod, bench, samples, rate_hz):
@@ -707,6 +710,7 @@ def _needs_v50(pod):
         pytest.skip("needs gateware v50 (LA above 12 MS/s)")
 
 
+@FREE_LA
 @pytest.mark.parametrize("rate_hz,width", [(48_000_000, 192), (24_000_000, 96), (16_000_000, 64)])
 def test_la_above_12_msps_reads_exact_pulse_widths(pod, bench, rate_hz, width):
     _needs_v50(pod)
@@ -730,6 +734,7 @@ def test_la_above_12_msps_reads_exact_pulse_widths(pod, bench, rate_hz, width):
         time.sleep(0.2)
 
 
+@FREE_LA
 def test_la_pre_trigger_returns_the_samples_before_it(pod, bench, benchpod_connection):
     # The line is held low (an undriven LA pin may read high) and the pulse train starts from a
     # second connection 100 ms after the arm, so 2000 samples of history exist when it fires.
@@ -769,6 +774,7 @@ def test_la_pre_trigger_returns_the_samples_before_it(pod, bench, benchpod_conne
 # rate causes grows with the capture length (samples / 24 MHz regardless of rate: ~170 ms for
 # the LA test, ~80 ms for the ADC test), far above the few ms of wired network jitter; Wi-Fi
 # needs the wider HOST_CLOCK_REL (e2e_helpers).
+@FREE_LA
 def test_la_sample_rate_matches_the_host_clock(pod, bench):
     np = pytest.importorskip("numpy")
     ch = bench.free_la[0]
@@ -979,11 +985,15 @@ def test_fpga_image_round_trip(pod):
 
 # -- digital -------------------------------------------------------------------------------
 
+def test_bias_resistors_report_their_direction(pod):
+    """Read-only, so it runs on a bench that wires every channel."""
+    assert [pod.pull_state(la).direction for la in range(1, 9)] == ["up"] * 6 + ["down"] * 2
+
+
+@FREE_PULL_LA
 def test_bias_resistors_are_direction_aware(pod, bench):
-    states = {la: pod.pull_state(la) for la in range(1, 9)}
-    assert [states[la].direction for la in range(1, 9)] == ["up"] * 6 + ["down"] * 2
     ch = bench.free_pull_la
-    before = states[ch].enabled
+    before = pod.pull_state(ch).enabled
     try:
         assert pod.set_pull(ch, not before).enabled == (not before)
         assert (ch in pod.enabled_pulls()) == (not before)
@@ -1118,10 +1128,12 @@ def _nmea_ok(line):
     return f"{x:02X}" == cs.strip()
 
 
+@UART_SENSOR_TX
 def test_gps_receiver_prints_nmea(pod, sensors, bench):
-    """The library's NMEA GPS on a free channel, decoded from an LA capture: checksummed sentences
-    with the fix and time we set, a 10 Hz subset at another baud rate, the no-fix form."""
-    ch = bench.free_la[0]
+    """The library's NMEA GPS on a free channel or a DUT UART RX line (BENCHPOD_E2E_UART_SENSOR_TX),
+    decoded from an LA capture: checksummed sentences with the fix and time we set, a 10 Hz subset
+    at another baud rate, the no-fix form. The pod only transmits: a DUT RX pin is an input."""
+    ch = bench.uart_sensor_tx
     utc = int(datetime.datetime(2026, 10, 8, 12, 34, 56, tzinfo=datetime.timezone.utc).timestamp())
     fix = {"lat_deg": 50.8466123, "lon_deg": 4.3527987, "sats": 9, "speed_kmh": 0, "fix": 1,
            "utc_start": utc}
@@ -1148,6 +1160,7 @@ def test_gps_receiver_prints_nmea(pod, sensors, bench):
     assert gps.status() == {}
 
 
+@FREE_LA
 def test_uart_session_on_unwired_channels(pod, bench):
     rx, tx = bench.free_la
     with pod.open_uart(rx=rx, tx=tx) as uart:

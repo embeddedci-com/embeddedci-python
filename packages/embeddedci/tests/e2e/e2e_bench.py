@@ -96,9 +96,9 @@ def parse_channels(name: str, raw: str, count: int,
         channels = ()
     if len(channels) != count or any(ch not in allowed for ch in channels) \
             or len(set(channels)) != count:
-        want = "an LA channel" if count == 1 else f"{count} different LA channels"
+        want = "one LA channel" if count == 1 else f"{count} different LA channels, comma-separated,"
         raise ValueError(f"{PREFIX}{name}={raw!r}: want {want} out of "
-                         f"{min(allowed)}-{max(allowed)}, comma-separated, or 'none'")
+                         f"{min(allowed)}-{max(allowed)}, or 'none'")
     return channels
 
 
@@ -144,6 +144,6 @@ def missing_reason(bench: Bench, names: Sequence[str]) -> Optional[str]:
     missing = [n for n in names if getattr(bench, n) is None]
     if not missing:
         return None
-    parts = [f"{NEEDS[n][1]}: set {NEEDS[n][0]}" for n in missing]
-    return ("the bench has no " + "; no ".join(parts)
-            + " (they are 'none' on a bench that wires every LA channel to the DUT)")
+    parts = [f"needs {NEEDS[n][1]}; set {NEEDS[n][0]}" for n in missing]
+    return ("; ".join(parts)
+            + " (this bench set it to 'none': it wires every LA channel to the DUT)")

@@ -37,12 +37,6 @@ def pytest_report_header(config):
     return f"embeddedci under test: {os.path.dirname(embeddedci.__file__)} (installed dist: {ver})"
 
 
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "bench_needs(*names): the test uses these optional bench resources (free LA "
-        "channels and the like, e2e_bench.NEEDS); it skips when the bench sets them to 'none'")
-
-
 def _bench_or_usage_error() -> Bench:
     try:
         return bench_from_env(os.environ)
