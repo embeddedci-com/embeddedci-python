@@ -264,7 +264,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `sensor_stop` | Stop one sensor, or all; the pod releases the pins and forgets the definition; returns the names it stopped. The emulation image stays loaded. | `instance` (default: all) |
 | `sensor_status` | Running sensors (slot, pins, values, faults with `left_s`, bus counters such as `writes`; `transfers` is always null), the stimulus and the FPGA image, every page in one reply. | none |
 | `sensor_regs` | The bytes an I2C/SPI sensor answers now. | **`instance`**, `start=0` (0..255), `length` (default: to the end of the 256-byte image) |
-| `sensor_capture` | Capture an I2C sensor's bus and decode it into a transaction trace (I2C only; `capture_la` for SPI and UART sensors). | **`instance`**, `samples=4096` (1..4096 packed bytes), `address`, `register` |
+| `sensor_capture` | Wait for the DUT's next transaction on an I2C sensor's bus (up to 2 s; firmware with `sensor_la_trigger`, older firmware captures at once), capture it and decode it into a transaction trace (I2C only; `capture_la` for SPI and UART sensors). | **`instance`**, `samples=4096` (1..4096 packed bytes), `address`, `register` |
 
 ### Pull resistors
 

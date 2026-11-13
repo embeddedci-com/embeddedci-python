@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.12
+
+- `sensor_capture` waits for the DUT's next I2C transaction (up to 2 s) and captures it from its
+  START, so a DUT that reads its sensor now and then is caught; a quiet bus is a trigger timeout
+  error. Needs pod firmware with the `sensor_la_trigger` capability; older firmware captures at
+  once, as before.
+- Requires `embeddedci` 2.13.12.
+
 ## 2.13.11
 
 - Sensor tools for user-defined sensors (pod firmware with the `sensors` capability) replace the

@@ -1126,7 +1126,7 @@ async def sensor_capture(
     address: Annotated[Optional[int], Field(description="Also report whether the DUT addressed this device.")] = None,
     register: Annotated[Optional[int], Field(description="With address: the bytes the DUT read from this register.")] = None,
 ) -> m.I2cCaptureResult:
-    """Capture an I2C sensor's bus pins and decode them into a transaction trace (S/Sr/P, addr, data, ACK). I2C only: capture an SPI or UART sensor's pins with capture_la."""
+    """Wait for the DUT's next transaction on an I2C sensor's bus (up to 2 s), capture it from its START and decode it into a transaction trace (S/Sr/P, addr, data, ACK). A quiet bus is a trigger timeout error. Firmware without the sensor_la_trigger capability captures at once instead. I2C only: capture an SPI or UART sensor's pins with capture_la."""
     def op() -> m.I2cCaptureResult:
         txns = _emulation().i2c_transactions(instance, samples)
         addrs = sorted({msg.address for t in txns for msg in t.messages if msg.address is not None})
