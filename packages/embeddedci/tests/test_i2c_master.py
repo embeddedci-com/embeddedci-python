@@ -294,7 +294,8 @@ def test_la_pins_dir_and_warn():
     bp, fake = pod()
     bp.la_dir(4, "dut_input")
     pins = {p.la: p for p in bp.la_pins()}
-    assert pins[4].dir == "dut_input" and pins[1].dir is None
+    # LA1 is i2c_sda in the wiring: bidir since connect. LA3 is not wired: unknown.
+    assert pins[4].dir == "dut_input" and pins[1].dir == "bidir" and pins[3].dir is None
     assert pins[3].warn == 3 and len(pins[3].warnings) == 2 and pins[4].warnings == []
 
 
@@ -307,10 +308,13 @@ def test_pin_directions_from_wiring():
     assert dirs == {5: "dut_output", 4: "dut_input", 1: "bidir", 2: "bidir", 7: "dut_input",
                     8: "dut_input", 9: "dut_output", 10: "dut_input", 11: "dut_output",
                     12: "dut_input", 13: "bidir"}
+    fake.commands.clear()
     bp.apply_pin_directions(w)
     sent = [c for c in fake.commands if c["cmd"] == "la_dir"]
+    # Unwired pins first (unknown), DUT outputs last.
+    assert [c["dir"] for c in sent] == ["unknown", "dut_input", "bidir", "dut_output"]
     assert {c["dir"]: c["la"] for c in sent} == {"bidir": [1, 2, 13], "dut_input": [4, 7, 8, 10, 12],
-                                                 "dut_output": [5, 9, 11]}
+                                                 "dut_output": [5, 9, 11], "unknown": [3, 6, 14]}
     assert fake.dirs[11] == "dut_output"
 
 

@@ -152,13 +152,6 @@ _CURRENT_OUT_ZERO_UA = 4000
 
 _log = logging.getLogger("embeddedci.benchpod")
 
-#: The DUT direction of each wiring role (:meth:`BenchPod.pin_directions`).
-_ROLE_DIRS = {"uart_rx": "dut_output", "uart_tx": "dut_input", "i2c_sda": "bidir", "i2c_scl": "bidir",
-              "spi_sclk": "dut_input", "spi_mosi": "dut_input", "spi_miso": "dut_output",
-              "spi_cs": "dut_input"}
-#: A wiring signal's direction (seen from the pod) as the DUT's (:meth:`BenchPod.pin_directions`).
-_SIGNAL_DIRS = {"input": "dut_output", "output": "dut_input", "open_drain": "bidir", "bidir": "bidir"}
-
 #: Capability flags only the analog board announces: the digital-only board lacks them whatever its
 #: firmware (cloud_caps_hw.c).
 _ANALOG_FLAGS = frozenset({"scope", "dac_replay", "dac_deep_replay", "dac_control_loop", "dac_cotrig",
@@ -306,6 +299,9 @@ class BenchPod:
         self._waveforms: Optional["WaveformLibrary"] = None
         self._sensors: Optional["SensorEmulation"] = None
         self._device_name = ""
+        #: What happened to the wiring profile's pin directions the last time the SDK sent them on
+        #: its own (on connect, on a new :attr:`wiring`): ``"sent"`` or ``"not sent: <why>"``.
+        self.pin_directions_status = "not sent: not connected yet"
         #: Hardware controls below the named-path API (raw mux/relay/DAC-code access). Not covered
         #: by the stability guarantee.
         self.lowlevel = LowLevel(self)
@@ -347,6 +343,7 @@ class BenchPod:
                         raise ValueError(f"{LA_VOLTAGE_ENV} must be 1.8 or 3.3, got {env!r}") from None
             if la_voltage is not None:
                 self.set_la_voltage(la_voltage)
+            self._auto_pin_directions()
         except BaseException:
             self.close()
             raise
@@ -529,6 +526,7 @@ class BenchPod:
     @wiring.setter
     def wiring(self, value: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]"]) -> None:
         self._wiring = Wiring.coerce(value)
+        self._auto_pin_directions()
 
     def _resolve_wiring(self) -> Wiring:
         env = os.environ.get(WIRING_ENV, "").strip()
@@ -637,7 +635,10 @@ class BenchPod:
                                 "for a LAN pod keep the profile in a file and pass wiring=")
         api = self._require_server_api()
         api.put_wiring(api.resolve_device_id(self._device_name), profile.to_dict())
+        changed = profile != self._wiring
         self._wiring = profile.with_changes(source="server")
+        if changed:
+            self._auto_pin_directions()
         return self._wiring
 
     def signal(self, name: str) -> GpioPin:
@@ -2637,35 +2638,62 @@ class BenchPod:
 
     def pin_directions(self, wiring: Optional[Wiring] = None) -> Dict[int, str]:
         """The DUT direction of every pin the wiring profile names, as :meth:`la_dir` takes it:
-        ``{5: "dut_output", 4: "dut_input", 1: "bidir", ...}``.
+        ``{5: "dut_output", 4: "dut_input", 1: "bidir", ...}`` (:meth:`Wiring.pin_dut_dirs
+        <embeddedci.benchpod.wiring.Wiring.pin_dut_dirs>`).
 
-        Roles: ``uart_rx`` and ``spi_miso`` are DUT outputs, ``uart_tx``, ``spi_sclk``,
-        ``spi_mosi`` and ``spi_cs`` DUT inputs, the I2C pins ``bidir``. Signals: ``input`` (the
-        pod watches it) is a DUT output, ``output`` a DUT input, ``open_drain`` and ``bidir`` are
-        ``bidir``. SWD pins are left out."""
+        Each role and signal has a default, and the profile's ``dut_dirs`` overrides it. Roles:
+        ``uart_rx`` and ``spi_miso`` are DUT outputs; ``uart_tx``, ``spi_sclk``, ``spi_mosi``,
+        ``spi_cs`` and ``swd_swclk`` DUT inputs; the I2C pins and ``swd_swdio`` ``bidir``.
+        Signals: ``input`` (the pod watches it) is a DUT output, ``output`` a DUT input,
+        ``open_drain`` and ``bidir`` are ``bidir``."""
         w = wiring if wiring is not None else self.wiring
-        out: Dict[int, str] = {}
-        for key, d in _ROLE_DIRS.items():
-            la = getattr(w, key, None)
-            if la:
-                out[int(la)] = d
-        for sig in w.signals:
-            out[int(sig.la)] = _SIGNAL_DIRS.get(sig.direction, "unknown")
-        return out
+        return w.pin_dut_dirs()
 
     def apply_pin_directions(self, wiring: Optional[Wiring] = None) -> List[LaPinState]:
         """Send :meth:`pin_directions` of the wiring profile to the pod (:meth:`la_dir`), one
-        command per direction, and return the pins' new state. The pod forgets them on a reboot;
-        call this after connecting or changing the wiring. Raises
+        command per direction, and mark the pins the profile doesn't name ``unknown``. Returns the
+        pins' new state.
+
+        The SDK does this on its own when it connects to a pod with firmware 3.10.4+ and when
+        :attr:`wiring` changes (:attr:`pin_directions_status` says how it went); the pod forgets
+        the directions on a reboot. Raises
         :class:`~embeddedci.benchpod.errors.DirectionConflictError` when a pin the profile calls a
-        DUT output is driven right now."""
+        DUT output is driven right now; the other directions are sent first."""
+        dirs = self.pin_directions(wiring)
         by_dir: Dict[str, List[int]] = {}
-        for la, d in sorted(self.pin_directions(wiring).items()):
-            by_dir.setdefault(d, []).append(la)
+        for la in range(1, 15):
+            by_dir.setdefault(dirs.get(la, "unknown"), []).append(la)
         out: List[LaPinState] = []
-        for d, las in by_dir.items():
-            out += self.la_dir(las, d)
+        # "unknown" first, so a pin moving to another role never refuses on its old mark;
+        # dut_output last, so a driven pin refusing it leaves every other direction in place.
+        for d in ("unknown", "dut_input", "bidir", "dut_output"):
+            if by_dir.get(d):
+                out += self.la_dir(by_dir[d], d)
         return out
+
+    def _auto_pin_directions(self) -> None:
+        """Send the wiring's pin directions on connect and on a new profile, when the firmware
+        has ``la_dir``. Never raises: the outcome goes to :attr:`pin_directions_status`."""
+        if getattr(self, "_transport", None) is None:
+            return
+        try:
+            if type(self._transport).__name__ == "SerialTransport":
+                self.pin_directions_status = "not sent: the USB console has no la_dir"
+                return
+            # The cached capabilities when there are some; else one status read that is not cached
+            # (the first real use of capabilities reads and caches them as before).
+            caps = self._caps if self._caps is not None else Capabilities.from_status(
+                _dict(self.status()))
+            if not caps.la_dir:
+                fw = caps.firmware_version or "unknown"
+                self.pin_directions_status = (f"not sent: this pod's firmware ({fw}) has no "
+                                              "la_dir (3.10.4+)")
+                return
+            self.apply_pin_directions()
+            self.pin_directions_status = "sent"
+        except Exception as exc:  # a convenience on connect: report it, never fail the caller
+            self.pin_directions_status = f"not sent: {exc}"
+            _log.warning("pin directions from the wiring were not sent to the pod: %s", exc)
 
     def gpio(self, la: Union[Pin, int, str], mode: GpioMode = "output", *,
              level: Optional[int] = None) -> GpioPin:

@@ -30,6 +30,19 @@ ROLE_KEYS: Tuple[str, ...] = ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl", "swd_s
                               "spi_sclk", "spi_mosi", "spi_miso", "spi_cs")
 #: Valid :attr:`Signal.direction` values.
 SIGNAL_DIRECTIONS: Tuple[str, ...] = ("input", "output", "open_drain", "bidir")
+#: Valid :attr:`Wiring.dut_dirs` values: which way the DUT's signal goes.
+DUT_DIRS: Tuple[str, ...] = ("dut_input", "dut_output", "bidir")
+#: The default DUT direction of each role. ``uart_rx`` is the pod's receive line, so the DUT drives
+#: it (a DUT output); ``uart_tx`` is the pod's transmit line (a DUT input).
+ROLE_DUT_DIRS: Mapping[str, str] = {
+    "uart_rx": "dut_output", "uart_tx": "dut_input", "i2c_sda": "bidir", "i2c_scl": "bidir",
+    "swd_swclk": "dut_input", "swd_swdio": "bidir",
+    "spi_sclk": "dut_input", "spi_mosi": "dut_input", "spi_miso": "dut_output", "spi_cs": "dut_input",
+}
+#: The default DUT direction of a signal from its :attr:`Signal.direction` (seen from the pod): a
+#: signal the pod watches (``input``) is a DUT output, one it drives (``output``) a DUT input.
+SIGNAL_DUT_DIRS: Mapping[str, str] = {"input": "dut_output", "output": "dut_input",
+                                      "open_drain": "bidir", "bidir": "bidir"}
 
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 _SIGNAL_KEYS = ("name", "la", "direction", "active_low", "description")
@@ -102,9 +115,14 @@ class Wiring:
     #: Where this profile came from: ``"defaults"``, ``"file"``, ``"server"`` or ``"dict"``.
     source: str = field(default="defaults", compare=False)
     version: int = WIRING_VERSION
+    #: The DUT direction of a role or signal where its default is wrong: role key or signal name
+    #: -> ``dut_input``, ``dut_output`` or ``bidir`` (see :meth:`pin_dut_dirs`).
+    dut_dirs: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signals", tuple(self.signals))
+        if isinstance(self.dut_dirs, Mapping):
+            object.__setattr__(self, "dut_dirs", dict(self.dut_dirs))
         object.__setattr__(self, "extra", dict(self.extra))
         errors = self._errors()
         if errors:
@@ -125,7 +143,7 @@ class Wiring:
         profile written by a newer server)."""
         if not isinstance(data, Mapping):
             raise ValueError("invalid wiring: a wiring profile must be a JSON object")
-        scalar = {f.name for f in fields(cls)} - {"signals", "extra", "source"}
+        scalar = {f.name for f in fields(cls)} - {"signals", "extra", "source", "dut_dirs"}
         kwargs: Dict[str, Any] = {}
         extra: Dict[str, Any] = {}
         unknown: List[str] = []
@@ -134,6 +152,8 @@ class Wiring:
                 kwargs[key] = value
             elif key == "signals":
                 kwargs["signals"] = tuple(_parse_signals(value, unknown))
+            elif key == "dut_dirs":
+                kwargs["dut_dirs"] = value
             elif key.startswith(_PASSTHROUGH_PREFIXES) or not strict:
                 extra[key] = value
             else:
@@ -184,10 +204,11 @@ class Wiring:
         """The profile's JSON object (every key, defaults included)."""
         out: Dict[str, Any] = {"version": self.version}
         for f in fields(self):
-            if f.name in ("signals", "extra", "source", "version"):
+            if f.name in ("signals", "extra", "source", "version", "dut_dirs"):
                 continue
             out[f.name] = getattr(self, f.name)
         out["signals"] = [s.to_dict() for s in self.signals]
+        out["dut_dirs"] = dict(self.dut_dirs)
         out.update(self.extra)
         return out
 
@@ -216,6 +237,24 @@ class Wiring:
     def pins(self) -> Dict[int, str]:
         """LA channel → the role or signal on it (unwired channels are absent)."""
         return {la: name for name, la in self.assignments()}
+
+    def dut_dir(self, name: str) -> str:
+        """The DUT direction of a role (``"uart_rx"``) or signal: its :attr:`dut_dirs` entry, else
+        the default (:data:`ROLE_DUT_DIRS`, or :data:`SIGNAL_DUT_DIRS` from the signal's
+        direction)."""
+        key = str(name).strip()
+        for k, d in self.dut_dirs.items():
+            if k.lower() == key.lower():
+                return d
+        if key.lower() in ROLE_KEYS:
+            return ROLE_DUT_DIRS[key.lower()]
+        return SIGNAL_DUT_DIRS.get(self.signal(key).direction, "dut_output")
+
+    def pin_dut_dirs(self) -> Dict[int, str]:
+        """LA channel -> the DUT direction of what is wired to it (:meth:`dut_dir`), for every
+        wired role and signal: ``{5: "dut_output", 4: "dut_input", 1: "bidir", ...}``. This is what
+        the pod gets with ``la_dir``; unwired channels are absent."""
+        return {la: self.dut_dir(name) for name, la in self.assignments()}
 
     def la(self, name: str) -> int:
         """The LA channel of a role (``"uart_rx"``) or a signal (``"TRIGGER"``, case-insensitive)."""
@@ -251,13 +290,16 @@ class Wiring:
         return out
 
     def describe(self) -> str:
-        """A readable pin table: channel, what is wired to it, and its bias resistor."""
+        """A readable pin table: channel, what is wired to it, its bias resistor and its DUT
+        direction."""
         pins = self.pins()
+        dirs = self.pin_dut_dirs()
         lines = [f"LA I/O {self.la_voltage:g} V, target power eFuse {self.efuse}"]
         for la in range(1, 15):
             pull = PULL_OHMS.get(la)
             bias = (f"{pull} pull-{'down' if la in PULLDOWN_CHANNELS else 'up'}" if pull else "no pull")
-            lines.append(f"LA{la:<3} {pins.get(la, '-'):<12} {bias}")
+            line = f"LA{la:<3} {pins.get(la, '-'):<12} {bias:<16} {dirs.get(la, '')}"
+            lines.append(line.rstrip())
         return "\n".join(lines + [f"warning: {w}" for w in self.warnings()])
 
     # -- validation -------------------------------------------------------------
@@ -308,6 +350,16 @@ class Wiring:
                 errs.append(f"signals[{i}].active_low must be true or false")
             if not isinstance(s.description, str) or len(s.description) > 120:
                 errs.append(f"signals[{i}].description must be a string of at most 120 characters")
+        if not isinstance(self.dut_dirs, Mapping):
+            errs.append("dut_dirs must be an object of role or signal name -> direction")
+        else:
+            names = {s.name.lower() for s in self.signals if isinstance(s, Signal)
+                     and isinstance(s.name, str)}
+            for k, d in self.dut_dirs.items():
+                if not isinstance(k, str) or (k.lower() not in ROLE_KEYS and k.lower() not in names):
+                    errs.append(f"dut_dirs.{k}: {k!r} is not a wiring role or a signal name")
+                elif d not in DUT_DIRS:
+                    errs.append(f"dut_dirs.{k} must be one of {', '.join(DUT_DIRS)}, got {d!r}")
         users: Dict[int, str] = {}
         for name, la in self.assignments():
             if not 1 <= la <= 14:
