@@ -67,7 +67,7 @@ jobs:
       - name: Build sdist and wheel
         working-directory: packages/embeddedci
         run: |
-          python -m pip install --upgrade build twine
+          python -m pip install "build==1.6.1" "twine==7.0.0"
           python -m build
           twine check dist/*
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -93,7 +93,7 @@ jobs:
       - name: Build sdist and wheel
         working-directory: packages/embeddedci-py39-shim
         run: |
-          python -m pip install --upgrade build twine
+          python -m pip install "build==1.6.1" "twine==7.0.0"
           python -m build
           twine check dist/*
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -116,7 +116,7 @@ jobs:
       - name: Build sdist and wheel
         working-directory: packages/embeddedci-mcp
         run: |
-          python -m pip install --upgrade build twine
+          python -m pip install "build==1.6.1" "twine==7.0.0"
           python -m build
           twine check dist/*
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -139,7 +139,7 @@ jobs:
       - name: Build sdist and wheel
         working-directory: packages/embeddedci-openhtf
         run: |
-          python -m pip install --upgrade build twine
+          python -m pip install "build==1.6.1" "twine==7.0.0"
           python -m build
           twine check dist/*
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

@@ -7,6 +7,10 @@ on:
   # publish.yml calls this workflow so a release tag publishes only after the same tests pass.
   workflow_call:
 
+# Tests only read the repo. (Called from publish.yml, this cannot widen the caller's token either.)
+permissions:
+  contents: read
+
 jobs:
   test:
     # Pinned to ubuntu-24.04: ubuntu-latest moves to Ubuntu 26 from 2026-10-19. Unpin once 26.04 is verified.
