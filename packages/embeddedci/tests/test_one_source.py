@@ -22,6 +22,7 @@ from embeddedci.benchpod import BenchPod, Wiring
 from embeddedci.benchpod import cli_config
 from embeddedci.benchpod.connection import resolve_connection
 from embeddedci.benchpod.errors import ConnectionConfigError, FirmwareError
+from embeddedci import _http
 
 DEVICE_ID = "8f1c0d2e-0000-4000-8000-000000000001"
 PROFILE = {"uart_rx": 3, "uart_tx": 6, "efuse": 2, "signals": [{"name": "READY", "la": 10}]}
@@ -180,7 +181,7 @@ class _Resp:
 @pytest.fixture
 def http(monkeypatch):
     h = Http()
-    monkeypatch.setattr(urllib.request, "urlopen", h.urlopen)
+    monkeypatch.setattr(_http, "urlopen", h.urlopen)
     return h
 
 

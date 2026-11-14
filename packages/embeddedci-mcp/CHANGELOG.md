@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.18
+
+- HTTP transport: a loopback bind always checks Host and Origin (only 127.0.0.1, localhost and
+  [::1] on its port), whatever the `mcp` version's default, so a web page in the user's browser
+  cannot reach it through DNS rebinding. `--auth-token-file` reads the bearer token from a file;
+  a token given with `--auth-token` is visible to other users in `ps`, so prefer the file or
+  `EMBEDDEDCI_MCP_TOKEN`.
+
 ## 2.13.17
 
 - Needs `embeddedci` 2.13.17: `flash` can no longer pass Tcl to OpenOCD through the file name or

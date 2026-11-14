@@ -52,8 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     http.add_argument("--host", default="127.0.0.1", help="Bind address (default 127.0.0.1).")
     http.add_argument("--port", type=int, default=8000, help="Bind port (default 8000).")
     http.add_argument("--auth-token", default=os.environ.get(TOKEN_ENV),
-                      help=f"Require 'Authorization: Bearer <token>' on every request (or set {TOKEN_ENV}). "
-                           "Mandatory when binding a non-loopback address.")
+                      help=f"Require 'Authorization: Bearer <token>' on every request. Prefer {TOKEN_ENV} "
+                           "or --auth-token-file: a token on the command line is visible to other users "
+                           "of this computer (ps). Mandatory when binding a non-loopback address.")
+    http.add_argument("--auth-token-file", default=None, metavar="PATH",
+                      help="Read the bearer token from this file (its first line).")
     http.add_argument("--allowed-host", action="append", default=[], metavar="HOST[:PORT]",
                       help="Host header value to accept (repeatable), for DNS-rebinding protection on a "
                            "non-loopback bind. Without it, Host checking is off and the token protects.")
@@ -76,6 +79,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         mcp.run(transport="stdio")
         return
 
+    if args.auth_token_file:
+        with open(args.auth_token_file, encoding="utf-8") as f:
+            args.auth_token = (f.readline() or "").strip() or None
+        if not args.auth_token:
+            parser.error(f"--auth-token-file {args.auth_token_file} holds no token")
+
     loopback = _is_loopback(args.host)
     if not loopback and not args.auth_token and not args.allow_unauthenticated:
         parser.error(f"--host {args.host} exposes the bench to the network: pass --auth-token (or set "
@@ -85,7 +94,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     from mcp.server.transport_security import TransportSecuritySettings
 
     mcp.settings.host, mcp.settings.port = args.host, args.port
-    if not loopback:
+    if loopback:
+        # A loopback bind still serves any web page in the user's browser: accept only loopback Host
+        # and Origin headers (no DNS rebinding), set here rather than left to the mcp version's default.
+        hosts = [f"127.0.0.1:{args.port}", f"localhost:{args.port}", f"[::1]:{args.port}"]
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True, allowed_hosts=hosts,
+            allowed_origins=[f"http://{h}" for h in hosts])
+    else:
         # FastMCP only accepts loopback Host headers by default, which rejects every real client
         # of a network bind. Accept the operator's hosts, or rely on the bearer token.
         allowed: List[str] = list(args.allowed_host)

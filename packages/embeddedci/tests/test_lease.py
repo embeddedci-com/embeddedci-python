@@ -6,6 +6,7 @@ import pytest
 
 from embeddedci.benchpod.lease import DeviceLease
 from embeddedci.benchpod.errors import DeviceBusyError
+from embeddedci import _http
 
 
 def _lease(posts):
@@ -98,7 +99,7 @@ def _scripted(monkeypatch, outcomes):
             raise outcome
         return _Resp(b'{"lease_id":"x"}')
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(_http, "urlopen", fake)
     return calls
 
 

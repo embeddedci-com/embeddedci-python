@@ -15,6 +15,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from embeddedci import _http
 import uuid
 import warnings
 from typing import Callable, Optional, Tuple
@@ -172,7 +173,7 @@ class DeviceLease:
         request.add_header("Accept", "application/json")
         request.add_header("User-Agent", USER_AGENT)
         try:
-            with urllib.request.urlopen(request, timeout=_LEASE_HTTP_TIMEOUT) as resp:
+            with _http.urlopen(request, timeout=_LEASE_HTTP_TIMEOUT) as resp:
                 return None, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]

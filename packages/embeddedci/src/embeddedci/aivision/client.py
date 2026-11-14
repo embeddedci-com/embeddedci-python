@@ -23,6 +23,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from embeddedci import _http
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -248,7 +249,7 @@ class AIVision:
             if self._lease is not None:
                 req.add_header("X-Lease-Id", self._lease.id)
         try:
-            return urllib.request.urlopen(req, timeout=timeout or self.timeout)
+            return _http.urlopen(req, timeout=timeout or self.timeout)
         except urllib.error.HTTPError as e:
             raw = e.read()
             try:

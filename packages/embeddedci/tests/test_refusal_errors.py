@@ -90,7 +90,7 @@ def test_server_api_403_is_permission_denied(monkeypatch):
         raise urllib.error.HTTPError("https://x.test", 403, "Forbidden", {},
                                      io.BytesIO(b'{"error":"this needs an organization owner or admin"}'))
 
-    monkeypatch.setattr("urllib.request.urlopen", deny)
+    monkeypatch.setattr("embeddedci._http.urlopen", deny)
     api = ServerApi(api_base="https://x.test", api_key="eci_k")
     with pytest.raises(PermissionDeniedError) as info:
         api.list_devices()
@@ -101,7 +101,7 @@ def _cloud_http_error(monkeypatch, code, body):
     def fail(*_a, **_k):
         raise urllib.error.HTTPError("https://x.test", code, "err", {}, io.BytesIO(body))
 
-    monkeypatch.setattr("urllib.request.urlopen", fail)
+    monkeypatch.setattr("embeddedci._http.urlopen", fail)
     return CloudTransport("dev-a", api_base="https://x.test", token="t")
 
 

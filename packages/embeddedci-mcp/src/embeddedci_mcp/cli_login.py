@@ -22,6 +22,10 @@ from typing import Any, Dict, Optional
 
 from embeddedci.benchpod.cloud_auth import USER_AGENT
 from embeddedci.benchpod.errors import CloudAuthError
+try:  # embeddedci 2.13.18+: credentials stay on their origin across redirects
+    from embeddedci import _http
+except ImportError:  # pragma: no cover - older SDK
+    _http = urllib.request  # type: ignore[assignment]
 
 #: Same margin as the CLI: a token this close to expiry counts as expired.
 EXPIRY_SKEW = timedelta(seconds=60)
@@ -100,7 +104,7 @@ def _refresh(api_base: str, refresh_token: str) -> Dict[str, Any]:
                  "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+        with _http.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         msg = exc.read().decode("utf-8", "replace")

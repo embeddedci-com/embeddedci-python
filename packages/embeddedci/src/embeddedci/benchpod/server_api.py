@@ -19,6 +19,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from embeddedci import _http
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .cloud_auth import DEFAULT_API_BASE, USER_AGENT
@@ -108,7 +109,7 @@ class ServerApi:
             headers["X-Benchpod-Lease"] = self.lease_id
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+            with _http.urlopen(req, timeout=timeout or self.timeout) as resp:
                 raw = resp.read()
                 if not parse_json:
                     return resp.status, raw
