@@ -16,6 +16,7 @@ The board's flash algorithm comes from OpenOCD's ``target=`` config (e.g.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -105,6 +106,19 @@ def supports_cmsis_dap_tcp(openocd_bin: str) -> bool:
         return False
 
 
+_LOAD_ADDR_RE = re.compile(r"^(0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})$")
+
+
+def _tcl_word(path: str) -> str:
+    """``path`` as one Tcl word with no substitution: in braces, which a path cannot break out of
+    unless it holds a brace (refused). Backslashes (Windows) become forward slashes, which OpenOCD
+    takes on Windows too, so none can escape a brace."""
+    path = path.replace("\\", "/")
+    if any(c in path for c in "{}\n\r"):
+        raise ValueError(f"the firmware path has characters OpenOCD would read as commands: {path!r}")
+    return "{" + path + "}"
+
+
 def build_openocd_args(
     target: str,
     file: str,
@@ -134,9 +148,14 @@ def build_openocd_args(
     if target and clear_reset_events:
         args += ["-c", _CLEAR_RESET_EVENTS_TCL]
     if file:
-        prog = ["program", file]
+        # The program command is Tcl: OpenOCD would run "[...]" in a file name or address as a
+        # command. The path goes in braces (no substitution inside) and the address must be a number.
+        prog = ["program", _tcl_word(file)]
         if load_address.strip():
-            prog.append(load_address.strip())
+            addr = load_address.strip()
+            if not _LOAD_ADDR_RE.match(addr):
+                raise ValueError(f"load_address must be a number like 0x08000000, not {load_address!r}")
+            prog.append(addr)
         if verify:
             prog.append("verify")
         if reset:

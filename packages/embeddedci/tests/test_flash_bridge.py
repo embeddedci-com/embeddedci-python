@@ -137,4 +137,23 @@ def test_build_args_program_command():
     )
     assert "-f" in args and "target/stm32f1x.cfg" in args
     assert any("connect_assert_srst" in a for a in args)
-    assert any(a == "program fw.elf verify reset exit" for a in args)
+    assert any(a == "program {fw.elf} verify reset exit" for a in args)
+
+
+def test_build_args_keep_tcl_out_of_the_program_command():
+    def build(file, addr=""):
+        return flashmod.build_openocd_args(
+            "target/stm32f1x.cfg", file, addr,
+            verify=True, reset=True, connect_under_reset=False,
+            clear_reset_events=False, extra_configs=(), extra_args=(),
+        )
+
+    # "[...]" in a file name stays text inside braces; a Windows path keeps working
+    assert "program {/tmp/[exec id].elf} verify reset exit" in build("/tmp/[exec id].elf")
+    assert "program {C:/fw/app.bin} 0x08000000 verify reset exit" in build("C:\\fw\\app.bin", "0x08000000")
+    for bad_file in ("/tmp/a}b.elf", "/tmp/{x}.elf"):
+        with pytest.raises(ValueError):
+            build(bad_file)
+    for bad_addr in ("[exec id]", "0x0800 ; shutdown", "$x"):
+        with pytest.raises(ValueError):
+            build("fw.bin", bad_addr)
