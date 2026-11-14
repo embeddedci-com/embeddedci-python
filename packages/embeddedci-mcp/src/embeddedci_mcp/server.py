@@ -749,6 +749,8 @@ async def i2c_open(
     """Make the pod an I2C master on two LA pins (gateware v55+), replacing any open session.
 
     Then i2c_transfer, i2c_scan, or capture_la with send. SWD, SPI and I2C exclude each other.
+    "i2c busy" means another connection (the desktop app, the web app, a script) holds the
+    pod's I2C master: close it there.
     """
     def op() -> m.I2cSessionResult:
         pod = SESSION.require()
@@ -2320,7 +2322,7 @@ async def can_status() -> m.DeviceReply:
 
 @mcp.tool(annotations=_ann("Close CAN", idempotent=True))
 async def can_close() -> m.CanOpenResult:
-    """Clear responder rules and stop CAN (safe when not open)."""
+    """Clear responder rules, stop CAN and switch the 120 ohm termination off (safe when not open)."""
     await _call(SESSION.close_can)
     return m.CanOpenResult(open=False)
 

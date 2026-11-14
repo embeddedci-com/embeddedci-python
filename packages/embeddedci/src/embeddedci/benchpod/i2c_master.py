@@ -134,6 +134,11 @@ class I2CMaster:
         self._closed = False
 
     # -- lifetime ----------------------------------------------------------------------------
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`close` ran."""
+        return self._closed
+
     def close(self) -> None:
         """Stop the I2C master and release its pins. Idempotent."""
         if not self._closed:

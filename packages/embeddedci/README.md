@@ -758,6 +758,11 @@ pod's view of the session.
 SWD, SPI and I2C sessions share one engine in the pod, so they exclude each other. Every command
 fits one cloud frame: this works over the LAN, USB and the cloud alike.
 
+The pod has one I2C master for all its connections. While another connection has it open (the
+desktop app's I2C tab, the web app, an AI agent or another script), `open_i2c()` raises a
+`FirmwareError` that says so and names that session's pins and rate; close the session there
+first. If this `BenchPod` still has its own session open, the error says to close that one.
+
 ## Motor & battery emulator
 
 The BenchPod motor emulator boards (ECP5, up to four on one SPI link) are driven with
@@ -1688,8 +1693,8 @@ with bp.control_loop(curve=curve, input_map=shunt) as loop:
 ## CAN
 
 The pod has one CAN node (FDCAN + TCAN1044 transceiver), classic CAN or CAN FD. `open_can`
-configures it and returns a `CanBus`, which clears autonomous-responder rules and disables CAN on
-exit.
+configures it and returns a `CanBus`, which clears autonomous-responder rules, disables CAN and
+switches the 120 Ω termination off on exit.
 
 | `mode` | Behaviour |
 |---|---|

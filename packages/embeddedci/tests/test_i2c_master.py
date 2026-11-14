@@ -100,7 +100,10 @@ class BusPod:
             self.driven = {k: v for k, v in self.driven.items() if not v.startswith("i2cm")}
             return "i2c stopped"
         if cmd == "i2c_status":
-            return {"active": bool(self.session)}
+            if not self.session:
+                return {"active": False}
+            return {"active": True, "sda": self.session["sda"], "scl": self.session["scl"],
+                    "hz": self.session["hz"], "pullups": self.session["pullups"]}
         if cmd in ("i2c_xfer", "i2c_scan") and not self.session:
             raise FirmwareError("no I2C session: send i2c_start first", cmd=cmd)
         if cmd == "i2c_xfer":
@@ -189,6 +192,32 @@ def test_open_i2c_accepts_wiring_names_and_validates():
         bp.open_i2c(1, 1)
 
 
+def test_busy_names_another_connection_as_the_holder():
+    """Another client (the desktop app, the web app) holds the pod's I2C master: the refusal says
+    so and where, instead of pointing at an open_i2c() this script never called."""
+    bp, fake = pod()
+    fake.session = {"sda": 1, "scl": 2, "hz": 100_000, "pullups": "pod"}
+    with pytest.raises(FirmwareError) as e:
+        bp.open_i2c()
+    msg = str(e.value)
+    assert "another connection to this pod holds its I2C master (LA1 SDA, LA2 SCL, 100000 Hz)" in msg
+    assert "desktop app" in msg and "bp.open_i2c() first" not in msg
+    assert e.value.firmware_message == "i2c busy: send i2c_stop first"
+    assert fake.session["hz"] == 100_000          # nothing was stopped
+
+
+def test_busy_names_this_benchpods_own_open_session():
+    bp, fake = pod()
+    i2c = bp.open_i2c()
+    with pytest.raises(FirmwareError, match="this BenchPod already has an I2C session open .LA1 SDA, LA2 SCL.: close it first"):
+        bp.open_i2c()
+    assert not i2c.closed
+    i2c.close()
+    assert i2c.closed
+    with bp.open_i2c():                           # free again
+        pass
+
+
 def test_write_read_and_register_helpers():
     bp, fake = pod()
     with bp.open_i2c() as i2c:
@@ -256,7 +285,7 @@ def test_firmware_gateware_refusal_is_unsupported_feature():
 def test_refusals_name_sdk_calls():
     bp, fake = pod()
     i2c = bp.open_i2c()
-    with pytest.raises(FirmwareError, match=r"bp\.open_i2c\(\)"):
+    with pytest.raises(FirmwareError, match=r"close it first \(i2c\.close\(\)"):
         bp.open_i2c()
     i2c.close()
     i2c.close()  # idempotent

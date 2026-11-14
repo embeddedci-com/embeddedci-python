@@ -305,6 +305,13 @@ class CanBus:
                 self._bp.can_disable()
             except Exception:
                 pass
+            # Termination off too: it is a relay, not part of FDCAN, so before firmware 3.10.6
+            # can_disable left it in and the next user of the bus found 120 ohm on it.
+            try:
+                self._bp.can_term(False)
+                self.term = False
+            except Exception:
+                pass
 
     def __enter__(self) -> "CanBus":
         return self

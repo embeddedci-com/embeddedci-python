@@ -557,6 +557,7 @@
   "I2CMaster": {
     "__init__": "(self, command: 'Callable[[Dict[str, Any]], Any]', info: 'Dict[str, Any]') -> 'None'",
     "close": "(self) -> 'None'",
+    "closed": "property",
     "probe": "(self, addr: 'int') -> 'bool'",
     "read": "(self, addr: 'int', n: 'int') -> 'bytes'",
     "read_reg": "(self, addr: 'int', reg: 'Union[int, Data]', n: 'int' = 1) -> 'bytes'",
