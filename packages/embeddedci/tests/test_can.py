@@ -225,8 +225,18 @@ def test_open_can_expect_times_out(bp):
 def test_open_can_disables_on_exit(bp, pod):
     with bp.open_can(mode="internal"):
         pass
-    assert pod.requests[-1]["cmd"] == "can_disable"
+    assert [r["cmd"] for r in pod.requests[-2:]] == ["can_disable", "can_term"]
+    assert pod.requests[-1]["on"] is False
     assert pod._enabled is False
+
+
+def test_close_switches_termination_off(bp, pod):
+    """Closing a bus that had the 120 ohm termination in leaves it out (firmware before 3.10.6
+    kept it on after can_disable)."""
+    can = bp.open_can(mode="internal", term=True)
+    assert pod._term is True
+    can.close()
+    assert pod._term is False and can.term is False
 
 
 def test_canbus_rejects_bad_mode(bp):

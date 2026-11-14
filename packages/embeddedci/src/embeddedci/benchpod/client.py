@@ -31,6 +31,7 @@ import math
 import os
 import re
 import time
+import weakref
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -300,6 +301,9 @@ class BenchPod:
         self._waveforms: Optional["WaveformLibrary"] = None
         self._sensors: Optional["SensorEmulation"] = None
         self._device_name = ""
+        # The last I2CMaster this BenchPod opened, to tell its own open session from another
+        # connection's when i2c_start is refused as busy.
+        self._i2c_master_ref: Optional["weakref.ReferenceType[_i2c_master.I2CMaster]"] = None
         #: What happened to the wiring profile's pin directions the last time the SDK sent them on
         #: its own (on connect, on a new :attr:`wiring`): ``"sent"`` or ``"not sent: <why>"``.
         self.pin_directions_status = "not sent: not connected yet"
@@ -1645,9 +1649,35 @@ class BenchPod:
                "hz": int(hz), "pullups": pullups}
         if req["sda"] == req["scl"]:
             raise ValueError("sda and scl must be different LA pins")
-        with _classified_errors():
-            info = _dict(self.command(req))
-        return _i2c_master.I2CMaster(self._classified_command, info)
+        try:
+            with _classified_errors():
+                info = _dict(self.command(req))
+        except FirmwareError as exc:
+            if exc.firmware_message.startswith("i2c busy"):
+                exc.args = (self._i2c_busy_text(exc),)
+            raise
+        i2c = _i2c_master.I2CMaster(self._classified_command, info)
+        self._i2c_master_ref = weakref.ref(i2c)
+        return i2c
+
+    def _i2c_busy_text(self, exc: FirmwareError) -> str:
+        """The refusal of ``i2c_start`` while a session is open, naming who holds it: this
+        BenchPod's own unclosed :meth:`open_i2c` session, or another connection to the pod."""
+        prefix = f"{exc.cmd}: " if exc.cmd else ""
+        mine = self._i2c_master_ref() if self._i2c_master_ref is not None else None
+        if mine is not None and not mine.closed:
+            return (f"{prefix}i2c busy: this BenchPod already has an I2C session open (LA{mine.sda} "
+                    f"SDA, LA{mine.scl} SCL): close it first (i2c.close(), or leave its with block)")
+        where = ""
+        try:
+            st = _dict(self.command({"cmd": "i2c_status"}))
+            if st.get("active"):
+                where = f" (LA{st.get('sda')} SDA, LA{st.get('scl')} SCL, {st.get('hz')} Hz)"
+        except Exception:
+            pass
+        return (f"{prefix}i2c busy: another connection to this pod holds its I2C master{where}, "
+                "for example the desktop app, the web app, an AI agent or another script. Close the "
+                "I2C session there first; it is not one this script opened")
 
     def _classified_command(self, req: Dict[str, Any]) -> Any:
         with _classified_errors():

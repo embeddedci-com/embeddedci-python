@@ -356,7 +356,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `can_read` | Read received frames, or wait for one id. | `timeout=0`, `can_id`, `max_frames=32` |
 | `can_respond` | Answer a CAN id from the pod firmware (ECU simulation), or clear all rules. | `match_id`, `reply_id`, `reply_data`, `match_ext=false`, `reply_ext=false`, `reply_fd`, `reply_brs`, `clear=false` |
 | `can_status` | Link state: mode, bitrate, error counters, bus-off. | none |
-| `can_close` | Clear responder rules and stop CAN. | none |
+| `can_close` | Clear responder rules, stop CAN and switch the 120 Ω termination off. | none |
 
 ### Other
 

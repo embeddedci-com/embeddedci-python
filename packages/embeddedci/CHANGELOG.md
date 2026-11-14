@@ -1,5 +1,16 @@
 # Changelog — `embeddedci`
 
+## 2.13.16
+
+- `open_i2c()` refused as busy names who holds the I2C master. When another connection has it
+  open (the desktop app, the web app, an AI agent or another script) the error says so, with its
+  pins and rate from `i2c_status`, instead of telling this script to close an `open_i2c()` session
+  it never opened. When this `BenchPod` still has its own session open, the error says to close
+  that one. `I2CMaster.closed` tells whether `close()` ran.
+- Closing a `CanBus` (`close()`, or leaving its `with` block) also switches the 120 Ω termination
+  off (`can_term(False)`). Before, a bus opened with `term=True` left the termination in after
+  close. Firmware 3.10.6 does this in `can_disable` as well.
+
 ## 2.13.15
 
 - A pod whose `status` is too large for the cloud channel (firmware 3.10.4 with the USB network

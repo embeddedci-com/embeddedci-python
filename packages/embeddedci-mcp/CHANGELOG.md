@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.16
+
+- `can_close` switches the 120 Ω termination off as well, so a bus opened with `term` no longer
+  keeps it in after closing.
+- `i2c_open` refused because another connection (the desktop app, the web app or a script) holds
+  the pod's I2C master now says so, with that session's pins, instead of pointing at a session
+  this server never opened.
+
 ## 2.13.15
 
 - `connect` over the cloud to a pod with firmware 3.10.4 works again: its `status` was too large
