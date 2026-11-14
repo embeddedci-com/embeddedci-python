@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timezone
 import urllib.error
 import urllib.request
+from embeddedci import _http
 from typing import Any, Callable, Optional
 from urllib.parse import quote
 
@@ -426,7 +427,7 @@ class CloudTransport(TcpTransport):
             if self.lease_id:
                 request.add_header("X-Benchpod-Lease", self.lease_id)
             try:
-                with urllib.request.urlopen(request, timeout=timeout + 10) as resp:
+                with _http.urlopen(request, timeout=timeout + 10) as resp:
                     raw = resp.read()
                 break
             except urllib.error.HTTPError as exc:

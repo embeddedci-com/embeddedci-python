@@ -26,6 +26,7 @@ from typing import Any, Dict, Optional
 from .cli_config import config_dir
 from .cloud_auth import USER_AGENT
 from .errors import CloudAuthError
+from embeddedci import _http
 
 #: Same margin as the CLI: a token this close to expiry counts as expired.
 EXPIRY_SKEW = timedelta(seconds=60)
@@ -108,7 +109,7 @@ def _refresh(api_base: str, refresh_token: str, timeout: float = _HTTP_TIMEOUT) 
                  "User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
+        with _http.urlopen(request, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         msg = exc.read().decode("utf-8", "replace")

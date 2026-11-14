@@ -11,6 +11,7 @@ from embeddedci.benchpod.connection import parse_connection, resolve_connection
 from embeddedci.benchpod.errors import CloudAuthError, ConnectionConfigError
 from embeddedci.benchpod.transport import open_transport
 from embeddedci.benchpod.transport.cloud import CloudTransport, _WsTunnelSocket
+from embeddedci import _http
 
 
 # -- connection parsing -----------------------------------------------------
@@ -171,7 +172,7 @@ def test_mint_oidc_request_failure(monkeypatch):
     def boom(*_a, **_k):
         raise OSError("connection refused")
 
-    monkeypatch.setattr(cloud_auth.urllib.request, "urlopen", boom)
+    monkeypatch.setattr(_http, "urlopen", boom)
     with pytest.raises(CloudAuthError, match="failed to request a GitHub OIDC token"):
         cloud_auth.mint_oidc_token()
 
@@ -233,7 +234,7 @@ def test_cloud_transport_command_uses_command_channel(monkeypatch):
         captured["auth"] = request.get_header("Authorization")
         return _Resp(b'{"status":"ok","data":"pong"}')
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(_http, "urlopen", fake_urlopen)
 
     assert t.command({"cmd": "ping"}) == "pong"
     assert "/api/cloud/devices/command" in captured["url"]
@@ -259,7 +260,7 @@ def test_cloud_transport_command_error_raises(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+    monkeypatch.setattr(_http, "urlopen", lambda *a, **k: _Resp())
     with pytest.raises(FirmwareError):
         t.command({"cmd": "dap_start"})
 
@@ -413,7 +414,7 @@ def _scripted_urlopen(monkeypatch, outcomes):
             raise outcome
         return _Resp()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(_http, "urlopen", fake)
     monkeypatch.setattr(cloud.time, "sleep", lambda s: None)
     return calls
 
@@ -540,7 +541,7 @@ def test_user_token_is_exchanged_as_bearer(monkeypatch):
         return _Resp(json.dumps({"token": "cloud", "expires_at": "2030-01-01T00:00:00Z"}).encode())
 
     monkeypatch.delenv("BENCHPOD_API_KEY", raising=False)
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(_http, "urlopen", fake)
     token, expires_at = cloud_auth.mint_session_token("https://example.test", user_token=lambda: "user-jwt")
     assert token == "cloud" and seen == {"auth": "Bearer user-jwt", "url": "https://example.test/api/auth/token"}
     assert expires_at == pytest.approx(1893456000.0)

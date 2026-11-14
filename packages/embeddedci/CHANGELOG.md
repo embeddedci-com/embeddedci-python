@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## 2.13.18
+
+- Security: a redirect to another host (or from https to http) no longer carries the API key,
+  session token, lease or cookies along. Every SDK call to embeddedci.com and AI Vision goes
+  through one opener that drops them; nothing redirects today, so this guards the future.
+
 ## 2.13.17
 
 - Security: `flash()` puts the firmware path in braces in OpenOCD's `program` command and refuses a

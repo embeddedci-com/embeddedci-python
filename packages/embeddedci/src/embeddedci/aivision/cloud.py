@@ -21,6 +21,7 @@ from typing import Callable, Optional
 from urllib.parse import quote, urlsplit
 
 from ..benchpod.cloud_auth import DEFAULT_API_BASE, DEFAULT_AUDIENCE, mint_session_token
+from embeddedci import _http
 
 #: Prefix of a cloud connection string: ``embeddedci:<board name>``.
 CLOUD_PREFIX = "embeddedci:"
@@ -133,7 +134,7 @@ def register_device(base: str, name: str, public_key: str, *, api_key: Optional[
         headers={"Authorization": auth, "Content-Type": "application/json", "Accept": "application/json",
                  "User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _http.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as e:
         raw = e.read()

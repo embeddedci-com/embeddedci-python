@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from embeddedci import _http
 from datetime import datetime
 from typing import Callable, Tuple
 
@@ -85,7 +86,7 @@ def mint_oidc_token(audience: str = DEFAULT_AUDIENCE) -> str:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+        with _http.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:  # reason 3
         detail = exc.read().decode("utf-8", "replace")[:300]
@@ -112,7 +113,7 @@ def exchange_token(api_base: str, oidc_token: str) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+        with _http.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         msg = exc.read().decode("utf-8", "replace")
@@ -141,7 +142,7 @@ def _exchange_for_cloud_session(api_base: str, authorization: str, what: str,
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+        with _http.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         msg = exc.read().decode("utf-8", "replace")

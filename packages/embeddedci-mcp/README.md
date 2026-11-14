@@ -143,7 +143,8 @@ chat never blocks CI on that pod.
 | `--timeout` | — | `30` | per-command device timeout |
 | `--transport` | — | `stdio` | `stdio` or `http` |
 | `--host` / `--port` | — | `127.0.0.1` / `8000` | HTTP bind address |
-| `--auth-token` | `EMBEDDEDCI_MCP_TOKEN` | — | require `Authorization: Bearer <token>` (mandatory off loopback) |
+| `--auth-token` | `EMBEDDEDCI_MCP_TOKEN` | — | require `Authorization: Bearer <token>` (mandatory off loopback); prefer the variable or `--auth-token-file`, since a command-line token shows in `ps` |
+| `--auth-token-file` | — | — | read the bearer token from this file's first line |
 | `--allowed-host` | — | — | Host header(s) to accept on a network bind (DNS-rebinding protection) |
 | `--allow-unauthenticated` | — | off | serve a network address without a token (isolated networks only) |
 

@@ -20,6 +20,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from embeddedci import _http
 import warnings
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -229,7 +230,7 @@ class BuildReporter:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
+            with _http.urlopen(request, timeout=_HTTP_TIMEOUT) as resp:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw.strip() else {}
         except urllib.error.HTTPError as exc:
