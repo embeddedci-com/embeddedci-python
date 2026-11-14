@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.17
+
+- Needs `embeddedci` 2.13.17: `flash` can no longer pass Tcl to OpenOCD through the file name or
+  `load_address` (security fix; see the SDK changelog).
+
 ## 2.13.16
 
 - `can_close` switches the 120 Ω termination off as well, so a bus opened with `term` no longer
