@@ -33,10 +33,20 @@ class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
 
 
 _opener = urllib.request.build_opener(_DropAuthOnRedirect)
+_STDLIB_URLOPEN = urllib.request.urlopen
 
 
 def urlopen(req: Any, data: Optional[bytes] = None, timeout: Optional[float] = None, **kw: Any):
-    """:func:`urllib.request.urlopen` that keeps credentials on their own origin across redirects."""
+    """:func:`urllib.request.urlopen` that keeps credentials on their own origin across redirects.
+
+    A test that replaced ``urllib.request.urlopen`` with a fake gets its fake called."""
+    if urllib.request.urlopen is not _STDLIB_URLOPEN:
+        args = {**kw}
+        if data is not None:
+            args["data"] = data
+        if timeout is not None:
+            args["timeout"] = timeout
+        return urllib.request.urlopen(req, **args)
     if timeout is None:
         return _opener.open(req, data, **kw)
     return _opener.open(req, data, timeout=timeout, **kw)
