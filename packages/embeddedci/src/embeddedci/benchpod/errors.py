@@ -75,6 +75,9 @@ class FirmwareError(BenchPodError):
         self.firmware_message = message
         self.cmd = cmd
         text = _sdk_refusal_text(message)
+        if status_too_large(message, cmd):
+            text += (f"; firmware {STATUS_FITS_FIRMWARE} and later send a status that fits: update "
+                     "the pod (`benchpod flash-self`, or the firmware update in the web app)")
         if cmd:
             super().__init__(f"{cmd}: {text}")
         else:
@@ -269,6 +272,17 @@ _NO_ANALOG = "this BenchPod has no analog front end"
 #: The firmware's "la voltage not set; set it with la_voltage (mv 1800 or 3300) first"
 #: (command_handler.c require_la_voltage). Matched on the leading words only.
 _LA_VOLTAGE_UNSET = "la voltage not set"
+
+#: Firmware 3.10.4 and older could answer ``status`` over the cloud with more than the cloud
+#: channel takes ("reply too large for the cloud channel (1838 bytes, limit 1791)"). From this
+#: version a cloud ``status`` is a short form that always fits.
+STATUS_FITS_FIRMWARE = "3.10.5"
+_STATUS_TOO_LARGE = "too large for the cloud channel"
+
+
+def status_too_large(message: str, cmd: Optional[str] = "status") -> bool:
+    """Whether a pod refusal is a ``status`` reply that did not fit the cloud channel."""
+    return cmd == "status" and _STATUS_TOO_LARGE in message
 _LA_VOLTAGE_SDK = ("la voltage not set; set the board's I/O voltage first: "
                    "BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the "
                    "benchpod_la_voltage fixture in conftest.py, or bp.set_la_voltage(3.3)")

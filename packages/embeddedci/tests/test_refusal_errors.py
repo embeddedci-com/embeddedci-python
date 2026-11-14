@@ -52,6 +52,15 @@ def test_leased_carries_holder_and_time_left():
     assert err.firmware_message.startswith("busy:") and err.cmd == "gpio"
 
 
+def test_status_too_large_for_the_cloud_names_the_fix():
+    err = firmware_error("reply too large for the cloud channel (1838 bytes, limit 1791)", cmd="status")
+    assert isinstance(err, FirmwareError)
+    assert "too large for the cloud channel" in str(err) and "firmware 3.10.5" in str(err)
+    # Other commands' size refusals are left as they are.
+    other = firmware_error("reply too large for the cloud channel (1900 bytes, limit 1791)", cmd="la_pins")
+    assert "3.10.5" not in str(other)
+
+
 def test_busy_without_a_lease():
     err = firmware_error("busy: a capture or upload is running")
     assert type(err) is PodBusyError

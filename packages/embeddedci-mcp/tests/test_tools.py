@@ -121,6 +121,29 @@ def test_status_warns_about_safe_mode_and_crashes(fake_open, fake_transport, mon
     assert call("status")["warnings"] == []
 
 
+def test_status_too_large_for_the_cloud_keeps_the_connection(fake_open, fake_transport, monkeypatch):
+    # Firmware 3.10.4 over the cloud: its status did not fit the cloud channel and connect failed.
+    from embeddedci.benchpod.errors import FirmwareError
+
+    def too_large():
+        raise FirmwareError("reply too large for the cloud channel (1838 bytes, limit 1791)",
+                            cmd="status")
+    monkeypatch.setattr(fake_transport, "status", too_large)
+    result = call("connect", connection="192.168.1.50", la_voltage=3.3)
+    assert result["connected"] is True and result["firmware"] == {}
+    assert any("too large for the cloud channel" in w and "3.10.5" in w for w in result["warnings"])
+
+
+def test_short_form_status_gets_lan_tls_from_its_command(fake_open, fake_transport, monkeypatch):
+    # Firmware 3.10.5's cloud status is the short form: lan_tls is its own command there.
+    base = fake_transport.status
+    monkeypatch.setattr(fake_transport, "status", lambda: {**base(), "short_form": True})
+    fake_transport._cmd_lan_tls = lambda req: {"port": 8443, "https_only": True, "sessions": 0,
+                                               "sha256": "ab" * 32}
+    result = call("connect", connection="192.168.1.50", la_voltage=3.3)
+    assert result["firmware"]["lan_tls"] == {"port": 8443, "https_only": True, "sha256": "ab" * 32}
+
+
 def test_connect_without_la_voltage_warns(fake_open):
     result = call("connect", connection="usb")
     assert result["kind"] == "serial" and result["la_voltage"] is None

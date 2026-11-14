@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.15
+
+- `connect` over the cloud to a pod with firmware 3.10.4 works again: its `status` was too large
+  for the cloud channel, which failed the connect. `status` now reports the firmware fields as
+  unknown with a warning to update to firmware 3.10.5. With firmware 3.10.5's short cloud status,
+  `status` fills `firmware.lan_tls` from the `lan_tls` command.
+- Needs embeddedci 2.13.15.
+
 ## 2.13.14
 
 - Pin directions are on by default: `connect` and `set_wiring` send the wiring profile's DUT

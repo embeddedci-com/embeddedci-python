@@ -62,6 +62,7 @@ from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
 from embeddedci.benchpod import errors as _errors
+from embeddedci.benchpod.errors import STATUS_FITS_FIRMWARE, FirmwareError, status_too_large
 from embeddedci.benchpod.errors import BenchPodError
 from embeddedci.benchpod.server_api import ServerApi
 
@@ -317,8 +318,25 @@ def _status() -> m.StatusResult:
                      "else pass a host, 'usb' or 'embeddedci:<device>'")
         return m.StatusResult(connected=False, warnings=[f"not connected — {hint}"])
     pod = SESSION.require()
-    firmware = pod.status()
     warnings: List[str] = []
+    try:
+        firmware = pod.status()
+    except FirmwareError as exc:
+        # Firmware 3.10.4's status can be too large for the cloud channel. The connection works:
+        # report the status as unknown with the fix, rather than failing the connect.
+        if not status_too_large(exc.firmware_message, exc.cmd):
+            raise
+        firmware = {}
+        warnings.append(f"this pod's status is too large for the cloud channel (firmware "
+                        f"{pod.capabilities.firmware_version or 'older'}): update the pod to firmware "
+                        f"{STATUS_FITS_FIRMWARE} or later; the status fields are unknown until then")
+    if isinstance(firmware, dict) and firmware.get("short_form") and "lan_tls" not in firmware:
+        # The cloud status is the short form (firmware 3.10.5+): lan_tls is its own command there.
+        try:
+            tls = pod.lan_tls()
+            firmware["lan_tls"] = {"port": tls.port, "https_only": tls.https_only, "sha256": tls.sha256}
+        except BenchPodError:
+            pass
     # From this status, not the cached capabilities: it describes the boot running now.
     boot = Capabilities.from_status(firmware).boot_warning()
     if boot:
