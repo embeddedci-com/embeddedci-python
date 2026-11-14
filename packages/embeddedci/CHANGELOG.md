@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## 2.13.17
+
+- Security: `flash()` puts the firmware path in braces in OpenOCD's `program` command and refuses a
+  `load_address` that is not a number, so a file name or address like `[exec ...]` can no longer
+  run a command through OpenOCD's Tcl. Windows paths are passed with forward slashes. A path
+  holding `{` or `}` is refused.
+
 ## 2.13.16
 
 - `open_i2c()` refused as busy names who holds the I2C master. When another connection has it
