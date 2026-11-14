@@ -91,7 +91,8 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error
+from .errors import (BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error,
+                     status_too_large)
 from .flash import FlashResult
 from .gpio import LA_DIRS, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -399,6 +400,11 @@ class BenchPod:
             status_ok = True
             try:
                 status = self.status()
+            except FirmwareError as exc:
+                # Firmware 3.10.4's status can be too large for the cloud channel. Reading it again
+                # will not help: use the server's capabilities alone, and keep them.
+                _log.warning("could not read the pod's status for its capabilities: %s", exc)
+                status, status_ok = {}, status_too_large(exc.firmware_message, exc.cmd)
             except BenchPodError as exc:
                 _log.warning("could not read the pod's status for its capabilities: %s", exc)
                 status, status_ok = {}, False

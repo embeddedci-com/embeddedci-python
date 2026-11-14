@@ -1,5 +1,14 @@
 # Changelog — `embeddedci`
 
+## 2.13.15
+
+- A pod whose `status` is too large for the cloud channel (firmware 3.10.4 with the USB network
+  adapter up and a lease held) no longer leaves the SDK guessing: the error names the fix,
+  firmware 3.10.5, and `bp.capabilities` uses the server's capability set instead of reading the
+  status again on every access. Firmware 3.10.5 sends a short `status` over the cloud
+  (`"short_form": true`); it leaves out `lan_tls` (use `bp.lan_tls()`), `lease`, the diagnostics
+  and the fixed feature flags the server already has.
+
 ## 2.13.14
 
 - Pin directions are on by default. On a pod with firmware 3.10.4+ the SDK sends the wiring
