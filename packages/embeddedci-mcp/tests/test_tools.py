@@ -369,6 +369,33 @@ def test_flash_an_uploaded_build(connected, monkeypatch):
                                   "ref": "main", "sha": "abc"}
 
 
+@pytest.mark.skipif(not hasattr(__import__("embeddedci.benchpod", fromlist=["BenchPod"]).BenchPod,
+                                "flash_esp"), reason="needs embeddedci with flash_esp")
+def test_flash_an_esp32_target(connected, monkeypatch):
+    from embeddedci.benchpod.esp import EspFlashResult, EspRegion
+
+    seen = {}
+
+    def fake_flash_esp(images, **kwargs):
+        seen.update(kwargs, images=images)
+        return EspFlashResult(ok=True, chip="ESP32-S3", baud=460800, seconds=12.5,
+                              regions=[EspRegion(offset=0x10000, length=4096, result="ok")])
+
+    def no_swd(**kwargs):
+        raise AssertionError("an ESP32 target must not go through OpenOCD")
+
+    pod = SESSION.require()
+    monkeypatch.setattr(pod, "flash_esp", fake_flash_esp)
+    monkeypatch.setattr(pod, "flash", no_swd)
+    result = call("flash", target="esp32s3", file="build/flasher_args.json", boot=6, en="nrst",
+                  flash_size="8MB", reset=False)
+    assert seen["images"] == "build/flasher_args.json"
+    assert seen["boot"] == 6 and seen["en"] == "nrst" and seen["flash_size"] == "8MB"
+    assert seen["run"] is False and seen["check"] is False
+    assert result["ok"] is True
+    assert "ESP32-S3" in result["stdout_tail"] and "0x010000 4096 bytes: ok" in result["stdout_tail"]
+
+
 # -- UART ------------------------------------------------------------------------------
 
 def test_capture_uart(connected):

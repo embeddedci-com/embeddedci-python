@@ -1732,6 +1732,29 @@
           "title": "Artifact",
           "type": "string"
         },
+        "boot": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's IO0 (IO9 on the C3/C6); omit for a profile signal named BOOT, IO0 or IO9.",
+          "title": "Boot"
+        },
         "build": {
           "default": "",
           "description": "Flash a build uploaded to embeddedci.com instead of a file: its build id (the upload's build_id output), or 'latest' for the newest one that matches repo/ref.",
@@ -1756,6 +1779,33 @@
           ],
           "default": null,
           "title": "Connect Under Reset"
+        },
+        "en": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "const": "nrst",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel wired to the target's EN, or 'nrst' for the pod's reset pin; omit for a profile signal named EN, else 'nrst'.",
+          "title": "En"
         },
         "extra_args": {
           "anyOf": [
@@ -1789,8 +1839,14 @@
         },
         "file": {
           "default": "",
-          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact).",
+          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool merge_bin) or an ESP-IDF build/flasher_args.json.",
           "title": "File",
+          "type": "string"
+        },
+        "flash_size": {
+          "default": "",
+          "description": "ESP32 only: the target's flash size, e.g. 4MB (the default, or the size in flasher_args.json).",
+          "title": "Flash Size",
           "type": "string"
         },
         "load_address": {
@@ -1890,7 +1946,7 @@
         },
         "target": {
           "default": "",
-          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target.",
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD.",
           "title": "Target",
           "type": "string"
         },

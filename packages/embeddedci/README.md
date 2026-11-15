@@ -687,6 +687,33 @@ print(res.artifact["name"], res.artifact.get("sha"))         # which file was fl
 * `FlashResult.artifact` holds the build's `job_id`, `name`, `repo`, `ref` and `sha` (`None` for a
   local `file`). An omitted `target` falls back to the target the build recorded.
 
+### Flashing an ESP32 target (UART ROM bootloader)
+
+ESP32-family targets (ESP32, S2, S3, C2, C3, C6, H2) have no SWD. The pod flashes them through the
+chip's own ROM bootloader instead, the way esptool does: no USB cable to the target, and nothing to
+install here. Wire the target's TXD0 to the profile's `uart_rx` and RXD0 to `uart_tx`, IO0 (IO9 on
+the C3/C6) to an LA pin, EN to the pod's reset pin (or an LA pin), GND to GND, at 3.3 V.
+
+```python
+print(bp.esp_sync(boot=6))                            # "ESP32-S3": wiring check, flash untouched
+res = bp.flash_esp("build/flasher_args.json", boot=6)  # ESP-IDF: bootloader, partitions, app
+bp.flash_esp("merged.bin", boot=6)                    # an esptool merge_bin image, written at 0
+bp.flash_esp({0x10000: "build/app.bin"}, boot=6, flash_size="8MB")
+bp.flash(target="esp32", file="merged.bin")           # the same through flash()
+print(res.chip, res.baud, [(hex(r.offset), r.result) for r in res.regions])
+```
+
+* `boot` defaults to a profile signal named `BOOT`, `IO0` or `IO9`; `en` to a signal named `EN`,
+  else `"nrst"` (the pod's reset pin). Both are driven open-drain and released at the end.
+* Each region is uploaded into the pod, then the pod writes it at `baud` (460800 by default; the
+  loader starts at 115200) and checks the chip's MD5. `res.verified` is true when every MD5
+  matched. With `run=True` (the default) the target is reset into the new image.
+* `flash_size` (default `"4MB"`, or the size in `flasher_args.json`) must cover every region.
+* A failure raises `FlashError` naming the region and the step (no answer from the ROM loader:
+  check power, the TX/RX crossing, the boot pin and EN); `check=False` returns the result.
+* Works over the LAN, USB and the cloud. Needs pod firmware with the `esp_flash` command; older
+  firmware raises `UnsupportedFeatureError`.
+
 ## SPI flash and SPI devices
 
 Pods with gateware v45+ (`bp.capabilities.spi_master`) run an SPI master on any four LA pins, up
