@@ -878,6 +878,9 @@ class BenchPod:
         ref: str = "",
         artifact: str = "",
         server_side: Optional[bool] = None,
+        rx: Union[Pin, int, str, None] = None,
+        tx: Union[Pin, int, str, None] = None,
+        boot: Union[Pin, int, str, None] = None,
     ) -> FlashResult:
         """Flash an SWD target through the pod's CMSIS-DAP probe and report the result.
 
@@ -899,6 +902,17 @@ class BenchPod:
         always verifies and resets, and takes no OpenOCD extras. :attr:`FlashResult.artifact` says
         which build was flashed; ``target`` falls back to the target the build recorded.
 
+        An ESP32-family ``target`` (``"esp32"``, ``"esp32s3"``, ``"esp32c3"``, ...) has no SWD: the
+        pod writes ``file`` through the chip's UART ROM bootloader instead, the way esptool does (no
+        OpenOCD or esptool here, and it works over the cloud too). ``file`` is a ``.bin`` written at
+        ``load_address`` (default 0, so an ``esptool merge_bin`` image) or an ESP-IDF
+        ``flasher_args.json`` (bootloader, partition table and app at their offsets). Wire the
+        target's TXD0 to ``rx`` and RXD0 to ``tx`` (default: the profile's ``uart_rx``/``uart_tx``),
+        IO0 (IO9 on the C3/C6) to ``boot`` (default: a profile signal named BOOT, IO0 or IO9) and EN
+        to the pod's reset pin (``nreset``; a profile signal named EN also works). The pod checks
+        each region against the chip's MD5 and, with ``reset``, starts the new image; ``stdout``
+        names the chip and every region written. Needs firmware with the ``esp_flash`` command.
+
         Local OpenOCD runs on THIS machine and needs the ``cmsis_dap_tcp`` backend (newer than
         0.12.0). By default (``check=True``) a failed flash raises :class:`FlashError` /
         :class:`TargetUnreachableError`; pass ``check=False`` to get the :class:`FlashResult` and
@@ -909,14 +923,15 @@ class BenchPod:
             raise ValueError("pass either file or a build (build/repo/ref/artifact), not both")
         if _esp.is_esp_target(target or self.wiring.swd_target):
             if from_build:
-                raise ValueError("an ESP32 target is flashed from a file: pass file (a .bin or "
-                                 "flasher_args.json), not a build")
-            r = self.flash_esp(file, check=check)
-            lines = [f"{r.chip or 'ESP32'}: wrote {len(r.regions)} region(s) at {r.baud} baud in "
-                     f"{r.seconds:.1f} s"]
-            lines += [f"  0x{g.offset:06x} {g.length} bytes {g.result}" for g in r.regions]
-            return FlashResult(ok=r.ok, returncode=0 if r.ok else 1, stdout="\n".join(lines),
-                               stderr=r.error)
+                raise ValueError("an ESP32 target is flashed from a file (a .bin or flasher_args.json), "
+                                 "not an uploaded build")
+            result = self._flash_esp(file, rx=rx, tx=tx, boot=boot, nreset=nreset,
+                                     load_address=load_address, reset=reset)
+            if check and not result.ok:
+                from .errors import FlashError
+
+                raise FlashError(f"flash ({target or self.wiring.swd_target}): {result.stderr}")
+            return result
         swclk_i = self._wired(swclk, "swd_swclk")
         swdio_i = self._wired(swdio, "swd_swdio")
         if swclk_i == swdio_i:
@@ -1006,9 +1021,15 @@ class BenchPod:
                            stderr=str(data.get("error") or ""),
                            target_unreachable=bool(data.get("target_unreachable")), artifact=art)
 
-    # -- ESP32 targets (UART ROM bootloader) ---------------------------------
+    # -- ESP32 targets (UART ROM bootloader, through flash()) ------------------
 
-    def _esp_pins(self, rx: Any, tx: Any, boot: Any, en: Any) -> Dict[str, Any]:
+    def _flash_esp(self, file: str, *, rx: Any, tx: Any, boot: Any, nreset: Optional[bool],
+                   load_address: str, reset: bool) -> FlashResult:
+        """flash() for an ESP32-family target: the pod's esp_flash, see :mod:`embeddedci.benchpod.esp`."""
+        if not file:
+            raise ValueError("an ESP32 target needs file: a .bin (written at load_address, default 0) "
+                             "or an ESP-IDF flasher_args.json")
+
         def by_signal(names: Sequence[str]) -> Optional[int]:
             for s in self.wiring.signals:
                 if s.name.upper() in names:
@@ -1021,74 +1042,23 @@ class BenchPod:
             raise ValueError("boot was not given and the wiring profile has no BOOT (or IO0 / IO9) "
                              "signal: pass the LA pin wired to the target's IO0 (IO9 on the C3/C6)")
         pins["boot"] = boot_la
-        if en is None:
-            en_la = by_signal(_esp.EN_SIGNALS)
-            pins["en"] = en_la if en_la is not None else "nrst"
-        elif isinstance(en, str) and en.strip().lower() == "nrst":
+        en_la = by_signal(_esp.EN_SIGNALS)
+        if nreset or en_la is None:
+            if nreset is False:
+                raise ValueError("an ESP32's EN goes on the pod's reset pin (nreset=True) or on a "
+                                 "wiring-profile signal named EN")
             pins["en"] = "nrst"
         else:
-            pins["en"] = self._resolve_la(en, "en")[0]
-        return pins
+            pins["en"] = en_la
 
-    def flash_esp(
-        self,
-        images: _esp.Images,
-        *,
-        rx: Union[Pin, int, str, None] = None,
-        tx: Union[Pin, int, str, None] = None,
-        boot: Union[Pin, int, str, None] = None,
-        en: Union[Pin, int, str, None] = None,
-        baud: int = _esp.DEFAULT_BAUD,
-        flash_size: Union[int, str, None] = None,
-        run: bool = True,
-        progress: Optional[_esp.Progress] = None,
-        check: bool = True,
-    ) -> _esp.EspFlashResult:
-        """Flash an ESP32-family target (ESP32, S2, S3, C2, C3, C6, H2) through its UART ROM
-        bootloader, the way esptool does: no USB cable to the target, no esptool here.
-
-        ``images`` is a ``.bin`` written at 0 (an ``esptool merge_bin`` image), an ESP-IDF
-        ``build/flasher_args.json`` (bootloader, partition table and app at their offsets, and the
-        flash size), or a ``{offset: path_or_bytes}`` mapping like esptool's ``write_flash`` pairs.
-
-        Wiring: the target's TXD0 on ``rx`` and RXD0 on ``tx`` (default: the profile's ``uart_rx``
-        / ``uart_tx``), IO0 (IO9 on the C3/C6) on ``boot``, EN on ``en``. ``boot`` defaults to a
-        profile signal named BOOT, IO0 or IO9; ``en`` to a signal named EN, else the pod's reset pin
-        (``"nrst"``). Both are driven open-drain. ``baud`` is the rate after the ROM's baud change
-        (460800; the loader starts at 115200), ``flash_size`` the target's flash (``"4MB"``
-        default, or the one in flasher_args.json). With ``run`` the target is reset into the new
-        image at the end. ``progress(bytes_done, total)`` is called while it writes.
-
-        Each region is uploaded into the pod first, then the pod writes it and checks the chip's
-        MD5. A failure raises :class:`~embeddedci.benchpod.errors.FlashError` (pass ``check=False``
-        to get the :class:`~embeddedci.benchpod.esp.EspFlashResult` instead). Needs firmware with
-        the ``esp_flash`` command; older firmware raises
-        :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError`.
-        """
-        regions, settings = _esp.load_images(images)
-        size = _esp.parse_flash_size(flash_size if flash_size is not None else settings.get("flash_size"))
-        pins = self._esp_pins(rx, tx, boot, en)
+        regions, settings = _esp.load_images(file, load_address=_esp.parse_address(load_address))
+        size = _esp.parse_flash_size(settings.get("flash_size"))
         stage = getattr(self._transport, "stage_psram", None)
-        result = _esp.run(self.command, stage, regions, pins=pins, baud=baud, flash_size=size,
-                          run_after=run, progress=progress)
-        if check and not result.ok:
-            from .errors import FlashError
-
-            raise FlashError(f"esp_flash: {result.error}")
-        return result
-
-    def esp_sync(
-        self,
-        *,
-        rx: Union[Pin, int, str, None] = None,
-        tx: Union[Pin, int, str, None] = None,
-        boot: Union[Pin, int, str, None] = None,
-        en: Union[Pin, int, str, None] = None,
-    ) -> str:
-        """Check the wiring to an ESP32-family target: put it into its ROM loader and return the
-        chip name (``"ESP32-S3"``). The flash is not touched; the target is left in its loader
-        (reset or power-cycle it to run). Pins as in :meth:`flash_esp`."""
-        return _esp.sync(self.command, pins=self._esp_pins(rx, tx, boot, en))
+        r = _esp.run(self.command, stage, regions, pins=pins, flash_size=size, run_after=reset)
+        lines = [f"{r.chip or 'ESP32'}: {len(r.regions)} region(s) at {r.baud} baud in {r.seconds:.1f} s"]
+        lines += [f"0x{g.offset:06x} {g.length} bytes {g.result} md5 {g.md5}" for g in r.regions]
+        return FlashResult(ok=r.ok, returncode=0 if r.ok else 1, stdout="\n".join(lines),
+                           stderr=r.error)
 
     def _flash_local(self, *, swclk: int, swdio: int, nreset: bool, target: str, file: str,
                      load_address: str, power: Optional[Efuse], verify: bool, reset: bool,

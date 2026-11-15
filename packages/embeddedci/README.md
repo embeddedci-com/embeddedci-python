@@ -689,30 +689,30 @@ print(res.artifact["name"], res.artifact.get("sha"))         # which file was fl
 
 ### Flashing an ESP32 target (UART ROM bootloader)
 
-ESP32-family targets (ESP32, S2, S3, C2, C3, C6, H2) have no SWD. The pod flashes them through the
-chip's own ROM bootloader instead, the way esptool does: no USB cable to the target, and nothing to
-install here. Wire the target's TXD0 to the profile's `uart_rx` and RXD0 to `uart_tx`, IO0 (IO9 on
-the C3/C6) to an LA pin, EN to the pod's reset pin (or an LA pin), GND to GND, at 3.3 V.
+ESP32-family targets (ESP32, S2, S3, C2, C3, C6, H2) have no SWD. Give `flash()` an ESP32 `target`
+and the pod writes the image through the chip's own ROM bootloader instead, the way esptool does:
+no OpenOCD, no esptool and no USB cable to the target. Wire the target's TXD0 to `rx` and RXD0 to
+`tx` (default: the profile's `uart_rx`/`uart_tx`), IO0 (IO9 on the C3/C6) to `boot`, EN to the
+pod's reset pin (`nreset=True`) and GND to GND, at 3.3 V.
 
 ```python
-print(bp.esp_sync(boot=6))                            # "ESP32-S3": wiring check, flash untouched
-res = bp.flash_esp("build/flasher_args.json", boot=6)  # ESP-IDF: bootloader, partitions, app
-bp.flash_esp("merged.bin", boot=6)                    # an esptool merge_bin image, written at 0
-bp.flash_esp({0x10000: "build/app.bin"}, boot=6, flash_size="8MB")
-bp.flash(target="esp32", file="merged.bin")           # the same through flash()
-print(res.chip, res.baud, [(hex(r.offset), r.result) for r in res.regions])
+bp.flash(target="esp32s3", file="build/flasher_args.json", boot=6, nreset=True)  # ESP-IDF build
+bp.flash(target="esp32", file="merged.bin", rx=3, tx=4, boot=6, nreset=True)    # merge_bin image at 0
+bp.flash(target="esp32c3", file="build/app.bin", load_address="0x10000", boot=6, nreset=True)
 ```
 
-* `boot` defaults to a profile signal named `BOOT`, `IO0` or `IO9`; `en` to a signal named `EN`,
-  else `"nrst"` (the pod's reset pin). Both are driven open-drain and released at the end.
-* Each region is uploaded into the pod, then the pod writes it at `baud` (460800 by default; the
-  loader starts at 115200) and checks the chip's MD5. `res.verified` is true when every MD5
-  matched. With `run=True` (the default) the target is reset into the new image.
-* `flash_size` (default `"4MB"`, or the size in `flasher_args.json`) must cover every region.
+* `file` is a `.bin` written at `load_address` (default 0) or an ESP-IDF `flasher_args.json`
+  (bootloader, partition table and app at their offsets, and the flash size).
+* `target` is `esp32`, `esp32s2`, `esp32s3`, `esp32c2`, `esp32c3`, `esp32c6` or `esp32h2`; the pod
+  reads the actual chip and `FlashResult.stdout` names it, with every region and its MD5.
+* `boot` defaults to a profile signal named `BOOT`, `IO0` or `IO9`; EN may also be a profile
+  signal named `EN` instead of the reset pin. Both are driven open-drain and released at the end.
+* Each region is uploaded into the pod, written at 460800 baud and checked against the chip's
+  MD5. `reset=True` (the default) starts the new image; `reset=False` leaves the target in its
+  loader.
 * A failure raises `FlashError` naming the region and the step (no answer from the ROM loader:
   check power, the TX/RX crossing, the boot pin and EN); `check=False` returns the result.
-* Works over the LAN, USB and the cloud. Needs pod firmware with the `esp_flash` command; older
-  firmware raises `UnsupportedFeatureError`.
+* Works over the LAN, USB and the cloud. Needs pod firmware with the `esp_flash` command.
 
 ## SPI flash and SPI devices
 

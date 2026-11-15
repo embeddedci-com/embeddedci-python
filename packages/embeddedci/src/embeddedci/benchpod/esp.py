@@ -5,8 +5,8 @@ boot strap and EN: no USB cable to the target and no esptool on this machine. Ea
 uploaded into the pod's PSRAM (``load_bin``), then written by the pod in the background while this
 module polls its progress. Works the same over the LAN, USB and the cloud.
 
-Use it through :meth:`BenchPod.flash_esp <embeddedci.benchpod.BenchPod.flash_esp>` (or
-``flash(target="esp32", file=...)``).
+Use it through :meth:`BenchPod.flash <embeddedci.benchpod.BenchPod.flash>` with an ESP32-family
+``target`` (``flash(target="esp32", file=..., boot=...)``); this module is its implementation.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Union
 
 from .errors import FlashError
 
-#: ``images`` forms: a path (a ``.bin`` written at 0, or an ESP-IDF ``flasher_args.json``), or a
-#: mapping of flash offset (int, or a ``"0x1000"`` string) to a path or the bytes themselves.
+#: ``images`` forms: a path (a ``.bin``, or an ESP-IDF ``flasher_args.json``), or a mapping of flash
+#: offset (int, or a ``"0x1000"`` string) to a path or the bytes themselves.
 Images = Union[str, "os.PathLike[str]", Mapping[Union[int, str], Union[str, bytes, "os.PathLike[str]"]]]
 
 #: Progress callback: bytes written so far over all regions, and the total.
@@ -32,7 +32,9 @@ BOOT_SIGNALS = ("BOOT", "IO0", "GPIO0", "IO9", "GPIO9", "ESP_BOOT")
 EN_SIGNALS = ("EN", "CHIP_EN", "ESP_EN", "CHIP_PU")
 
 DEFAULT_BAUD = 460800
-DEFAULT_FLASH_SIZE = 4 * 1024 * 1024
+#: SPI_SET_PARAMS size when the image does not name one: only an upper bound for the ROM's writes,
+#: so a size larger than the real chip costs nothing (a write past the chip fails at the erase).
+DEFAULT_FLASH_SIZE = 16 * 1024 * 1024
 POLL_INTERVAL = 0.25
 
 _SIZES = {"256KB": 256 * 1024, "512KB": 512 * 1024, "1MB": 1 << 20, "2MB": 2 << 20, "4MB": 4 << 20,
@@ -54,7 +56,7 @@ class EspRegion:
 
 @dataclass
 class EspFlashResult:
-    """Outcome of :meth:`BenchPod.flash_esp <embeddedci.benchpod.BenchPod.flash_esp>`."""
+    """Outcome of :func:`run`: what ``flash()`` reports for an ESP32 target."""
 
     ok: bool
     chip: str = ""
@@ -71,7 +73,7 @@ class EspFlashResult:
 
 
 def parse_flash_size(value: Union[int, str, None]) -> int:
-    """``"4MB"`` / ``4194304`` / ``None`` (the default, 4 MB) as bytes."""
+    """``"4MB"`` / ``4194304`` / ``None`` (the default, 16 MB) as bytes."""
     if value is None or value == "":
         return DEFAULT_FLASH_SIZE
     if isinstance(value, int):
@@ -100,9 +102,17 @@ def _read(src: Union[str, bytes, "os.PathLike[str]"], base: str = "") -> bytes:
         return fh.read()
 
 
-def load_images(images: Images) -> Tuple[List[Tuple[int, bytes]], Dict[str, Any]]:
+def parse_address(value: Union[int, str, None]) -> int:
+    """``flash(load_address=...)`` for an ESP32: ``"0x10000"`` / ``65536`` / ``""`` (0)."""
+    if value is None or value == "":
+        return 0
+    return value if isinstance(value, int) else int(str(value).strip(), 0)
+
+
+def load_images(images: Images, *, load_address: int = 0) -> Tuple[List[Tuple[int, bytes]], Dict[str, Any]]:
     """The regions to write, sorted by offset, and settings found with them (``flash_size``,
-    ``chip``) from a ``flasher_args.json``. Overlapping regions raise :class:`ValueError`."""
+    ``chip``) from a ``flasher_args.json``. A ``.bin`` goes at ``load_address``. Overlapping regions
+    raise :class:`ValueError`."""
     settings: Dict[str, Any] = {}
     regions: List[Tuple[int, bytes]] = []
     if isinstance(images, Mapping):
@@ -124,7 +134,7 @@ def load_images(images: Images) -> Tuple[List[Tuple[int, bytes]], Dict[str, Any]
             if chip:
                 settings["chip"] = chip
         else:
-            regions = [(0, _read(path))]
+            regions = [(load_address, _read(path))]
     regions.sort(key=lambda r: r[0])
     for off, data in regions:
         if not data:
@@ -213,33 +223,6 @@ def run(
     out.ok = True
     out.seconds = clock() - t_all
     return out
-
-
-def sync(
-    command: Callable[[Dict[str, Any]], Any],
-    *,
-    pins: Mapping[str, Any],
-    timeout: float = 10.0,
-    poll_interval: float = POLL_INTERVAL,
-    sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> str:
-    """Put the target into its loader and return the chip name (``"ESP32-S3"``); the flash is not
-    touched and the target is left in its loader. Raises :class:`FlashError` when it does not answer."""
-    command({"cmd": "esp_flash", "op": "sync", **pins})
-    deadline = clock() + timeout
-    st: Mapping[str, Any] = {}
-    while clock() < deadline:
-        sleep(poll_interval)
-        st = command({"cmd": "esp_flash", "op": "status"}) or {}
-        if not st.get("running"):
-            break
-    if st.get("running"):
-        command({"cmd": "esp_flash", "op": "abort"})
-        raise FlashError("esp_flash sync did not finish")
-    if st.get("result") not in ("ok", "unverified"):
-        raise FlashError(f"esp_flash: {_status_error(st)}")
-    return str(st.get("chip") or "unknown")
 
 
 def is_esp_target(target: str) -> bool:
