@@ -848,15 +848,15 @@ async def flash(
     server_side: Annotated[Optional[bool], Field(description=(
         "With build: true has embeddedci.com run OpenOCD (the default on an 'embeddedci:<pod>' "
         "connection), false downloads the file and runs OpenOCD here (the default on LAN/USB)."))] = None,
+    rx: Annotated[Optional[LaRef], Field(description=(
+        "ESP32 only: LA channel (or wiring name) wired to the target's TXD0; omit for the "
+        "profile's uart_rx."))] = None,
+    tx: Annotated[Optional[LaRef], Field(description=(
+        "ESP32 only: LA channel (or wiring name) wired to the target's RXD0; omit for the "
+        "profile's uart_tx."))] = None,
     boot: Annotated[Optional[LaRef], Field(description=(
         "ESP32 only: LA channel (or wiring name) wired to the target's IO0 (IO9 on the C3/C6); "
         "omit for a profile signal named BOOT, IO0 or IO9."))] = None,
-    en: Annotated[Optional[Union[LaRef, Literal["nrst"]]], Field(description=(
-        "ESP32 only: LA channel wired to the target's EN, or 'nrst' for the pod's reset pin; omit "
-        "for a profile signal named EN, else 'nrst'."))] = None,
-    flash_size: Annotated[str, Field(description=(
-        "ESP32 only: the target's flash size, e.g. 4MB (the default, or the size in "
-        "flasher_args.json)."))] = "",
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
     """Program the DUT over SWD through the pod's CMSIS-DAP probe.
@@ -869,8 +869,9 @@ async def flash(
     stalled, and the log tails to decide what to change; `artifact` says which build was flashed.
 
     With target 'esp32' (any ESP32-family name) the pod writes `file` through the target's UART
-    ROM bootloader instead: the target's TXD0/RXD0 on the profile's uart_rx/uart_tx, IO0 on
-    `boot`, EN on `en`. No OpenOCD or esptool needed; works over the cloud too. stdout_tail names
+    ROM bootloader instead: TXD0 on `rx`, RXD0 on `tx`, IO0 on `boot`, EN on the pod's reset pin
+    (`nreset`); `file` is a .bin written at `load_address` (default 0) or an ESP-IDF
+    flasher_args.json. No OpenOCD or esptool needed; works over the cloud too. stdout_tail names
     the chip and each region written; `reset` false leaves the target in its loader.
     """
     from_build = {k: v for k, v in (("build", build), ("repo", repo), ("ref", ref),
@@ -884,17 +885,16 @@ async def flash(
             if from_build:
                 raise ValueError("an ESP32 target is flashed from a file (a .bin or "
                                  "flasher_args.json), not an uploaded build")
-            if not file:
-                raise ValueError("pass file: a .bin written at 0, or an ESP-IDF flasher_args.json")
-            if not hasattr(pod, "flash_esp"):
+            if "boot" not in inspect.signature(type(pod).flash).parameters:
                 raise ValueError("flashing an ESP32 needs a newer embeddedci SDK; upgrade embeddedci")
-            r = pod.flash_esp(file, boot=_la(pod, boot) if boot is not None else None,
-                              en=en if en in (None, "nrst") else _la(pod, en),
-                              flash_size=flash_size or None, run=reset, check=False)
-            lines = [f"{r.chip or 'ESP32'}: {len(r.regions)} region(s) at {r.baud} baud in {r.seconds:.1f} s"]
-            lines += [f"0x{g.offset:06x} {g.length} bytes: {g.result}" for g in r.regions]
-            return m.FlashResult(ok=r.ok, returncode=0 if r.ok else 1, target_unreachable=False,
-                                 stalled=False, stdout_tail="\n".join(lines), stderr_tail=r.error)
+            r = pod.flash(target=target or pod.wiring.swd_target, file=file,
+                          load_address=load_address, nreset=nreset, reset=reset, check=False,
+                          rx=None if rx is None else _la(pod, rx),
+                          tx=None if tx is None else _la(pod, tx),
+                          boot=None if boot is None else _la(pod, boot))
+            return m.FlashResult(ok=r.ok, returncode=r.returncode, target_unreachable=False,
+                                 stalled=False, stdout_tail=clip(r.stdout, 4000)[-4000:],
+                                 stderr_tail=clip(r.stderr, 4000)[-4000:])
         if from_build and "build" not in inspect.signature(pod.flash).parameters:
             raise ValueError("flashing an uploaded build (build/repo/ref/artifact) needs a newer "
                              "embeddedci SDK; upgrade embeddedci, or pass file= with a local image")

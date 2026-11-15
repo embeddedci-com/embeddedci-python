@@ -1780,33 +1780,6 @@
           "default": null,
           "title": "Connect Under Reset"
         },
-        "en": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "maximum": 14,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "string"
-                }
-              ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
-            },
-            {
-              "const": "nrst",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "ESP32 only: LA channel wired to the target's EN, or 'nrst' for the pod's reset pin; omit for a profile signal named EN, else 'nrst'.",
-          "title": "En"
-        },
         "extra_args": {
           "anyOf": [
             {
@@ -1841,12 +1814,6 @@
           "default": "",
           "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool merge_bin) or an ESP-IDF build/flasher_args.json.",
           "title": "File",
-          "type": "string"
-        },
-        "flash_size": {
-          "default": "",
-          "description": "ESP32 only: the target's flash size, e.g. 4MB (the default, or the size in flasher_args.json).",
-          "title": "Flash Size",
           "type": "string"
         },
         "load_address": {
@@ -1884,6 +1851,29 @@
           "default": true,
           "title": "Reset",
           "type": "boolean"
+        },
+        "rx": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's TXD0; omit for the profile's uart_rx.",
+          "title": "Rx"
         },
         "server_side": {
           "anyOf": [
@@ -1973,6 +1963,29 @@
           "maximum": 3600,
           "title": "Timeout",
           "type": "number"
+        },
+        "tx": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's RXD0; omit for the profile's uart_tx.",
+          "title": "Tx"
         },
         "verify": {
           "default": true,
