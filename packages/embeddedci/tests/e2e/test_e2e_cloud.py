@@ -1,6 +1,6 @@
 """Tier "cloud": the pod through embeddedci.com — lease, command channel, byte tunnel, library.
 
-    BENCHPOD_API_KEY=eci_… BENCHPOD_E2E_CLOUD_DEVICE=benchpod-v2.0.0 \
+    BENCHPOD_E2E_CLOUD_DEVICE=benchpod-v2.0.0 \
         pytest packages/embeddedci/tests/e2e/test_e2e_cloud.py
 
 Run it on its own (not alongside a LAN session on the same pod).
@@ -19,14 +19,25 @@ from e2e_bench import FREE_LA, TOP_LA, skip_if_dut_output
 from e2e_helpers import check_expected_board, require_analog
 
 # Not marked `hardware`: that gate wants --benchpod-connection, and this tier opens its own cloud
-# connection (the `cloud` fixture skips without BENCHPOD_E2E_CLOUD_DEVICE + BENCHPOD_API_KEY).
+# connection. Credentials come the way the SDK finds them: BENCHPOD_API_KEY, else GitHub Actions
+# OIDC, else the `benchpod login` session; the `cloud` fixture skips without a device or any of them.
+
+
+def _cloud_credentials() -> bool:
+    """Whether the SDK has something to authenticate the cloud destination with."""
+    if os.environ.get("BENCHPOD_API_KEY") or os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL"):
+        return True
+    from embeddedci.benchpod import cli_login
+    return cli_login.has_session()
 
 
 @pytest.fixture(scope="module")
 def cloud(benchpod_la_voltage):
     name = os.environ.get("BENCHPOD_E2E_CLOUD_DEVICE")
-    if not name or not os.environ.get("BENCHPOD_API_KEY"):
-        pytest.skip("set BENCHPOD_E2E_CLOUD_DEVICE and BENCHPOD_API_KEY to run the cloud tier")
+    if not name:
+        pytest.skip("set BENCHPOD_E2E_CLOUD_DEVICE to run the cloud tier")
+    if not _cloud_credentials():
+        pytest.skip("no embeddedci.com credentials: set BENCHPOD_API_KEY or run `benchpod login`")
     with BenchPod(f"embeddedci:{name}", la_voltage=benchpod_la_voltage, lease_wait=120) as pod:
         check_expected_board(pod)
         yield pod
