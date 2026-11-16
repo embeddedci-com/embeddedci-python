@@ -7,6 +7,9 @@
   other non-8N1 devices. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
   `uart_frame`); older firmware is refused with `UnsupportedFeatureError` before anything is sent.
   The USB console transport stays 8N1.
+- `open_uart(encoding=...)`: how the session turns bytes into text (default `"utf-8"`). Use
+  `"latin-1"` for binary protocols such as Modbus RTU: `uart.read().encode("latin-1")` gives the
+  received bytes back unchanged.
 
 ## 3.0.0
 

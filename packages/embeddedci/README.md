@@ -950,8 +950,13 @@ Anything but 8N1 needs firmware 3.10.8+ (gateware v56, `bp.supports("uart_frame"
 firmware the call raises `UnsupportedFeatureError` before anything is sent. The USB console
 (`usb` falling back to the serial console) is 8N1 only. The pod checks the parity bit and the first
 stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
-`bp.status()["uart_rx_parity_error"]` turns true for the session. For 5 V serial and RS-485 wiring
-see the [5 V logic and RS-485](https://embeddedci.com/docs/benchpod/5v-logic-rs485) page.
+`bp.status()["uart_rx_parity_error"]` turns true for the session.
+
+**Binary protocols.** A session decodes what it receives as UTF-8, which suits a console. For bytes
+that are not text (Modbus RTU frames), open it with `encoding="latin-1"`: every byte is one
+character, so `uart.read().encode("latin-1")` gives the bytes back unchanged, and a `bytes` write is
+sent as is. For 5 V serial, RS-485 wiring and a Modbus RTU test, see
+[5 V logic and RS-485](https://www.embeddedci.com/docs/benchpod-5v-rs485).
 
 ## LA bias resistors
 

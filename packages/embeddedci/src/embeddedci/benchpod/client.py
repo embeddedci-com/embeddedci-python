@@ -26,6 +26,7 @@ hatches below that API and are not covered by its stability guarantee.
 from __future__ import annotations
 
 import base64
+import codecs
 import json
 import logging
 import math
@@ -1938,6 +1939,7 @@ class BenchPod:
         max_buffer: int = 1 << 20,
         parity: str = "none",
         stop_bits: int = 1,
+        encoding: str = "utf-8",
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
 
@@ -1965,9 +1967,14 @@ class BenchPod:
         before anything is sent. The receiver checks the parity bit and the first stop bit; a
         byte with a wrong parity bit is still delivered, and ``status()["uart_rx_parity_error"]``
         turns true for the session.
+
+        ``encoding`` turns the received bytes into text (and text you write into bytes). For a
+        binary protocol pass ``"latin-1"``: every byte is one character, so
+        ``uart.read().encode("latin-1")`` gives the bytes back unchanged.
         """
+        codecs.lookup(encoding)  # an unknown encoding fails here, before the proxy starts
         link = self._uart_link(rx, tx, baud, parity, stop_bits)
-        return _uart.UartSession(link, max_buffer=max_buffer)
+        return _uart.UartSession(link, max_buffer=max_buffer, encoding=encoding)
 
     # -- SPI master / SPI flash ------------------------------------------------
 

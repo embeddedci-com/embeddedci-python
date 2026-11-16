@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from typing import Any, Dict, List
 
 import pytest
@@ -134,3 +135,46 @@ def test_tcp_sends_the_frame_fields_only_when_not_8n1():
         {"cmd": "uart_proxy_start", "rx": 5, "tx": 4, "baud": 9600, "parity": "even"},
         {"cmd": "uart_proxy_start", "rx": 5, "tx": 4, "baud": 9600, "stop_bits": 2},
     ]
+
+
+class _Link:
+    """A raw link that delivers the given chunks, then EOF."""
+
+    def __init__(self, chunks: List[bytes]) -> None:
+        self.chunks = list(chunks)
+        self.written = bytearray()
+        self.closed = threading.Event()
+
+    def read(self, n: int) -> bytes:
+        if self.chunks:
+            return self.chunks.pop(0)
+        self.closed.wait(2)
+        return b""
+
+    def write(self, data: bytes) -> None:
+        self.written += data
+
+    def close(self) -> None:
+        self.closed.set()
+
+
+def test_latin1_session_keeps_binary_bytes():
+    from embeddedci.benchpod.uart import UartSession
+
+    frame = bytes([0x01, 0x03, 0x02, 0x00, 0xFA, 0x38, 0x07])  # a Modbus reply with 0xFA, invalid UTF-8
+    link = _Link([frame[:3], frame[3:]])
+    with UartSession(link, encoding="latin-1") as uart:
+        deadline = time.monotonic() + 2
+        data = b""
+        while len(data) < len(frame) and time.monotonic() < deadline:
+            data += uart.read(timeout=0.2).encode("latin-1")
+        assert data == frame
+        uart.write(bytes([0x01, 0x03]).decode("latin-1"))
+    assert bytes(link.written) == b"\x01\x03"
+
+
+def test_open_uart_refuses_an_unknown_encoding():
+    bp, pod = _bp(["la_pins"])
+    with pytest.raises(LookupError):
+        bp.open_uart(rx=5, tx=4, encoding="no-such-codec")
+    assert pod.starts == []

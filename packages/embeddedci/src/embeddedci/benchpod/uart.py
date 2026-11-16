@@ -80,13 +80,16 @@ class UartSession:
     """
 
     def __init__(self, link: RawLink, *, max_buffer: int = 1 << 20,
-                 chunk: int = 256) -> None:
+                 chunk: int = 256, encoding: str = "utf-8") -> None:
         self._link = link
         self._max_buffer = max_buffer
         self._chunk = chunk
+        #: How received bytes become text, and text written becomes bytes. "latin-1" maps every
+        #: byte to one character and back, for binary protocols (Modbus RTU): ``read().encode("latin-1")``.
+        self.encoding = encoding
         # Decoded incrementally, so a multi-byte character split across reads survives and the
         # read cursor is a character offset (invalid bytes become U+FFFD).
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
         self._parts: List[str] = []  # received text, joined lazily
         self._size = 0
         self._consumed = 0          # read cursor: text before it has been returned
@@ -245,7 +248,7 @@ class UartSession:
         Raises :class:`~embeddedci.benchpod.errors.UartLinkError` when the link is gone (a reset
         connection, an unplugged pod) instead of the raw socket or serial error."""
         if isinstance(data, str):
-            data = data.encode("utf-8")
+            data = data.encode(self.encoding)
         try:
             self._link.write(data)
         except (OSError, BenchPodError) as exc:
