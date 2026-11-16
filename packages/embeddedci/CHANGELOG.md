@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 2.13.20
 
 - `BenchPod("embeddedci:<name>")` uses the `benchpod login` session by default: without an API
   key, a `cloud_user_token` or GitHub Actions, it no longer fails with "cannot mint a GitHub OIDC
