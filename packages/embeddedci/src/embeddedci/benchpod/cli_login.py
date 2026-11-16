@@ -1,13 +1,12 @@
 """The ``benchpod login`` session, reused by the SDK for embeddedci.com access.
 
 ``benchpod-cli`` keeps a logged-in user's tokens in ``~/.config/benchpod-cli/token.json`` (see its
-``internal/authstore``). A developer who has run ``benchpod login`` therefore needs no API key for
-the SDK to read the pod's wiring profile from embeddedci.com. This module reads that file,
+``internal/authstore``). A developer who has run ``benchpod login`` therefore needs no API key to
+drive a cloud pod or read a pod's wiring profile from embeddedci.com. This module reads that file,
 refreshes the access token through ``POST /api/auth/guest/refresh`` when it has expired, and writes
 the rotated tokens back in the same shape, so the CLI keeps working afterwards.
 
-The ``embeddedci-mcp`` server carries the same logic (``embeddedci_mcp.cli_login``) because it
-still supports SDK releases without this module.
+The ``embeddedci-mcp`` server re-exports this module (``embeddedci_mcp.cli_login``).
 """
 
 from __future__ import annotations
