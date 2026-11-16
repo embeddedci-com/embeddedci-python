@@ -47,7 +47,8 @@ SIGNAL_DUT_DIRS: Mapping[str, str] = {"input": "dut_output", "output": "dut_inpu
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 _SIGNAL_KEYS = ("name", "la", "direction", "active_low", "description")
 #: Keys other parts of the product keep in the profile; the SDK passes them through untouched.
-_PASSTHROUGH_PREFIXES = ("loop_input_", "loop_output_")
+#: ``expansion`` is the GPIO expander's object (BenchPod.expansion reads it).
+_PASSTHROUGH_PREFIXES = ("loop_input_", "loop_output_", "expansion")
 
 
 def _is_int(value: Any) -> bool:

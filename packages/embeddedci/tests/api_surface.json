@@ -114,7 +114,7 @@
     "clear_calibration": "(self, part: 'Optional[CalibrationPart]' = None) -> 'Calibration'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
-    "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[LaPinState]'",
+    "configure_gpio": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[Any]'",
     "control_loop": "(self, *, curve: 'Union[Sequence[int], str, None]' = None, voc_code: 'Optional[int]' = None, sharpness: 'float' = 4.0, points: 'int' = 256, k: 'int' = 8192, vmin: 'int' = 0, vmax: 'int' = 65535, tick_div: 'int' = 64, source: 'Optional[LoopSource]' = None, input_code: 'int' = 0, step: 'int' = 0, input_map: 'Optional[_control_loop.LoopInputMap]' = None, switch_image: 'bool' = True) -> '_control_loop.ControlLoopHandle'",
     "current_out": "(self, current: 'float') -> 'CurrentOutput'",
     "current_out_range": "(self) -> 'CurrentOutput'",
@@ -126,6 +126,7 @@
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
+    "expansion": "(self, chip: 'Optional[str]' = '', *, addr: 'Union[int, Sequence[int], None]' = None, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, spi: 'Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None]' = None, load: 'Union[Pin, int, str, None]' = None, count: 'Optional[int]' = None, hz: 'Optional[int]' = None, pullups: 'Optional[str]' = None, names: 'Union[Mapping[Any, str], Sequence[Optional[str]], None]' = None) -> \"'_expansion.ExpansionStatus'\"",
     "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None) -> 'FlashResult'",
     "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'Optional[DacPath]' = None, duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
@@ -167,7 +168,7 @@
     "save_wiring": "(self, wiring: 'Union[Wiring, Mapping[str, Any], str, None]' = None) -> 'Wiring'",
     "sensors": "property",
     "server_api": "property",
-    "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'int') -> 'None'",
+    "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'Union[int, Sequence[int]]') -> 'None'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
@@ -455,6 +456,7 @@
   "DirectionConflictError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0) -> 'None'"
   },
+  "EXPANSION_CHIPS": "(ExpansionChip(name='tca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=('tca9535',), note='TI, 1.65-5.5 V'), ExpansionChip(name='pca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='in/out', max_hz=400000, since='2.13.21', aliases=('pca9535',), note='NXP, 2.3-5.5 V: not at 1.8 V'), ExpansionChip(name='mcp23017', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='Microchip, 1.8-5.5 V'))",
   "EXTERNAL": "Efuse.EXTERNAL",
   "Edge": "Literal['rising', 'falling', 'both']",
   "Efuse": {
@@ -482,6 +484,61 @@
     "current_code": "(self, amps: 'float') -> 'int'",
     "resistance_code": "(self, ohm: 'float') -> 'int'",
     "volts": "(self, code: 'int') -> 'float'"
+  },
+  "ExpansionChip": {
+    "__fields__": [
+      "name",
+      "bus",
+      "pins",
+      "la_pins",
+      "addrs",
+      "voltages",
+      "directions",
+      "max_hz",
+      "since",
+      "aliases",
+      "note"
+    ],
+    "chained": "property"
+  },
+  "ExpansionError": {},
+  "ExpansionStatus": {
+    "__fields__": [
+      "attached",
+      "chip",
+      "bus",
+      "la",
+      "addrs",
+      "count",
+      "hz",
+      "pullups",
+      "pins",
+      "notes"
+    ],
+    "names": "property"
+  },
+  "ExtPin": {
+    "__init__": "(self, pod: \"'BenchPod'\", ext: 'int', *, name: 'Optional[str]' = None) -> 'None'",
+    "configure": "(self, mode: \"Optional['GpioMode']\" = None, *, level: 'Optional[int]' = None) -> 'Any'",
+    "name": "property",
+    "pulse": "(self, width: 'float', *, count: 'int' = 1) -> 'None'",
+    "read": "(self) -> 'int'",
+    "release": "(self) -> 'None'",
+    "set": "(self, level: 'int') -> 'None'",
+    "state": "(self) -> 'Any'",
+    "wait_for": "(self, level: 'int', *, timeout: 'float', poll: 'float' = 0.005) -> 'bool'"
+  },
+  "ExtPinState": {
+    "__fields__": [
+      "ext",
+      "pin",
+      "name",
+      "chip_pin",
+      "addr",
+      "mode",
+      "level",
+      "live"
+    ]
   },
   "Fault": {
     "__fields__": [
@@ -1242,11 +1299,17 @@
     "DeviceBusyError",
     "DeviceLease",
     "DirectionConflictError",
+    "EXPANSION_CHIPS",
     "EXTERNAL",
     "Edge",
     "Efuse",
     "EfuseState",
     "EmulatorCalibration",
+    "ExpansionChip",
+    "ExpansionError",
+    "ExpansionStatus",
+    "ExtPin",
+    "ExtPinState",
     "Fault",
     "FaultType",
     "FirmwareError",
@@ -1351,6 +1414,7 @@
     "decode",
     "dsp",
     "encode_curve_b64url",
+    "expansion_chip",
     "forget_lan_tls",
     "i2c",
     "input_percent_to_code",
@@ -1373,6 +1437,7 @@
   "decode": "module",
   "dsp": "module",
   "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
+  "expansion_chip": "(name: 'str') -> 'ExpansionChip'",
   "forget_lan_tls": "(host: 'str', port: 'int' = 8080) -> 'bool'",
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
