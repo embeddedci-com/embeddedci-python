@@ -433,7 +433,9 @@ class CloudTransport(TcpTransport):
                 continue
             break
         if payload.get("status") == "error":
-            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd)
+            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd,
+                                 code=str(payload.get("code") or ""),
+                                 values=payload.get("args") if isinstance(payload.get("args"), dict) else None)
         return payload.get("data")
 
     def _command_once(self, url: str, body: bytes, req: dict, cmd: Any, timeout: float) -> dict:

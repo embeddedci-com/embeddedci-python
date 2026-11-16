@@ -23,6 +23,9 @@ class Reply:
     data: Any = None
     message: str = ""
     more: bool = False
+    #: The stable error code and its values of an error reply (firmware with error codes).
+    code: str = ""
+    args: Any = None
 
 
 def encode_request(req: dict) -> bytes:
@@ -46,6 +49,8 @@ def parse_reply(line: bytes) -> Reply:
         data=obj.get("data"),
         message=str(obj.get("message", "")),
         more=bool(obj.get("more", False)),
+        code=str(obj.get("code") or ""),
+        args=obj.get("args") if isinstance(obj.get("args"), dict) else None,
     )
 
 
@@ -56,7 +61,8 @@ def raise_for_status(reply: Reply, cmd: Optional[str] = None) -> Reply:
     Returns the reply unchanged on success so callers can chain.
     """
     if reply.status == "error":
-        raise firmware_error(reply.message or "unknown firmware error", cmd=cmd)
+        raise firmware_error(reply.message or "unknown firmware error", cmd=cmd, code=reply.code,
+                             values=reply.args)
     if reply.status not in ("ok", "chunk"):
         raise TransportError(f"unexpected reply status {reply.status!r}")
     return reply

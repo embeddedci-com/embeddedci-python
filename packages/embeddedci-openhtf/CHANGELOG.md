@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-openhtf`
 
+## 2.4.0
+
+- Needs embeddedci 3.0: wiring profiles live on the pod and nothing is wired by default. A plug
+  without a wiring profile needs `efuse=` for power calls; pass `wiring=` or save the bench's
+  profile on the pod.
+
 ## 2.3.1
 
 - `signal_generate`, `signal_generate_phase` and `loopback_measure_phase` default to

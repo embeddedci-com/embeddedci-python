@@ -1,5 +1,38 @@
 # Changelog — `embeddedci`
 
+## 3.0.0
+
+A major release: wiring profiles live on the pod, nothing is wired by default, and refusals carry
+stable error codes. See "Upgrading to 3.0" below.
+
+- **Wiring profiles stored on the pod** (firmware with the wiring commands): up to 16 named profiles,
+  one of them the default, the same over LAN, USB and the cloud. `BenchPod(conn,
+  wiring_profile="k66")` (or `BENCHPOD_WIRING_PROFILE`, pytest `--benchpod-wiring-profile`) loads a
+  named one, else the pod's default. New: `bp.load_wiring(name)`, `bp.stored_wiring(name)`,
+  `bp.wiring_profiles()`, `bp.set_default_wiring(name)`, `bp.delete_wiring(name)`.
+  `bp.save_wiring(profile=None, name=None)` stores on the pod over any connection, signed in or
+  not; saving the loaded profile refuses (`BP0009`) when someone else saved it meanwhile. A file and
+  a profile name together is an error.
+- **Nothing is wired by default** (schema version 2). `Wiring()` sets no pin, no I/O voltage
+  (`la_mv` None) and no power rail (`efuse` None); a call that needs one says which to pass. The old
+  defaults are `Wiring.preset("embeddedci-reference")`; `Wiring.defaults()` returns it. Version 1
+  data (or data without `version`) still fills in those values. `Wiring.profile_name` and
+  `Wiring.profile_rev` say which stored profile a connection uses.
+- **`bp.power_on()` applies the wiring profile first**: its I/O voltage (when the pod has none or
+  another one), then its rail, and records the profile on the pod. `power_on(wiring_profile=...)`.
+  It never changes the I/O voltage under a powered board.
+- **Error codes**: `FirmwareError.code` (`"BP0009"`), `.values` and `.docs_url`, with the message and
+  the fix from the bundled catalog; `embeddedci.benchpod.errors.explain(code)`.
+
+### Upgrading to 3.0
+
+- A script that relied on the default pins (for example `bp.flash()` with no `swclk`/`swdio` on a
+  LAN pod with no profile) now raises and names the missing pin. Save the bench's wiring once,
+  `bp.save_wiring(Wiring.preset(), name="default")` for the reference bench, or pass `wiring=`.
+- `power_on()` without `efuse` needs a rail in the profile.
+- `Wiring.la_voltage`, `.efuse` and `.i2c_address` can be None.
+- Match refusals on `exc.code`, not on the message text.
+
 ## 2.13.21
 
 - GPIO expanders: `bp.expansion("tca9555", addr=0x20, sda=1, scl=2)` attaches an off-the-shelf I2C

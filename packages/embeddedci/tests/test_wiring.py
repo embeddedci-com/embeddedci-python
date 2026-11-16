@@ -10,13 +10,34 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci.benchpod import BenchPod, Signal, Wiring
+from embeddedci.benchpod.wiring import ROLE_KEYS
 
 
-def test_defaults_are_the_web_ui_defaults():
+def test_nothing_is_wired_by_default():
     w = Wiring()
+    assert all(getattr(w, k) is None for k in ROLE_KEYS)
+    assert (w.la_mv, w.la_voltage, w.efuse, w.i2c_addr, w.i2c_address) == (None, None, None, None, None)
+    assert w.uart_baud == 115200 and w.version == 2 and w.source == "undefined" and w.pins() == {}
+    assert Wiring.undefined() == w
+
+
+def test_the_reference_preset_is_the_old_default_bench():
+    w = Wiring.preset("embeddedci-reference")
     assert (w.uart_rx, w.uart_tx, w.uart_baud, w.i2c_sda, w.i2c_scl) == (5, 4, 115200, 1, 2)
     assert (w.swd_swclk, w.swd_swdio, w.efuse, w.la_voltage, w.i2c_address) == (11, 12, 1, 3.3, 0x76)
-    assert w.source == "defaults" and w.warnings() == []
+    assert w.source == "preset" and w.warnings() == [] and Wiring.defaults() == w
+    with pytest.raises(ValueError, match="no wiring preset"):
+        Wiring.preset("nope")
+
+
+def test_version_1_fills_the_reference_bench_and_version_2_does_not():
+    assert Wiring.from_dict({"uart_rx": 7}).swd_swclk == 11                 # no version: version 1
+    assert Wiring.from_dict({"version": 1, "uart_rx": 7}).la_mv == 3300
+    v2 = Wiring.from_dict({"version": 2, "uart_rx": 7})
+    assert v2.uart_rx == 7 and v2.swd_swclk is None and v2.la_mv is None
+    assert Wiring.from_dict({"version": 1, "uart_rx": 7}).to_dict()["version"] == 2
+    with pytest.raises(ValueError, match="version must be 1 or 2"):
+        Wiring.from_dict({"version": 3})
 
 
 def test_lookups_by_role_and_signal():
@@ -43,12 +64,13 @@ def test_every_problem_is_reported_at_once():
 
 def test_one_channel_one_user():
     with pytest.raises(ValueError, match="LA4 is used by both uart_tx and i2c_sda"):
-        Wiring(i2c_sda=4)
+        Wiring(uart_tx=4, i2c_sda=4)
     with pytest.raises(ValueError, match="LA9 is used by both A and B"):
         Wiring(signals=[Signal("A", 9), Signal("B", 9)])
     with pytest.raises(ValueError, match="already used"):
         Wiring(signals=[Signal("A", 9), Signal("a", 10)])
     Wiring(uart_tx=None, i2c_sda=4)  # not wired frees the channel
+    Wiring(i2c_sda=4)                # nothing else is wired by default
 
 
 def test_warnings_for_risky_wiring():
@@ -192,7 +214,8 @@ def test_cloud_device_loads_and_saves_the_server_profile(monkeypatch):
 
 def test_save_wiring_needs_a_cloud_device(monkeypatch):
     monkeypatch.delenv("BENCHPOD_WIRING", raising=False)
-    with pytest.raises(Exception, match="cloud device"):
+    # A LAN pod whose firmware stores no profiles cannot save one.
+    with pytest.raises(Exception, match="newer firmware"):
         BenchPod(transport=WiredFake(), lease=False).save_wiring()
 
 

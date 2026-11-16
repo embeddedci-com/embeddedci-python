@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci import benchpod
-from embeddedci.benchpod import BenchPod, BenchPodError
+from embeddedci.benchpod import Wiring, BenchPod, BenchPodError
 from embeddedci.benchpod.errors import UnsupportedFeatureError
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.state import (
@@ -59,6 +59,7 @@ class FakeTransport:
 
 def _bp(replies: Dict[str, Any] | None = None, **kwargs: Any) -> "tuple[BenchPod, FakeTransport]":
     t = FakeTransport(replies)
+    kwargs.setdefault("wiring", Wiring.preset())
     return BenchPod(transport=t, lease=False, **kwargs), t
 
 

@@ -37,7 +37,7 @@ def _request(tx, cmd="power_profile"):
 
 def test_measure_power_returns_si_units():
     tx = FakeTransport()
-    plug = benchpod_plug(transport=tx)()
+    plug = benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1})()
     profile = measure_power(plug, 1.0)
     assert isinstance(profile, PowerProfile)
     assert _request(tx) == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500,
@@ -51,7 +51,7 @@ def test_measure_power_returns_si_units():
 
 def test_measure_power_passes_its_keywords_through():
     tx = FakeTransport()
-    plug = benchpod_plug(transport=tx)()
+    plug = benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1})()
     profile = measure_power(plug, 0.5, efuse=2, rate_hz=500, keep_samples=2)
     req = _request(tx)
     assert req["efuse"] == 2 and req["rate_hz"] == 500.0 and req["keep_samples"] == 2
@@ -70,7 +70,7 @@ def test_measure_power_uses_the_wiring_profile_rail():
 
 def test_measure_power_phase_records_current_voltage_and_energy():
     tx = FakeTransport()
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0))
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0))
     assert rec.outcome == tr.Outcome.PASS
     phase = _phase(rec, "measure_power")
     assert _value(phase, "power_avg_current_a") == pytest.approx(0.052)
@@ -85,20 +85,20 @@ def test_measure_power_phase_records_current_voltage_and_energy():
 
 def test_measure_power_phase_limits_pass_and_fail():
     tx = FakeTransport()
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0,
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0,
                                    avg_current_range=(0, 0.1), peak_current_range=(0, 0.2),
                                    energy_range=(0, 1.0)))
     assert rec.outcome == tr.Outcome.PASS
 
     tx = FakeTransport()
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0,
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0,
                                    avg_current_range=(0, 0.01)))  # a 10 mA budget it blows
     assert rec.outcome == tr.Outcome.FAIL
 
 
 def test_measure_power_phase_attaches_the_kept_samples():
     tx = FakeTransport()
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0, keep_samples=2,
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0, keep_samples=2,
                                    efuse=2, rate_hz=500, prefix="sleep"))
     phase = _phase(rec, "measure_power")
     assert _value(phase, "sleep_avg_current_a") == pytest.approx(0.052)
@@ -109,7 +109,7 @@ def test_measure_power_phase_attaches_the_kept_samples():
 
 def test_measure_power_phase_can_skip_the_attachment():
     tx = FakeTransport()
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0, keep_samples=2,
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0, keep_samples=2,
                                    attachment=None))
     assert "power.json" not in _phase(rec, "measure_power").attachments
 
@@ -117,7 +117,7 @@ def test_measure_power_phase_can_skip_the_attachment():
 def test_measure_power_phase_reports_a_fault_and_a_truncated_profile():
     tx = FakeTransport()
     tx.power_stats = dict(tx.power_stats, fault=True, truncated=True)
-    rec = _run(measure_power_phase(benchpod_plug(transport=tx), duration=1.0))
+    rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0))
     assert rec.outcome == tr.Outcome.PASS  # no limits were given; the log carries the warning
     assert _value(_phase(rec, "measure_power"), "power_peak_current_a") == pytest.approx(0.18)
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Optional
+from importlib import resources
+from typing import Any, Dict, Mapping, Optional
 
 
 class BenchPodError(Exception):
@@ -71,9 +73,18 @@ class FirmwareError(BenchPodError):
     firmware uses (``la voltage not set``, ``pin conflict: LA4 is in use by gpio``) stay as they are.
     """
 
+    #: The pod's stable error code (``"BP0009"``), "" from firmware without codes. Match on this,
+    #: not on the message text. https://embeddedci.com/docs/errors lists every code.
+    code: str = ""
+    #: The values sent with the code (``{"name": "k66", "rev": 2}``); ``args`` is Python's own.
+    values: Dict[str, Any] = {}
+    #: The code's docs page, "" without a code.
+    docs_url: str = ""
+
     def __init__(self, message: str, *, cmd: Optional[str] = None) -> None:
         self.firmware_message = message
         self.cmd = cmd
+        self.values = {}
         text = _sdk_refusal_text(message)
         if status_too_large(message, cmd):
             text += (f"; firmware {STATUS_FITS_FIRMWARE} and later send a status that fits: update "
@@ -375,6 +386,68 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
     return exc
 
 
-def firmware_error(message: str, *, cmd: Optional[str] = None) -> FirmwareError:
-    """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal."""
-    return classify_firmware_error(FirmwareError(message, cmd=cmd))
+# -- stable error codes ------------------------------------------------------------------------
+#
+# Firmware with error codes sends {"status":"error","code":"BP0009","args":{...},"message":...}.
+# error_catalog.json is benchpod-firmware's errors/errors.json (scripts/sync-error-catalog.sh): the
+# message and the SDK's fix for each code. https://embeddedci.com/docs/errors lists them all.
+
+_CATALOG: Optional[Dict[str, Any]] = None
+
+
+def error_catalog() -> Dict[str, Any]:
+    """The bundled error catalog: ``{"codes": {"BP0001": {...}}, "docs_url": ...}``."""
+    global _CATALOG
+    if _CATALOG is None:
+        try:
+            text = resources.files(__package__).joinpath("error_catalog.json").read_text("utf-8")
+            _CATALOG = json.loads(text)
+        except (OSError, ValueError):
+            _CATALOG = {"codes": {}, "docs_url": "https://embeddedci.com/docs/errors#{code}"}
+    return _CATALOG
+
+
+def error_docs_url(code: str) -> str:
+    """The docs page of an error code."""
+    return str(error_catalog().get("docs_url", "https://embeddedci.com/docs/errors#{code}")).replace(
+        "{code}", code)
+
+
+def _fill(template: str, values: Mapping[str, Any]) -> str:
+    return re.sub(r"\{([a-z0-9_]+)\}", lambda m: str(values.get(m.group(1), "?")), template)
+
+
+def explain(code: str, surface: str = "sdk") -> str:
+    """A code's entry as text: message, cause and the fix (``surface``: sdk, cli, mcp or web)."""
+    entry = error_catalog().get("codes", {}).get(code.strip().upper())
+    if not entry:
+        return f"{code}: not in this SDK's catalog; see {error_docs_url(code.strip().upper())}"
+    return (f"{code.upper()} {entry['name']}: {entry['message']}\n\n{entry['cause']}\n\n"
+            f"Fix: {entry['fix'].get(surface, '')}\n{error_docs_url(code.upper())}")
+
+
+def _attach_code(exc: FirmwareError, code: str, values: Optional[Mapping[str, Any]]) -> FirmwareError:
+    """Put the pod's code and values on exc and, when the catalog knows the code, render its
+    message and the SDK's fix: ``cmd: BP0009: The wiring profile k66 changed ...; load it again
+    ... (https://embeddedci.com/docs/errors#BP0009)``."""
+    exc.code = code
+    exc.values = dict(values or {})
+    exc.docs_url = error_docs_url(code) if code else ""
+    entry = error_catalog().get("codes", {}).get(code) if code else None
+    if entry:
+        text = f"{code}: {_fill(entry['message'], exc.values)}; {_fill(entry['fix']['sdk'], exc.values)} ({exc.docs_url})"
+        exc.args = (f"{exc.cmd}: {text}" if exc.cmd else text,)
+    elif code:
+        exc.args = (f"{exc.args[0] if exc.args else exc.firmware_message} [{code}: {exc.docs_url}]",)
+    return exc
+
+
+def firmware_error(message: str, *, cmd: Optional[str] = None, code: str = "",
+                   values: Optional[Mapping[str, Any]] = None) -> FirmwareError:
+    """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal.
+    ``code`` / ``values``: the pod's stable error code and its args, when the firmware sends them."""
+    exc = FirmwareError(message, cmd=cmd)
+    if code == "BP0002":   # unknown command: the firmware lacks the feature
+        exc = UnsupportedFeatureError(message, cmd=cmd, feature=cmd or "")
+    exc = classify_firmware_error(exc)
+    return _attach_code(exc, code or "", values)

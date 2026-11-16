@@ -167,8 +167,14 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         "--benchpod-wiring", action="store", default=None, dest="benchpod_wiring",
         help="Wiring profile file (.json or .toml): which DUT signal is on which LA channel. Normally "
         "set once by overriding the benchpod_wiring fixture in conftest.py; this flag wins over it. "
-        "Without either: BENCHPOD_WIRING, then the profile stored on embeddedci.com for the pod "
-        "(BENCHPOD_WIRING_SOURCE=local skips it), then the defaults.",
+        "Without either: BENCHPOD_WIRING, then a profile stored on the pod (--benchpod-wiring-profile, "
+        "else the pod's default), then (older firmware) the profile stored on embeddedci.com "
+        "(BENCHPOD_WIRING_SOURCE=local skips it), else nothing is wired.",
+    )
+    group.addoption(
+        "--benchpod-wiring-profile", action="store", default=None, dest="benchpod_wiring_profile",
+        help="Name of a wiring profile stored on the pod to run with (default: the pod's default "
+        "profile; also BENCHPOD_WIRING_PROFILE). Cannot be combined with --benchpod-wiring.",
     )
     group.addoption(
         "--benchpod-discover",
@@ -428,10 +434,12 @@ def benchpod(benchpod_connection: str, benchpod_la_voltage: Optional[float],
         la_voltage = benchpod_la_voltage  # None still lets BenchPod read BENCHPOD_LA_VOLTAGE
     if la_voltage is None and wiring is not None and not os.environ.get("BENCHPOD_LA_VOLTAGE"):
         la_voltage = wiring.la_voltage
+    profile_name = pytestconfig.getoption("benchpod_wiring_profile")
     device = BenchPod(
         benchpod_connection,
         la_voltage=la_voltage,
         wiring=wiring,
+        **({"wiring_profile": profile_name} if profile_name else {}),
         **_cloud_kwargs(pytestconfig),
     )
     _release_gpio(device)

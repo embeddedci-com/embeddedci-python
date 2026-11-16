@@ -310,6 +310,7 @@ macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_
 | `BENCHPOD_API_BASE` | no `api_base` argument / `--benchpod-api-base` | server base URL (default `https://www.embeddedci.com`) |
 | `BENCHPOD_BUILD_TARGET` | no `--benchpod-build-target` | platform id recorded by the `build_report` fixture |
 | `BENCHPOD_WIRING` | no `wiring` argument / `--benchpod-wiring` / `benchpod_wiring` fixture | wiring profile file (`.json`/`.toml`), see [Wiring profile](#wiring-profile) |
+| `BENCHPOD_WIRING_PROFILE` | no `wiring_profile` argument / `--benchpod-wiring-profile` | the name of a wiring profile stored on the pod to use (default: the pod's default profile), see [Wiring profile](#wiring-profile) |
 | `BENCHPOD_WIRING_SOURCE` | no `wiring_source` argument | `local` never asks embeddedci.com for the pod's stored wiring profile; `auto` (default) does, see [Wiring profile](#wiring-profile) |
 | `BENCHPOD_LIFT_DAC_LIMITS` | pytest sessions | `1` clears the pod's DAC output limits for the session and restores the same limits at the end, even when tests fail (only with the output stage switched off) |
 | `BENCHPOD_TLS` | network connections | `auto` (default), `on` or `off`: TLS to the pod's LAN API on 8443, see [TLS on the LAN](#tls-on-the-lan) |
@@ -317,6 +318,24 @@ macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 | `BENCHPOD_SENSOR_LIBRARY` | no `version` argument / `--benchpod-sensor-library` | sensor library version: `latest` or a release such as `0.2.0` (default: the version the SDK pins), see [Emulated sensors](#emulated-sensors) |
 | `BENCHPOD_SENSOR_CACHE` | sensor library downloads | cache folder for downloaded library versions (default `<user cache>/embeddedci/benchpod-sensors`) |
+
+## Error codes
+
+When the pod refuses a request, firmware with error codes sends a stable code with it, and the SDK
+puts it on the exception: `FirmwareError.code` (`"BP0009"`), `.values` (the values that go with it,
+`{"name": "k66", "rev": 2}`) and `.docs_url`. The message says what went wrong and how to fix it
+from Python:
+
+```text
+wiring_put: BP0009: The wiring profile k66 changed since it was loaded (it is now at revision 2);
+load it again (bp.load_wiring("k66")), redo your change and save, or save under another name
+(https://embeddedci.com/docs/errors#BP0009)
+```
+
+A code never changes meaning and is never reused, so match on `exc.code` in tests and scripts, not
+on the text. `embeddedci.benchpod.errors.explain("BP0009")` prints a code's entry offline.
+[embeddedci.com/docs/errors](https://embeddedci.com/docs/errors) lists every code. Older firmware
+sends no code (`.code == ""`).
 
 ## API conventions and stability
 
@@ -441,6 +460,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-connection` | `BENCHPOD_CONNECTION` | — | connection string (also the `benchpod_connection` ini option) |
 | `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | override the `benchpod_la_voltage` fixture for one run (1.8 or 3.3); the flag wins over the fixture, the env var only applies when neither is set |
 | `--benchpod-wiring` | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`); the flag wins over the `benchpod_wiring` fixture, the env var only applies when neither is set |
+| `--benchpod-wiring-profile` | `BENCHPOD_WIRING_PROFILE` | the pod's default | name of a wiring profile stored on the pod to run with; not with `--benchpod-wiring` |
 | `--benchpod-efuse` | — | the profile's rail | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external); `benchpod_target` otherwise follows the wiring profile, `pins.efuse` is 1 |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
@@ -470,7 +490,7 @@ benchpod_connection = 192.168.1.213
 | Fixture | Scope | Provides |
 |---|---|---|
 | `benchpod_la_voltage` | session | the board's I/O voltage selected on connect — **override it in `conftest.py`** (default `None` → `BENCHPOD_LA_VOLTAGE`) |
-| `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, the pod's profile stored on embeddedci.com, the defaults; see [Wiring profile](#wiring-profile)). An explicit profile also supplies the LA voltage when nothing else sets one |
+| `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, a profile stored on the pod, nothing wired; see [Wiring profile](#wiring-profile)). An explicit profile also supplies the LA voltage when nothing else sets one |
 | `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
 | `benchpod_target` | function | `benchpod` with the target rail (`--benchpod-efuse`, else the wiring profile's) powered on for the test, off at teardown |
@@ -527,44 +547,85 @@ la = bp.capture_la(100_000, trigger=Trigger("READY"))
 print(wiring.describe())                        # a pin table: bias resistor and DUT direction per channel
 ```
 
-| Key | Default | Meaning |
+| Key | When not set | Meaning |
 |---|---|---|
-| `la_mv` | `3300` | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
-| `efuse` | `1` | target-power rail: 1 internal 5 V, 2 external |
-| `uart_rx`, `uart_tx`, `uart_baud` | `5`, `4`, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
-| `i2c_sda`, `i2c_scl`, `i2c_addr` | `1`, `2`, `"0x76"` | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
-| `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | `11`, `12`, `False`, `""` | flashing |
+| `la_mv` | not set | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
+| `efuse` | not set (pass `efuse=`) | target-power rail: 1 internal 5 V, 2 external |
+| `uart_rx`, `uart_tx`, `uart_baud` | not wired, not wired, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
+| `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
+| `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | not wired, not wired, `False`, `""` (auto-detect) | flashing |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
 | `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
 | `dut_dirs` | `{}` | the DUT direction of a role or signal where its default is wrong: `{"uart_rx": "bidir", "READY": "dut_input"}` (role key or signal name to `dut_input`, `dut_output` or `bidir`); see [pin directions](#gpio-on-the-la-pins) |
+
+**Nothing is wired unless the profile says so** (schema version 2, SDK 3.0). A pin the profile does
+not set is never driven, and a call that needs it says which one to pass: `bp.flash()` without
+`swclk`/`swdio` in the profile raises `ValueError: swd_swclk was not given and the wiring profile has
+no swd_swclk`. The EmbeddedCI reference bench (a NUCLEO-F446RE: UART on LA5/LA4, I2C on LA1/LA2, SWD
+on LA11/LA12, 3.3 V, internal 5 V), what profiles used to default to, is a preset:
+`Wiring.preset("embeddedci-reference")`. A version 1 file or dict (or one without a `version` key)
+still means what it did: what it leaves out takes the reference bench's values, and the profile you
+get back is version 2 with them written out. Re-save such a file as version 2 with
+`benchpod wiring upgrade wiring.json`.
 
 A role set to `None` is not wired. Construction validates the whole profile and raises `ValueError`
 listing every problem — including two roles or signals on one LA channel; `wiring.warnings()` lists
 wiring that works but is risky, such as an I2C bus on a channel without a pull-up.
 
-**Where the profile comes from.** The web UI, the CLI, the SDK and the MCP server use one profile
-per pod: the one stored on embeddedci.com. `bp.wiring` is resolved once, first match wins:
+**Profiles live on the pod.** A pod with current firmware stores up to 16 named profiles (4096 bytes
+of JSON each, 16 KB in all), and one of them is its default. Every connection sees the same ones:
+LAN, USB and the cloud, from any computer, signed in or not. The web app shows them and keeps their
+history. `bp.wiring` is resolved once, first match wins:
 
 | # | Source | `bp.wiring.source` |
 |---|---|---|
 | 1 | the `wiring=` argument (a `Wiring`, a dict, or a `.json`/`.toml` file); in pytest `--benchpod-wiring`, then the `benchpod_wiring` fixture | `dict`, `file` (a `Wiring` keeps its own) |
 | 2 | the `BENCHPOD_WIRING` file | `file` |
-| 3 | the profile stored on embeddedci.com for this pod, as the web UI's Wiring tab shows it: for `embeddedci:<device>` that device; over the LAN (or a USB console that answers JSON commands), the device the pod reports it is registered as, when an API key (`api_key=` / `BENCHPOD_API_KEY`) or the `benchpod login` session is available and that device is on the same account | `server` |
-| 4 | the defaults | `defaults` |
+| 3 | a profile stored on the pod: `wiring_profile="k66"` (or `BENCHPOD_WIRING_PROFILE`, pytest `--benchpod-wiring-profile`), else the pod's default profile. A named profile the pod does not have raises | `pod` |
+| 4 | firmware that stores no profiles: the profile stored on embeddedci.com for this pod (for `embeddedci:<device>` that device; over the LAN, the device the pod reports it is registered as, with an API key or the `benchpod login` session) | `server` |
+| 5 | nothing: `Wiring.undefined()` | `undefined` |
 
-Step 3 never fails the connection. Without credentials, with the pod not registered, the server
-unreachable, or the pod on another account, the SDK logs why (logger `embeddedci.benchpod`) and uses
-the defaults; over the LAN or USB it gives up after about 3 seconds. The STM32 pod's USB text
-console cannot say which device it is registered as, so over USB the defaults apply unless
-`wiring=` or `BENCHPOD_WIRING` gives a profile. `wiring_source="local"` (or
-`BENCHPOD_WIRING_SOURCE=local`) skips step 3 entirely, for offline benches or a bench that should
-ignore the stored profile.
+A file (`wiring=` / `BENCHPOD_WIRING`) and a profile name together is an error, not a silent choice.
+Step 4 never fails the connection: without credentials, with the pod not registered or the server
+unreachable, the SDK logs why (logger `embeddedci.benchpod`) and goes on to step 5;
+`wiring_source="local"` (or `BENCHPOD_WIRING_SOURCE=local`) skips it.
 
-`bp.wiring = ...` swaps it for this connection; `bp.save_wiring(profile)` stores it for a cloud device.
-A file holds the same JSON object the server stores:
+```python
+bp = BenchPod(conn)                          # the pod's default profile
+bp = BenchPod(conn, wiring_profile="k66")    # a named one
+
+bp.wiring = bp.wiring.with_changes(uart_baud=9600)   # this connection only, nothing saved
+bp.save_wiring()                             # store it, to the profile it was loaded from
+bp.save_wiring(name="nrf52840")              # store it under that name (created if new)
+bp.save_wiring(Wiring.preset(), name="nucleo")  # store a full profile (a Wiring, dict or file)
+bp.load_wiring("k66")                        # this connection switches to another stored profile
+bp.stored_wiring("k66")                      # read one without switching
+bp.wiring_profiles()                         # {"default": "k66", "profiles": [{"name", "rev", "bytes"}], ...}
+bp.set_default_wiring("k66")                 # what a connection loads when it names none
+bp.delete_wiring("old")                      # not the default
+```
+
+`bp.wiring.profile_name` and `bp.wiring.profile_rev` say which stored profile (and revision) this
+connection uses; both are empty when the profile came from elsewhere.
+
+Scripts and tests never save on their own: a test that changes the baud for one run must not change
+the bench for everyone. Saving never changes the default; the pod's first profile becomes its
+default. Saving the profile this connection loaded checks nobody saved it meanwhile: when someone
+did, `save_wiring` raises `FirmwareError` with `code == "BP0009"` instead of overwriting their change
+(`load_wiring` to see it). Saving refuses with `BP0016` while the DAC runs or a capture holds the
+pod's bus; reading never touches it. Firmware that stores no profiles: `save_wiring()` replaces a
+cloud device's single profile on embeddedci.com, and raises over the LAN or USB.
+
+**Power-on applies the profile.** `bp.power_on()` (or `bp.power_on(wiring_profile="k66")`) sets the
+profile's I/O voltage when the pod has none or another one, then switches the profile's rail on and
+records on the pod which profile powered the board (`target_status`). It never changes the I/O
+voltage under a board that is already powered: that raises, and `bp.set_la_voltage()` does it if you
+mean it.
+
+A file holds the same JSON object the pod stores:
 
 ```json
-{"uart_rx": 3, "uart_tx": 4, "swd_target": "target/stm32f4x.cfg",
+{"version": 2, "la_mv": 3300, "efuse": 1, "uart_rx": 3, "uart_tx": 4, "swd_target": "target/stm32f4x.cfg",
  "signals": [{"name": "TRIGGER", "la": 9, "direction": "output"}, {"name": "READY", "la": 10}]}
 ```
 

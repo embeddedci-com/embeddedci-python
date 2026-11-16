@@ -26,6 +26,7 @@ hatches below that API and are not covered by its stability guarantee.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import math
 import os
@@ -33,6 +34,7 @@ import re
 import time
 import weakref
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 from . import can as _can
@@ -135,12 +137,16 @@ LA_VOLTAGE_ENV = "BENCHPOD_LA_VOLTAGE"
 API_BASE_ENV = "BENCHPOD_API_BASE"
 API_KEY_ENV = "BENCHPOD_API_KEY"
 WIRING_ENV = "BENCHPOD_WIRING"
+#: The name of the pod wiring profile to load (``wiring_profile=``); unset = the pod's default.
+WIRING_PROFILE_ENV = "BENCHPOD_WIRING_PROFILE"
 #: ``local`` keeps the wiring lookup off embeddedci.com (see :attr:`BenchPod.wiring`).
 WIRING_SOURCE_ENV = "BENCHPOD_WIRING_SOURCE"
 #: Accepted ``wiring_source`` values: ``auto`` (the default) and ``local``.
 WIRING_SOURCES = ("auto", "local")
 #: Budget, in seconds, for finding a LAN/USB pod's stored wiring profile on embeddedci.com.
 _WIRING_LOOKUP_TIMEOUT = 3.0
+#: Bytes of a wiring profile per wiring_get / wiring_put (the firmware's WIRING_PIECE_MAX).
+_WIRING_PIECE = 600
 
 #: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
 _GENERATOR_MAX_CODE = 255
@@ -233,6 +239,9 @@ def _classified_errors() -> Iterator[None]:
         specific = classify_firmware_error(exc)
         if specific is exc:
             raise
+        if exc.code:   # keep the pod's code on the specific error
+            from .errors import _attach_code
+            _attach_code(specific, exc.code, exc.values)
         raise specific from None
 
 
@@ -263,6 +272,7 @@ class BenchPod:
         lease_ttl: int = DEFAULT_LEASE_TTL,
         wiring: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]", None] = None,
         wiring_source: Optional[str] = None,
+        wiring_profile: Optional[str] = None,
     ) -> None:
         """Open a BenchPod.
 
@@ -292,9 +302,11 @@ class BenchPod:
         TCP/serial connections never lease.
 
         ``wiring`` is the bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile (a ``Wiring``, a
-        dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`. ``wiring_source`` (or
+        dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`. ``wiring_profile`` (or
+        ``BENCHPOD_WIRING_PROFILE``) names one of the profiles stored on the pod (default: the pod's
+        default profile); it cannot be combined with ``wiring``. ``wiring_source`` (or
         ``BENCHPOD_WIRING_SOURCE``) is ``"auto"`` (default) or ``"local"``, which never asks
-        embeddedci.com for the stored profile.
+        embeddedci.com for the stored profile (only used for pods whose firmware stores none).
         """
         source = (wiring_source if wiring_source is not None
                   else os.environ.get(WIRING_SOURCE_ENV, "")).strip().lower() or "auto"
@@ -302,6 +314,12 @@ class BenchPod:
             what = "wiring_source" if wiring_source is not None else WIRING_SOURCE_ENV
             raise ValueError(f"{what} must be 'auto' or 'local', got {source!r}")
         self._wiring_source = source
+        profile_name = (wiring_profile if wiring_profile is not None
+                        else os.environ.get(WIRING_PROFILE_ENV, "")).strip()
+        if profile_name and (wiring is not None or os.environ.get(WIRING_ENV, "").strip()):
+            raise ValueError("pass a wiring file or profile (wiring= / BENCHPOD_WIRING) or the name of a "
+                             "profile stored on the pod (wiring_profile= / BENCHPOD_WIRING_PROFILE), not both")
+        self._wiring_profile = profile_name
         self._wiring: Optional[Wiring] = Wiring.coerce(wiring) if wiring is not None else None
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
@@ -573,20 +591,26 @@ class BenchPod:
 
         1. the ``wiring`` argument (or an assigned profile);
         2. the ``BENCHPOD_WIRING`` file;
-        3. the profile stored on embeddedci.com for this pod (edited in the web UI's Wiring tab):
+        3. a profile stored on the pod: ``wiring_profile`` (or ``BENCHPOD_WIRING_PROFILE``), else the
+           pod's default profile. ``source`` is then ``"pod"`` and :attr:`Wiring.profile_name` its
+           name. A named profile the pod does not have raises. Firmware that stores no profiles
+           skips this step;
+        4. (firmware that stores no profiles) the profile stored on embeddedci.com for this pod (edited in the web UI's Wiring tab):
            for a cloud connection, the named device; for a LAN or USB connection, the device the
            pod reports it is registered as (``cloud_status``), when credentials are available
            (``api_key``/``BENCHPOD_API_KEY``, or the ``benchpod login`` session) and the device is
            on that account. ``source`` is then ``"server"``. Skipped with
            ``wiring_source="local"`` / ``BENCHPOD_WIRING_SOURCE=local``;
-        4. the defaults.
+        5. nothing: :meth:`Wiring.undefined` (no pin wired, no I/O voltage, no power rail). A call
+           that needs a pin then says which one to pass.
 
-        The lookup in step 3 never raises: without credentials, with the pod not registered, the
-        server unreachable or the device on another account, it logs why and uses the defaults,
+        The lookup in step 4 never raises: without credentials, with the pod not registered, the
+        server unreachable or the device on another account, it logs why and goes on to step 5,
         and on a LAN/USB connection it gives up after about 3 seconds.
         Channel arguments fall back to it — ``open_uart()``, ``capture_uart()``, ``flash()``,
         ``bp.sensors.start()``, the power rail — and :meth:`signal` / GPIO names come from it.
-        Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`).
+        Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`,
+        :meth:`load_wiring`).
         """
         if self._wiring is None:
             self._wiring = self._resolve_wiring()
@@ -601,10 +625,17 @@ class BenchPod:
         env = os.environ.get(WIRING_ENV, "").strip()
         if env:
             return Wiring.load(env)
+        pod = self._pod_wiring(self._wiring_profile or None)
+        if pod is not None:
+            return pod
+        if self._wiring_profile:
+            raise UnsupportedFeatureError(
+                f"wiring_profile={self._wiring_profile!r}: this pod's firmware does not store wiring "
+                "profiles; update it (`benchpod flash-self`) or pass wiring=", feature="wiring_store")
         if self._wiring_source == "local":
-            return Wiring.defaults()
+            return Wiring.undefined()
         if not self._device_name:  # a LAN or USB pod
-            return self._local_pod_server_wiring() or Wiring.defaults()
+            return self._local_pod_server_wiring() or Wiring.undefined()
         api = self._try_server_api()
         if api is not None:
             try:
@@ -612,8 +643,8 @@ class BenchPod:
                 return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
             except (BenchPodError, ValueError) as exc:
                 _log.warning("could not load the wiring profile of %s from embeddedci.com (%s); "
-                             "using the defaults", self._device_name, exc)
-        return Wiring.defaults()
+                             "nothing is wired", self._device_name, exc)
+        return Wiring.undefined()
 
     def _wiring_credential(self, deadline: float) -> Optional[Tuple[Optional[str], Optional[Callable[[], str]]]]:
         """``(api_key, token_provider)`` for the wiring lookup of a LAN/USB pod, or None without
@@ -662,7 +693,7 @@ class BenchPod:
             cred = self._wiring_credential(deadline)
             if cred is None:
                 _log.info("wiring: no embeddedci.com credentials (BENCHPOD_API_KEY or `benchpod "
-                          "login`), so the stored profile is not used; using the defaults")
+                          "login`), so the stored profile is not used; nothing is wired")
                 return None
             try:
                 device_id = self._pod_cloud_device_id(deadline)
@@ -671,10 +702,10 @@ class BenchPod:
                 level = logging.INFO if type(self._transport).__name__ == "SerialTransport" \
                     else logging.WARNING
                 _log.log(level, "wiring: could not ask the pod which embeddedci.com device it is "
-                         "(%s); using the defaults", exc)
+                         "(%s); nothing is wired", exc)
                 return None
             if not device_id:
-                _log.info("wiring: the pod is not registered on embeddedci.com; using the defaults")
+                _log.info("wiring: the pod is not registered on embeddedci.com; nothing is wired")
                 return None
             from .server_api import ServerApi, ServerApiError
 
@@ -686,22 +717,176 @@ class BenchPod:
             except ServerApiError as exc:
                 if exc.status in (401, 403, 404):
                     _log.warning("wiring: the pod's embeddedci.com device %s is not on this account "
-                                 "(HTTP %s); using the defaults", device_id, exc.status)
+                                 "(HTTP %s); nothing is wired", device_id, exc.status)
                     return None
                 raise
             return Wiring.from_dict(data.get("profile") or {}, source="server", strict=False)
         except Exception as exc:  # the lookup is a convenience: never fail the caller over it
             _log.warning("wiring: could not load the pod's profile from embeddedci.com (%s); "
-                         "using the defaults", exc)
+                         "nothing is wired", exc)
             return None
 
-    def save_wiring(self, wiring: Union[Wiring, Mapping[str, Any], str, None] = None) -> Wiring:
-        """Store a wiring profile for this cloud device on embeddedci.com (default: :attr:`wiring`)
-        and use it. The server validates it too; a LAN pod keeps its profile in a file instead."""
+    # -- wiring profiles stored on the pod (firmware wiring_store.h) --------------------------
+
+    def _pod_cmd(self) -> Optional[Callable[[Dict[str, Any]], Any]]:
+        return getattr(self._transport, "command", None)
+
+    def _pod_wiring_list(self) -> Optional[Dict[str, Any]]:
+        """The pod's ``wiring_list``, or None when its firmware stores no profiles."""
+        cmd = self._pod_cmd()
+        if cmd is None:
+            return None
+        try:
+            listing = _dict(cmd({"cmd": "wiring_list"}))
+            # Firmware that stores profiles always lists them; anything else does not store any.
+            return listing if isinstance(listing.get("profiles"), list) else None
+        except FirmwareError:
+            return None   # older firmware refuses it ("unknown cmd"): it stores no profiles
+        except BenchPodError as exc:
+            if type(self._transport).__name__ == "SerialTransport":
+                return None   # the USB console runs no JSON commands
+            raise exc
+
+    def _pod_wiring_get(self, name: str) -> Tuple[Dict[str, Any], int]:
+        """One profile's JSON from the pod, read in pieces; a save meanwhile starts over."""
+        cmd = self._pod_cmd()
+        assert cmd is not None
+        for _ in range(3):
+            buf, rev = b"", None
+            while True:
+                piece = _dict(cmd({"cmd": "wiring_get", "name": name, "offset": len(buf)}))
+                if rev is not None and piece.get("rev") != rev:
+                    break
+                rev = int(piece.get("rev", 0))
+                b64 = str(piece.get("data_b64", ""))
+                chunk = base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
+                buf += chunk
+                if not chunk or len(buf) >= int(piece.get("total", 0)):
+                    return json.loads(buf.decode("utf-8")), rev
+        raise BenchPodError(f"wiring profile {name!r} kept changing while it was read; try again")
+
+    def _pod_wiring(self, name: Optional[str]) -> Optional[Wiring]:
+        """The pod's profile ``name`` (None: its default) as a Wiring, :meth:`Wiring.undefined` when
+        the pod has no profiles yet, or None when its firmware stores none."""
+        listing = self._pod_wiring_list()
+        if listing is None:
+            return None
+        names = [str(p.get("name")) for p in listing.get("profiles") or []]
+        target = name or listing.get("default")
+        if not target:
+            return replace(Wiring.undefined(), source="pod")
+        if target not in names:
+            raise FirmwareError(
+                f"the pod has no wiring profile {target!r} (it has: {', '.join(names) or 'none'})",
+                cmd="wiring_get")
+        data, rev = self._pod_wiring_get(str(target))
+        prof = Wiring.from_dict(data, source="pod", strict=False)
+        return replace(prof, source="pod", profile_name=str(target), profile_rev=rev)
+
+    def wiring_profiles(self) -> Dict[str, Any]:
+        """The wiring profiles stored on the pod: ``{"default": "k66", "profiles": [{"name": "k66",
+        "rev": 3, "bytes": 812}, ...], "max_profiles": 16, "max_bytes": 4096, "free_bytes": ...}``.
+        Raises :class:`UnsupportedFeatureError` on firmware that stores none."""
+        listing = self._pod_wiring_list()
+        if listing is None:
+            raise UnsupportedFeatureError("this pod's firmware does not store wiring profiles; update it "
+                                          "(`benchpod flash-self`)", feature="wiring_store")
+        return listing
+
+    def stored_wiring(self, name: Optional[str] = None) -> Optional[Wiring]:
+        """The pod's stored profile ``name`` (None: its default) without switching this connection to
+        it; None when the pod has no such profile or its firmware stores none."""
+        try:
+            return self._pod_wiring(name)
+        except FirmwareError:
+            return None
+
+    def load_wiring(self, name: Optional[str] = None) -> Wiring:
+        """Switch this connection to the pod's profile ``name`` (None: the pod's default) and return
+        it. Nothing on the pod changes; :meth:`set_default_wiring` changes the default."""
+        prof = self._pod_wiring(name)
+        if prof is None:
+            raise UnsupportedFeatureError("this pod's firmware does not store wiring profiles; update it "
+                                          "(`benchpod flash-self`)", feature="wiring_store")
+        changed = prof != self._wiring
+        self._wiring = prof
+        if changed:
+            self._auto_pin_directions()
+        return prof
+
+    def save_wiring(self, wiring: Union[Wiring, Mapping[str, Any], str, None] = None, *,
+                    name: Optional[str] = None) -> Wiring:
+        """Store a wiring profile on the pod and use it on this connection.
+
+        ``wiring``: the profile to store (a :class:`Wiring`, a dict or a ``.json``/``.toml`` path;
+        default: :attr:`wiring`). ``name``: the pod profile to store it as; default: the profile this
+        connection loaded (:attr:`Wiring.profile_name`), else the pod's default, else ``"default"``.
+        Saving to the profile this connection loaded checks that nobody saved it meanwhile and raises
+        :class:`FirmwareError` ``BP0009`` when someone did, instead of overwriting their change.
+        Saving never changes which profile is the pod's default (:meth:`set_default_wiring`),
+        except that the pod's first profile becomes its default.
+
+        Works over every connection (LAN, USB, cloud), signed in or not. Pods whose firmware stores
+        no profiles: a cloud device's single profile on embeddedci.com is replaced (``name`` must
+        not be given); a LAN or USB pod raises (update the firmware).
+        """
         profile = self.wiring if wiring is None else Wiring.coerce(wiring)
+        listing = self._pod_wiring_list()
+        if listing is None:
+            return self._save_server_wiring(profile, name)
+        loaded = self._wiring.profile_name if self._wiring is not None else ""
+        target = name or loaded or listing.get("default") or "default"
+        if_rev: Optional[int] = None
+        if target == loaded and self._wiring is not None:
+            if_rev = self._wiring.profile_rev
+        data = json.dumps(profile.to_dict(), separators=(",", ":")).encode("utf-8")
+        cmd = self._pod_cmd()
+        assert cmd is not None
+        done: Dict[str, Any] = {}
+        with _classified_errors():
+            for off in range(0, len(data), _WIRING_PIECE):
+                req: Dict[str, Any] = {"cmd": "wiring_put", "name": target, "offset": off, "total": len(data),
+                                       "data_b64": base64.urlsafe_b64encode(data[off:off + _WIRING_PIECE])
+                                       .decode("ascii").rstrip("=")}
+                if off == 0 and if_rev is not None:
+                    req["if_revision"] = if_rev
+                done = _dict(cmd(req))
+        saved = replace(profile, source="pod", profile_name=target, profile_rev=int(done.get("rev", 0)))
+        changed = saved != self._wiring
+        self._wiring = saved
+        if changed:
+            self._auto_pin_directions()
+        return saved
+
+    def set_default_wiring(self, name: str) -> str:
+        """Make the pod's profile ``name`` the default: what a connection loads when it names none.
+        This connection keeps the profile it has (:meth:`load_wiring` switches)."""
+        cmd = self._pod_cmd()
+        if cmd is None or self._pod_wiring_list() is None:
+            raise UnsupportedFeatureError("this pod's firmware does not store wiring profiles; update it "
+                                          "(`benchpod flash-self`)", feature="wiring_store")
+        with _classified_errors():
+            return str(_dict(cmd({"cmd": "wiring_default", "name": name})).get("default", name))
+
+    def delete_wiring(self, name: str) -> None:
+        """Delete the pod's profile ``name`` (not the default: make another one the default first)."""
+        cmd = self._pod_cmd()
+        if cmd is None or self._pod_wiring_list() is None:
+            raise UnsupportedFeatureError("this pod's firmware does not store wiring profiles; update it "
+                                          "(`benchpod flash-self`)", feature="wiring_store")
+        with _classified_errors():
+            cmd({"cmd": "wiring_delete", "name": name})
+
+    def _save_server_wiring(self, profile: Wiring, name: Optional[str]) -> Wiring:
+        """Firmware without profile storage: the cloud device's single profile on embeddedci.com."""
+        if name:
+            raise UnsupportedFeatureError(f"save_wiring(name={name!r}): this pod's firmware keeps one wiring "
+                                          "profile; update it (`benchpod flash-self`) to store several",
+                                          feature="wiring_store")
         if not self._device_name:
-            raise BenchPodError("saving a wiring profile needs a cloud device ('embeddedci:<device>'); "
-                                "for a LAN pod keep the profile in a file and pass wiring=")
+            raise UnsupportedFeatureError("saving a wiring profile on this pod needs newer firmware "
+                                          "(`benchpod flash-self`), or a cloud connection "
+                                          "('embeddedci:<device>')", feature="wiring_store")
         api = self._require_server_api()
         api.put_wiring(api.resolve_device_id(self._device_name), profile.to_dict())
         changed = profile != self._wiring
@@ -744,6 +929,9 @@ class BenchPod:
         return la
 
     def _efuse(self, efuse: Optional[Union[Efuse, int]]) -> int:
+        if efuse is None and self.wiring.efuse is None:
+            raise ValueError("efuse was not given and the wiring profile sets no power rail: pass efuse=1 "
+                             "(internal 5 V) or efuse=2 (external supply), or set efuse in the profile")
         return coerce_efuse(self.wiring.efuse if efuse is None else efuse)
 
     # -- LA I/O-bank voltage ------------------------------------------------
@@ -779,9 +967,44 @@ class BenchPod:
         self._transport.target_power(self._efuse(efuse), bool(on), _seconds_to_ms(delay, "delay"))
 
     def power_on(self, efuse: Optional[Union[Efuse, int]] = None,
-                 *, delay: Optional[float] = None) -> None:
-        """Power the target on (omitted ``efuse``: the wiring profile's rail, INTERNAL 5 V by default)."""
-        self.target_power(efuse, on=True, delay=delay)
+                 *, delay: Optional[float] = None, wiring_profile: Optional[str] = None) -> None:
+        """Power the target on with its wiring profile applied first.
+
+        In order: ``wiring_profile`` (a profile stored on the pod) becomes this connection's
+        profile (:meth:`load_wiring`); the profile's I/O voltage is set when the pod has none or
+        another one; then the rail goes on (omitted ``efuse``: the profile's rail), and the pod
+        records which profile powered the board (``target_status``). The I/O voltage is never
+        changed under a board that is already powered: that raises, set it with
+        :meth:`set_la_voltage` yourself if you mean it.
+        """
+        if wiring_profile:
+            self.load_wiring(wiring_profile)
+        w = self.wiring
+        rail = self._efuse(efuse)
+        if w.la_voltage is not None:
+            current = self.get_la_voltage().voltage
+            if current is None or abs(current - w.la_voltage) > 0.05:
+                if current is not None and self._rail_on(rail):
+                    raise BenchPodError(
+                        f"the board is powered with I/O at {current:g} V and the wiring profile wants "
+                        f"{w.la_voltage:g} V: power it off first, or call set_la_voltage() if you mean it")
+                self.set_la_voltage(w.la_voltage)
+                _log.info("power_on: I/O set to %g V from the wiring profile %s", w.la_voltage,
+                          w.profile_name or "(this connection's)")
+        cmd = self._pod_cmd()
+        if w.profile_name and cmd is not None and type(self._transport).__name__ != "SerialTransport":
+            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "state": 1,
+                                   "delay_ms": _seconds_to_ms(delay, "delay"), "profile": w.profile_name}
+            with _classified_errors():
+                cmd(req)
+            return
+        self.target_power(rail, on=True, delay=delay)
+
+    def _rail_on(self, rail: int) -> bool:
+        try:
+            return bool(self.target_status().efuse(rail).enabled)
+        except BenchPodError:
+            return False
 
     def power_off(self, efuse: Optional[Union[Efuse, int]] = None,
                   *, delay: Optional[float] = None) -> None:

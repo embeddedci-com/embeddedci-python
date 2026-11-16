@@ -9,8 +9,11 @@ named signals such as ``TRIGGER`` — so tests use names and defaults instead of
         ...
     bp.signal("TRIGGER").pulse(0.005)         # the LA channel the profile names TRIGGER
 
-The same schema (version 1) is stored per device on embeddedci.com, where the web UI edits it, and a
-cloud connection (``embeddedci:<device>``) loads it from there. See :class:`Wiring`.
+Profiles live on the pod (firmware with the wiring commands): up to 16 named profiles, one of them
+the default, the same over LAN, USB and the cloud. Schema version 2: what a profile does not set is
+undefined (that pin is not wired, no I/O voltage, no power rail). A version 1 object (or one without
+a version) still means what it did: what it leaves out takes the reference bench's values
+(:meth:`Wiring.preset`). See :class:`Wiring`.
 """
 
 from __future__ import annotations
@@ -23,7 +26,16 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
 from .constants import PULL_OHMS, PULLDOWN_CHANNELS
 
-WIRING_VERSION = 1
+WIRING_VERSION = 2
+#: The schema versions :meth:`Wiring.from_dict` reads: 1 (missing keys = the reference bench) and 2.
+WIRING_VERSIONS = (1, 2)
+#: The reference bench (the EmbeddedCI NUCLEO-F446RE wiring), and what a version 1 profile fills in.
+REFERENCE_BENCH: Mapping[str, Any] = {
+    "la_mv": 3300, "efuse": 1, "uart_rx": 5, "uart_tx": 4, "i2c_sda": 1, "i2c_scl": 2,
+    "i2c_addr": "0x76", "swd_swclk": 11, "swd_swdio": 12,
+}
+#: Presets: complete profiles to start a new one from (:meth:`Wiring.preset`). Copied, never linked.
+PRESETS: Mapping[str, Mapping[str, Any]] = {"embeddedci-reference": REFERENCE_BENCH}
 
 #: Profile keys that name the LA channel of a DUT signal role.
 ROLE_KEYS: Tuple[str, ...] = ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl", "swd_swclk", "swd_swdio",
@@ -85,25 +97,27 @@ class Signal:
 
 @dataclass(frozen=True)
 class Wiring:
-    """A bench's wiring profile (schema version 1). Construct it, :meth:`load` a file, or let
-    :attr:`BenchPod.wiring <embeddedci.benchpod.BenchPod.wiring>` fetch it.
+    """A bench's wiring profile (schema version 2). Construct it, :meth:`load` a file, or let
+    :attr:`BenchPod.wiring <embeddedci.benchpod.BenchPod.wiring>` load one from the pod.
 
-    Every field has the web UI's default, so ``Wiring()`` is the default bench and a profile only needs
-    what differs. A role set to ``None`` is not wired. Construction validates the whole profile and
+    What is not set is undefined: ``Wiring()`` wires nothing, has no I/O voltage (``la_mv`` None) and
+    no power rail (``efuse`` None); a call that needs one of them says so. Only plain call settings
+    keep a value (``uart_baud`` 115200, ``swd_nreset`` False, ``swd_target`` auto-detect). Start from
+    the reference bench with ``Wiring.preset("embeddedci-reference")``. Construction validates the whole profile and
     raises :class:`ValueError` listing every problem — including two roles or signals on one LA
     channel. :meth:`warnings` lists wiring that works but is risky (an I2C bus without a pod pull-up).
     """
 
-    la_mv: int = 3300
-    efuse: int = 1
-    uart_rx: Optional[int] = 5
-    uart_tx: Optional[int] = 4
+    la_mv: Optional[int] = None
+    efuse: Optional[int] = None
+    uart_rx: Optional[int] = None
+    uart_tx: Optional[int] = None
     uart_baud: int = 115200
-    i2c_sda: Optional[int] = 1
-    i2c_scl: Optional[int] = 2
-    i2c_addr: str = "0x76"
-    swd_swclk: Optional[int] = 11
-    swd_swdio: Optional[int] = 12
+    i2c_sda: Optional[int] = None
+    i2c_scl: Optional[int] = None
+    i2c_addr: Optional[str] = None
+    swd_swclk: Optional[int] = None
+    swd_swdio: Optional[int] = None
     swd_nreset: bool = False
     swd_target: str = ""
     spi_sclk: Optional[int] = None
@@ -113,8 +127,13 @@ class Wiring:
     signals: Tuple[Signal, ...] = ()
     #: Profile keys owned by other features (the control loop's ``loop_input_*``), kept as they are.
     extra: Mapping[str, Any] = field(default_factory=dict)
-    #: Where this profile came from: ``"defaults"``, ``"file"``, ``"server"`` or ``"dict"``.
-    source: str = field(default="defaults", compare=False)
+    #: Where this profile came from: ``"pod"``, ``"file"``, ``"server"``, ``"dict"``, ``"preset"`` or
+    #: ``"undefined"``.
+    source: str = field(default="undefined", compare=False)
+    #: The pod profile this was loaded from (``"k66"``), "" when it did not come from the pod.
+    profile_name: str = field(default="", compare=False)
+    #: That profile's revision on the pod when it was loaded (0: not from the pod).
+    profile_rev: int = field(default=0, compare=False)
     version: int = WIRING_VERSION
     #: The DUT direction of a role or signal where its default is wrong: role key or signal name
     #: -> ``dut_input``, ``dut_output`` or ``bidir`` (see :meth:`pin_dut_dirs`).
@@ -132,19 +151,43 @@ class Wiring:
     # -- construction ---------------------------------------------------------
 
     @classmethod
+    def undefined(cls) -> "Wiring":
+        """A profile with nothing wired, no I/O voltage and no power rail."""
+        return cls(source="undefined")
+
+    @classmethod
+    def preset(cls, name: str = "embeddedci-reference") -> "Wiring":
+        """A complete profile to start from: ``"embeddedci-reference"`` is the EmbeddedCI reference
+        bench (a NUCLEO-F446RE: UART on LA5/LA4, I2C on LA1/LA2, SWD on LA11/LA12, 3.3 V, internal
+        5 V). Save a copy under your own name: ``bp.save_wiring(Wiring.preset(), name="nucleo")``."""
+        try:
+            values = PRESETS[name]
+        except KeyError:
+            raise ValueError(f"no wiring preset {name!r} (presets: {', '.join(sorted(PRESETS))})") from None
+        return cls(**values, source="preset")
+
+    @classmethod
     def defaults(cls) -> "Wiring":
-        """The default bench (the web UI's defaults)."""
-        return cls()
+        """The reference bench, what a profile was before version 2 left nothing undefined. Kept for
+        older code: use :meth:`preset` (or :meth:`undefined`)."""
+        return cls.preset("embeddedci-reference")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, source: str = "dict",
                   strict: bool = True) -> "Wiring":
-        """Build a profile from its JSON object. Absent keys take their defaults; ``null`` pins are not
-        wired. ``strict=False`` keeps unknown keys in :attr:`extra` instead of rejecting them (for a
-        profile written by a newer server)."""
+        """Build a profile from its JSON object. Version 2: absent keys are undefined. Version 1, or no
+        ``version`` key: absent keys take the reference bench's values (:data:`REFERENCE_BENCH`), as
+        before version 2; the result is a version 2 profile with them written out. ``null`` pins are
+        not wired. ``strict=False`` keeps unknown keys in :attr:`extra` instead of rejecting them (for
+        a profile written by a newer server)."""
         if not isinstance(data, Mapping):
             raise ValueError("invalid wiring: a wiring profile must be a JSON object")
-        scalar = {f.name for f in fields(cls)} - {"signals", "extra", "source", "dut_dirs"}
+        version = data.get("version", 1)
+        if not _is_int(version) or version not in WIRING_VERSIONS:
+            raise ValueError(f"invalid wiring: version must be 1 or 2, got {version!r}")
+        if version == 1:
+            data = {**REFERENCE_BENCH, **data, "version": WIRING_VERSION}
+        scalar = {f.name for f in fields(cls)} - {"signals", "extra", "source", "dut_dirs", "profile_name", "profile_rev"}
         kwargs: Dict[str, Any] = {}
         extra: Dict[str, Any] = {}
         unknown: List[str] = []
@@ -202,10 +245,10 @@ class Wiring:
         return replace(self, **changes)
 
     def to_dict(self) -> Dict[str, Any]:
-        """The profile's JSON object (every key, defaults included)."""
+        """The profile's JSON object, version 2: every key, ``null`` for what is not set."""
         out: Dict[str, Any] = {"version": self.version}
         for f in fields(self):
-            if f.name in ("signals", "extra", "source", "version", "dut_dirs"):
+            if f.name in ("signals", "extra", "source", "version", "dut_dirs", "profile_name", "profile_rev"):
                 continue
             out[f.name] = getattr(self, f.name)
         out["signals"] = [s.to_dict() for s in self.signals]
@@ -216,14 +259,14 @@ class Wiring:
     # -- lookups ----------------------------------------------------------------
 
     @property
-    def la_voltage(self) -> float:
-        """The LA I/O-bank voltage in volts (``la_mv / 1000``)."""
-        return self.la_mv / 1000.0
+    def la_voltage(self) -> Optional[float]:
+        """The LA I/O-bank voltage in volts (``la_mv / 1000``), None when the profile sets none."""
+        return None if self.la_mv is None else self.la_mv / 1000.0
 
     @property
-    def i2c_address(self) -> int:
-        """``i2c_addr`` as a 7-bit integer."""
-        return int(_i2c_address(self.i2c_addr))  # type: ignore[arg-type]
+    def i2c_address(self) -> Optional[int]:
+        """``i2c_addr`` as a 7-bit integer, None when the profile sets none."""
+        return None if self.i2c_addr is None else int(_i2c_address(self.i2c_addr))  # type: ignore[arg-type]
 
     def assignments(self) -> Iterator[Tuple[str, int]]:
         """``(role or signal name, LA channel)`` for everything wired."""
@@ -295,7 +338,9 @@ class Wiring:
         direction."""
         pins = self.pins()
         dirs = self.pin_dut_dirs()
-        lines = [f"LA I/O {self.la_voltage:g} V, target power eFuse {self.efuse}"]
+        io = f"{self.la_voltage:g} V" if self.la_voltage is not None else "not set"
+        rail = f"eFuse {self.efuse}" if self.efuse is not None else "not set"
+        lines = [f"LA I/O {io}, target power {rail}"]
         for la in range(1, 15):
             pull = PULL_OHMS.get(la)
             bias = (f"{pull} pull-{'down' if la in PULLDOWN_CHANNELS else 'up'}" if pull else "no pull")
@@ -309,10 +354,10 @@ class Wiring:
         errs: List[str] = []
         if self.version != WIRING_VERSION:
             errs.append(f"version must be {WIRING_VERSION}, got {self.version!r}")
-        if not _is_int(self.la_mv) or self.la_mv not in (1800, 3300):
-            errs.append(f"la_mv must be 1800 or 3300, got {self.la_mv!r}")
-        if not _is_int(self.efuse) or self.efuse not in (1, 2):
-            errs.append(f"efuse must be 1 (internal) or 2 (external), got {self.efuse!r}")
+        if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300)):
+            errs.append(f"la_mv must be 1800 or 3300 (or None: not set), got {self.la_mv!r}")
+        if self.efuse is not None and (not _is_int(self.efuse) or self.efuse not in (1, 2)):
+            errs.append(f"efuse must be 1 (internal) or 2 (external) (or None: not set), got {self.efuse!r}")
         if not _is_int(self.uart_baud) or not 300 <= self.uart_baud <= 4_000_000:
             errs.append(f"uart_baud must be 300..4000000, got {self.uart_baud!r}")
         for key in ROLE_KEYS:
@@ -320,7 +365,7 @@ class Wiring:
             if la is not None and not (_is_int(la) and 1 <= la <= 14):
                 errs.append(f"{key} must be an LA channel 1..14 or None, got {la!r}")
         addr = _i2c_address(self.i2c_addr)
-        if addr is None or not 0x03 <= addr <= 0x77:
+        if self.i2c_addr is not None and (addr is None or not 0x03 <= addr <= 0x77):
             errs.append(f"i2c_addr must be a 7-bit address 0x03..0x77, got {self.i2c_addr!r}")
         if not isinstance(self.swd_nreset, bool):
             errs.append(f"swd_nreset must be true or false, got {self.swd_nreset!r}")
