@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.19
+
+- `flash` flashes an ESP32-family target when `target` names one (`esp32`, `esp32s3`, `esp32c3`,
+  ...): the pod writes the image over the chip's UART ROM bootloader, with no esptool. `file` is a
+  `.bin` or an ESP-IDF `flasher_args.json`; new arguments `rx`, `tx` and `boot` (the target's TXD0,
+  RXD0 and IO0/IO9), EN on the reset pin with `nreset`. Needs embeddedci 2.13.19 (now the minimum)
+  and pod firmware 3.10.7.
+
 ## 2.13.18
 
 - HTTP transport: a loopback bind always checks Host and Origin (only 127.0.0.1, localhost and
