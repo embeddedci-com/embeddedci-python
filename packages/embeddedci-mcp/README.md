@@ -179,7 +179,7 @@ description, ranges and enums, so an agent sees more than this table.
 | --- | --- | --- |
 | `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. | `connection`, `la_voltage`, `lease_wait=30` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
-| `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected). | none |
+| `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected); `eth_mac` and `wifi_mac`, the MACs a network admin registers before the pod gets an address (from the pod with firmware after 3.10.7, else from embeddedci.com's record; `wifi_mac` null until the pod scanned for Wi-Fi or joined). | none |
 | `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |
 
 ### Cloud (embeddedci.com)

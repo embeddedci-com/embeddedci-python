@@ -404,10 +404,16 @@ def _status() -> m.StatusResult:
     if la is None:
         warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
                         "the DUT) before flash, UART, LA capture, pulls or sensor emulation")
+    try:
+        macs = pod.mac_addresses(firmware if isinstance(firmware, dict) else {})
+        eth_mac, wifi_mac = macs.eth_mac, macs.wifi_mac
+    except (BenchPodError, AttributeError):
+        eth_mac = wifi_mac = None
     return m.StatusResult(
         connected=True, connection=SESSION.connection, kind=SESSION.kind, leased=pod.leased,
         la_voltage=la, capabilities=m.CapabilitiesInfo.from_caps(pod.capabilities),
         session=SESSION.info(), warnings=warnings, firmware=firmware, wiring_source=wiring_source,
+        eth_mac=eth_mac, wifi_mac=wifi_mac,
     )
 
 

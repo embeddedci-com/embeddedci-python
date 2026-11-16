@@ -102,7 +102,7 @@ from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, normalize_fault
-from .results import Capture, CorrelatedCapture, LaCapture, LanTls, Trigger
+from .results import Capture, CorrelatedCapture, LaCapture, LanTls, MacAddresses, Trigger
 from .wiring import Signal, Wiring
 from .state import (
     AdcRangeState,
@@ -186,6 +186,11 @@ def _maybe_on_emulation(caps: Capabilities) -> bool:
     """Whether the pod may be running the emulation image: it has one (``sensors_digital``) and
     shows neither the loop nor the deep-replay image's feature."""
     return bool(caps.sensors_digital and not _images_switchable(caps))
+
+
+def _mac_text(v: Any) -> Optional[str]:
+    """A MAC from a status field or a stored parameter: lowercase text, None when empty."""
+    return v.strip().lower() if isinstance(v, str) and v.strip() else None
 
 
 def _dict(data: Any) -> Dict[str, Any]:
@@ -413,6 +418,36 @@ class BenchPod:
     def status(self) -> Dict[str, Any]:
         """The pod's status report: firmware version, board, network and advertised features."""
         return _dict(self._transport.status())
+
+    def mac_addresses(self, status: Optional[Mapping[str, Any]] = None) -> "MacAddresses":
+        """The pod's Ethernet and Wi-Fi MACs, for a network that hands out addresses only to
+        registered devices.
+
+        From the pod's status (firmware after 3.10.7, LAN and USB: ``eth_mac``, ``wifi_mac``), else
+        from what embeddedci.com stored for it (recorded when the pod shipped and refreshed on
+        every connect; the cloud status is the short form, without them). Pass a ``status`` already
+        read to save a round trip. Fields are None when neither knows them.
+        """
+        st = dict(status) if status is not None else {}
+        if status is None:
+            try:
+                st = self.status()
+            except BenchPodError:
+                st = {}
+        eth = _mac_text(st.get("eth_mac"))
+        if eth or "wifi_mac" in st:
+            return MacAddresses(eth_mac=eth, wifi_mac=_mac_text(st.get("wifi_mac")),
+                                has_wifi="wifi_mac" in st, source="pod")
+        api = self._try_server_api()
+        if api is not None and self._device_name:
+            try:
+                params = api.device_parameters(self._device_name)
+            except BenchPodError:
+                params = {}
+            eth, wifi = _mac_text(params.get("net.eth_mac")), _mac_text(params.get("net.wifi_mac"))
+            if eth or wifi:
+                return MacAddresses(eth_mac=eth, wifi_mac=wifi, source="server")
+        return MacAddresses()
 
     @property
     def capabilities(self) -> Capabilities:

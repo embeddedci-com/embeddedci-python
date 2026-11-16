@@ -287,6 +287,19 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
 `set_lan_tls_cert` needs a network connection (it uploads the bundle); after it and after
 `regenerate_lan_tls()` the SDK pins the new certificate for the address it used.
 
+### MAC addresses (managed networks)
+
+A lab network that hands out addresses only to registered devices needs the pod's MACs first.
+`mac_addresses()` returns them as `MacAddresses`: `eth_mac`, `wifi_mac` (the MAC the pod uses on
+Wi-Fi), `has_wifi` and `source`. With firmware after 3.10.7 they come from the pod's `status`
+(`eth_mac`, `wifi_mac`; LAN and USB), else from embeddedci.com's record of the pod (`source`
+`"server"`; recorded when the pod shipped, refreshed on every connect), which is how a cloud
+connection gets them. `wifi_mac` is None until the pod scanned for Wi-Fi or joined a network.
+
+```python
+macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_mac=..., source='pod')
+```
+
 ### Environment variables
 
 | Variable | Used when | Purpose |
@@ -2096,7 +2109,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
+| Connection and device | `ping()`, `status()`, `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None)` (store a cloud device's profile on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
@@ -2129,6 +2142,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `PowerProfile` | `measure_power`, `PowerProfileSession.result` | see [Power profiles](#power-profiles) |
 | `PowerProfileSession` | `power_profile` (a context manager) | `start()`, `stop()`, `status()`, `result` |
 | `ResetState` | `reset_target`, `set_reset`, `reset_state` | `asserted`, `supported` |
+| `MacAddresses` | `mac_addresses` | `eth_mac`, `wifi_mac` (None while not known), `has_wifi`, `source` (`pod`, `server` or empty) |
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
