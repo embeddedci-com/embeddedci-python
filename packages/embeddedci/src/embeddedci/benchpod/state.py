@@ -354,7 +354,9 @@ class AdcReading:
     """A calibrated single ADC reading (``BenchPod.adc_read``)."""
 
     source: str
-    #: Calibrated voltage at the source (``ext``: the true front-SMA voltage).
+    #: Calibrated voltage at the source (``ext``: the true front-SMA voltage). To the microvolt
+    #: on firmware 3.10.7 and later; whole millivolts before, which hides most of what the low
+    #: range resolves.
     voltage: float
     #: The averaged raw count behind it.
     count: int
@@ -382,7 +384,9 @@ class AdcReading:
         offset_mv = _opt_int(d, "offset_mv")
         ua = _opt_int(d, "ua")
         fs = _opt_int(d, "fullscale_mv")
-        return cls(source=str(d.get("source", "")), voltage=(_opt_int(d, "mv") or 0) / 1000.0,
+        uv = _opt_int(d, "uv")   # firmware 3.10.7+: mv is rounded to a whole millivolt
+        volts = uv / 1e6 if uv is not None else (_opt_int(d, "mv") or 0) / 1000.0
+        return cls(source=str(d.get("source", "")), voltage=volts,
                    count=_opt_int(d, "count") or 0, span=_opt_int(d, "span") or 0,
                    offset=None if offset_mv is None else offset_mv / 1000.0,
                    current=None if ua is None else ua / 1e6, range=str(d.get("range", "") or ""),

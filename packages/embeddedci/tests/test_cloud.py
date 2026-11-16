@@ -265,6 +265,83 @@ def test_cloud_transport_command_error_raises(monkeypatch):
         t.command({"cmd": "dap_start"})
 
 
+class _JsonResp:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_cloud_transport_command_retries_device_busy(monkeypatch):
+    """The pod refuses a second cloud command with "device busy" before running it (a server
+    push or a browser poll is ahead of it), so the transport asks again instead of failing."""
+    from embeddedci.benchpod.transport import cloud
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    replies = [b'{"status":"error","error":"device busy"}'] * 2 + \
+        [b'{"status":"ok","data":{"range":"low"}}']
+    sent = []
+
+    def fake_urlopen(req, *a, **k):
+        sent.append(req.data)
+        return _JsonResp(replies.pop(0))
+
+    monkeypatch.setattr(_http, "urlopen", fake_urlopen)
+    monkeypatch.setattr(cloud.time, "sleep", lambda s: None)
+    assert t.command({"cmd": "adc_range"}) == {"range": "low"}
+    assert len(sent) == 3 and sent[0] == sent[2]
+
+
+def test_cloud_transport_command_device_busy_gives_up(monkeypatch):
+    """A pod that stays busy past the retry budget still fails, with the pod's own error."""
+    from embeddedci.benchpod.errors import FirmwareError
+    from embeddedci.benchpod.transport import cloud
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    clock = [0.0]
+    monkeypatch.setattr(cloud.time, "monotonic", lambda: clock[0])
+
+    def sleep(s):
+        clock[0] += s
+
+    monkeypatch.setattr(cloud.time, "sleep", sleep)
+    calls = []
+
+    def fake_urlopen(req, *a, **k):
+        calls.append(1)
+        return _JsonResp(b'{"status":"error","error":"device busy"}')
+
+    monkeypatch.setattr(_http, "urlopen", fake_urlopen)
+    with pytest.raises(FirmwareError, match="device busy"):
+        t.command({"cmd": "dac_out", "path": "5v", "volts": 1.0})
+    assert 10 < len(calls) <= cloud._BUSY_RETRY_BUDGET / cloud._BUSY_RETRY_WAIT + 1
+
+
+def test_cloud_transport_command_other_busy_is_not_retried(monkeypatch):
+    """Only the cloud channel's "device busy" is a refusal before running; "swd busy" and the
+    like come from the command itself and are raised at once."""
+    from embeddedci.benchpod.errors import FirmwareError
+
+    t = CloudTransport("dev-a", api_base="https://example.test", token="x")
+    calls = []
+
+    def fake_urlopen(req, *a, **k):
+        calls.append(1)
+        return _JsonResp(b'{"status":"error","error":"busy: a capture or upload is running"}')
+
+    monkeypatch.setattr(_http, "urlopen", fake_urlopen)
+    with pytest.raises(FirmwareError):
+        t.command({"cmd": "ota_begin"})
+    assert len(calls) == 1
+
+
 def test_cloud_transport_dap_handshake_returns_raw_link(monkeypatch):
     # dap_start acks one JSON line, then the same tunnel carries raw bytes.
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
