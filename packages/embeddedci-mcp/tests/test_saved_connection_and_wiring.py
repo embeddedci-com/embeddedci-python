@@ -133,4 +133,4 @@ def test_wiring_of_a_lan_pod_is_the_stored_profile(monkeypatch, xdg, fake_transp
 
 
 def test_status_reports_the_defaults_when_nothing_is_stored(connected):
-    assert call("status")["wiring_source"] == "defaults"
+    assert call("status")["wiring_source"] == "preset"   # the test bench is wired like the reference

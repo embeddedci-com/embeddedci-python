@@ -1237,6 +1237,19 @@
           "minimum": 0,
           "title": "Lease Wait",
           "type": "number"
+        },
+        "wiring_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A wiring profile stored on the pod to use (the `wiring` tool lists them); omit for the pod's default profile.",
+          "title": "Wiring Profile"
         }
       },
       "title": "connectArguments",
@@ -1699,6 +1712,29 @@
         "protocol"
       ],
       "title": "decode_laArguments",
+      "type": "object"
+    }
+  },
+  "delete_wiring": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Delete a stored wiring profile"
+    },
+    "input": {
+      "properties": {
+        "name": {
+          "description": "The pod profile to delete (not the default).",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "delete_wiringArguments",
       "type": "object"
     }
   },
@@ -3086,6 +3122,34 @@
       "type": "object"
     }
   },
+  "load_wiring": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Load a stored wiring profile"
+    },
+    "input": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The pod profile to use; omit for the pod's default.",
+          "title": "Name"
+        }
+      },
+      "title": "load_wiringArguments",
+      "type": "object"
+    }
+  },
   "loop_input": {
     "annotations": {
       "destructiveHint": true,
@@ -3430,6 +3494,19 @@
           "default": null,
           "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
+        },
+        "wiring_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A stored wiring profile to power the board with (it becomes this connection's profile); omit to use the current one.",
+          "title": "Wiring Profile"
         }
       },
       "title": "power_onArguments",
@@ -3914,6 +3991,48 @@
         "name"
       ],
       "title": "save_capture_as_recordingArguments",
+      "type": "object"
+    }
+  },
+  "save_wiring": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Save the wiring profile on the pod"
+    },
+    "input": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The pod profile to store it as (1-40 characters: a-z, 0-9, -). Default: the profile this connection loaded, else the pod's default. Use a new name for a different board.",
+          "title": "Name"
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A full profile to store instead of this connection's (schema version 2).",
+          "title": "Profile"
+        }
+      },
+      "title": "save_wiringArguments",
       "type": "object"
     }
   },
@@ -4556,6 +4675,29 @@
       "type": "object"
     }
   },
+  "set_default_wiring": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Set the default wiring profile"
+    },
+    "input": {
+      "properties": {
+        "name": {
+          "description": "The pod profile every connection uses when it names none.",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "set_default_wiringArguments",
+      "type": "object"
+    }
+  },
   "set_la_voltage": {
     "annotations": {
       "destructiveHint": false,
@@ -4629,13 +4771,13 @@
       "properties": {
         "profile": {
           "additionalProperties": true,
-          "description": "The profile as a JSON object (schema version 1): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals [{name, la, direction, active_low, description}]. Absent keys take their default; a pin set to null is not wired.",
+          "description": "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals [{name, la, direction, active_low, description}]. What it leaves out is undefined (not wired); a pin set to null is not wired. {\"version\": 1} objects fill in the reference bench.",
           "title": "Profile",
           "type": "object"
         },
         "save": {
           "default": false,
-          "description": "Also store the profile for this device on embeddedci.com (cloud devices only), so other runs and the web UI see it. false = use it for this connection only.",
+          "description": "Also store it on the pod (as save_wiring does). Default false: this connection only, unless the server runs with --wiring-autosave.",
           "title": "Save",
           "type": "boolean"
         }

@@ -134,6 +134,7 @@ chat never blocks CI on that pod.
 | --- | --- | --- | --- |
 | `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], serial device, `usb`, `usb:<name>`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3) applied on connect |
+| `--wiring-autosave` | `BENCHPOD_WIRING_AUTOSAVE` | off | `set_wiring` also stores the profile on the pod (not a change of the I/O voltage, power rail or SWD target: those need `save_wiring`) |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
 | — | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`) that wins over the stored profile |
@@ -177,7 +178,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. | `connection`, `la_voltage`, `lease_wait=30` |
+| `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. `wiring_profile` names a profile stored on the pod (default: the pod's default profile). | `connection`, `la_voltage`, `lease_wait=30`, `wiring_profile` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
 | `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected); `eth_mac` and `wifi_mac`, the MACs a network admin registers before the pod gets an address (from the pod with firmware after 3.10.7, else from embeddedci.com's record; `wifi_mac` null until the pod scanned for Wi-Fi or joined). | none |
 | `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |
@@ -192,14 +193,18 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `wiring` | Which DUT signal is on which LA channel, plus the power rail, UART baud and SWD target. | none |
-| `set_wiring` | Replace the wiring profile for this connection, or store it on embeddedci.com. Also sends the profile's pin directions to the pod (`la_dir`, firmware 3.10.4+; `directions` in the result says whether it worked). | **`profile`**, `save=false` |
+| `wiring` | Which DUT signal is on which LA channel, plus the I/O voltage, power rail, UART baud and SWD target; the profiles stored on the pod and `unsaved_changes` (what this connection changed that is not stored). What a profile does not set is undefined. | none |
+| `set_wiring` | Replace the wiring profile for this connection only (version 2: what it leaves out is undefined); `save=true`, or the server's `--wiring-autosave`, also stores it on the pod. Autosave never stores a change of the I/O voltage, rail or SWD target. Also sends the profile's pin directions to the pod (`la_dir`, firmware 3.10.4+). | **`profile`**, `save=false` |
+| `save_wiring` | Store this connection's profile (or `profile`) on the pod, under `name` or the profile it was loaded from. Saving the loaded profile refuses with `BP0009` when someone else saved it meanwhile. Never changes the pod's default. | `name`, `profile` |
+| `load_wiring` | Switch this connection to a profile stored on the pod (omit `name`: the pod's default). Nothing on the pod changes. | `name` |
+| `set_default_wiring` | Make a stored profile the pod's default: what every connection uses when it names none. | **`name`** |
+| `delete_wiring` | Delete a stored profile (not the default: `BP0013`). | **`name`** |
 
 ### Power
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `power_on` | Switch the target's power rail on (optionally scheduled pod-side). | `efuse`, `delay` |
+| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay`, `wiring_profile` |
 | `power_off` | Switch the target's power rail off. | `efuse`, `delay` |
 | `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
 | `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse=0.1` |

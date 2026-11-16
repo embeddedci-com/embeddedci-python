@@ -80,7 +80,7 @@
     ]
   },
   "BenchPod": {
-    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None, wiring_source: 'Optional[str]' = None) -> 'None'",
+    "__init__": "(self, connection: 'Optional[str]' = None, *, la_voltage: 'Optional[float]' = None, timeout: 'float' = 30.0, transport: 'Optional[Transport]' = None, api_base: 'Optional[str]' = None, api_key: 'Optional[str]' = None, cloud_token: 'Optional[str]' = None, cloud_audience: 'Optional[str]' = None, cloud_user_token: 'Optional[Callable[[], str]]' = None, lease: 'bool' = True, lease_wait: 'float' = 600.0, lease_ttl: 'int' = 120, wiring: \"Union[Wiring, Mapping[str, Any], str, 'os.PathLike[str]', None]\" = None, wiring_source: 'Optional[str]' = None, wiring_profile: 'Optional[str]' = None) -> 'None'",
     "adc_range": "(self, range: 'Optional[AdcRange]' = None) -> 'AdcRangeState'",
     "adc_range_test": "(self) -> 'AdcRangeTest'",
     "adc_read": "(self, source: 'AdcSource' = 'ext', *, range: 'Optional[AdcRange]' = None) -> 'AdcReading'",
@@ -121,6 +121,7 @@
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
+    "delete_wiring": "(self, name: 'str') -> 'None'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
@@ -138,6 +139,7 @@
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
     "lan_tls": "(self) -> \"'LanTls'\"",
     "leased": "property",
+    "load_wiring": "(self, name: 'Optional[str]' = None) -> 'Wiring'",
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
@@ -153,7 +155,7 @@
     "ping": "(self) -> 'Any'",
     "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3) -> '_uart.UartCapture'",
     "power_off": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None) -> 'None'",
-    "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None) -> 'None'",
+    "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None) -> 'None'",
     "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0) -> 'PowerProfileSession'",
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
@@ -166,9 +168,10 @@
     "reset_state": "(self) -> 'ResetState'",
     "reset_target": "(self, *, pulse: 'float' = 0.1) -> 'ResetState'",
     "save_capture_as_recording": "(self, capture: 'Capture', name: 'str', *, full_scale_v: 'Optional[float]' = None) -> \"'Waveform'\"",
-    "save_wiring": "(self, wiring: 'Union[Wiring, Mapping[str, Any], str, None]' = None) -> 'Wiring'",
+    "save_wiring": "(self, wiring: 'Union[Wiring, Mapping[str, Any], str, None]' = None, *, name: 'Optional[str]' = None) -> 'Wiring'",
     "sensors": "property",
     "server_api": "property",
+    "set_default_wiring": "(self, name: 'str') -> 'str'",
     "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'Union[int, Sequence[int]]') -> 'None'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
@@ -180,6 +183,7 @@
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
     "status": "(self) -> 'Dict[str, Any]'",
     "store_adc_compensation": "(self, hf_dc_gain: 'float', c_top_pf: 'float') -> 'Calibration'",
+    "stored_wiring": "(self, name: 'Optional[str]' = None) -> 'Optional[Wiring]'",
     "supports": "(self, feature: 'str') -> 'bool'",
     "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
@@ -188,7 +192,8 @@
     "usb_network": "(self, on: 'Optional[bool]' = None) -> 'bool'",
     "wait_for_level": "(self, la: 'Union[Pin, int, str]', level: 'int', *, timeout: 'float', poll: 'float' = 0.005) -> 'bool'",
     "waveforms": "property",
-    "wiring": "property"
+    "wiring": "property",
+    "wiring_profiles": "(self) -> 'Dict[str, Any]'"
   },
   "BenchPodError": {},
   "BuildReporter": {
@@ -1244,6 +1249,8 @@
       "signals",
       "extra",
       "source",
+      "profile_name",
+      "profile_rev",
       "version",
       "dut_dirs"
     ],
@@ -1259,8 +1266,10 @@
     "load": "(cls, path: 'Union[str, Path]') -> \"'Wiring'\"",
     "pin_dut_dirs": "(self) -> 'Dict[int, str]'",
     "pins": "(self) -> 'Dict[int, str]'",
+    "preset": "(cls, name: 'str' = 'embeddedci-reference') -> \"'Wiring'\"",
     "signal": "(self, name: 'str') -> 'Signal'",
     "to_dict": "(self) -> 'Dict[str, Any]'",
+    "undefined": "(cls) -> \"'Wiring'\"",
     "warnings": "(self) -> 'List[str]'",
     "with_changes": "(self, **changes: 'Any') -> \"'Wiring'\""
   },

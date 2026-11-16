@@ -166,7 +166,7 @@ class BusPod:
 
 def pod(**kw) -> "tuple[BenchPod, BusPod]":
     fake = BusPod(**kw)
-    return BenchPod(transport=fake, wiring=Wiring(i2c_sda=1, i2c_scl=2)), fake
+    return BenchPod(transport=fake, wiring=Wiring.preset().with_changes(i2c_sda=1, i2c_scl=2)), fake
 
 
 # -- I2C master ---------------------------------------------------------------------------------
@@ -276,7 +276,7 @@ def test_old_gateware_refused_before_sending():
 def test_firmware_gateware_refusal_is_unsupported_feature():
     fake = BusPod(gateware=None)
     fake.gateware = None
-    bp = BenchPod(transport=fake, wiring=Wiring())
+    bp = BenchPod(transport=fake, wiring=Wiring.preset())
     fake.gateware = 40  # the pod itself refuses; the SDK saw no gateware in status
     with pytest.raises(UnsupportedFeatureError):
         bp.open_i2c()
@@ -329,7 +329,7 @@ def test_la_pins_dir_and_warn():
 
 
 def test_pin_directions_from_wiring():
-    w = Wiring(uart_rx=5, uart_tx=4, i2c_sda=1, i2c_scl=2, spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10, swd_swclk=None, swd_swdio=None,
+    w = Wiring.preset().with_changes(uart_rx=5, uart_tx=4, i2c_sda=1, i2c_scl=2, spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10, swd_swclk=None, swd_swdio=None,
                signals=(Signal("ALARM", 11, "input"), Signal("TRIG", 12, "output"),
                         Signal("RST", 13, "open_drain")))
     bp, fake = pod()
@@ -385,7 +385,7 @@ def test_capture_spi_and_gpio_sends():
     cap = bp.capture_la(128, send=SpiSend(b"\x9f\x00"))
     assert fake.commands[-1]["send"] == {"bus": "spi", "tx": b64(b"\x9f\x00")}
     assert cap.send_result.bus == "spi" and cap.send_result.data == b"\x60\xff"
-    w = Wiring(signals=(Signal("STROBE", 6, "output"),))
+    w = Wiring.preset().with_changes(signals=(Signal("STROBE", 6, "output"),))
     bp2 = BenchPod(transport=fake, wiring=w)
     cap = bp2.capture_la(128, trigger=Trigger("STROBE", "falling"), send=GpioSend("STROBE", 0))
     assert fake.commands[-1]["send"] == {"bus": "gpio", "la": 6, "level": 0}

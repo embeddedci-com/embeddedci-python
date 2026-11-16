@@ -328,7 +328,9 @@ class TcpTransport(Transport):
                 if not isinstance(obj, dict):
                     continue
                 if obj.get("status") == "error":
-                    raise firmware_error(obj.get("message") or "capture failed", cmd=cmd)
+                    raise firmware_error(obj.get("message") or "capture failed", cmd=cmd,
+                                         code=str(obj.get("code") or ""),
+                                         values=obj.get("args") if isinstance(obj.get("args"), dict) else None)
                 yield obj
                 if not bool(obj.get("more", False)):
                     return

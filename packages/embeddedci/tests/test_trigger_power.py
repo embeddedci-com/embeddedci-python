@@ -55,6 +55,7 @@ class StreamPod:
 
 def _bp(pod: Optional[StreamPod] = None, **kwargs: Any):
     pod = pod or StreamPod()
+    kwargs.setdefault("wiring", Wiring.preset())
     return BenchPod(transport=pod, lease=False, **kwargs), pod
 
 
@@ -79,7 +80,7 @@ def test_triggered_la_capture_request_and_result():
 
 
 def test_trigger_names_come_from_the_wiring_profile():
-    bp, pod = _bp(wiring=Wiring(signals=[Signal("READY", 10)]))
+    bp, pod = _bp(wiring=Wiring.preset().with_changes(signals=[Signal("READY", 10)]))
     bp.capture_la(8, trigger=Trigger("ready", "rising"))
     assert pod.requests[-1]["trigger"] == {"la": 10, "edge": "rising"}
 
@@ -118,7 +119,7 @@ STATS = {"efuse": 1, "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration
 
 
 def test_measure_power_request_and_units():
-    bp, pod = _bp(wiring=Wiring(efuse=2))
+    bp, pod = _bp(wiring=Wiring.preset().with_changes(efuse=2))
     pod.chunks["power_profile"] = [
         {"status": "ok", "t_us": [0, 500000], "current_ua": [50000, 54000], "bus_mv": [5010, 5000],
          "more": True},

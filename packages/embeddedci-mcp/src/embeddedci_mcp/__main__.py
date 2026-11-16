@@ -41,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "'usb', 'usb:<name>', or 'embeddedci:<device>'. Falls back to BENCHPOD_CONNECTION.")
     parser.add_argument("--la-voltage", type=float, choices=[1.8, 3.3], default=None,
                         help="LA I/O voltage applied on connect. Falls back to BENCHPOD_LA_VOLTAGE.")
+    parser.add_argument("--wiring-autosave", action="store_true",
+                        default=os.environ.get("BENCHPOD_WIRING_AUTOSAVE", "").strip().lower() in ("1", "true", "yes", "on"),
+                        help="set_wiring also stores the profile on the pod, except a change of the I/O voltage, "
+                             "the power rail or the SWD target. Falls back to BENCHPOD_WIRING_AUTOSAVE. Default: off "
+                             "(the agent calls save_wiring).")
     parser.add_argument("--lease-wait", type=float, default=30.0,
                         help="Cloud: seconds connect waits for a busy shared device (default 30).")
     parser.add_argument("--idle-timeout", type=float, default=600.0,
@@ -71,6 +76,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     SESSION.default_connection = args.connection
     SESSION.default_la_voltage = args.la_voltage
+    SESSION.wiring_autosave = bool(args.wiring_autosave)
     SESSION.lease_wait = args.lease_wait
     SESSION.idle_timeout = max(0.0, args.idle_timeout)
     SESSION.timeout = args.timeout

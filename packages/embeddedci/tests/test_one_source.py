@@ -1,7 +1,7 @@
 """One wiring profile and one saved connection across the web UI, the CLI, the SDK and MCP.
 
 * A LAN/USB BenchPod reads the profile stored on embeddedci.com for the device the pod says it is
-  registered as, when credentials exist; every failure falls back to the defaults.
+  registered as, when credentials exist; every failure leaves nothing wired (Wiring.undefined).
 * ``BenchPod()`` without a connection uses the connection ``benchpod-cli`` saved; the pytest
   plugin only does so when asked with ``saved``.
 """
@@ -220,8 +220,9 @@ def test_no_credentials_means_defaults_without_asking_anyone(http, caplog):
     pod = Pod()
     with caplog.at_level(logging.INFO, logger="embeddedci.benchpod"):
         w = BenchPod(transport=pod, lease=False).wiring
-    assert w == Wiring() and w.source == "defaults"
-    assert pod.commands == [] and http.requests == []
+    assert w == Wiring() and w.source == "undefined"
+    # Only the pod's own profiles are asked for (this fake pod's firmware stores none).
+    assert pod.commands == [{"cmd": "wiring_list"}] and http.requests == []
     assert "no embeddedci.com credentials" in caplog.text
 
 
@@ -229,7 +230,7 @@ def test_no_credentials_means_defaults_without_asking_anyone(http, caplog):
                                    {"configured": True, "device_id": ""}, {}])
 def test_an_unregistered_pod_gets_the_defaults(monkeypatch, http, cloud):
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
-    assert BenchPod(transport=Pod(cloud), lease=False).wiring.source == "defaults"
+    assert BenchPod(transport=Pod(cloud), lease=False).wiring.source == "undefined"
     assert http.requests == []
 
 
@@ -237,7 +238,7 @@ def test_a_pod_that_refuses_cloud_status_gets_the_defaults(monkeypatch, http, ca
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
     pod = Pod(FirmwareError("cloud_status: unknown command"))
     with caplog.at_level(logging.WARNING, logger="embeddedci.benchpod"):
-        assert BenchPod(transport=pod, lease=False).wiring.source == "defaults"
+        assert BenchPod(transport=pod, lease=False).wiring.source == "undefined"
     assert http.requests == [] and "could not ask the pod" in caplog.text
     assert (pod.timeout, pod.dial_timeout) == (30.0, 10.0)
 
@@ -248,7 +249,7 @@ def test_server_errors_fall_back_to_the_defaults(monkeypatch, http, caplog, stat
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
     http.status = status
     with caplog.at_level(logging.WARNING, logger="embeddedci.benchpod"):
-        assert BenchPod(transport=Pod(), lease=False).wiring.source == "defaults"
+        assert BenchPod(transport=Pod(), lease=False).wiring.source == "undefined"
     assert phrase in caplog.text
 
 
@@ -257,7 +258,7 @@ def test_server_errors_fall_back_to_the_defaults(monkeypatch, http, caplog, stat
 def test_an_unreachable_server_falls_back_to_the_defaults(monkeypatch, http, error):
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
     http.error = error
-    assert BenchPod(transport=Pod(), lease=False).wiring.source == "defaults"
+    assert BenchPod(transport=Pod(), lease=False).wiring.source == "undefined"
 
 
 def test_an_expired_login_falls_back_to_the_defaults(tmp_path, http):
@@ -265,14 +266,14 @@ def test_an_expired_login_falls_back_to_the_defaults(tmp_path, http):
     (_cli_dir(tmp_path) / "token.json").write_text(json.dumps({
         "access_token": "a", "refresh_token": "r",
         "access_expires_at": past.isoformat(), "refresh_expires_at": past.isoformat()}))
-    assert BenchPod(transport=Pod(), lease=False).wiring.source == "defaults"
+    assert BenchPod(transport=Pod(), lease=False).wiring.source == "undefined"
     assert http.requests == []
 
 
 def test_a_malformed_stored_profile_falls_back_to_the_defaults(monkeypatch, http):
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
     http.body = {"profile": {"uart_rx": 99}}
-    assert BenchPod(transport=Pod(), lease=False).wiring.source == "defaults"
+    assert BenchPod(transport=Pod(), lease=False).wiring.source == "undefined"
 
 
 def test_explicit_wiring_and_the_wiring_file_still_win(monkeypatch, http, tmp_path):
@@ -290,10 +291,10 @@ def test_explicit_wiring_and_the_wiring_file_still_win(monkeypatch, http, tmp_pa
 def test_wiring_source_local_skips_the_lookup(monkeypatch, http):
     monkeypatch.setenv("BENCHPOD_API_KEY", "eci_test")
     pod = Pod()
-    assert BenchPod(transport=pod, lease=False, wiring_source="local").wiring.source == "defaults"
+    assert BenchPod(transport=pod, lease=False, wiring_source="local").wiring.source == "undefined"
     monkeypatch.setenv("BENCHPOD_WIRING_SOURCE", "LOCAL")
-    assert BenchPod(transport=pod, lease=False).wiring.source == "defaults"
-    assert pod.commands == [] and http.requests == []
+    assert BenchPod(transport=pod, lease=False).wiring.source == "undefined"
+    assert all(c == {"cmd": "wiring_list"} for c in pod.commands) and http.requests == []
     # The argument wins over the variable.
     assert BenchPod(transport=pod, lease=False, wiring_source="auto").wiring.source == "server"
 
@@ -302,7 +303,7 @@ def test_wiring_source_local_also_skips_a_cloud_devices_profile(monkeypatch):
     bp = BenchPod(transport=Pod(), lease=False, wiring_source="local")
     bp._device_name = "bench-1"
     monkeypatch.setattr(bp, "_try_server_api", lambda: pytest.fail("asked the server"))
-    assert bp.wiring.source == "defaults"
+    assert bp.wiring.source == "undefined"
 
 
 def test_a_bad_wiring_source_is_rejected(monkeypatch):

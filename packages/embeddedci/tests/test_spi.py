@@ -100,7 +100,7 @@ class SpiPod:
 @pytest.fixture
 def pod():
     fake = SpiPod()
-    bp = BenchPod(transport=fake, wiring=Wiring(uart_rx=3, uart_tx=4, spi_sclk=13, spi_mosi=14, spi_miso=6, spi_cs=5))
+    bp = BenchPod(transport=fake, wiring=Wiring.preset().with_changes(uart_rx=3, uart_tx=4, spi_sclk=13, spi_mosi=14, spi_miso=6, spi_cs=5))
     return bp, fake
 
 
@@ -114,10 +114,10 @@ def test_open_spi_takes_pins_from_wiring_and_rounds_hz(pod):
 
 
 def test_open_spi_needs_the_capability_and_a_valid_mode():
-    bp = BenchPod(transport=SpiPod(caps=["la"]), wiring=Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
+    bp = BenchPod(transport=SpiPod(caps=["la"]), wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
     with pytest.raises(BenchPodError):
         bp.open_spi()
-    bp = BenchPod(transport=SpiPod(), wiring=Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
+    bp = BenchPod(transport=SpiPod(), wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
     with pytest.raises(ValueError):
         bp.open_spi(mode=4)
 
@@ -125,7 +125,7 @@ def test_open_spi_needs_the_capability_and_a_valid_mode():
 def test_spi_modes_1_and_2_need_gateware_55():
     from embeddedci.benchpod import UnsupportedFeatureError
 
-    wiring = Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10)
+    wiring = Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10)
     old = SpiPod(gateware=54)
     with pytest.raises(UnsupportedFeatureError, match="gateware v55"):
         BenchPod(transport=old, wiring=wiring).open_spi(mode=1)
@@ -208,7 +208,7 @@ def test_spi_flash_holds_reset_and_releases_it_on_failure(pod):
 
 def test_spi_flash_refuses_an_empty_bus_before_erasing():
     fake = SpiPod(present=False)
-    bp = BenchPod(transport=fake, wiring=Wiring(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
+    bp = BenchPod(transport=fake, wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
     with pytest.raises(FirmwareError, match="no SPI flash answers"):
         bp.spi_flash(b"\x01\x02")
     assert not [c for c in fake.commands if c.get("op") in ("erase", "write")]

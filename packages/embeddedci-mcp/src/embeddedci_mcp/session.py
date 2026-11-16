@@ -134,6 +134,10 @@ class Session:
         #: LA voltage applied on connect when the tool call does not pass one (``--la-voltage``);
         #: falls back to ``BENCHPOD_LA_VOLTAGE`` inside the SDK.
         self.default_la_voltage: Optional[float] = None
+        #: The pod wiring profile `connect` loads (None: the pod's default).
+        self.wiring_profile: Optional[str] = None
+        #: --wiring-autosave / BENCHPOD_WIRING_AUTOSAVE: set_wiring also stores the profile on the pod.
+        self.wiring_autosave: bool = False
         self.timeout: float = 30.0
         self.lease_wait: float = 30.0
         #: Seconds without a tool call before a leased (cloud) connection is released; 0 = never.
@@ -200,14 +204,16 @@ class Session:
         return self._pod is None and self._idle_closed and self._reconnect is not None
 
     def _open(self, connection: str, la_voltage: Optional[float], lease_wait: float) -> BenchPod:
+        kwargs = {"wiring_profile": self.wiring_profile} if self.wiring_profile else {}
         return BenchPod(connection, la_voltage=la_voltage, timeout=self.timeout, lease_wait=lease_wait,
-                        cloud_user_token=cloud_user_token(connection))
+                        cloud_user_token=cloud_user_token(connection), **kwargs)
 
     def connect(self, connection: Optional[str] = None, *, la_voltage: Optional[float] = None,
-                lease_wait: Optional[float] = None) -> BenchPod:
+                lease_wait: Optional[float] = None, wiring_profile: Optional[str] = None) -> BenchPod:
         """Open (or re-open) the device, closing any prior connection and sessions first."""
         with self.lock:
             self.disconnect()
+            self.wiring_profile = wiring_profile or None
             conn = (connection or self.default_connection or os.environ.get(ENV_VAR)
                     or saved_connection())
             if not conn:

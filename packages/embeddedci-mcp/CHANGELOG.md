@@ -1,5 +1,17 @@
 # Changelog — `embeddedci-mcp`
 
+## 3.0.0
+
+- Needs embeddedci 3.0. Wiring profiles live on the pod: `wiring` lists them and reports
+  `unsaved_changes` with a hint; new tools `save_wiring`, `load_wiring`, `set_default_wiring`,
+  `delete_wiring`; `connect(wiring_profile=)` and `power_on(wiring_profile=)`. `set_wiring` changes
+  this connection only (version 2: what it leaves out is undefined); `--wiring-autosave`
+  (`BENCHPOD_WIRING_AUTOSAVE`) also stores it, never a change of the I/O voltage, rail or SWD target.
+- `power_on` applies the profile first (I/O voltage, then the rail) and names the profile in its
+  result.
+- Refusals with a stable error code show the code, the fix for an agent and the docs link.
+
+
 ## 2.13.21
 
 - Needs embeddedci 2.13.21. New `expansion` tool: attach an I2C/SPI GPIO expander board
