@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `BenchPod("embeddedci:<name>")` uses the `benchpod login` session by default: without an API
+  key, a `cloud_user_token` or GitHub Actions, it no longer fails with "cannot mint a GitHub OIDC
+  token". The order is the MCP server's: API key, `cloud_user_token`, OIDC inside Actions, then
+  the login. With none, the error lists `benchpod login`, an API key and OIDC. The device lease and
+  AI Vision cloud sessions (`AIVision("embeddedci:<name>")`) follow the same order.
 - Cloud connections ask again when the pod answers "device busy". The pod runs one cloud command
   at a time and refuses a second one with that error before running it, so a command that met a
   server push or a browser's power poll failed for no reason. It now waits 0.3 s and retries, for

@@ -194,7 +194,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `usb` | USB pod, auto-detected by probing the serial ports (`serial` also accepted): its USB network adapter on firmware 3.9.0 and later (full API), else its USB console |
 | `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
-| `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; an API key or a user token anywhere, or GitHub Actions OIDC) |
+| `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; the `benchpod login` session or an API key anywhere, or GitHub Actions OIDC) |
 | `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
 
 **USB network (firmware 3.9.0 and later).** The STM32 pod's USB port is a composite device
@@ -1615,7 +1615,7 @@ takes a waveform id or `Waveform`; on a cloud connection it uses the server's re
 streaming it over the device connection.
 
 > **Server access.** The library and server-side replay need an embeddedci credential. Over the cloud
-> destination the SDK reuses the connection's session token (from an API key or GitHub Actions
+> destination the SDK reuses its credential (an API key, the `benchpod login` session, or GitHub Actions
 > OIDC), so nothing extra is needed. On a LAN or USB connection pass an API key (`api_key=`,
 > `--benchpod-api-key` or `BENCHPOD_API_KEY`). Captures and direct `replay(...)` never need one.
 
@@ -1807,10 +1807,14 @@ devices you may drive:
 
 1. **An API key** (`eci_…`) via `api_key=`, `--benchpod-api-key` or `BENCHPOD_API_KEY`. Works
    anywhere: your desk, any CI system.
-2. **A logged-in user's token** via `cloud_user_token=`, a callable returning the access token (the
-   MCP server passes the `benchpod login` session this way).
-3. **GitHub Actions OIDC** when neither is set. No secret is stored — the workflow proves which
-   repo it is, like PyPI Trusted Publishing. Only works inside a GitHub Actions job.
+2. **A logged-in user's token** via `cloud_user_token=`, a callable returning the access token.
+3. **GitHub Actions OIDC** inside a GitHub Actions job when neither is set. No secret is stored:
+   the workflow proves which repo it is, like PyPI Trusted Publishing.
+4. **The `benchpod login` session** everywhere else (the default at your desk). Run
+   `benchpod login` once and `BenchPod("embeddedci:<name>")` needs no key and no extra argument;
+   the SDK refreshes the login when it expires, as the CLI does.
+
+With none of these, the error names all three options, `benchpod login` first.
 
 The SDK renews that session token shortly before it expires (and once more if the server rejects
 it), so a connection held for hours keeps working. A token you pass yourself as `cloud_token=` is
@@ -1820,6 +1824,11 @@ BenchPod named '…'", and a busy pod names who holds it and until when.
 ```python
 from embeddedci.benchpod import BenchPod
 
+# after `benchpod login`
+with BenchPod("embeddedci:my-bench-01", la_voltage=3.3) as bp:
+    bp.ping()
+
+# or with an API key
 with BenchPod("embeddedci:my-bench-01", la_voltage=3.3, api_key="eci_…") as bp:
     bp.ping()
 ```

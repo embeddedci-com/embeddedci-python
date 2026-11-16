@@ -72,7 +72,9 @@ class CloudSession:
         self.api_base = base
         self.audience = audience
         self.api_key = api_key or os.environ.get(ENV_API_KEY) or None
-        self.user_token = user_token if user_token is not None or self.api_key else login_token(base)
+        # None: mint_session_token falls back to GitHub Actions OIDC inside a workflow, else to the
+        # `benchpod login` session (the same order as BenchPod's cloud connection).
+        self.user_token = user_token
         self._token = token
         self._renewable = token is None
         self._expires_at: Optional[float] = None

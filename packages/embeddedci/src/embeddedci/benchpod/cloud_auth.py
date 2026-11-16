@@ -1,4 +1,4 @@
-"""Session-token minting for the cloud destination — from an API key, or GitHub Actions OIDC.
+"""Session-token minting for the cloud destination: from an API key, a user login, or GitHub Actions OIDC.
 
 A workflow running ``pytest`` with an ``embeddedci:<device>`` connection cannot ship a
 long-lived secret, so it mints a short-lived GitHub Actions OIDC token (proving *which repo* is
@@ -13,7 +13,8 @@ outside CI while the identical tests ran fine over a direct LAN connection. A **
 exchanged via ``POST /api/auth/token`` — the same endpoint and the same ``ApiKey`` scheme the Go
 hwe2e cloud suite authenticates with. The API key is preferred when present; a logged-in user's
 access token (``Bearer``, e.g. the ``benchpod login`` session) is exchanged at the same endpoint;
-OIDC remains the zero-secret path for GitHub Actions.
+OIDC remains the zero-secret path for GitHub Actions. Outside Actions, with no API key and no
+explicit user token, the ``benchpod login`` session is used when one exists.
 """
 
 from __future__ import annotations
@@ -65,8 +66,8 @@ def mint_oidc_token(audience: str = DEFAULT_AUDIENCE) -> str:
     if not in_actions and not req_url:
         raise CloudAuthError(
             "cannot mint a GitHub OIDC token: not running inside a GitHub Action. "
-            "Outside GitHub Actions, authenticate the 'embeddedci' destination with an API key "
-            "(api_key='eci_…', BENCHPOD_API_KEY, or --benchpod-api-key)."
+            "Outside GitHub Actions, run `benchpod login` or authenticate the 'embeddedci' "
+            "destination with an API key (api_key='eci_…', BENCHPOD_API_KEY, or --benchpod-api-key)."
         )
     if not req_url or not req_token:
         raise CloudAuthError(
@@ -185,17 +186,50 @@ def _expires_at(resp: dict) -> "float | None":
         return None
 
 
+def in_github_actions() -> bool:
+    """Whether this runs inside a GitHub Actions job (where OIDC is the credential)."""
+    return os.environ.get("GITHUB_ACTIONS") == "true" or bool(os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL"))
+
+
+#: What the error says when no credential is available.
+NO_CREDENTIALS = (
+    "no embeddedci.com credentials: run `benchpod login`, set an API key (api_key='eci_…', "
+    "BENCHPOD_API_KEY or --benchpod-api-key), or run inside GitHub Actions with "
+    "`permissions: id-token: write` (OIDC)"
+)
+
+
+def login_session_token(api_base: str = DEFAULT_API_BASE) -> "Callable[[], str] | None":
+    """The ``benchpod login`` session as a user-token provider, or None without one.
+
+    Used by default when no API key is set (argument or ``BENCHPOD_API_KEY``) and the code does not
+    run inside GitHub Actions: there the job's OIDC token is the credential, as in the MCP server.
+    The token file is checked now; the access token is read (and refreshed) on each call."""
+    if os.environ.get("BENCHPOD_API_KEY") or in_github_actions():
+        return None
+    from . import cli_login
+
+    if not cli_login.has_session():
+        return None
+    return lambda: cli_login.access_token(api_base)
+
+
 def mint_session_token(api_base: str = DEFAULT_API_BASE, audience: str = DEFAULT_AUDIENCE,
                        api_key: "str | None" = None,
                        user_token: "Callable[[], str] | None" = None) -> "Tuple[str, float | None]":
     """Mint an embeddedci session token for the cloud destination, and when it expires.
 
     Credentials, in order: an explicit ``api_key`` (or ``BENCHPOD_API_KEY``), which works anywhere;
-    ``user_token``, a callable returning a logged-in user's access token; GitHub Actions OIDC, which
-    works only inside a workflow with ``id-token: write``. Returns ``(token, expires_at)`` with
+    ``user_token``, a callable returning a logged-in user's access token; GitHub Actions OIDC inside
+    a workflow (``id-token: write``); else the ``benchpod login`` session when one exists. Without
+    any, :class:`CloudAuthError` lists the options. Returns ``(token, expires_at)`` with
     ``expires_at`` a ``time.time()`` value, or None when the server did not say.
     """
     key = api_key or os.environ.get("BENCHPOD_API_KEY")
+    if not key and user_token is None and not in_github_actions():
+        user_token = login_session_token(api_base)
+        if user_token is None:
+            raise CloudAuthError(NO_CREDENTIALS)
     if key or user_token is not None:
         resp = (exchange_api_key(api_base, key.strip()) if key
                 else exchange_user_token(api_base, user_token()))  # type: ignore[misc]
