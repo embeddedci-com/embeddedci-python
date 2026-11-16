@@ -791,3 +791,104 @@ def test_cloud_command_asks_the_server_to_wait_for_a_blocking_profile(monkeypatc
     import json
 
     assert json.loads(calls[0].data)["timeout_ms"] == 90000
+
+
+# -- the `benchpod login` session is the default credential outside GitHub Actions -------------
+
+def _no_ci_credentials(monkeypatch, tmp_path):
+    for name in ("BENCHPOD_API_KEY", "GITHUB_ACTIONS", "ACTIONS_ID_TOKEN_REQUEST_URL",
+                 "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BENCHPOD_LA_VOLTAGE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+
+def _login(tmp_path, access="login-jwt"):
+    import json
+
+    path = tmp_path / "benchpod-cli" / "token.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"access_token": access, "refresh_token": "r",
+                                "access_expires_at": "2099-01-01T00:00:00Z",
+                                "refresh_expires_at": "2099-01-01T00:00:00Z"}))
+
+
+def _exchanges(monkeypatch):
+    seen = []
+
+    def fake(api_base, authorization, what, ttl_seconds):
+        seen.append(authorization)
+        return {"token": "cloud", "expires_in": 3600}
+
+    monkeypatch.setattr(cloud_auth, "_exchange_for_cloud_session", fake)
+    return seen
+
+
+def test_no_credentials_lists_benchpod_login_first(monkeypatch, tmp_path):
+    _no_ci_credentials(monkeypatch, tmp_path)
+    with pytest.raises(CloudAuthError) as err:
+        cloud_auth.mint_session_token("https://example.test")
+    msg = str(err.value)
+    assert "OIDC token" not in msg
+    assert msg.index("benchpod login") < msg.index("BENCHPOD_API_KEY") < msg.index("GitHub Actions")
+
+
+def test_login_session_is_used_without_an_api_key(monkeypatch, tmp_path):
+    _no_ci_credentials(monkeypatch, tmp_path)
+    _login(tmp_path)
+    seen = _exchanges(monkeypatch)
+    assert cloud_auth.mint_session_token("https://example.test")[0] == "cloud"
+    assert seen == ["Bearer login-jwt"]
+
+
+def test_api_key_and_explicit_user_token_win_over_the_login(monkeypatch, tmp_path):
+    _no_ci_credentials(monkeypatch, tmp_path)
+    _login(tmp_path)
+    seen = _exchanges(monkeypatch)
+    cloud_auth.mint_session_token("https://example.test", user_token=lambda: "mine")
+    monkeypatch.setenv("BENCHPOD_API_KEY", "eci_x")
+    cloud_auth.mint_session_token("https://example.test")
+    assert seen == ["Bearer mine", "ApiKey eci_x"]
+    assert cloud_auth.login_session_token() is None
+
+
+def test_github_actions_uses_oidc_even_with_a_login(monkeypatch, tmp_path):
+    _no_ci_credentials(monkeypatch, tmp_path)
+    _login(tmp_path)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(cloud_auth, "mint_oidc_token", lambda audience: "oidc")
+    monkeypatch.setattr(cloud_auth, "exchange_token", lambda base, tok: {"access_token": "from-" + tok})
+    assert cloud_auth.mint_session_token("https://example.test")[0] == "from-oidc"
+    assert cloud_auth.login_session_token() is None
+
+
+def test_benchpod_cloud_connection_defaults_to_the_login(monkeypatch, tmp_path):
+    # BenchPod("embeddedci:<name>") after `benchpod login`: no API key, no cloud_user_token.
+    from embeddedci.benchpod import BenchPod
+    from embeddedci.benchpod import client as client_mod
+
+    _no_ci_credentials(monkeypatch, tmp_path)
+    _login(tmp_path)
+    opened = {}
+
+    def fake_open(spec, **kw):
+        opened.update(kw)
+        return CloudTransport(spec.device_name, api_base="https://example.test", token="sess",
+                              user_token=kw["user_token"])
+
+    monkeypatch.setattr(client_mod, "open_transport", fake_open)
+    bp = BenchPod("embeddedci:dev-a", lease=False)
+    assert opened["user_token"]() == "login-jwt"
+    # The waveform and device routes take the user, not the cloud session token.
+    assert bp._try_server_api()._auth_header() == "Bearer login-jwt"
+
+
+def test_benchpod_cloud_connection_without_login_leaves_the_transport_to_fail(monkeypatch, tmp_path):
+    from embeddedci.benchpod import BenchPod
+    from embeddedci.benchpod import client as client_mod
+
+    _no_ci_credentials(monkeypatch, tmp_path)
+    opened = {}
+    monkeypatch.setattr(client_mod, "open_transport",
+                        lambda spec, **kw: opened.update(kw) or CloudTransport(spec.device_name, token="sess"))
+    BenchPod("embeddedci:dev-a", lease=False)
+    assert opened["user_token"] is None

@@ -263,9 +263,10 @@ class BenchPod:
         flashing, UART, LA capture, pull resistors, sensor emulation — until one is selected.
 
         Cloud options: ``api_key`` (or ``BENCHPOD_API_KEY``) authenticates anywhere; else
-        ``cloud_user_token``, a callable returning a logged-in user's access token (such as the
-        ``benchpod login`` session), is exchanged for a device session; without either the cloud
-        destination uses GitHub Actions OIDC (``cloud_token``/``cloud_audience`` override that).
+        ``cloud_user_token``, a callable returning a logged-in user's access token, is exchanged
+        for a device session; without either the cloud destination uses GitHub Actions OIDC inside
+        a workflow (``cloud_token``/``cloud_audience`` override that), and elsewhere the
+        ``benchpod login`` session, so a user who ran ``benchpod login`` needs nothing else.
         A session token the SDK mints is renewed before it expires, so a long session keeps
         working; a ``cloud_token`` you pass is used as is. ``api_base`` (or ``BENCHPOD_API_BASE``) points at another embeddedci server. An API
         key also unlocks the cloud waveform library on a LAN/serial connection.
@@ -315,6 +316,13 @@ class BenchPod:
             self._transport: Transport = transport
         else:
             spec = resolve_connection(connection)
+            if spec.is_cloud() and not self._api_key and self._cloud_user_token is None:
+                # Outside GitHub Actions the `benchpod login` session is the default credential.
+                # Kept here (not only in the transport) so the waveform and device routes, which
+                # take a user rather than a cloud session token, use it too.
+                from .cloud_auth import DEFAULT_API_BASE, login_session_token
+
+                self._cloud_user_token = login_session_token(self._api_base or DEFAULT_API_BASE)
             self._transport = open_transport(
                 spec,
                 timeout=timeout,
@@ -322,7 +330,7 @@ class BenchPod:
                 token=cloud_token,
                 audience=cloud_audience,
                 api_key=self._api_key,
-                user_token=cloud_user_token,
+                user_token=self._cloud_user_token,
             )
         try:
             if lease and isinstance(self._transport, CloudTransport):
