@@ -123,6 +123,12 @@ class StatusResult(BaseModel):
     session: SessionInfo = Field(default_factory=SessionInfo)
     warnings: List[str] = Field(default_factory=list)
     firmware: Dict[str, Any] = Field(default_factory=dict, description="The pod's raw status report.")
+    eth_mac: Optional[str] = Field(None, description=(
+        "The pod's Ethernet MAC (aa:bb:cc:dd:ee:ff), for a network that hands out addresses only to "
+        "registered devices; null when not known (firmware 3.10.7 and older over the LAN)."))
+    wifi_mac: Optional[str] = Field(None, description=(
+        "The MAC the pod uses on Wi-Fi; null on a pod without Wi-Fi, or until the pod scanned for "
+        "Wi-Fi or joined a network. Over the cloud both come from embeddedci.com's record of the pod."))
     wiring_source: Optional[str] = Field(None, description=(
         "Where this connection's wiring profile came from: server (stored on embeddedci.com, as the "
         "web UI's Wiring tab shows it), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))

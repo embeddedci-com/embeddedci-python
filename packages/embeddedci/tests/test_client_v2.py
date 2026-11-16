@@ -577,3 +577,34 @@ def test_measure_power_streams_with_its_duration_in_the_request():
     from embeddedci.benchpod.transport.base import request_timeout
 
     assert request_timeout(t.commands[-1], 30) == 90
+
+
+# -- MAC addresses -----------------------------------------------------------------
+
+def test_mac_addresses_from_the_status():
+    bp, _ = _bp()
+    macs = bp.mac_addresses({"eth_mac": "02:35:C7:76:B7:9B", "wifi_mac": None})
+    assert macs.eth_mac == "02:35:c7:76:b7:9b" and macs.wifi_mac is None
+    assert macs.has_wifi is True and macs.source == "pod"
+    macs = bp.mac_addresses({"eth_mac": "02:35:c7:76:b7:9b"})
+    assert macs.has_wifi is False
+
+
+def test_mac_addresses_fall_back_to_the_server(monkeypatch):
+    bp, _ = _bp()
+
+    class Api:
+        def device_parameters(self, name):
+            assert name == "benchpod-30a9f1"
+            return {"net.eth_mac": "02:35:c7:76:b7:9b", "net.wifi_mac": "7c:e8:b1:c5:ca:6c"}
+
+    monkeypatch.setattr(bp, "_try_server_api", lambda: Api())
+    monkeypatch.setattr(bp, "_device_name", "benchpod-30a9f1")
+    macs = bp.mac_addresses({"short_form": True})   # the cloud status has no MACs
+    assert (macs.eth_mac, macs.wifi_mac, macs.source) == ("02:35:c7:76:b7:9b", "7c:e8:b1:c5:ca:6c", "server")
+
+
+def test_mac_addresses_unknown():
+    bp, _ = _bp()
+    macs = bp.mac_addresses()                        # old firmware, no server access
+    assert macs.eth_mac is None and macs.wifi_mac is None and macs.source == ""

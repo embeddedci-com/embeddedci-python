@@ -368,6 +368,19 @@ class CorrelatedCapture:
 
 
 @dataclass(frozen=True)
+class MacAddresses:
+    """The pod's MACs (:meth:`BenchPod.mac_addresses`), for a network that hands out addresses only
+    to registered devices. ``"aa:bb:cc:dd:ee:ff"``, or None when not known."""
+
+    eth_mac: Optional[str] = None
+    # The MAC the pod uses on Wi-Fi: the built-in Wi-Fi's (known once the pod scanned for Wi-Fi or
+    # joined a network) or, through a Wi-Fi bridge, the Ethernet MAC. None also on a pod without Wi-Fi.
+    wifi_mac: Optional[str] = None
+    has_wifi: Optional[bool] = None   # None: the source does not say
+    source: str = ""                  # "pod" (its status), "server" (embeddedci.com's record) or ""
+
+
+@dataclass(frozen=True)
 class LanTls:
     """The pod's LAN API over TLS (:meth:`BenchPod.lan_tls`, firmware 3.9.3+)."""
 

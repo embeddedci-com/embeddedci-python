@@ -163,3 +163,10 @@ def test_capabilities_report_the_policy_flags(fake_open, fake_transport):
     caps = call("connect", connection="192.168.1.50", la_voltage=3.3)["capabilities"]
     assert caps["lan_policy"] == "open" and caps["ota_sig"] and caps["sig_policy"] == "audit"
     assert caps["tunnel_max_tier"] and caps["analog"] is True
+
+
+def test_status_reports_the_macs(connected):
+    real = connected.status
+    connected.status = lambda: dict(real(), eth_mac="02:35:c7:76:b7:9b", wifi_mac="7c:e8:b1:c5:ca:6c")
+    result = call("status")
+    assert result["eth_mac"] == "02:35:c7:76:b7:9b" and result["wifi_mac"] == "7c:e8:b1:c5:ca:6c"

@@ -140,6 +140,7 @@
     "leased": "property",
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
+    "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
     "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
@@ -777,6 +778,14 @@
     "dac_mux_status": "(self) -> 'Dict[str, Any]'",
     "dac_set": "(self, code: 'int', *, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
   },
+  "MacAddresses": {
+    "__fields__": [
+      "eth_mac",
+      "wifi_mac",
+      "has_wifi",
+      "source"
+    ]
+  },
   "ModuleInfo": {
     "__fields__": [
       "present",
@@ -1339,6 +1348,7 @@
     "LoopSource",
     "LoopState",
     "LowLevel",
+    "MacAddresses",
     "ModuleInfo",
     "MotorEmulator",
     "NoopBuildReporter",
