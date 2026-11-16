@@ -959,7 +959,7 @@ transceiver behind a level shifter), between the pod and the device.
 that are not text (a binary protocol's frames), open it with `encoding="latin-1"`: every byte is one
 character, so `uart.read().encode("latin-1")` gives the bytes back unchanged, and a `bytes` write is
 sent as is. For the adapter wiring and a Modbus RTU test through a transceiver, see
-[5 V logic and RS-485](https://www.embeddedci.com/docs/benchpod-5v-rs485).
+[5 V logic and RS-485](https://www.embeddedci.com/docs/benchpod-targets/5v-rs485).
 
 ## LA bias resistors
 
