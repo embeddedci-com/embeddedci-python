@@ -1026,7 +1026,17 @@ arguments it returns the `ExpansionStatus`, and `expansion(None)` detaches.
 - `pullups`: `"pod"` switches on the pod's pull-ups (LA1-LA6 only; they pull to 3.3 V) and
   `"external"` relies on the breakout's. By default `"pod"` when the LA voltage is 3.3 V and both
   pins are on LA1-LA6, else `"external"`. At 1.8 V the breakout needs pull-ups to 1.8 V.
-- `hz` defaults to 400 kHz, or the chip's limit when it is lower.
+- `hz` defaults to 400 kHz for I2C chips (100 kHz for the PCF8574) and 1 MHz for SPI chips.
+- SPI chips take `spi=(sck, mosi, miso, cs)` (or a dict with those keys) instead of `sda`/`scl`;
+  omitted, the wiring profile's `spi_sclk`, `spi_mosi`, `spi_miso` and `spi_cs`. The pod's SPI
+  master always takes four LA channels, so a 74HC595 chain's MISO and a 74HC165 chain's MOSI are
+  free pins with nothing connected. Several MCP23S17s share one CS by hardware address:
+  `addr=[0, 1]`.
+- Shift-register chains take `count`, the chips in the chain (1..32): `EXT1` is the first chip's
+  QA (74HC595: the chip MOSI feeds) or A (74HC165: the chip whose QH drives MISO). A 74HC595's CS
+  goes to RCLK, which latches the outputs as CS rises. A 74HC165 needs `load`, the LA channel on
+  SH/LD, which the SDK claims as a GPIO output and pulses low before each read; its CS goes to
+  CLK INH.
 - `names` names the pins: `{"EXT1": "LED1", "EXT9": "BUTTON"}` or a list in EXT order. A name works
   wherever `"EXTn"` does, including `bp.signal("BUTTON")`.
 
@@ -1069,6 +1079,20 @@ share one bus; on other pins, or while an `open_spi()` session is open, EXT call
 | `tca9555` (also `tca9535`) | I2C 0x20-0x27 | 2 | 16 | 1.8 V, 3.3 V | in/out |
 | `pca9555` (also `pca9535`) | I2C 0x20-0x27 | 2 | 16 | 3.3 V | in/out |
 | `mcp23017` | I2C 0x20-0x27 | 2 | 16 | 1.8 V, 3.3 V | in/out |
+| `pcf8574` | I2C 0x20-0x27 | 2 | 8 | 3.3 V | quasi |
+| `pcf8574a` | I2C 0x38-0x3f | 2 | 8 | 3.3 V | quasi |
+| `pcf8575` | I2C 0x20-0x27 | 2 | 16 | 3.3 V | quasi |
+| `tca6416a` | I2C 0x20-0x21 | 2 | 16 | 1.8 V, 3.3 V | in/out |
+| `tca6424a` | I2C 0x22-0x23 | 2 | 24 | 1.8 V, 3.3 V | in/out |
+| `mcp23s17` | SPI, hardware address 0-7 | 4 | 16 | 1.8 V, 3.3 V | in/out |
+| `74hc595` | SPI chain (CS = latch) | 4 | 8 per chip | 3.3 V | out |
+| `74hc165` | SPI chain + `load` | 5 | 8 per chip | 3.3 V | in |
+
+Directions: `in/out` pins are inputs, push-pull outputs or open drain. `quasi` (PCF857x) pins
+have no push-pull high: a high output is a weak pull-up (about 100 µA) that can't drive a load, and
+an input is a high output that something else pulls low. A 74HC595 has outputs only (released is
+low, and `read_gpio` returns the last level written); a 74HC165 has inputs only. Shift registers
+don't answer, so attaching one can't probe it.
 
 `ExpansionStatus`: `attached`, `chip`, `bus`, `la` (the LA channels it uses, `{"sda": 1, "scl": 2}`),
 `addrs`, `count`, `hz`, `pullups`, `pins` (an `ExtPinState` each), `notes`, and `names` (the pin
@@ -2112,7 +2136,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
 | `ExtPin` (class) | `gpio`, `gpio_pins`, `signal` on an EXT pin | a `GpioPin` with `ext`, `pin`; `la` is `None`; `pulse()` raises `ExpansionError` |
 | `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled`, `artifact` (the uploaded build, for `flash(build=...)`) |
-| `SpiSession` (class) | `open_spi` | `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
+| `SpiSession` (class) | `open_spi` | `closed`, `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
 | `I2CMaster` (class) | `open_i2c` (a context manager) | `sda`, `scl`, `hz`, `pullups`, `xfer(addr, write=None, read=0)`, `write(addr, data)`, `read(addr, n)`, `write_read(addr, data, n)`, `read_reg(addr, reg, n=1)`, `write_reg(addr, reg, data)`, `probe(addr)`, `scan(start=0x08, end=0x77)`, `send(addr, write=None, read=0)` (an `I2CSend`), `status()`, `close()` |
 | `I2CResult` | `I2CMaster.xfer` | `addr`, `ack`, `data`, `nack_at`, `check()` (raises `I2CNackError` on a NACK) |
 | `I2CSend`, `SpiSend`, `GpioSend` | `capture_la(send=)` | `addr`, `write`, `read`; `tx`; `la`, `level`; `to_request()` |

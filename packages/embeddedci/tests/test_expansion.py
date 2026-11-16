@@ -451,3 +451,282 @@ def test_mcp23017_reset_and_drive():
     bp.gpio("EXT9", "input")
     chip.pins_in = 1 << 8
     assert bp.read_gpio("EXT9") == 1
+
+
+# -- PCF857x, TCA6424A ---------------------------------------------------------------------------
+
+class Pcf:
+    """Quasi-bidirectional: a written 1 is a weak high the outside can pull low."""
+
+    def __init__(self, ports: int) -> None:
+        self.ports = ports
+        self.port = 0  # junk until the first write
+        self.pulled_low = 0
+
+    def write(self, data: bytes) -> None:
+        self.port = int.from_bytes(data[: self.ports], "little")
+
+    def read(self, n: int) -> bytes:
+        assert n == self.ports
+        return (self.port & ~self.pulled_low).to_bytes(n, "little")
+
+
+def test_pcf8574_quasi_bidirectional():
+    chip = Pcf(1)
+    bp, fake, st = attach({0x38: chip}, chip="pcf8574a", addr=0x38)
+    assert st.hz == 100_000 and chip.port == 0xFF and len(st.pins) == 8
+    assert st.pins[3].chip_pin == "P3" and any("quasi-bidirectional" in n for n in st.notes)
+    out = bp.gpio("EXT1", "output")                              # starts low
+    assert chip.port == 0xFE
+    out.high()
+    assert chip.port == 0xFF
+    bp.gpio("EXT2", "input")
+    chip.pulled_low = 0b10
+    assert bp.read_gpio("EXT2") == 0
+    od = bp.gpio("EXT3", "open_drain")
+    od.low()
+    assert chip.port == 0xFB
+    with pytest.raises(ExpansionError, match="does not run at the LA voltage 1.8 V"):
+        attach({0x20: Pcf(1)}, chip="pcf8574", mv=1800)
+
+
+def test_pcf8575_one_write_for_both_ports():
+    chip = Pcf(2)
+    bp, fake, st = attach({0x20: chip}, chip="pcf8575")
+    assert st.pins[15].chip_pin == "P17"
+    bp.gpio_pins(["EXT1", "EXT16"], "output")
+    before = len(fake.xfers)
+    bp.set_gpio(["EXT1", "EXT16"], [1, 0])
+    assert len(fake.xfers) == before + 1 and chip.port == 0x7FFF
+
+
+class Tca6424:
+    """Input 0-2, output 4-6, polarity 8-10, config 12-14; increments only with bit 7 set."""
+
+    def __init__(self) -> None:
+        self.regs = [0] * 15
+        self.ptr = 0
+
+    def write(self, data: bytes) -> None:
+        ai, self.ptr = data[0] & 0x80, data[0] & 0x7F
+        for b in data[1:]:
+            self.regs[self.ptr] = b
+            if ai:
+                self.ptr += 1
+        self.ai = ai
+
+    def read(self, n: int) -> bytes:
+        assert n == 1 or self.ai, "a multi-byte read needs the auto-increment bit"
+        out = bytes(self.regs[self.ptr + i] if self.ptr >= 4 else self.regs[4 + i] & ~self.regs[12 + i] & 0xFF
+                    for i in range(n))
+        return out
+
+
+def test_tca6424a_three_ports_auto_increment():
+    chip = Tca6424()
+    bp, fake, st = attach({0x22: chip}, chip="tca6424a", addr=0x22)
+    assert len(st.pins) == 24 and st.pins[23].chip_pin == "P27"
+    assert chip.regs[12:15] == [0xFF] * 3
+    bp.gpio("EXT24", "output", level=1)
+    assert chip.regs[6] == 0x80 and chip.regs[14] == 0x7F
+    assert bp.read_gpio("EXT24") == 1
+
+
+def test_tca6416a_uses_the_tca9555_registers():
+    chip = Tca9555()
+    bp, fake, st = attach({0x21: chip}, chip="tca6416a", addr=0x21)
+    bp.gpio("EXT9", "output", level=1)
+    assert chip.output & 0x100 and chip.config & 0x100 == 0
+    with pytest.raises(ValueError, match="0x20..0x21"):
+        attach({0x22: Tca9555()}, chip="tca6416a", addr=0x22)
+
+
+# -- SPI chips -----------------------------------------------------------------------------------
+
+class Mcp23s17:
+    """BANK=0 MCP23S17s on one CS: hardware addressing once IOCON.HAEN is set."""
+
+    def __init__(self, hw: int) -> None:
+        self.hw = hw
+        self.regs = bytearray(0x16)
+        self.regs[0] = self.regs[1] = 0xFF
+        self.pins_in = 0
+
+    def frame(self, tx: bytes) -> bytes:
+        op, reg = tx[0], tx[1]
+        if op & 0xF0 != 0x40:
+            return bytes(len(tx))
+        a = (op >> 1) & 7
+        if self.regs[0x0A] & 0x08 and a != self.hw:  # HAEN = 0: the address bits are ignored
+            return bytes(len(tx))
+        rx = bytearray(len(tx))
+        for i in range(2, len(tx)):
+            r = (reg + i - 2) % 0x16
+            if op & 1:
+                if r in (0x12, 0x13):
+                    side = r - 0x12
+                    iodir = self.regs[side]
+                    rx[i] = ((self.regs[0x14 + side] & ~iodir) | ((self.pins_in >> 8 * side) & iodir)) & 0xFF
+                else:
+                    rx[i] = self.regs[r]
+            else:
+                if r == 0x0B:
+                    r = 0x0A
+                self.regs[r] = tx[i]
+        return bytes(rx)
+
+
+class Chain595:
+    def __init__(self, count: int) -> None:
+        self.shift = [0] * count  # chip 1 first
+        self.latched = [0] * count
+
+    def frame(self, tx: bytes) -> bytes:
+        for byte in tx:          # each byte enters chip 1 and pushes the rest down the chain
+            self.shift = [byte] + self.shift[:-1]
+        self.latched = list(self.shift)  # CS rising = RCLK
+        return bytes(len(tx))
+
+
+class Chain165:
+    def __init__(self, count: int) -> None:
+        self.inputs = [0] * count
+        self.loaded: Optional[List[int]] = None
+
+    def frame(self, tx: bytes) -> bytes:
+        assert self.loaded is not None, "read without a load pulse"
+        out, self.loaded = bytes(self.loaded[: len(tx)]), None
+        return out
+
+
+class SpiPod(ExpPod):
+    def __init__(self, dev: Any, *, mv: int = 3300, load: Optional[int] = None) -> None:
+        super().__init__({}, mv=mv)
+        self.dev = dev
+        self.load = load
+        self.spi: Optional[dict] = None
+
+    def command(self, req: dict) -> Any:
+        cmd = req["cmd"]
+        if cmd == "spi_start":
+            self.commands.append(req)
+            pins = [req[k] for k in ("sck", "mosi", "miso", "cs")]
+            assert len(set(pins)) == 4, "spi_start needs four distinct pins"
+            if self.spi:
+                raise FirmwareError("spi busy: send spi_stop first", cmd=cmd)
+            self.spi = req
+            return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+        if cmd == "spi_stop":
+            self.commands.append(req)
+            self.spi = None
+            return "spi stopped"
+        if cmd == "spi_xfer":
+            self.commands.append(req)
+            assert self.spi and req["cs"] == "release"
+            devs = self.dev if isinstance(self.dev, list) else [self.dev]
+            rx = bytes(len(unb64(req["tx"])))
+            for d in devs:
+                got = d.frame(unb64(req["tx"]))
+                rx = bytes(a | b for a, b in zip(rx, got))
+            return {"rx": b64(rx)}
+        if cmd == "gpio" and req.get("la") == self.load and req.get("level") == 0 and "mode" not in req:
+            self.dev.loaded = list(self.dev.inputs)
+        return super().command(req)
+
+
+def spi_attach(dev, chip, *, load=None, mv=3300, **kw):
+    fake = SpiPod(dev, mv=mv, load=load)
+    bp = BenchPod(transport=fake, wiring=Wiring(spi_sclk=13, spi_mosi=14, spi_miso=6, spi_cs=5, uart_rx=8, uart_tx=9))
+    st = bp.expansion(chip, load=load, **kw)
+    return bp, fake, st
+
+
+def test_mcp23s17_hardware_addresses():
+    a, b = Mcp23s17(0), Mcp23s17(3)
+    bp, fake, st = spi_attach([a, b], "mcp23s17", addr=[0, 3])
+    assert st.la == {"sck": 13, "mosi": 14, "miso": 6, "cs": 5} and st.addrs == (0, 3)
+    assert st.hz == 1_000_000 and st.pullups is None and len(st.pins) == 32
+    bp.gpio_pins(["EXT1", "EXT17"], "output", level=1)
+    assert a.regs[0x14] & 1 and b.regs[0x14] & 1 and a.regs[0] & 1 == 0
+    b.pins_in = 1 << 15
+    bp.gpio("EXT32", "input")
+    assert bp.read_gpio("EXT32") == 1
+
+
+def test_mcp23s17_probe_fails_without_a_chip():
+    with pytest.raises(ExpansionError, match="no mcp23s17 answers at hardware address 2"):
+        spi_attach([Mcp23s17(0)], "mcp23s17", addr=2)
+
+
+def test_74hc595_chain_outputs_only():
+    chain = Chain595(2)
+    bp, fake, st = spi_attach(chain, "74hc595", count=2)
+    assert len(st.pins) == 16 and st.pins[0].chip_pin == "1.QA" and st.pins[15].chip_pin == "2.QH"
+    assert any("not probed" in n for n in st.notes)
+    bp.gpio_pins(["EXT1", "EXT16"], "output")
+    bp.set_gpio(["EXT1", "EXT16"], 1)
+    assert chain.latched == [0x01, 0x80]
+    assert bp.read_gpio("EXT16") == 1                            # the last value written
+    xfers = [c for c in fake.commands if c["cmd"] == "spi_xfer"]
+    with pytest.raises(ExpansionError, match="outputs only"):
+        bp.gpio("EXT2", "input")
+    with pytest.raises(ExpansionError, match="outputs only"):
+        bp.gpio("EXT2", "open_drain")
+    bp.release_gpio("EXT16")
+    assert chain.latched == [0x01, 0x00]                         # released = low
+    bp.expansion(None)
+    assert chain.latched == [0, 0] and fake.spi is None
+    assert len(xfers) >= 2
+
+
+def test_74hc165_chain_inputs_with_load_pulse():
+    chain = Chain165(2)
+    chain.inputs = [0b0000_0101, 0b1000_0000]
+    bp, fake, st = spi_attach(chain, "74hc165", load=7, count=2)
+    assert st.la["load"] == 7 and st.pins[8].chip_pin == "2.A"
+    assert {"cmd": "gpio", "la": 7, "mode": "output", "level": 1} in fake.commands
+    assert bp.read_gpio("EXT1") == 1 and bp.read_gpio("EXT2") == 0 and bp.read_gpio("EXT16") == 1
+    levels = [p.live for p in bp.expansion().pins]
+    assert levels[:3] == [1, 0, 1] and levels[15] == 1
+    with pytest.raises(ExpansionError, match="inputs only"):
+        bp.gpio("EXT1", "output")
+    bp.expansion(None)
+    assert {"cmd": "gpio", "la": 7, "mode": "off"} in fake.commands
+
+
+def test_spi_argument_validation():
+    with pytest.raises(ValueError, match="needs load="):
+        spi_attach(Chain165(1), "74hc165")
+    with pytest.raises(ValueError, match="its own LA pin"):
+        spi_attach(Chain165(1), "74hc165", load=5)
+    with pytest.raises(ValueError, match="its own LA pin"):
+        spi_attach(Chain595(1), "74hc595", spi=(13, 13, 6, 5))
+    with pytest.raises(ValueError, match="needs all four pins"):
+        spi_attach(Chain595(1), "74hc595", spi=(13, 14, 5))
+    with pytest.raises(ValueError, match="no address: give count"):
+        spi_attach(Chain595(1), "74hc595", addr=1)
+    with pytest.raises(ValueError, match="count is the chips in the chain, 1..32"):
+        spi_attach(Chain595(1), "74hc595", count=0)
+    with pytest.raises(ValueError, match="SPI chip: sda, scl and pullups"):
+        spi_attach(Chain595(1), "74hc595", sda=1)
+    with pytest.raises(ValueError, match="load only applies"):
+        spi_attach(Chain595(1), "74hc595", load=7)
+    with pytest.raises(ExpansionError, match="74hc595 does not run at the LA voltage 1.8 V"):
+        spi_attach(Chain595(1), "74hc595", mv=1800)
+    bp, fake, st = spi_attach(Chain595(1), "74hc595", spi={"sck": 1, "mosi": 2, "miso": 3, "cs": 4})
+    assert st.la == {"sck": 1, "mosi": 2, "miso": 3, "cs": 4}
+
+
+def test_spi_expander_and_user_sessions():
+    chain = Chain595(1)
+    bp, fake, st = spi_attach(chain, "74hc595")
+    bp.gpio("EXT1", "output")
+    with bp.open_spi() as spi:                                   # same four pins: shared
+        n = len(fake.commands)
+        bp.set_gpio("EXT1", 1)
+        assert not any(c["cmd"] == "spi_start" for c in fake.commands[n:])
+        assert chain.latched == [1]
+    bp.set_gpio("EXT1", 0)
+    with bp.open_spi(sck=1, mosi=2, miso=3, cs=4):
+        with pytest.raises(ExpansionError, match="one SPI master"):
+            bp.set_gpio("EXT1", 1)

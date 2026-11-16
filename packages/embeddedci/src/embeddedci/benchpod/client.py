@@ -1705,15 +1705,22 @@ class BenchPod:
             raise ValueError(f"mode must be 0, 1, 2 or 3, got {mode!r}")
         if mode in (1, 2):
             self._require_gateware(BUS_MASTER_GATEWARE, "SPI modes 1 and 2")
-        req = {"cmd": "spi_start", "sck": self._wired(sck, "spi_sclk"), "mosi": self._wired(mosi, "spi_mosi"),
-               "miso": self._wired(miso, "spi_miso"), "cs": self._wired(cs, "spi_cs"),
+        session = self._start_spi(self._wired(sck, "spi_sclk"), self._wired(mosi, "spi_mosi"),
+                                  self._wired(miso, "spi_miso"), self._wired(cs, "spi_cs"),
+                                  hz=hz, mode=mode)
+        self._spi_session_ref = weakref.ref(session)
+        return session
+
+    def _start_spi(self, sck: int, mosi: int, miso: int, cs: int, *, hz: int,
+                   mode: int) -> _spi.SpiSession:
+        """``spi_start`` on four resolved channels (open_spi, and an expander's own session)."""
+        self._require_capability("spi_master", "the SPI master")
+        req = {"cmd": "spi_start", "sck": sck, "mosi": mosi, "miso": miso, "cs": cs,
                "hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
         with _classified_errors():
             info = _dict(self.command(req))
-        session = _spi.SpiSession(self.command, info, stage=stage)
-        self._spi_session_ref = weakref.ref(session)
-        return session
+        return _spi.SpiSession(self.command, info, stage=stage)
 
     # -- I2C master --------------------------------------------------------------
 
@@ -3087,36 +3094,74 @@ class BenchPod:
             raise _expansion.ExpansionError(
                 f"the {info.name} does not run at the LA voltage {lv:g} V (it needs {ok}); pick a chip "
                 "for this voltage (EXPANSION_CHIPS lists them) or change the LA voltage")
-        hz_i = int(hz if hz is not None else block.get("hz") or min(400_000, info.max_hz))
+        default_hz = min(400_000 if info.bus == "i2c" else 1_000_000, info.max_hz)
+        hz_i = int(hz if hz is not None else block.get("hz") or default_hz)
         if isinstance(hz, bool) or hz_i <= 0 or hz_i > info.max_hz:
             raise ValueError(f"hz must be 1..{info.max_hz} for the {info.name}, got {hz!r}")
-        if info.bus != "i2c":  # pragma: no cover - SPI chips come with their drivers
-            raise ValueError(f"{info.name}: SPI expanders are not supported yet")
-        if spi is not None or load is not None or (count not in (None, 1)):
-            raise ValueError(f"the {info.name} is an I2C chip: spi, load and count do not apply")
-        sda_i = self._wired(sda if sda is not None else block.get("sda"), "i2c_sda")
-        scl_i = self._wired(scl if scl is not None else block.get("scl"), "i2c_scl")
-        if sda_i == scl_i:
-            raise ValueError("sda and scl must be different LA pins")
-        addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
-        pull = pullups if pullups is not None else block.get("pullups")
-        if pull is None:
-            pull = "pod" if abs(lv - 3.3) < 0.05 and sda_i <= 6 and scl_i <= 6 else "external"
-        check_choice(pull, _i2c_master.PULLUPS, "pullups")
-        if pull == "pod" and (abs(lv - 3.3) >= 0.05 or sda_i > 6 or scl_i > 6):
-            raise _expansion.ExpansionError(
-                "pullups='pod' needs the LA voltage at 3.3 V and both pins on LA1-LA6 (the pod's "
-                "pull-ups pull to 3.3 V and only LA1-LA6 have them); use pullups='external' with "
-                "pull-ups on the breakout")
+        names_arg = names if names is not None else block.get("names")
+        pull: Optional[str] = None
+        if info.bus == "i2c":
+            if spi is not None or load is not None or (count not in (None, 1)):
+                raise ValueError(f"the {info.name} is an I2C chip: spi, load and count do not apply")
+            sda_i = self._wired(sda if sda is not None else block.get("sda"), "i2c_sda")
+            scl_i = self._wired(scl if scl is not None else block.get("scl"), "i2c_scl")
+            if sda_i == scl_i:
+                raise ValueError("sda and scl must be different LA pins")
+            la_map = {"sda": sda_i, "scl": scl_i}
+            addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
+            n_chips = 1
+            pull = pullups if pullups is not None else block.get("pullups")
+            if pull is None:
+                pull = "pod" if abs(lv - 3.3) < 0.05 and sda_i <= 6 and scl_i <= 6 else "external"
+            check_choice(pull, _i2c_master.PULLUPS, "pullups")
+            if pull == "pod" and (abs(lv - 3.3) >= 0.05 or sda_i > 6 or scl_i > 6):
+                raise _expansion.ExpansionError(
+                    "pullups='pod' needs the LA voltage at 3.3 V and both pins on LA1-LA6 (the pod's "
+                    "pull-ups pull to 3.3 V and only LA1-LA6 have them); use pullups='external' "
+                    "with pull-ups on the breakout")
+        else:
+            if sda is not None or scl is not None or pullups is not None:
+                raise ValueError(f"the {info.name} is an SPI chip: sda, scl and pullups do not "
+                                 "apply (give spi=(sck, mosi, miso, cs))")
+            la_map = self._expansion_spi_pins(info, spi if spi is not None else block.get("spi"))
+            load_v = load if load is not None else block.get("load")
+            if info.name == "74hc165":
+                if load_v is None:
+                    raise ValueError("the 74hc165 needs load=<LA channel> wired to SH/LD (pulsed "
+                                     "low before each read)")
+                la_map["load"] = self._resolve_la(load_v, "load")[0]
+            elif load_v is not None:
+                raise ValueError(f"load only applies to the 74hc165, not the {info.name}")
+            if len(set(la_map.values())) != len(la_map):
+                raise ValueError("each SPI signal (and load) needs its own LA pin: "
+                                 + ", ".join(f"{k}=LA{v}" for k, v in la_map.items()))
+            count_v = count if count is not None else block.get("count")
+            if info.chained:
+                if addr is not None:
+                    raise ValueError(f"a {info.name} chain has no address: give count= instead")
+                n_chips = 1 if count_v is None else count_v
+                if isinstance(n_chips, bool) or not isinstance(n_chips, int) or not \
+                        1 <= n_chips <= _expansion.CHAIN_MAX:
+                    raise ValueError(f"count is the chips in the chain, 1..{_expansion.CHAIN_MAX}, "
+                                     f"got {count_v!r}")
+                addrs = []
+            else:
+                if count_v not in (None, 1):
+                    raise ValueError(f"count is for shift-register chains; give several "
+                                     f"{info.name} addresses with addr=[...] instead")
+                n_chips = 1
+                addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
         self._detach_expansion()
-        new = _expansion.Expansion(self, info, addrs=addrs, count=1, la={"sda": sda_i, "scl": scl_i},
+        new = _expansion.Expansion(self, info, addrs=addrs, count=n_chips, la=la_map,
                                    hz=hz_i, pullups=pull, names={})
-        new.names = _expansion.parse_names(names if names is not None else block.get("names"),
-                                           new.total)
+        new.names = _expansion.parse_names(names_arg, new.total)
         self._check_expansion_names(new)
+        if "load" in la_map:
+            self._gpio_configure([la_map["load"]], "output", 1)
+            new.load_claimed = True
         if pull == "pod":
-            self.enable_pullup(sda_i, scl_i)
-            new.pod_pullups = (sda_i, scl_i)
+            self.enable_pullup(la_map["sda"], la_map["scl"])
+            new.pod_pullups = (la_map["sda"], la_map["scl"])
         self._expansion = new
         try:
             new.attach()
@@ -3126,6 +3171,8 @@ class BenchPod:
                 new.release_bus()
                 if new.pod_pullups:
                     self.disable_pullup(*new.pod_pullups)
+                if new.load_claimed:
+                    self.release_gpio(la_map["load"])
             except Exception:
                 pass
             raise
@@ -3138,6 +3185,8 @@ class BenchPod:
         try:
             exp.detach()
         finally:
+            if exp.load_claimed:
+                self.release_gpio(exp.la["load"])
             if exp.pod_pullups:
                 mine = self._i2c_master_ref() if self._i2c_master_ref is not None else None
                 if mine is None or mine.closed:  # the user's own session still needs them
@@ -3162,6 +3211,26 @@ class BenchPod:
             return {}
         return dict(block)
 
+    def _expansion_spi_pins(self, info: "_expansion.ExpansionChip", spi: Any) -> Dict[str, int]:
+        """``spi`` as ``{"sck", "mosi", "miso", "cs"}``: a 4-tuple, a mapping, or None for the wiring
+        profile's ``spi_sclk``/``spi_mosi``/``spi_miso``/``spi_cs``."""
+        keys = ("sck", "mosi", "miso", "cs")
+        roles = ("spi_sclk", "spi_mosi", "spi_miso", "spi_cs")
+        if spi is None:
+            values: List[Any] = [None] * 4
+        elif isinstance(spi, Mapping):
+            unknown = set(spi) - set(keys)
+            if unknown:
+                raise ValueError(f"spi takes the keys sck, mosi, miso, cs; got {sorted(unknown)}")
+            values = [spi.get(k) for k in keys]
+        elif isinstance(spi, (list, tuple)) and len(spi) == 4:
+            values = list(spi)
+        else:
+            raise ValueError("spi is (sck, mosi, miso, cs) or {'sck': .., 'mosi': .., 'miso': .., "
+                             "'cs': ..}; the pod's SPI master needs all four pins (a 74HC595's MISO "
+                             "and a 74HC165's MOSI can be any free pin)")
+        return {k: self._wired(v, role) for k, v, role in zip(keys, values, roles)}
+
     @staticmethod
     def _expansion_addrs(info: "_expansion.ExpansionChip", addr: Any) -> List[int]:
         items = list(addr) if isinstance(addr, (list, tuple)) else [addr]
@@ -3169,6 +3238,8 @@ class BenchPod:
         for a in items:
             if a is None:
                 a = info.addrs[0]
+            if not info.addrs:  # pragma: no cover - chains never get here
+                raise ValueError(f"the {info.name} has no address")
             if isinstance(a, str):
                 try:
                     a = int(a, 0)
@@ -3176,7 +3247,8 @@ class BenchPod:
                     raise ValueError(f"addr {a!r} is not a number") from None
             if isinstance(a, bool) or not isinstance(a, int) or a not in info.addrs:
                 lo, hi = info.addrs[0], info.addrs[-1]
-                raise ValueError(f"the {info.name} has addresses 0x{lo:02x}..0x{hi:02x}, got {a!r}")
+                what = "hardware addresses" if info.bus == "spi" else "addresses"
+                raise ValueError(f"the {info.name} has {what} 0x{lo:02x}..0x{hi:02x}, got {a!r}")
             if a in out:
                 raise ValueError(f"addr 0x{a:02x} is listed twice")
             out.append(a)

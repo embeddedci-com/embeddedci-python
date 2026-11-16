@@ -93,6 +93,11 @@ class SpiSession:
         self._closed = False
 
     # -- lifetime ----------------------------------------------------------------------------
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`close` ran."""
+        return self._closed
+
     def close(self) -> None:
         """Stop the SPI master and release its pins (they go back to high-Z). Idempotent."""
         if not self._closed:

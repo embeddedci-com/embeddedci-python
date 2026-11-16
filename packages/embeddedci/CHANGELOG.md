@@ -6,15 +6,19 @@
   expander breakout on two LA channels. It checks the LA voltage, probes the chip, puts every pin in
   input and names the pins `EXT1`..`EXTn` (or the names from `names=` or the wiring profile's
   `expansion` object). `expansion()` reports the chip and every pin's mode and level;
-  `expansion(None)` detaches. Chips: TCA9555/TCA9535, PCA9555/PCA9535 and MCP23017, several on one
-  bus with `addr=[...]`; `EXPANSION_CHIPS` lists them.
+  `expansion(None)` detaches. I2C chips: TCA9555/TCA9535, PCA9555/PCA9535, MCP23017,
+  PCF8574/PCF8574A/PCF8575 (quasi-bidirectional), TCA6416A and TCA6424A, several on one bus with
+  `addr=[...]`. SPI chips (`spi=(sck, mosi, miso, cs)`): MCP23S17 by hardware address, 74HC595
+  chains (outputs only, `count=`) and 74HC165 chains (inputs only, `load=` on SH/LD).
+  `EXPANSION_CHIPS` lists them.
 - The GPIO calls take EXT pins next to LA channels: `gpio`, `gpio_pins`, `configure_gpio`,
   `set_gpio`, `read_gpio`, `wait_for_level`, `release_gpio` and `signal`. A write to several EXT pins
   is one bus transaction per chip. `set_gpio` also takes a list of levels, one per channel.
   Pulses, capture triggers, a capture's `send` and `la_dir` refuse EXT pins with the reason.
 - The SDK opens the expander's bus when an EXT pin is used and closes it on its own before
   `flash`, `spi_flash`, `open_i2c`, `open_spi` and `close`; an `open_i2c` session on the same pins is
-  shared with the expander.
+  shared with the expander; so is an `open_spi` session on the same four pins.
+- `SpiSession.closed`, like `I2CMaster.closed`.
 
 ## 2.13.20
 

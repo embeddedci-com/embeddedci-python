@@ -91,7 +91,27 @@ EXPANSION_CHIPS: Tuple[ExpansionChip, ...] = (
                   aliases=("pca9535",), note="NXP, 2.3-5.5 V: not at 1.8 V"),
     ExpansionChip("mcp23017", "i2c", 16, 2, _range(0x20, 0x27), _BOTH, "in/out", 400_000, _FIRST,
                   note="Microchip, 1.8-5.5 V"),
+    ExpansionChip("pcf8574", "i2c", 8, 2, _range(0x20, 0x27), (3.3,), "quasi", 100_000, _FIRST,
+                  note="NXP/TI, 2.5-6 V: not at 1.8 V; 100 kHz"),
+    ExpansionChip("pcf8574a", "i2c", 8, 2, _range(0x38, 0x3F), (3.3,), "quasi", 100_000, _FIRST,
+                  note="the PCF8574 at addresses 0x38-0x3f"),
+    ExpansionChip("pcf8575", "i2c", 16, 2, _range(0x20, 0x27), (3.3,), "quasi", 400_000, _FIRST,
+                  note="NXP/TI, 2.5-5.5 V: not at 1.8 V"),
+    ExpansionChip("tca6416a", "i2c", 16, 2, (0x20, 0x21), _BOTH, "in/out", 400_000, _FIRST,
+                  note="TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)"),
+    ExpansionChip("tca6424a", "i2c", 24, 2, (0x22, 0x23), _BOTH, "in/out", 400_000, _FIRST,
+                  note="TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)"),
+    ExpansionChip("mcp23s17", "spi", 16, 4, _range(0, 7), _BOTH, "in/out", 6_000_000, _FIRST,
+                  note="Microchip, SPI; several on one CS by hardware address (A0-A2)"),
+    ExpansionChip("74hc595", "spi", 8, 4, (), (3.3,), "out", 6_000_000, _FIRST,
+                  note="shift-register chain, outputs only; CS to RCLK (latch), MISO a free pin"),
+    ExpansionChip("74hc165", "spi", 8, 5, (), (3.3,), "in", 6_000_000, _FIRST,
+                  note="shift-register chain, inputs only; CS to CLK INH, load= to SH/LD, MOSI a "
+                       "free pin"),
 )
+
+#: Chips in one shift-register chain at most (one SPI transfer).
+CHAIN_MAX = 32
 
 
 def expansion_chip(name: str) -> ExpansionChip:
@@ -211,8 +231,8 @@ class _Driver:
     def label(self, i: int) -> str:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    def init(self, dev: Any) -> int:
-        """Put every pin in input and return the output latch."""
+    def init(self, dev: Any) -> Tuple[int, int]:
+        """Put every pin in its released state and return ``(dir_in, out)``."""
         raise NotImplementedError  # pragma: no cover
 
     def apply(self, dev: Any, old: Tuple[int, int], new: Tuple[int, int]) -> None:
@@ -242,11 +262,11 @@ class _TcaDriver(_Driver):
     def _w(self, dev: _I2CDev, reg: int, value: int) -> None:
         dev.write(bytes([reg | self.ai]) + _le(value, self.ports))
 
-    def init(self, dev: _I2CDev) -> int:
+    def init(self, dev: _I2CDev) -> Tuple[int, int]:
         full = (1 << self.pins) - 1
         self._w(dev, self.pol, 0)
         self._w(dev, self.cfg, full)
-        return int.from_bytes(dev.write_read(bytes([self.out | self.ai]), self.ports), "little")
+        return full, int.from_bytes(dev.write_read(bytes([self.out | self.ai]), self.ports), "little")
 
     def apply(self, dev: _I2CDev, old: Tuple[int, int], new: Tuple[int, int]) -> None:
         # The latch first, so a pin turning into an output starts at its level.
@@ -274,15 +294,16 @@ class _Mcp23017Driver(_Driver):
     def label(self, i: int) -> str:
         return f"GP{'AB'[i // 8]}{i % 8}"
 
-    def init(self, dev: _I2CDev) -> int:
+    def init(self, dev: _I2CDev) -> Tuple[int, int]:
         r = _McpRegs
-        dev.write(bytes([r.BANK1_IOCON, 0x00]))
-        dev.write(bytes([r.IOCON, 0x00]))           # BANK 0, sequential addressing
+        if isinstance(dev, _I2CDev):
+            dev.write(bytes([r.BANK1_IOCON, 0x00]))
+            dev.write(bytes([r.IOCON, 0x00]))       # BANK 0, sequential addressing
         dev.write(bytes([r.IPOL, 0, 0]))
         dev.write(bytes([r.GPINTEN, 0, 0]))
         dev.write(bytes([r.GPPU, 0, 0]))
         dev.write(bytes([r.IODIR, 0xFF, 0xFF]))
-        return int.from_bytes(dev.write_read(bytes([r.OLAT]), 2), "little")
+        return 0xFFFF, int.from_bytes(dev.write_read(bytes([r.OLAT]), 2), "little")
 
     def apply(self, dev: _I2CDev, old: Tuple[int, int], new: Tuple[int, int]) -> None:
         if new[1] != old[1]:
@@ -294,11 +315,135 @@ class _Mcp23017Driver(_Driver):
         return int.from_bytes(dev.write_read(bytes([_McpRegs.GPIO]), 2), "little")
 
 
+class _PcfDriver(_Driver):
+    """PCF8574 / PCF8575: one quasi-bidirectional port register; 1 = weak high (input), 0 = low."""
+
+    def __init__(self, chip: ExpansionChip) -> None:
+        super().__init__(chip, chip.pins)
+        self.ports = chip.pins // 8
+
+    def label(self, i: int) -> str:
+        return f"P{i}" if self.ports == 1 else f"P{i // 8}{i % 8}"
+
+    def init(self, dev: _I2CDev) -> Tuple[int, int]:
+        full = (1 << self.pins) - 1
+        dev.write(_le(full, self.ports))
+        return full, 0
+
+    def apply(self, dev: _I2CDev, old: Tuple[int, int], new: Tuple[int, int]) -> None:
+        if (new[0] | new[1]) != (old[0] | old[1]):
+            dev.write(_le(new[0] | new[1], self.ports))
+
+    def read(self, dev: _I2CDev, state: Tuple[int, int]) -> int:
+        return int.from_bytes(dev.read(self.ports), "little")
+
+
+class _McpSpiDev:
+    """One MCP23S17 on the expander's CS, by hardware address (opcode 0100 A2 A1 A0 R/W)."""
+
+    def __init__(self, bus: Callable[[], "SpiSession"], hw: int) -> None:
+        self._bus = bus
+        self.addr = hw
+
+    def write(self, data: bytes, *, hw: Optional[int] = None) -> None:
+        a = self.addr if hw is None else hw
+        self._bus().transfer(bytes([0x40 | a << 1]) + data)
+
+    def write_read(self, data: bytes, n: int) -> bytes:
+        rx = self._bus().transfer(bytes([0x41 | self.addr << 1]) + data + bytes(n))
+        return rx[1 + len(data):]
+
+
+class _Mcp23s17Driver(_Mcp23017Driver):
+    DEFVAL = 0x06
+
+    def init(self, dev: _McpSpiDev) -> Tuple[int, int]:  # type: ignore[override]
+        r = _McpRegs
+        # IOCON.HAEN = 1 so the hardware address counts. A chip with HAEN = 0 answers address 0
+        # whatever its pins say, so that write goes to address 0 too.
+        for hw in sorted({0, dev.addr}):
+            dev.write(bytes([r.BANK1_IOCON, 0x00]), hw=hw)
+            dev.write(bytes([r.IOCON, 0x08]), hw=hw)
+        # DEFVAL only matters with interrupts on (off here): a safe register to probe with.
+        dev.write(bytes([self.DEFVAL, 0xA5, 0x5A]))
+        got = dev.write_read(bytes([self.DEFVAL]), 2)
+        dev.write(bytes([self.DEFVAL, 0, 0]))
+        if got != b"\xa5\x5a":
+            raise ExpansionError(f"no mcp23s17 answers at hardware address {dev.addr} (a test "
+                                 f"register read back {got.hex() or 'nothing'}, not a55a). Check "
+                                 "SCK, MOSI, MISO, CS, the A0-A2 pins and the chip's power")
+        return super().init(dev)  # type: ignore[arg-type]
+
+
+class _Shift595Driver(_Driver):
+    """A 74HC595 chain: bytes shifted out MSB first, the last byte into the first chip; CS rising
+    latches them (RCLK). EXT1 is the first chip's QA."""
+
+    def __init__(self, chip: ExpansionChip, count: int) -> None:
+        super().__init__(chip, 8 * count)
+        self.count = count
+
+    def label(self, i: int) -> str:
+        return f"{i // 8 + 1}.Q{'ABCDEFGH'[i % 8]}"
+
+    def _write(self, dev: _SpiDev, out: int) -> None:
+        dev.transfer(bytes(reversed(_le(out, self.count))))
+
+    def init(self, dev: _SpiDev) -> Tuple[int, int]:
+        self._write(dev, 0)
+        return 0, 0
+
+    def apply(self, dev: _SpiDev, old: Tuple[int, int], new: Tuple[int, int]) -> None:
+        if new[1] != old[1]:
+            self._write(dev, new[1])
+
+    def read(self, dev: _SpiDev, state: Tuple[int, int]) -> int:
+        return state[1]  # no read-back: the last value written
+
+
+class _ShiftInDev(_SpiDev):
+    def __init__(self, bus: Callable[[], "SpiSession"], load: Callable[[], None]) -> None:
+        super().__init__(bus)
+        self.load = load
+
+
+class _Shift165Driver(_Driver):
+    """A 74HC165 chain: SH/LD pulsed low loads the inputs, then the first chip's H comes out first.
+    EXT1 is the first chip's A (the chip whose QH drives MISO)."""
+
+    def __init__(self, chip: ExpansionChip, count: int) -> None:
+        super().__init__(chip, 8 * count)
+        self.count = count
+
+    def label(self, i: int) -> str:
+        return f"{i // 8 + 1}.{'ABCDEFGH'[i % 8]}"
+
+    def init(self, dev: _ShiftInDev) -> Tuple[int, int]:
+        return (1 << self.pins) - 1, 0
+
+    def apply(self, dev: _ShiftInDev, old: Tuple[int, int], new: Tuple[int, int]) -> None:
+        pass  # inputs only
+
+    def read(self, dev: _ShiftInDev, state: Tuple[int, int]) -> int:
+        dev.load()
+        return int.from_bytes(dev.transfer(bytes(self.count)), "little")
+
+
 def _driver(chip: ExpansionChip, count: int) -> _Driver:
-    if chip.name in ("tca9555", "pca9555"):
+    if chip.name in ("tca9555", "pca9555", "tca6416a"):
         return _TcaDriver(chip)
+    if chip.name == "tca6424a":
+        return _TcaDriver(chip, ports=3, stride=4, ai=0x80)
     if chip.name == "mcp23017":
         return _Mcp23017Driver(chip)
+    if chip.name == "mcp23s17":
+        return _Mcp23s17Driver(chip)
+    if chip.name in ("pcf8574", "pcf8574a", "pcf8575"):
+        return _PcfDriver(chip)
+    if chip.name == "74hc595":
+        return _Shift595Driver(chip, count)
+    if chip.name == "74hc165":
+        return _Shift165Driver(chip, count)
     raise ValueError(f"no driver for {chip.name}")  # pragma: no cover - EXPANSION_CHIPS is closed
 
 
@@ -321,6 +466,7 @@ class Expansion:
     def __init__(self, pod: "BenchPod", chip: ExpansionChip, *, addrs: Sequence[int], count: int,
                  la: Dict[str, int], hz: int, pullups: Optional[str],
                  names: Mapping[int, str]) -> None:
+        # la: {"sda", "scl"} for I2C; {"sck", "mosi", "miso", "cs"} (+ "load") for SPI.
         self._pod = pod
         self.chip = chip
         self.la = dict(la)
@@ -330,6 +476,8 @@ class Expansion:
         self.driver = _driver(chip, count)
         #: The pins whose pod pull-ups the SDK switched on for this expander (off on detach).
         self.pod_pullups: Optional[Tuple[int, int]] = None
+        #: True once the SDK claimed the 74HC165's load pin as a GPIO output (released on detach).
+        self.load_claimed = False
         self._own_i2c: Optional["I2CMaster"] = None
         self._own_spi: Optional["SpiSession"] = None
         self.devices: List[_Device] = []
@@ -338,6 +486,16 @@ class Expansion:
             for addr in addrs:
                 self.devices.append(_Device(_I2CDev(self._i2c, addr), addr, base))
                 base += self.driver.pins
+        elif chip.name == "mcp23s17":
+            for hw in addrs:
+                self.devices.append(_Device(_McpSpiDev(self._spi, hw), hw, base))
+                base += self.driver.pins
+        elif chip.name == "74hc165":
+            self.devices.append(_Device(_ShiftInDev(self._spi, self._pulse_load), None, base))
+            base += self.driver.pins
+        else:
+            self.devices.append(_Device(_SpiDev(self._spi), None, base))
+            base += self.driver.pins
         self.total = base - 1
         self.names: Dict[int, str] = dict(names)
         self.modes: Dict[int, str] = {n: "none" for n in range(1, self.total + 1)}
@@ -360,12 +518,40 @@ class Expansion:
         return self._own_i2c
 
     def _check_engine_free(self, bus: str) -> None:
-        theirs = self._pod._spi_session_ref() if self._pod._spi_session_ref is not None else None
-        if theirs is not None and not theirs.closed and bus == "I2C":
+        pod = self._pod
+        if bus == "I2C":
+            other = pod._spi_session_ref() if pod._spi_session_ref is not None else None
+            what = "an SPI session open (open_spi)"
+        else:
+            other = pod._i2c_master_ref() if pod._i2c_master_ref is not None else None
+            what = "an I2C session open (open_i2c)"
+        if other is not None and not other.closed:
             raise ExpansionError(
-                f"the {self.chip.name} on EXT pins needs the pod's I2C master, but this BenchPod has "
-                "an SPI session open (open_spi), and SPI, I2C and SWD share one engine on the pod: "
-                "close the SPI session first")
+                f"the {self.chip.name} on EXT pins needs the pod's {bus} master, but this BenchPod "
+                f"has {what}, and SPI, I2C and SWD share one engine on the pod: close that session "
+                "first")
+
+    def _spi(self) -> "SpiSession":
+        pod = self._pod
+        pins = (self.la["sck"], self.la["mosi"], self.la["miso"], self.la["cs"])
+        theirs = pod._spi_session_ref() if pod._spi_session_ref is not None else None
+        if theirs is not None and not theirs.closed:
+            if (theirs.sck, theirs.mosi, theirs.miso, theirs.cs) == pins and theirs.mode == 0:
+                return theirs
+            raise ExpansionError(
+                f"this BenchPod has an SPI session open on SCK LA{theirs.sck} / MOSI LA{theirs.mosi} "
+                f"/ MISO LA{theirs.miso} / CS LA{theirs.cs}, and the {self.chip.name} is on LA"
+                f"{pins[0]} / LA{pins[1]} / LA{pins[2]} / LA{pins[3]}: the pod has one SPI master. "
+                "Close that session first")
+        self._check_engine_free("SPI")
+        if self._own_spi is None or self._own_spi.closed:
+            self._own_spi = pod._start_spi(*pins, hz=self.hz, mode=0)
+        return self._own_spi
+
+    def _pulse_load(self) -> None:
+        """SH/LD low then high: the 74HC165 chain takes its inputs."""
+        self._pod.set_gpio(self.la["load"], 0)
+        self._pod.set_gpio(self.la["load"], 1)
 
     def release_bus(self) -> None:
         """Close the SDK's own bus session (not the user's), so flash, open_i2c and open_spi can
@@ -385,7 +571,7 @@ class Expansion:
 
     # -- lifetime --------------------------------------------------------------------------------
     def attach(self) -> None:
-        """Probe every chip and put all its pins in input."""
+        """Probe every chip and put all its pins in their released state (input; a 74HC595 low)."""
         for d in self.devices:
             if self.chip.bus == "i2c" and not self._i2c().probe(d.addr):  # type: ignore[arg-type]
                 found = self._i2c().scan()
@@ -394,17 +580,16 @@ class Expansion:
                     f"no {self.chip.name} answers at 0x{d.addr:02x} on LA{self.la['sda']} SDA / "
                     f"LA{self.la['scl']} SCL (a scan found {seen}). Check the address jumpers, the "
                     "breakout's power (the LA voltage) and its pull-ups")
-            d.out = self.driver.init(d.dev)
-            d.dir_in = (1 << self.driver.pins) - 1
+            d.dir_in, d.out = self.driver.init(d.dev)
 
     def detach(self) -> None:
         """Every pin back to input, then the SDK's bus session closed."""
         try:
             for d in self.devices:
-                full = (1 << self.driver.pins) - 1
-                if d.dir_in != full:
-                    self.driver.apply(d.dev, (d.dir_in, d.out), (full, d.out))
-                    d.dir_in = full
+                rel = self._released(d)
+                if (d.dir_in, d.out) != rel:
+                    self.driver.apply(d.dev, (d.dir_in, d.out), rel)
+                    d.dir_in, d.out = rel
         finally:
             self.release_bus()
 
@@ -431,6 +616,12 @@ class Expansion:
             if d.base <= n < d.base + self.driver.pins:
                 return d, n - d.base
         raise ValueError(f"EXT{n} does not exist")  # pragma: no cover - resolve() checked it
+
+    def _released(self, d: _Device) -> Tuple[int, int]:
+        """Every pin of ``d`` released: inputs, or for an outputs-only chain all low."""
+        if self.chip.directions == "out":
+            return 0, 0
+        return (1 << self.driver.pins) - 1, d.out
 
     def _check_mode(self, n: int, mode: str) -> None:
         d = self.chip.directions
@@ -462,7 +653,10 @@ class Expansion:
             m = 1 << bit
             st = plan[i]
             if mode in ("input", "none"):
-                st[0] |= m
+                if self.chip.directions == "out":
+                    st[1] &= ~m  # a 74HC595 output can't float: released is low
+                else:
+                    st[0] |= m
             elif mode == "output":
                 lvl = 0 if level is None else level
                 st[1] = (st[1] | m) if lvl else (st[1] & ~m)
@@ -526,6 +720,11 @@ class Expansion:
             live = list(self.read(range(1, self.total + 1)))
         except Exception as exc:  # the status still says what is attached
             notes.append(f"levels not read: {exc}")
+        if self.chip.chained:
+            notes.append(f"a {self.chip.name} chain does not answer, so it was not probed: check the "
+                         "wiring by driving or reading a pin")
+        if self.chip.name == "74hc595":
+            notes.append("74HC595 levels are the last values written (it has no read-back)")
         if self.chip.directions == "quasi":
             notes.append(f"the {self.chip.name} is quasi-bidirectional: a high output is a weak "
                          "pull-up (about 100 uA) and cannot source current")
