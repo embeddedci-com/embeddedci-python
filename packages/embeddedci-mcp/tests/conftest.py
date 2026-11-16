@@ -319,6 +319,26 @@ class FakeTransport(Transport):
     def _i2c_xfer(self, addr, write, read):
         if self.i2c is None:
             raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_xfer")
+        if addr == 0x20:  # a TCA9555 expander: input 0-1, output 2-3, polarity 4-5, config 6-7
+            if not hasattr(self, "tca"):
+                self.tca, self.tca_ptr, self.tca_in = [0, 0, 0, 0, 0, 0, 0xFF, 0xFF], 0, 0
+            data = base64.urlsafe_b64decode(write + "=" * (-len(write) % 4)) if write else b""
+            if data:
+                self.tca_ptr = data[0]
+                for b in data[1:]:
+                    self.tca[self.tca_ptr] = b
+                    self.tca_ptr ^= 1
+            out = []
+            for _ in range(read):
+                p = self.tca_ptr
+                if p < 2:
+                    cfg = self.tca[6 + p]
+                    out.append((self.tca[2 + p] & ~cfg | (self.tca_in >> 8 * p) & cfg) & 0xFF)
+                else:
+                    out.append(self.tca[p])
+                self.tca_ptr ^= 1
+            rx = base64.urlsafe_b64encode(bytes(out)).decode().rstrip("=")
+            return {"addr": addr, "ack": True, "rx": rx}
         if addr != 0x76:
             return {"addr": addr, "ack": False, "nack_at": 0, "rx": ""}
         rx = base64.urlsafe_b64encode(bytes([0x58] * read)).decode().rstrip("=")

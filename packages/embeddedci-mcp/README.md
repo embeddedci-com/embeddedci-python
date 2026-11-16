@@ -297,11 +297,12 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | --- | --- | --- |
 | `la_pins` | What owns each of the 14 LA channels, with GPIO mode, level and bias resistor. | none |
 | `gpio_mode` | Claim LA channels as GPIO (input, output or open drain). | **`la`**, `mode=output`, `level` |
-| `gpio_write` | Set the level of GPIO output and open-drain channels. | **`la`**, **`level`** |
-| `gpio_read` | The live level of LA channels (all 14 when `la` is omitted). | `la` |
+| `gpio_write` | Set the level of GPIO output and open-drain channels (and EXT pins); `level` is one level or a list, one per channel. | **`la`**, **`level`** |
+| `gpio_read` | The live level of LA channels and EXT pins (all of them when `la` is omitted). | `la` |
 | `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout=5` |
 | `gpio_pulse` | FPGA-timed pulses on an LA channel: `width` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width`**, `count=1` |
-| `gpio_release` | Return channels to high-Z, watched by captures. | `la` |
+| `gpio_release` | Return channels to high-Z, watched by captures (EXT pins to input). | `la` |
+| `expansion` | Attach an I2C/SPI GPIO expander board (chips: `tca9555`, `pca9555`, `mcp23017`, `pcf8574`, `pcf8574a`, `pcf8575`, `tca6416a`, `tca6424a`, `mcp23s17`, `74hc595`, `74hc165`), report it, or detach it. Its pins become `EXT1`..`EXTn`, which `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait` and `gpio_release` take next to LA channels; `gpio_pulse`, triggers and `la_dir` refuse them. | `chip` (omit for the status), `detach=false`, `addr`, `sda`, `scl`, `spi` (`[sck, mosi, miso, cs]`), `load` (74hc165), `count` (chains), `hz`, `pullups`, `names` |
 | `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `connect` and `set_wiring` already send the wiring profile's; `from_wiring` sends them again; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
 
 ### Analog

@@ -22,6 +22,7 @@ EXPECTED_TOOLS = {
     "power_on", "power_off", "power_status", "reset_target",
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
+    "expansion",
     "flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "i2c_open", "i2c_transfer", "i2c_scan", "i2c_close", "la_dir",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",

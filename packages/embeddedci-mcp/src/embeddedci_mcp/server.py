@@ -29,6 +29,8 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from embeddedci.benchpod import (
+    EXPANSION_CHIPS,
+    ExtPinState,
     AdcSource,
     AnalogPath,
     AdcGainSource,
@@ -83,7 +85,8 @@ LaPin = Annotated[int, Field(ge=1, le=14, description="LA channel (1-14) the sig
 #: An LA channel given as a number or by the name the wiring profile gives it.
 LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(description=(
     "LA channel 1-14, or a name from the wiring profile — a signal ('READY') or a role "
-    "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."))]
+    "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also "
+    "take expander pins ('EXT1') once one is attached (expansion)."))]
 BiasPin = Annotated[int, Field(ge=1, le=8)]
 EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power rail: internal 5 V (efuse 1) or external (efuse 2).")]
 WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
@@ -287,8 +290,31 @@ def _fault(spec: Optional[m.FaultSpec]) -> Optional[Fault]:
 
 
 def _la(pod: Any, value: Any) -> int:
-    """An LA channel from a number 1-14 or a wiring-profile name."""
-    return pod.wiring.la(value) if isinstance(value, str) else int(value)
+    """An LA channel from a number 1-14 or a wiring-profile name. An expander pin (EXTn) is
+    refused with the reason this tool needs an LA channel."""
+    if isinstance(value, str):
+        resolve = getattr(pod, "_resolve_la", None)
+        return resolve(value)[0] if resolve is not None else pod.wiring.la(value)
+    return int(value)
+
+
+def _gpio_ref(pod: Any, value: Any) -> Union[int, str]:
+    """For the gpio_* tools: an LA channel number, or ``"EXTn"`` for an expander pin (by EXT
+    number or its name)."""
+    if isinstance(value, str):
+        n = pod._ext(value)
+        if n is not None:
+            return f"EXT{n}"
+    return _la(pod, value)
+
+
+def ext_pin_state(pin: Any) -> m.ExtPinResult:
+    return m.ExtPinResult(pin=pin.pin, name=pin.name, chip_pin=pin.chip_pin, addr=pin.addr,
+                          mode=pin.mode, level=pin.level, live=pin.live)
+
+
+def _any_pin_state(pin: Any) -> Union[m.LaPinResult, m.ExtPinResult]:
+    return ext_pin_state(pin) if isinstance(pin, ExtPinState) else pin_state(pin)
 
 
 def _is_esp_target(target: str) -> bool:
@@ -1373,10 +1399,12 @@ async def pull_status() -> m.PullStatusResult:
 
 # -- LA pin ownership + GPIO ---------------------------------------------------------------
 
-GpioChannels = Annotated[List[LaRef], Field(min_length=1, max_length=14, description=(
-    "LA channels as numbers 1-14 or wiring-profile names."))]
-OptionalGpioChannels = Annotated[Optional[List[LaRef]], Field(max_length=14, description=(
-    "LA channels as numbers 1-14 or wiring-profile names."))]
+GpioChannels = Annotated[List[LaRef], Field(min_length=1, max_length=256, description=(
+    "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or "
+    "their names) once an expander is attached (expansion)."))]
+OptionalGpioChannels = Annotated[Optional[List[LaRef]], Field(max_length=256, description=(
+    "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or "
+    "their names) once an expander is attached (expansion)."))]
 
 
 @mcp.tool(annotations=_ann("LA pin functions", read_only=True))
@@ -1444,23 +1472,30 @@ async def gpio_mode(
     """
     def op() -> m.GpioPinsResult:
         pod = SESSION.require()
-        las = [_la(pod, ch) for ch in la]
-        # configure_gpio sends the whole list in one command, which the pod validates as a unit —
-        # so a conflict on any channel leaves every channel as it was.
-        return m.GpioPinsResult(pins=[pin_state(p) for p in pod.configure_gpio(las, mode, level=level)])
+        las = [_gpio_ref(pod, ch) for ch in la]
+        # configure_gpio sends the LA channels in one command, which the pod validates as a unit —
+        # so a conflict on any channel leaves every channel as it was. EXT pins follow.
+        return m.GpioPinsResult(pins=[_any_pin_state(p)
+                                      for p in pod.configure_gpio(las, mode, level=level)])
 
     return await _call(op)
 
 
 @mcp.tool(annotations=_ann("Drive GPIO channels", destructive=True, idempotent=True))
-async def gpio_write(la: GpioChannels, level: GpioLevel) -> m.GpioWriteResult:
-    """Set the level of GPIO output / open-drain channels (all of them in one pod command).
+async def gpio_write(
+    la: GpioChannels,
+    level: Annotated[Union[Literal[0, 1], List[Literal[0, 1]]], Field(description=(
+        "0 = low; 1 = high (open_drain: released). One level for every channel, or a list with "
+        "one level per channel."))],
+) -> m.GpioWriteResult:
+    """Set the level of GPIO output / open-drain channels (LA channels in one pod command per
+    level; EXT pins in one bus transaction per expander chip).
 
     The channels must already be in an output or open_drain mode (gpio_mode).
     """
     def op() -> m.GpioWriteResult:
         pod = SESSION.require()
-        las = [_la(pod, ch) for ch in la]
+        las = [_gpio_ref(pod, ch) for ch in la]
         pod.set_gpio(las, level)
         return m.GpioWriteResult(la=las, level=level)
 
@@ -1469,15 +1504,24 @@ async def gpio_write(la: GpioChannels, level: GpioLevel) -> m.GpioWriteResult:
 
 @mcp.tool(annotations=_ann("Read pin levels", read_only=True))
 async def gpio_read(la: OptionalGpioChannels = None) -> m.GpioReadResult:
-    """The live level (0/1) of LA channels — omit `la` for all 14.
+    """The live level (0/1) of LA channels and expander pins — omit `la` for all 14 LA channels
+    and every EXT pin.
 
     Works whatever owns a channel; a GPIO input is the usual way to watch a DUT output.
     """
     def op() -> m.GpioReadResult:
         pod = SESSION.require()
-        levels = pod.pin_levels()
-        wanted = sorted(levels) if la is None else [_la(pod, ch) for ch in la]
-        return m.GpioReadResult(levels=[m.PinLevel(la=ch, level=levels[ch]) for ch in wanted])
+        if la is None:
+            out = [m.PinLevel(la=ch, level=v) for ch, v in sorted(pod.pin_levels().items())]
+            if pod._expansion is not None:
+                out += [m.PinLevel(la=p.pin, level=p.live) for p in pod.expansion().pins
+                        if p.live is not None]
+            return m.GpioReadResult(levels=out)
+        refs = [_gpio_ref(pod, ch) for ch in la]
+        levels = pod.pin_levels() if any(isinstance(r, int) for r in refs) else {}
+        return m.GpioReadResult(levels=[
+            m.PinLevel(la=r, level=levels[r] if isinstance(r, int) else pod.read_gpio(r))
+            for r in refs])
 
     return await _call(op)
 
@@ -1489,14 +1533,15 @@ async def gpio_wait(
     timeout: Annotated[float, Field(ge=0, le=600, description="Seconds to wait.")] = 5.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.GpioWaitResult:
-    """Wait until an LA channel reads `level` (reached=false when the timeout passes first).
+    """Wait until an LA channel or EXT pin reads `level` (reached=false when the timeout passes
+    first).
 
     Polled from this host, so it resolves to a few milliseconds plus the round trip — for precise
     timing use a triggered capture (capture_la trigger_la) and la_timing instead.
     """
     def op() -> m.GpioWaitResult:
         pod = SESSION.require()
-        ch = _la(pod, la)
+        ch = _gpio_ref(pod, la)
         start = time.monotonic()
         reached = pod.wait_for_level(ch, level, timeout=timeout)
         return m.GpioWaitResult(la=ch, level=level, reached=reached,
@@ -1520,7 +1565,7 @@ async def gpio_pulse(
     """
     def op() -> m.GpioPulseResult:
         pod = SESSION.require()
-        ch = _la(pod, la)
+        ch = _gpio_ref(pod, la)  # an EXT pin: la_step refuses it, saying why
         pod.la_step(ch, steps=count, delay=width)
         return m.GpioPulseResult(la=ch, count=count, width=width)
 
@@ -1529,16 +1574,83 @@ async def gpio_pulse(
 
 @mcp.tool(annotations=_ann("Release GPIO channels", idempotent=True))
 async def gpio_release(la: OptionalGpioChannels = None) -> m.GpioReleaseResult:
-    """Stop using channels as GPIO — they go back to high-Z, watched by captures.
+    """Stop using channels as GPIO — they go back to high-Z, watched by captures (EXT pins: input).
 
-    Omit `la` to release every GPIO channel (channels owned by other functions are left alone).
+    Omit `la` to release every GPIO channel and EXT pin (channels owned by other functions are left
+    alone).
     Do this before starting a UART session, flashing or emulating a sensor on those channels.
     """
     def op() -> m.GpioReleaseResult:
         pod = SESSION.require()
-        las = [] if la is None else [_la(pod, ch) for ch in la]
+        las = [] if la is None else [_gpio_ref(pod, ch) for ch in la]
         pod.release_gpio(*las)
         return m.GpioReleaseResult(released=las)
+
+    return await _call(op)
+
+
+# -- GPIO expanders ----------------------------------------------------------------------
+
+_CHIP_NAMES = ", ".join(c.name for c in EXPANSION_CHIPS)
+
+
+def _expansion_result(st: Any) -> m.ExpansionResult:
+    if not st.attached:
+        return m.ExpansionResult(attached=False, chips=[c.name for c in EXPANSION_CHIPS])
+    return m.ExpansionResult(attached=True, chip=st.chip, bus=st.bus, la=dict(st.la),
+                             addrs=list(st.addrs), count=st.count, hz=st.hz, pullups=st.pullups,
+                             pins=[ext_pin_state(p) for p in st.pins], notes=list(st.notes) or None)
+
+
+@mcp.tool(annotations=_ann("GPIO expander board", destructive=True, idempotent=True))
+async def expansion(
+    chip: Annotated[Optional[str], Field(description=(
+        f"The expander chip to attach: {_CHIP_NAMES}. Omit for the status (what is attached, its "
+        "pins' modes and live levels)."))] = None,
+    detach: Annotated[bool, Field(description=(
+        "Detach the expander: every EXT pin back to input, its bus released."))] = False,
+    addr: Annotated[Optional[Union[int, List[int]]], Field(description=(
+        "I2C chips: the 7-bit address (default the chip's first, 0x20 = 32), or a list for several "
+        "chips on one bus (EXT pins in that order). mcp23s17: hardware address 0-7."))] = None,
+    sda: Annotated[Optional[LaRef], Field(description="I2C SDA; omit for the wiring's i2c_sda.")] = None,
+    scl: Annotated[Optional[LaRef], Field(description="I2C SCL; omit for the wiring's i2c_scl.")] = None,
+    spi: Annotated[Optional[List[LaRef]], Field(min_length=4, max_length=4, description=(
+        "SPI chips: [sck, mosi, miso, cs]; omit for the wiring's spi_* roles. All four are needed: "
+        "a 74hc595's MISO and a 74hc165's MOSI are free pins."))] = None,
+    load: Annotated[Optional[LaRef], Field(description=(
+        "74hc165 only: the LA channel on SH/LD, pulsed low before each read."))] = None,
+    count: Annotated[Optional[int], Field(ge=1, le=32, description=(
+        "74hc595 / 74hc165: chips in the chain (8 pins each)."))] = None,
+    hz: Annotated[Optional[int], Field(ge=1, le=6_000_000, description=(
+        "Bus clock; default 400 kHz for I2C (100 kHz pcf8574), 1 MHz for SPI."))] = None,
+    pullups: Annotated[Optional[Literal["pod", "external"]], Field(description=(
+        "I2C pull-ups: pod (LA1-LA6 only, pull to 3.3 V, switched on here) or external (the "
+        "breakout's). Default pod at 3.3 V on LA1-LA6, else external."))] = None,
+    names: Annotated[Optional[Dict[str, str]], Field(description=(
+        "Names for the pins, {'EXT1': 'LED1', ...}; usable wherever EXTn is."))] = None,
+) -> m.ExpansionResult:
+    """Attach an I2C/SPI GPIO expander board, report it, or detach it.
+
+    Attaching checks the LA voltage, probes the chip, puts every pin in input and names the pins
+    EXT1..EXTn. Then gpio_mode, gpio_write, gpio_read, gpio_wait and gpio_release take 'EXTn' (or
+    the names) next to LA channels; a write to several EXT pins is one bus transaction per chip.
+    EXT pins are not FPGA-timed: gpio_pulse, la_step, capture triggers and la_dir refuse them.
+    The expander's bus closes on its own before flash, i2c_open and SPI tools; i2c_open on the same
+    two pins shares the bus with it.
+    """
+    def op() -> m.ExpansionResult:
+        pod = SESSION.require()
+        if detach:
+            if chip is not None:
+                raise ValueError("give chip or detach=true, not both")
+            return _expansion_result(pod.expansion(None))
+        if chip is None:
+            return _expansion_result(pod.expansion(
+                addr=addr, sda=sda, scl=scl, spi=spi, load=load, count=count, hz=hz,
+                pullups=pullups, names=names))
+        return _expansion_result(pod.expansion(chip, addr=addr, sda=sda, scl=scl, spi=spi,
+                                               load=load, count=count, hz=hz, pullups=pullups,
+                                               names=names))
 
     return await _call(op)
 

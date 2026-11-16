@@ -200,8 +200,33 @@ class LaPinResult(BaseModel):
 
 
 class PinLevel(BaseModel):
-    la: int
+    la: Union[int, str] = Field(description="LA channel 1-14, or an expander pin 'EXTn'.")
     level: int
+
+
+class ExtPinResult(BaseModel):
+    pin: str = Field(description="The expander pin, 'EXT1'..'EXTn'.")
+    name: Optional[str] = Field(None, description="Its name from expansion(names=...) or the wiring profile.")
+    chip_pin: str = Field(description="The pin on the chip: 'P07', 'GPB0', '2.QA'.")
+    addr: Optional[int] = Field(None, description="The chip's I2C address (MCP23S17: hardware address); null in a chain.")
+    mode: str = Field(description="none (unclaimed input), input, output or open_drain.")
+    level: Optional[int] = Field(None, description="Commanded level of an output / open-drain pin.")
+    live: Optional[int] = Field(None, description="The level read from the chip, when it was read.")
+
+
+class ExpansionResult(BaseModel):
+    attached: bool
+    chip: Optional[str] = None
+    bus: Optional[str] = Field(None, description="i2c or spi.")
+    la: Optional[Dict[str, int]] = Field(None, description=(
+        "The LA channels it uses: sda/scl, or sck/mosi/miso/cs (+ load for a 74hc165)."))
+    addrs: Optional[List[int]] = None
+    count: Optional[int] = Field(None, description="Chips in a shift-register chain.")
+    hz: Optional[int] = None
+    pullups: Optional[str] = Field(None, description="pod, external, or null for SPI.")
+    pins: Optional[List[ExtPinResult]] = None
+    notes: Optional[List[str]] = None
+    chips: Optional[List[str]] = Field(None, description="The chips that can be attached, when none is.")
 
 
 class LaPinsResult(BaseModel):
@@ -211,12 +236,13 @@ class LaPinsResult(BaseModel):
 
 
 class GpioPinsResult(BaseModel):
-    pins: List[LaPinResult] = Field(description="The channels this call configured or released.")
+    pins: List[Union[LaPinResult, ExtPinResult]] = Field(description=(
+        "The channels this call configured or released (expander pins as their EXT state)."))
 
 
 class GpioWriteResult(BaseModel):
-    la: List[int]
-    level: int
+    la: List[Union[int, str]]
+    level: Union[int, List[int]]
 
 
 class GpioReadResult(BaseModel):
@@ -224,7 +250,7 @@ class GpioReadResult(BaseModel):
 
 
 class GpioWaitResult(BaseModel):
-    la: int
+    la: Union[int, str]
     level: int
     reached: bool = Field(description="False means the timeout passed without the channel reaching level.")
     waited: float = Field(description="Seconds spent waiting.")
@@ -237,7 +263,8 @@ class GpioPulseResult(BaseModel):
 
 
 class GpioReleaseResult(BaseModel):
-    released: List[int] = Field(description="Channels released; empty list = every GPIO channel.")
+    released: List[Union[int, str]] = Field(description=(
+        "Channels released; empty list = every GPIO channel and every EXT pin."))
 
 
 # -- power -----------------------------------------------------------------------

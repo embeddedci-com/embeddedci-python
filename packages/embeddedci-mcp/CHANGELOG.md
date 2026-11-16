@@ -1,5 +1,15 @@
 # Changelog — `embeddedci-mcp`
 
+## 2.13.21
+
+- Needs embeddedci 2.13.21. New `expansion` tool: attach an I2C/SPI GPIO expander board
+  (TCA9555, PCA9555, MCP23017, PCF8574/8574A/8575, TCA6416A, TCA6424A, MCP23S17, 74HC595 and
+  74HC165 chains), report it, or detach it. Its pins are `EXT1`..`EXTn` (or names given with
+  `names`).
+- `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait` and `gpio_release` take EXT pins next to LA
+  channels; `gpio_write` also takes a list of levels, one per channel; `gpio_read` without `la`
+  includes every EXT pin. `gpio_pulse` refuses EXT pins with the reason.
+
 ## 2.13.20
 
 - Needs embeddedci 2.13.20: tools on a cloud pod ask again when the pod answers "device busy"

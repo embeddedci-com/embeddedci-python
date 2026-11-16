@@ -1099,7 +1099,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1122,7 +1122,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1716,6 +1716,219 @@
       "type": "object"
     }
   },
+  "expansion": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "GPIO expander board"
+    },
+    "input": {
+      "properties": {
+        "addr": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "I2C chips: the 7-bit address (default the chip's first, 0x20 = 32), or a list for several chips on one bus (EXT pins in that order). mcp23s17: hardware address 0-7.",
+          "title": "Addr"
+        },
+        "chip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The expander chip to attach: tca9555, pca9555, mcp23017, pcf8574, pcf8574a, pcf8575, tca6416a, tca6424a, mcp23s17, 74hc595, 74hc165. Omit for the status (what is attached, its pins' modes and live levels).",
+          "title": "Chip"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "maximum": 32,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "74hc595 / 74hc165: chips in the chain (8 pins each).",
+          "title": "Count"
+        },
+        "detach": {
+          "default": false,
+          "description": "Detach the expander: every EXT pin back to input, its bus released.",
+          "title": "Detach",
+          "type": "boolean"
+        },
+        "hz": {
+          "anyOf": [
+            {
+              "maximum": 6000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bus clock; default 400 kHz for I2C (100 kHz pcf8574), 1 MHz for SPI.",
+          "title": "Hz"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "74hc165 only: the LA channel on SH/LD, pulsed low before each read.",
+          "title": "Load"
+        },
+        "names": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Names for the pins, {'EXT1': 'LED1', ...}; usable wherever EXTn is.",
+          "title": "Names"
+        },
+        "pullups": {
+          "anyOf": [
+            {
+              "enum": [
+                "pod",
+                "external"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "I2C pull-ups: pod (LA1-LA6 only, pull to 3.3 V, switched on here) or external (the breakout's). Default pod at 3.3 V on LA1-LA6, else external.",
+          "title": "Pullups"
+        },
+        "scl": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "I2C SCL; omit for the wiring's i2c_scl.",
+          "title": "Scl"
+        },
+        "sda": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "I2C SDA; omit for the wiring's i2c_sda.",
+          "title": "Sda"
+        },
+        "spi": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "maximum": 14,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SPI chips: [sck, mosi, miso, cs]; omit for the wiring's spi_* roles. All four are needed: a 74hc595's MISO and a 74hc165's MOSI are free pins.",
+          "title": "Spi"
+        }
+      },
+      "title": "expansionArguments",
+      "type": "object"
+    }
+  },
   "flash": {
     "annotations": {
       "destructiveHint": true,
@@ -1745,7 +1958,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1865,7 +2078,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1901,7 +2114,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1924,7 +2137,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -1977,7 +2190,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -2146,7 +2359,7 @@
     "input": {
       "properties": {
         "la": {
-          "description": "LA channels as numbers 1-14 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or their names) once an expander is attached (expansion).",
           "items": {
             "anyOf": [
               {
@@ -2158,9 +2371,9 @@
                 "type": "string"
               }
             ],
-            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
           },
-          "maxItems": 14,
+          "maxItems": 256,
           "minItems": 1,
           "title": "La",
           "type": "array"
@@ -2230,7 +2443,7 @@
               "type": "string"
             }
           ],
-          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion).",
           "title": "La"
         },
         "width": {
@@ -2272,9 +2485,9 @@
                     "type": "string"
                   }
                 ],
-                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
               },
-              "maxItems": 14,
+              "maxItems": 256,
               "type": "array"
             },
             {
@@ -2282,7 +2495,7 @@
             }
           ],
           "default": null,
-          "description": "LA channels as numbers 1-14 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or their names) once an expander is attached (expansion).",
           "title": "La"
         }
       },
@@ -2314,9 +2527,9 @@
                     "type": "string"
                   }
                 ],
-                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
               },
-              "maxItems": 14,
+              "maxItems": 256,
               "type": "array"
             },
             {
@@ -2324,7 +2537,7 @@
             }
           ],
           "default": null,
-          "description": "LA channels as numbers 1-14 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or their names) once an expander is attached (expansion).",
           "title": "La"
         }
       },
@@ -2352,7 +2565,7 @@
               "type": "string"
             }
           ],
-          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names.",
+          "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion).",
           "title": "La"
         },
         "level": {
@@ -2392,7 +2605,7 @@
     "input": {
       "properties": {
         "la": {
-          "description": "LA channels as numbers 1-14 or wiring-profile names.",
+          "description": "LA channels as numbers 1-14 or wiring-profile names, and expander pins 'EXT1'..'EXTn' (or their names) once an expander is attached (expansion).",
           "items": {
             "anyOf": [
               {
@@ -2404,21 +2617,35 @@
                 "type": "string"
               }
             ],
-            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
           },
-          "maxItems": 14,
+          "maxItems": 256,
           "minItems": 1,
           "title": "La",
           "type": "array"
         },
         "level": {
-          "description": "0 = low; 1 = high (open_drain: released).",
-          "enum": [
-            0,
-            1
+          "anyOf": [
+            {
+              "enum": [
+                0,
+                1
+              ],
+              "type": "integer"
+            },
+            {
+              "items": {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              "type": "array"
+            }
           ],
-          "title": "Level",
-          "type": "integer"
+          "description": "0 = low; 1 = high (open_drain: released). One level for every channel, or a list with one level per channel.",
+          "title": "Level"
         }
       },
       "required": [
@@ -2484,7 +2711,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -2507,7 +2734,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -2638,7 +2865,7 @@
                     "type": "string"
                   }
                 ],
-                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+                "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
               },
               "type": "array"
             },
@@ -3068,7 +3295,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -3091,7 +3318,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4442,7 +4669,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4473,7 +4700,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4508,7 +4735,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4531,7 +4758,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4577,7 +4804,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4624,7 +4851,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4659,7 +4886,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4682,7 +4909,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4734,7 +4961,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4776,7 +5003,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4811,7 +5038,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4834,7 +5061,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4876,7 +5103,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4906,7 +5133,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4941,7 +5168,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -4964,7 +5191,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -5052,7 +5279,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"
@@ -5075,7 +5302,7 @@
                   "type": "string"
                 }
               ],
-              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
             },
             {
               "type": "null"

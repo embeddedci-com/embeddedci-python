@@ -18,6 +18,8 @@ Wiring: the pod has 14 generic LA channels (LA1-LA14) and nothing is fixed. Call
 
 GPIO: each LA channel has one owner at a time. gpio_mode claims channels (input/output/open_drain), gpio_write drives them, gpio_read reads any channel's live level, gpio_wait polls for one, gpio_pulse emits FPGA-timed pulses, gpio_release frees them. Release a GPIO channel before uart_open, flash or sensor_start uses it, otherwise the pod refuses with "pin conflict: LA4 is in use by gpio; release it with gpio_release(la=[4])": the error names the tool that frees the channel (gpio_release, uart_close, sensor_stop); la_pins shows every channel's owner. Captures observe all 14 channels whatever owns them.
 
+More GPIOs: expansion(chip, addr, sda, scl) attaches an I2C/SPI expander breakout (tca9555, mcp23017, pcf8574, 74hc595, ...; expansion() lists them) on 2-5 LA channels and names its pins EXT1..EXTn. gpio_mode, gpio_write, gpio_read, gpio_wait and gpio_release then take 'EXTn' (or names given with names=) next to LA channels; each call is a bus transaction (milliseconds), so gpio_pulse, triggers and la_dir refuse EXT pins. expansion(detach=true) puts every EXT pin back to input.
+
 Typical flows:
 - Flash and boot: flash(file) then power_cycle_and_capture(until_regex) — with a wiring profile that is all; otherwise pass swclk, swdio, target, nreset and rx, tx.
 - SPI flash (a 25-series chip on four LA pins, wiring spi_sclk/spi_mosi/spi_miso/spi_cs): spi_flash_info to see it answers, then spi_flash_program(file, addr); hold_reset=true keeps the DUT off the bus. spi_transfer talks to any other SPI device.
