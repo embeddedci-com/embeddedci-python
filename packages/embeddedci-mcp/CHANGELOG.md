@@ -1,7 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 2.13.20
 
+- Needs embeddedci 2.13.20: tools on a cloud pod ask again when the pod answers "device busy"
+  (a server push or the web app's poll was ahead of them) instead of failing, and `adc_read`
+  reports microvolts on firmware 3.10.7 and later.
 - `embeddedci_mcp.cli_login` re-exports the SDK's `embeddedci.benchpod.cli_login` instead of
   keeping a copy, so the server and the SDK share one refresh of the `benchpod login` session.
 
