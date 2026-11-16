@@ -166,14 +166,28 @@ class WiringResult(BaseModel):
     """The bench's effective wiring profile: which DUT signal is on which LA channel."""
 
     source: str = Field(description=(
-        "Where the profile came from: server (stored on embeddedci.com for this pod, over the cloud "
-        "or, signed in, over the LAN/USB), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))
-    version: int = 1
-    la_voltage: float = Field(description="LA I/O-bank voltage the profile asks for, in volts.")
-    efuse: int = Field(description=(
-        "Target-power rail the tools default to: internal 5 V (efuse 1) or external (efuse 2)."))
+        "Where the profile came from: pod (a profile stored on the pod), file (BENCHPOD_WIRING), dict "
+        "(set_wiring, not saved), server (older firmware: the profile on embeddedci.com) or undefined "
+        "(nothing is wired)."))
+    version: int = 2
+    profile_name: str = Field("", description=(
+        "The pod profile this connection uses ('' when it came from elsewhere)."))
+    profile_rev: int = Field(0, description="That profile's revision on the pod when it was loaded.")
+    default_profile: Optional[str] = Field(None, description="The pod's default profile.")
+    profiles: List[Dict[str, Any]] = Field(default_factory=list, description=(
+        "The profiles stored on the pod: [{name, rev, bytes}]. Empty on firmware that stores none."))
+    unsaved_changes: List[str] = Field(default_factory=list, description=(
+        "Keys of this connection's profile that differ from the copy stored on the pod: lost on "
+        "disconnect unless saved (save_wiring)."))
+    hint: Optional[str] = Field(None, description="What to do next about saving, when anything.")
+    autosave: bool = Field(False, description="The server saves set_wiring's profile on the pod (--wiring-autosave).")
+    la_voltage: Optional[float] = Field(description=(
+        "LA I/O-bank voltage the profile asks for, in volts; null when it sets none."))
+    efuse: Optional[int] = Field(description=(
+        "Target-power rail the tools default to: internal 5 V (efuse 1) or external (efuse 2); null "
+        "when the profile sets none (pass efuse)."))
     uart_baud: int
-    i2c_address: int = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer.")
+    i2c_address: Optional[int] = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer; null when unset.")
     swd_nreset: bool
     swd_target: str
     pins: List[WiringPin] = Field(description="LA1-LA14 with what is wired to each and its bias resistor.")
@@ -181,7 +195,7 @@ class WiringResult(BaseModel):
     warnings: List[str] = Field(default_factory=list,
                                 description="Wiring that works but is risky (e.g. an I2C bus with no pull-up).")
     profile: Dict[str, Any] = Field(default_factory=dict, description="The profile as its JSON object.")
-    saved: bool = Field(False, description="set_wiring stored this profile on embeddedci.com.")
+    saved: bool = Field(False, description="This call stored the profile (on the pod, or on embeddedci.com for older firmware).")
     directions: Optional[str] = Field(None, description=(
         "'sent' when the pod has the profile's pin directions (la_dir: sent on connect and by "
         "set_wiring), else 'not sent: <why>' (older firmware, or a DUT output pin driven right now)."))
@@ -276,6 +290,8 @@ class GpioReleaseResult(BaseModel):
 # -- power -----------------------------------------------------------------------
 
 class PowerResult(BaseModel):
+    profile: Optional[str] = Field(None, description="The wiring profile the board was powered on with.")
+    la_voltage: Optional[float] = Field(None, description="The I/O voltage the profile set before power-on.")
     efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
     on: bool
     delay: Optional[float] = None

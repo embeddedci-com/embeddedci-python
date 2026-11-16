@@ -122,7 +122,8 @@ def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
     pins = wiring.pins()
     dirs = wiring.pin_dut_dirs()
     return m.WiringResult(
-        source=wiring.source, version=wiring.version, la_voltage=wiring.la_voltage,
+        source=wiring.source, version=wiring.version, profile_name=wiring.profile_name,
+        profile_rev=wiring.profile_rev, la_voltage=wiring.la_voltage,
         efuse=wiring.efuse, uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
         swd_nreset=wiring.swd_nreset, swd_target=wiring.swd_target,
         pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la), dut_dir=dirs.get(la))

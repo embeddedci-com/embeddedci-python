@@ -19,6 +19,7 @@ import inspect
 import json
 import os
 import re
+from dataclasses import replace
 import time
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar, Union
 
@@ -215,7 +216,24 @@ def _error_text(exc: BenchPodError) -> str:
     return f"{cmd}: {text}" if cmd else text
 
 
+def _coded_text(exc: BenchPodError) -> Optional[str]:
+    """A refusal with a stable error code, rendered with the catalog's fix for an agent."""
+    from embeddedci.benchpod.errors import error_catalog
+    code = getattr(exc, "code", "")
+    entry = error_catalog().get("codes", {}).get(code) if code else None
+    if not entry:
+        return None
+    values = getattr(exc, "values", {}) or {}
+    fill = lambda t: re.sub(r"\{([a-z0-9_]+)\}", lambda m: str(values.get(m.group(1), "?")), t)  # noqa: E731
+    cmd = getattr(exc, "cmd", None)
+    text = f"{code}: {fill(entry['message'])}; {fill(entry['fix']['mcp'])} (docs: {exc.docs_url})"
+    return f"{cmd}: {text}" if cmd else text
+
+
 def _tool_error(exc: BenchPodError) -> ToolError:
+    coded = _coded_text(exc)
+    if coded:
+        return ToolError(f"{type(exc).__name__}: {coded}")
     msg = f"{type(exc).__name__}: {_error_text(exc)}"
     hint = _refusal_hint(exc)
     return ToolError(f"{msg}. {hint}" if hint else msg)
@@ -430,6 +448,9 @@ async def connect(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage)."))] = None,
     lease_wait: Annotated[float, Field(ge=0, le=3600, description=(
         "Cloud only: seconds to wait when another run holds the shared device."))] = 30.0,
+    wiring_profile: Annotated[Optional[str], Field(description=(
+        "A wiring profile stored on the pod to use (the `wiring` tool lists them); omit for the "
+        "pod's default profile."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.StatusResult:
     """Open a BenchPod connection (closing any previous one and its sessions) and report status.
@@ -438,7 +459,8 @@ async def connect(
     or after the server's idle timeout (the next tool call then reconnects).
     """
     def op() -> m.StatusResult:
-        SESSION.connect(connection, la_voltage=la_voltage, lease_wait=lease_wait)
+        SESSION.connect(connection, la_voltage=la_voltage, lease_wait=lease_wait,
+                        wiring_profile=wiring_profile)
         try:
             return _status()
         except BaseException:
@@ -474,20 +496,56 @@ async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
 
 # -- wiring profile -------------------------------------------------------------------
 
+#: Changes that are never saved on their own (autosave): what can hurt a board, or a new board.
+_NEVER_AUTOSAVE = ("la_mv", "efuse", "swd_target")
+
+
+def _pod_wiring_state(pod: Any, result: m.WiringResult) -> m.WiringResult:
+    """The pod's stored profiles, what this connection has not saved, and the hint about it."""
+    result.autosave = SESSION.wiring_autosave
+    try:
+        listing = pod.wiring_profiles()
+    except BenchPodError:
+        return result   # firmware that stores no profiles
+    result.default_profile = listing.get("default")
+    result.profiles = list(listing.get("profiles") or [])
+    w = pod.wiring
+    names = {str(p.get("name")) for p in result.profiles}
+    stored = pod.stored_wiring(w.profile_name) if w.profile_name in names else None
+    cur, ref = w.to_dict(), (stored.to_dict() if stored is not None else {})
+    result.unsaved_changes = sorted(k for k in set(cur) | set(ref)
+                                    if k != "version" and cur.get(k) != ref.get(k))
+    if result.unsaved_changes:
+        target = w.profile_name or result.default_profile or "default"
+        result.hint = (f"not saved: the web app, CI and other connections still use profile {target!r}. "
+                       "Once the user confirms this wiring is right on the board, ask whether to save it: "
+                       "save_wiring() for this profile, save_wiring(name=...) for another board.")
+        roles = [k for k in result.unsaved_changes if k in ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl",
+                                                             "swd_swclk", "swd_swdio", "spi_sclk", "spi_mosi",
+                                                             "spi_miso", "spi_cs", "signals")]
+        if any(k in _NEVER_AUTOSAVE for k in result.unsaved_changes) or len(roles) >= 4:
+            result.hint += (" This looks like a different board (I/O voltage, power rail, SWD target or "
+                            "most pins changed): prefer save_wiring(name='<board>') over overwriting "
+                            f"{target!r}.")
+    return result
+
+
 @mcp.tool(annotations=_ann("Wiring profile", read_only=True))
 async def wiring() -> m.WiringResult:
     """Which DUT signal is on which LA channel — call this first, before any channel argument.
 
-    Returns the bench's effective profile: a 14-row pin table (what is wired to each channel and
-    its bias resistor), the named signals, the target-power rail, the UART baud and the SWD target,
-    plus warnings about risky wiring. Every tool whose channel, baud, rail or SWD arguments are
-    omitted takes them from this profile, and channel arguments accept these names.
+    Returns the profile this connection uses (normally a profile stored on the pod: profile_name,
+    the pod's default unless connect named another): a 14-row pin table, the named signals, the
+    power rail, the UART baud and the SWD target, warnings about risky wiring, the pod's stored
+    profiles and unsaved_changes (what set_wiring changed that is not stored yet). Every tool whose
+    channel, baud, rail or SWD arguments are omitted takes them from this profile; what the profile
+    does not set is undefined, and a tool that needs it says so: ask the user, never guess a pin.
     """
     def op() -> m.WiringResult:
         pod = SESSION.require()
         result = wiring_summary(pod.wiring)
         result.directions = pod.pin_directions_status
-        return result
+        return _pod_wiring_state(pod, result)
 
     return await _call(op)
 
@@ -495,39 +553,130 @@ async def wiring() -> m.WiringResult:
 @mcp.tool(annotations=_ann("Set the wiring profile", idempotent=True, cloud=True))
 async def set_wiring(
     profile: Annotated[Dict[str, Any], Field(description=(
-        "The profile as a JSON object (schema version 1): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
+        "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
         "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals "
-        "[{name, la, direction, active_low, description}]. Absent keys take their default; a pin "
-        "set to null is not wired."))],
+        "[{name, la, direction, active_low, description}]. What it leaves out is undefined (not "
+        "wired); a pin set to null is not wired. {\"version\": 1} objects fill in the reference bench."))],
     save: Annotated[bool, Field(description=(
-        "Also store the profile for this device on embeddedci.com (cloud devices only), so other "
-        "runs and the web UI see it. false = use it for this connection only."))] = False,
+        "Also store it on the pod (as save_wiring does). Default false: this connection only, unless "
+        "the server runs with --wiring-autosave."))] = False,
 ) -> m.WiringResult:
-    """Replace the wiring profile this connection uses (and optionally store it on embeddedci.com).
+    """Replace the wiring profile this connection uses. It is NOT stored on the pod unless save is
+    true (or the server autosaves): the result's unsaved_changes and hint say what is not stored.
 
     The profile is validated first: two roles or signals on one LA channel, an out-of-range pin or
-    an unknown key are rejected with a message naming every problem.
+    an unknown key are rejected with a message naming every problem. Autosave never stores a change
+    of the I/O voltage, the power rail or the SWD target: call save_wiring for those.
     """
     def op() -> m.WiringResult:
         pod = SESSION.require()
-        pod.wiring = Wiring.from_dict(profile)
-        if save:
+        before = pod.wiring
+        data = dict(profile)
+        data.setdefault("version", 2)
+        pod.wiring = replace(Wiring.from_dict(data), profile_name=before.profile_name,
+                             profile_rev=before.profile_rev, source="dict")
+        risky = any(before.to_dict().get(k) != pod.wiring.to_dict().get(k) for k in _NEVER_AUTOSAVE)
+        do_save = save or (SESSION.wiring_autosave and not risky)
+        if do_save:
             pod.save_wiring()
-        result = wiring_summary(pod.wiring, saved=save)
+        result = wiring_summary(pod.wiring, saved=do_save)
         # Assigning the profile sent its pin directions (la_dir) on firmware that has it.
         result.directions = pod.pin_directions_status
+        result = _pod_wiring_state(pod, result)
+        if SESSION.wiring_autosave and risky and not save:
+            result.hint = ("not autosaved: the I/O voltage, power rail or SWD target changed. " +
+                           (result.hint or "Call save_wiring once the user confirms it."))
         return result
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Save the wiring profile on the pod", idempotent=True, cloud=True))
+async def save_wiring(
+    name: Annotated[Optional[str], Field(description=(
+        "The pod profile to store it as (1-40 characters: a-z, 0-9, -). Default: the profile this "
+        "connection loaded, else the pod's default. Use a new name for a different board."))] = None,
+    profile: Annotated[Optional[Dict[str, Any]], Field(description=(
+        "A full profile to store instead of this connection's (schema version 2)."))] = None,
+) -> m.WiringResult:
+    """Store a wiring profile on the pod, where the web app, CI and every other connection see it.
+
+    Ask the user first: saving changes what everyone uses. Saving the profile this connection
+    loaded fails with BP0009 when someone else saved it meanwhile (load_wiring shows their version).
+    Saving never changes the pod's default profile (set_default_wiring does).
+    """
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        data = None
+        if profile is not None:
+            data = dict(profile)
+            data.setdefault("version", 2)
+        pod.save_wiring(data, name=name)
+        result = wiring_summary(pod.wiring, saved=True)
+        result.directions = pod.pin_directions_status
+        return _pod_wiring_state(pod, result)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Load a stored wiring profile", idempotent=True))
+async def load_wiring(
+    name: Annotated[Optional[str], Field(description="The pod profile to use; omit for the pod's default.")] = None,
+) -> m.WiringResult:
+    """Switch this connection to one of the pod's stored profiles (nothing on the pod changes).
+    Use it when the user says the bench is wired for another board, or after a BP0009 conflict."""
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        pod.load_wiring(name)
+        result = wiring_summary(pod.wiring)
+        result.directions = pod.pin_directions_status
+        return _pod_wiring_state(pod, result)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Set the default wiring profile", idempotent=True, cloud=True))
+async def set_default_wiring(
+    name: Annotated[str, Field(description="The pod profile every connection uses when it names none.")],
+) -> m.WiringResult:
+    """Make a stored profile the pod's default (ask the user: it changes what everyone gets)."""
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        pod.set_default_wiring(name)
+        result = wiring_summary(pod.wiring)
+        return _pod_wiring_state(pod, result)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Delete a stored wiring profile", destructive=True, cloud=True))
+async def delete_wiring(
+    name: Annotated[str, Field(description="The pod profile to delete (not the default).")],
+) -> m.WiringResult:
+    """Delete one of the pod's stored profiles. Ask the user first. The default cannot be deleted
+    (BP0013): make another one the default first."""
+    def op() -> m.WiringResult:
+        pod = SESSION.require()
+        pod.delete_wiring(name)
+        result = wiring_summary(pod.wiring)
+        return _pod_wiring_state(pod, result)
 
     return await _call(op)
 
 
 # -- power ----------------------------------------------------------------------------
 
-def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float]) -> m.PowerResult:
+def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
+                  wiring_profile: Optional[str] = None) -> m.PowerResult:
     pod = SESSION.require()
-    rail = pod.wiring.efuse if efuse is None else efuse
-    pod.target_power(rail, on=on, delay=delay)
-    return m.PowerResult(efuse=rail, on=on, delay=delay)
+    if on:
+        pod.power_on(efuse, delay=delay, wiring_profile=wiring_profile)
+    else:
+        pod.target_power(efuse, on=False, delay=delay)
+    w = pod.wiring
+    rail = w.efuse if efuse is None else efuse
+    return m.PowerResult(efuse=rail, on=on, delay=delay, profile=w.profile_name or None,
+                         la_voltage=w.la_voltage if on else None)
 
 
 @mcp.tool(annotations=_ann("Power target on", destructive=True, idempotent=True))
@@ -535,9 +684,15 @@ async def power_on(
     efuse: WiredEfuse = None,
     delay: Annotated[Optional[float], Field(description=(
         "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture)."))] = None,
+    wiring_profile: Annotated[Optional[str], Field(description=(
+        "A stored wiring profile to power the board with (it becomes this connection's profile); "
+        "omit to use the current one."))] = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail on. The result says which rail was used."""
-    return await _call(lambda: _switch_power(efuse, True, delay))
+    """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
+    (when the pod has none or another one), then the rail goes on, and the pod records the profile.
+    The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
+    a board that is already powered."""
+    return await _call(lambda: _switch_power(efuse, True, delay, wiring_profile))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))

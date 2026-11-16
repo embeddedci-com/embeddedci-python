@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import anyio
 import pytest
 
-from embeddedci.benchpod import BenchPod
+from embeddedci.benchpod import Wiring, BenchPod
 from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
 from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.transport.base import Transport
@@ -642,7 +642,13 @@ def fake_open(monkeypatch, fake_transport):
     def factory(connection, **kwargs):
         seen["connection"] = connection
         seen.update(kwargs)
-        return BenchPod(transport=fake_transport, lease=False, la_voltage=kwargs.get("la_voltage"))
+        # The fake bench is wired like the reference bench (version 2 profiles leave nothing wired
+        # by default); a test that names a stored profile gets the pod's lookup instead.
+        if kwargs.get("wiring_profile"):
+            return BenchPod(transport=fake_transport, lease=False, la_voltage=kwargs.get("la_voltage"),
+                            wiring_profile=kwargs["wiring_profile"])
+        return BenchPod(transport=fake_transport, lease=False, la_voltage=kwargs.get("la_voltage"),
+                        wiring=Wiring.preset())
 
     monkeypatch.setattr(session_mod, "BenchPod", factory)
     return seen

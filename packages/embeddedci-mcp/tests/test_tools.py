@@ -18,7 +18,7 @@ from conftest import call, without_caps
 
 EXPECTED_TOOLS = {
     "connect", "disconnect", "status", "set_la_voltage",
-    "wiring", "set_wiring",
+    "wiring", "set_wiring", "save_wiring", "load_wiring", "set_default_wiring", "delete_wiring",
     "power_on", "power_off", "power_status", "reset_target",
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
@@ -300,7 +300,8 @@ def test_disconnect(connected):
 # -- power + flash ---------------------------------------------------------------------
 
 def test_power_tools(connected):
-    assert call("power_on", efuse=1, delay=0.5) == {"efuse": 1, "on": True, "delay": 0.5}
+    assert call("power_on", efuse=1, delay=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
+                                                     "profile": None, "la_voltage": 3.3}
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
     assert status["internal"]["enabled"] is True and status["internal"]["bus_voltage"] == 5.01

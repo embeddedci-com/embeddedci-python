@@ -49,7 +49,7 @@ def test_wiring_reports_risky_wiring_as_warnings(connected):
 
 def test_wiring_defaults_when_the_bench_has_no_profile(connected):
     result = call("wiring")
-    assert result["source"] == "defaults" and result["efuse"] == 1
+    assert result["source"] == "preset" and result["efuse"] == 1   # the test bench: the reference preset
     assert {p["la"]: p["wired_to"] for p in result["pins"]}[5] == "uart_rx"
 
 
@@ -68,11 +68,11 @@ def test_set_wiring_rejects_an_invalid_profile(connected):
         call("set_wiring", profile={"uart_rx": 4, "uart_tx": 4})  # both roles on LA4
     with pytest.raises(ToolError, match="unknown key"):
         call("set_wiring", profile={"uart_rxx": 4})
-    assert SESSION.require().wiring.source == "defaults"  # nothing changed
+    assert SESSION.require().wiring.source == "preset"  # nothing changed
 
 
 def test_set_wiring_save_needs_a_cloud_device(connected):
-    with pytest.raises(ToolError, match="cloud device"):
+    with pytest.raises(ToolError, match="newer firmware"):
         call("set_wiring", profile=BENCH, save=True)
 
 
