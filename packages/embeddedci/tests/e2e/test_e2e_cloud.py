@@ -15,7 +15,7 @@ import pytest
 
 from embeddedci.benchpod import BenchPod
 
-from e2e_bench import FREE_LA, TOP_LA
+from e2e_bench import FREE_LA, TOP_LA, skip_if_dut_output
 from e2e_helpers import check_expected_board, require_analog
 
 # Not marked `hardware`: that gate wants --benchpod-connection, and this tier opens its own cloud
@@ -70,6 +70,7 @@ def test_adc_capture_over_the_tunnel(cloud):
 def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud, bench):
     """The point is that the command channel still answers while the tunnel is busy."""
     rx, tx = bench.free_la
+    skip_if_dut_output(cloud, rx, tx)
     with cloud.open_uart(rx=rx, tx=tx) as uart:
         assert cloud.power_status().internal.ok
         # Nothing is wired to these channels, so the content is not the point — but the session
@@ -100,6 +101,7 @@ def test_top_la_channels_over_the_cloud(cloud, bench):
     if len(cloud.la_pins()) < 14:
         pytest.skip("the pod firmware has 12 LA channels; LA13/LA14 need 3.1+")
     hi, lo = bench.top_la
+    skip_if_dut_output(cloud, hi, lo)
     try:
         cloud.gpio(hi, "output", level=1)
         cloud.gpio(lo, "output", level=0)

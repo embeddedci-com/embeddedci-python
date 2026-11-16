@@ -147,3 +147,11 @@ def missing_reason(bench: Bench, names: Sequence[str]) -> Optional[str]:
     parts = [f"needs {NEEDS[n][1]}; set {NEEDS[n][0]}" for n in missing]
     return ("; ".join(parts)
             + " (this bench set it to 'none': it wires every LA channel to the DUT)")
+
+
+def skip_if_dut_output(pod, *las: int) -> None:
+    """Skip a test that drives these channels when the pod has one marked a DUT output (the wiring
+    profile's directions, sent on connect): the pod refuses to drive it, and it must."""
+    taken = [p.la for p in pod.la_dir() if p.la in las and p.dir == "dut_output"]
+    if taken:
+        pytest.skip(f"LA{taken[0]} is a DUT output in this bench's wiring; the test drives it")
