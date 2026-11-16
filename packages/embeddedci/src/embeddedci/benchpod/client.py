@@ -40,6 +40,7 @@ from . import capture as _capture
 from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import esp as _esp
+from . import expansion as _expansion
 from . import flash as _flash
 from . import i2c as _i2c
 from . import i2c_master as _i2c_master
@@ -96,7 +97,7 @@ from .connection import resolve_connection
 from .errors import (BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error,
                      status_too_large)
 from .flash import FlashResult
-from .gpio import LA_DIRS, GpioPin, LaPinState
+from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
@@ -205,6 +206,15 @@ def _check_level(level: Any) -> int:
     return int(level)
 
 
+#: Why a call refuses an expander pin, by the argument it came in as.
+_EXT_PULSES = "pulses are timed by the FPGA, which drives LA channels only"
+_EXT_REFUSALS = {
+    "trigger": "captures and their triggers sample the LA channels only",
+    "send la": "a capture's send runs on the FPGA, which drives LA channels only",
+    "dir_la": _EXT_PULSES,
+}
+
+
 def _one_or_many(las: List[int]) -> Any:
     return las[0] if len(las) == 1 else las
 
@@ -306,6 +316,10 @@ class BenchPod:
         # The last I2CMaster this BenchPod opened, to tell its own open session from another
         # connection's when i2c_start is refused as busy.
         self._i2c_master_ref: Optional["weakref.ReferenceType[_i2c_master.I2CMaster]"] = None
+        # The last SpiSession open_spi() returned, so an expander can tell it holds the bus engine.
+        self._spi_session_ref: Optional["weakref.ReferenceType[_spi.SpiSession]"] = None
+        # The GPIO expander attached with expansion(), if any.
+        self._expansion: Optional[_expansion.Expansion] = None
         #: What happened to the wiring profile's pin directions the last time the SDK sent them on
         #: its own (on connect, on a new :attr:`wiring`): ``"sent"`` or ``"not sent: <why>"``.
         self.pin_directions_status = "not sent: not connected yet"
@@ -377,6 +391,7 @@ class BenchPod:
     def close(self) -> None:
         """Close the connection and release the cloud lease, if any. Idempotent."""
         try:
+            self._yield_expansion_bus()
             self._transport.close()
         finally:
             if self._lease is not None:
@@ -662,13 +677,21 @@ class BenchPod:
 
     def signal(self, name: str) -> GpioPin:
         """A :class:`~embeddedci.benchpod.gpio.GpioPin` for a named signal (or a role such as
-        ``"uart_tx"``) of the wiring profile. Nothing is sent to the pod until you use it."""
-        la, signal = self._resolve_la(name, "signal")
-        return GpioPin(self, la, signal=signal)
+        ``"uart_tx"``) of the wiring profile, or an :class:`~embeddedci.benchpod.gpio.ExtPin` for a
+        named expander pin. Nothing is sent to the pod until you use it."""
+        return self._gpio_pin(self._pin_refs(name)[0])
 
-    def _resolve_la(self, value: Any, name: str = "la") -> Tuple[int, Optional[Signal]]:
-        """An LA channel from 1-14 / a ``Pin`` / a wiring-profile name (role or signal)."""
+    def _resolve_la(self, value: Any, name: str = "la", why: str = "") -> Tuple[int, Optional[Signal]]:
+        """An LA channel from 1-14 / a ``Pin`` / a wiring-profile name (role or signal). An
+        expander pin is refused: ``why`` says why this call needs an LA channel."""
         if isinstance(value, str):
+            n = self._ext(value)
+            if n is not None:
+                exp = self._require_expansion()
+                reason = why or _EXT_REFUSALS.get(name, "this call works on LA channels 1-14 only")
+                raise _expansion.ExpansionError(
+                    f"{value} is an expander pin (EXT{n}, {exp.chip.name} pin "
+                    f"{exp.pin_state(n).chip_pin}), not an LA channel: {reason}")
             profile = self.wiring
             la = profile.la(value)
             key = value.strip().lower()
@@ -927,6 +950,7 @@ class BenchPod:
         ``assert result.ok`` yourself.
         """
         from_build = bool(build or repo or ref or artifact)
+        self._yield_expansion_bus()
         if from_build and file:
             raise ValueError("pass either file or a build (build/repo/ref/artifact), not both")
         if _esp.is_esp_target(target or self.wiring.swd_target):
@@ -1676,12 +1700,22 @@ class BenchPod:
         flash or an I2C session cannot run while a session is open.
         """
         self._require_capability("spi_master", "the SPI master")
+        self._yield_expansion_bus()
         if isinstance(mode, bool) or mode not in (0, 1, 2, 3):
             raise ValueError(f"mode must be 0, 1, 2 or 3, got {mode!r}")
         if mode in (1, 2):
             self._require_gateware(BUS_MASTER_GATEWARE, "SPI modes 1 and 2")
-        req = {"cmd": "spi_start", "sck": self._wired(sck, "spi_sclk"), "mosi": self._wired(mosi, "spi_mosi"),
-               "miso": self._wired(miso, "spi_miso"), "cs": self._wired(cs, "spi_cs"),
+        session = self._start_spi(self._wired(sck, "spi_sclk"), self._wired(mosi, "spi_mosi"),
+                                  self._wired(miso, "spi_miso"), self._wired(cs, "spi_cs"),
+                                  hz=hz, mode=mode)
+        self._spi_session_ref = weakref.ref(session)
+        return session
+
+    def _start_spi(self, sck: int, mosi: int, miso: int, cs: int, *, hz: int,
+                   mode: int) -> _spi.SpiSession:
+        """``spi_start`` on four resolved channels (open_spi, and an expander's own session)."""
+        self._require_capability("spi_master", "the SPI master")
+        req = {"cmd": "spi_start", "sck": sck, "mosi": mosi, "miso": miso, "cs": cs,
                "hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
         with _classified_errors():
@@ -1714,12 +1748,19 @@ class BenchPod:
         3.3 V, so the LA voltage must be 3.3 V); ``"external"`` when the board has its own. Needs
         gateware v55+. SWD, SPI and I2C sessions exclude each other.
         """
+        sda_i, scl_i = self._wired(sda, "i2c_sda"), self._wired(scl, "i2c_scl")
+        self._yield_expansion_bus()
+        i2c = self._start_i2c(sda_i, scl_i, hz=hz, pullups=pullups)
+        self._i2c_master_ref = weakref.ref(i2c)
+        return i2c
+
+    def _start_i2c(self, sda: int, scl: int, *, hz: int, pullups: str) -> _i2c_master.I2CMaster:
+        """``i2c_start`` on two resolved channels (open_i2c, and an expander's own session)."""
         check_choice(pullups, _i2c_master.PULLUPS, "pullups")
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= int(hz) <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
         self._require_gateware(BUS_MASTER_GATEWARE, "the I2C master")
-        req = {"cmd": "i2c_start", "sda": self._wired(sda, "i2c_sda"), "scl": self._wired(scl, "i2c_scl"),
-               "hz": int(hz), "pullups": pullups}
+        req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "hz": int(hz), "pullups": pullups}
         if req["sda"] == req["scl"]:
             raise ValueError("sda and scl must be different LA pins")
         try:
@@ -1729,9 +1770,7 @@ class BenchPod:
             if exc.firmware_message.startswith("i2c busy"):
                 exc.args = (self._i2c_busy_text(exc),)
             raise
-        i2c = _i2c_master.I2CMaster(self._classified_command, info)
-        self._i2c_master_ref = weakref.ref(i2c)
-        return i2c
+        return _i2c_master.I2CMaster(self._classified_command, info)
 
     def _i2c_busy_text(self, exc: FirmwareError) -> str:
         """The refusal of ``i2c_start`` while a session is open, naming who holds it: this
@@ -2738,7 +2777,8 @@ class BenchPod:
             if la is None or dir is None:
                 raise ValueError("give both la and dir, or neither to list every pin")
             check_choice(dir, LA_DIRS, "dir")
-            req["la"] = "all" if la == "all" else _one_or_many(self._resolve_las(la))
+            req["la"] = "all" if la == "all" else _one_or_many(self._resolve_las(
+                la, why="la_dir marks LA channels; an EXT pin's direction is its GPIO mode"))
             req["dir"] = dir
         with _classified_errors():
             data = self.command(req)
@@ -2808,7 +2848,9 @@ class BenchPod:
              level: Optional[int] = None) -> GpioPin:
         """Use an LA channel as GPIO and return its :class:`~embeddedci.benchpod.gpio.GpioPin`.
 
-        ``la`` is 1-14, a ``Pin`` or a wiring-profile name. ``mode``: ``output`` (push-pull, starts at
+        ``la`` is 1-14, a ``Pin`` or a wiring-profile name; with an expander attached
+        (:meth:`expansion`) also ``"EXT1"``..``"EXTn"`` or an EXT pin's name, which returns an
+        :class:`~embeddedci.benchpod.gpio.ExtPin`. ``mode``: ``output`` (push-pull, starts at
         ``level``, default 0), ``open_drain`` (0 pulls low, 1 releases; starts released) or ``input``.
         Raises :class:`~embeddedci.benchpod.errors.PinConflictError` when another function owns the
         channel, and :class:`~embeddedci.benchpod.errors.PullConflictError` when its engaged bias
@@ -2818,10 +2860,7 @@ class BenchPod:
         Use :meth:`gpio_pins` for several channels: it claims them as a group, so a conflict on one
         leaves the others untouched.
         """
-        la_i, signal = self._resolve_la(la)
-        pin = GpioPin(self, la_i, signal=signal)
-        pin.configure(mode, level=level)
-        return pin
+        return self.gpio_pins([la], mode, level=level)[0]
 
     def gpio_pins(self, las: Sequence[Union[Pin, int, str]], mode: GpioMode = "output", *,
                   level: Optional[int] = None) -> List[GpioPin]:
@@ -2836,30 +2875,53 @@ class BenchPod:
         claimed::
 
             reset, boot0 = bp.gpio_pins(["RESET", "BOOT0"], "open_drain")
-        """
-        resolved = [self._resolve_la(x) for x in (list(las) if isinstance(las, (list, tuple)) else [las])]
-        if not resolved:
-            raise ValueError("give at least one LA channel")
-        self._gpio_configure([la for la, _ in resolved], mode, level)
-        return [GpioPin(self, la, signal=signal) for la, signal in resolved]
 
-    def set_gpio(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]]], level: int) -> None:
-        """Set the level of a GPIO output or open-drain channel — or of several (a list) at once."""
-        las = self._resolve_las(la)
-        _check_level(level)
-        self._require_capability("la_pins", "GPIO")
-        with _classified_errors():
-            self.command({"cmd": "gpio", "la": _one_or_many(las), "level": int(level)})
+        EXT pins in the list are set up after the LA channels, in one bus transaction per chip.
+        """
+        refs = self._pin_refs(las)
+        self._gpio_configure_refs(refs, mode, level)
+        return [self._gpio_pin(r) for r in refs]
+
+    def set_gpio(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]]],
+                 level: Union[int, Sequence[int]]) -> None:
+        """Set the level of a GPIO output or open-drain channel — or of several (a list) at once.
+
+        ``level`` is one level for all of them, or a list with one level per channel. LA channels
+        take one command per distinct level; EXT pins one bus transaction per expander chip."""
+        refs = self._pin_refs(la)
+        if isinstance(level, (list, tuple)):
+            if len(level) != len(refs):
+                raise ValueError(f"give one level per channel: {len(refs)} channels, {len(level)} levels")
+            levels = [_check_level(v) for v in level]
+        else:
+            levels = [_check_level(level)] * len(refs)
+        by_level: Dict[int, List[int]] = {}
+        ext: List[Tuple[int, int]] = []
+        for (kind, n, _), lvl in zip(refs, levels):
+            if kind == "ext":
+                ext.append((n, lvl))
+            else:
+                by_level.setdefault(lvl, []).append(n)
+        if by_level:
+            self._require_capability("la_pins", "GPIO")
+            for lvl, las in by_level.items():
+                with _classified_errors():
+                    self.command({"cmd": "gpio", "la": _one_or_many(las), "level": lvl})
+        if ext:
+            self._require_expansion().set_levels([n for n, _ in ext], [v for _, v in ext])
 
     def read_gpio(self, la: Union[Pin, int, str]) -> int:
-        """The live level (0/1) of an LA channel, whatever its function."""
-        return self.pin_levels()[self._resolve_la(la)[0]]
+        """The live level (0/1) of an LA channel, whatever its function, or of an EXT pin."""
+        kind, n, _ = self._pin_refs(la)[0]
+        if kind == "ext":
+            return self._require_expansion().read([n])[0]
+        return self.pin_levels()[n]
 
     def pin_levels(self) -> Dict[int, int]:
         """The live level of every LA channel: ``{1: 0, 2: 1, …, 14: 0}``.
 
         Read straight from the pins (gateware >= v35); older gateware answers with the last sample of
-        a short logic capture instead.
+        a short logic capture instead. EXT pins are in :meth:`expansion`'s status.
         """
         if self.capabilities.gpio_read:
             with _classified_errors():
@@ -2871,7 +2933,8 @@ class BenchPod:
 
     def wait_for_level(self, la: Union[Pin, int, str], level: int, *, timeout: float,
                        poll: float = 0.005) -> bool:
-        """Wait until an LA channel reads ``level``; ``False`` if ``timeout`` seconds pass first.
+        """Wait until an LA channel (or an EXT pin) reads ``level``; ``False`` if ``timeout``
+        seconds pass first.
 
         Polled from the host, so it resolves a few milliseconds plus the round trip — for precise
         timing capture with a :class:`Trigger` and use the capture's timing helpers.
@@ -2879,29 +2942,73 @@ class BenchPod:
         _check_level(level)
         if timeout < 0 or poll <= 0:
             raise ValueError("timeout must be >= 0 and poll > 0 seconds")
-        la_i = self._resolve_la(la)[0]
+        kind, n, _ = self._pin_refs(la)[0]
+        if kind == "ext":
+            exp = self._require_expansion()
+            read: Callable[[], int] = lambda: exp.read([n])[0]
+        else:
+            read = lambda: self.pin_levels()[n]
         deadline = time.monotonic() + timeout
         while True:
-            if self.pin_levels()[la_i] == level:
+            if read() == level:
                 return True
             if time.monotonic() >= deadline:
                 return False
             time.sleep(poll)
 
     def release_gpio(self, *las: Union[Pin, int, str]) -> None:
-        """Stop using channels as GPIO — they go back to high-Z ("LA mode"). Without arguments every
-        GPIO channel is released; channels owned by other functions are left alone."""
-        self._require_capability("la_pins", "GPIO")
-        target: Any = "all" if not las else _one_or_many(self._resolve_las(list(las)))
-        with _classified_errors():
-            self.command({"cmd": "gpio", "la": target, "mode": "off"})
+        """Stop using channels as GPIO — they go back to high-Z ("LA mode"), EXT pins to input.
+        Without arguments every GPIO channel and every EXT pin is released; channels owned by other
+        functions are left alone."""
+        if not las:
+            self._require_capability("la_pins", "GPIO")
+            with _classified_errors():
+                self.command({"cmd": "gpio", "la": "all", "mode": "off"})
+            exp = self._expansion
+            if exp is not None:
+                used = [n for n, m in exp.modes.items() if m != "none"]
+                if used:
+                    exp.configure(used, "none", None)
+            return
+        refs = self._pin_refs(list(las))
+        la_list = [n for kind, n, _ in refs if kind == "la"]
+        ext = [n for kind, n, _ in refs if kind == "ext"]
+        if la_list:
+            self._require_capability("la_pins", "GPIO")
+            with _classified_errors():
+                self.command({"cmd": "gpio", "la": _one_or_many(la_list), "mode": "off"})
+        if ext:
+            self._require_expansion().configure(ext, "none", None)
 
     def configure_gpio(self, las: Sequence[Union[Pin, int, str]], mode: GpioMode = "output", *,
-                       level: Optional[int] = None) -> List[LaPinState]:
+                       level: Optional[int] = None) -> List[Any]:
         """Claim LA channels as GPIO in one command and return the pod's
         :class:`~embeddedci.benchpod.gpio.LaPinState` for each — the low-level form of
-        :meth:`gpio_pins`, for when you want what the pod reports rather than objects to drive."""
-        return self._gpio_configure(self._resolve_las(las), mode, level)
+        :meth:`gpio_pins`, for when you want what the pod reports rather than objects to drive.
+        An EXT pin's entry is an :class:`~embeddedci.benchpod.expansion.ExtPinState`."""
+        return self._gpio_configure_refs(self._pin_refs(las), mode, level)
+
+    def _gpio_configure_refs(self, refs: List[Tuple[str, int, Optional[Signal]]], mode: str,
+                             level: Optional[int]) -> List[Any]:
+        ext = [n for kind, n, _ in refs if kind == "ext"]
+        la_list = [n for kind, n, _ in refs if kind == "la"]
+        exp = self._require_expansion() if ext else None
+        if exp is not None:  # refuse a mode the chip can't do before anything is claimed
+            check_choice(mode, GPIO_MODES, "mode")
+            if level is not None:
+                if mode == "input":
+                    raise ValueError("level only applies to an output or open_drain pin")
+                _check_level(level)
+            for n in ext:
+                exp._check_mode(n, mode)
+        by_la: Dict[int, LaPinState] = {}
+        if la_list:
+            by_la = {p.la: p for p in self._gpio_configure(la_list, mode, level)}
+        if exp is not None:
+            exp.configure(ext, mode, level)
+        return [exp.pin_state(n) if kind == "ext" and exp is not None
+                else by_la.get(n, LaPinState(la=n, function="gpio", gpio=mode, level=level))
+                for kind, n, _ in refs]
 
     def _gpio_configure(self, las: List[int], mode: str, level: Optional[int]) -> List[LaPinState]:
         check_choice(mode, GPIO_MODES, "mode")
@@ -2916,11 +3023,291 @@ class BenchPod:
         pins = [LaPinState.from_reply(e) for e in data.get("pins") or []]
         return pins or [LaPinState(la=la, function="gpio", gpio=mode, level=level) for la in las]
 
-    def _resolve_las(self, la: Any) -> List[int]:
+    def _resolve_las(self, la: Any, why: str = "") -> List[int]:
         items = list(la) if isinstance(la, (list, tuple)) else [la]
         if not items:
             raise ValueError("give at least one LA channel")
-        return [self._resolve_la(x)[0] for x in items]
+        return [self._resolve_la(x, why=why)[0] for x in items]
+
+    # -- GPIO expanders -------------------------------------------------------
+
+    def expansion(
+        self,
+        chip: Optional[str] = "",
+        *,
+        addr: Union[int, Sequence[int], None] = None,
+        sda: Union[Pin, int, str, None] = None,
+        scl: Union[Pin, int, str, None] = None,
+        spi: Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None] = None,
+        load: Union[Pin, int, str, None] = None,
+        count: Optional[int] = None,
+        hz: Optional[int] = None,
+        pullups: Optional[str] = None,
+        names: Union[Mapping[Any, str], Sequence[Optional[str]], None] = None,
+    ) -> "_expansion.ExpansionStatus":
+        """Attach a GPIO expander board, report it, or detach it.
+
+        ``expansion("tca9555", addr=0x20, sda=1, scl=2)`` attaches one: it checks the LA voltage is
+        one the chip runs at, probes the chip, puts every pin in input and names them
+        ``EXT1``..``EXTn``. From then on :meth:`gpio`, :meth:`gpio_pins`, :meth:`set_gpio`,
+        :meth:`read_gpio`, :meth:`wait_for_level`, :meth:`release_gpio` and :meth:`signal` take
+        ``"EXTn"`` (or the names) next to LA channels. ``expansion()`` returns the
+        :class:`~embeddedci.benchpod.expansion.ExpansionStatus` (chip, bus pins, each pin's mode and
+        live level); ``expansion(None)`` puts every pin back to input and detaches.
+        :data:`~embeddedci.benchpod.expansion.EXPANSION_CHIPS` lists the chips.
+
+        I2C chips: ``addr`` is the 7-bit address (default: the chip's first), or a list of them for
+        several chips on one bus (EXT pins numbered in that order); ``sda``/``scl`` default to the
+        wiring profile's ``i2c_sda``/``i2c_scl``, so the expander can share the DUT's bus.
+        ``pullups`` is ``"pod"`` (the pod's pull-ups on LA1-LA6, switched on here; they pull to 3.3 V)
+        or ``"external"`` (the breakout's own); by default ``"pod"`` when the LA voltage is 3.3 V and
+        both pins are on LA1-LA6. ``hz`` defaults to 400 kHz (the chip's limit when lower).
+
+        ``names`` names the pins: ``{"EXT1": "LED1", ...}`` or a list in EXT order. Omitted
+        arguments come from an ``expansion`` object in the wiring profile, when it has one
+        (``{"chip": "tca9555", "addr": "0x20", "sda": 1, "scl": 2, "names": {...}}``).
+
+        The SDK opens the bus on the first EXT access and keeps it open; it closes it on its own
+        before :meth:`flash`, :meth:`open_i2c`, :meth:`open_spi` and :meth:`close`. An
+        :meth:`open_i2c` session on the same two pins is used as it is. EXT pins are not
+        FPGA-timed: pulses, captures, triggers and :meth:`la_dir` refuse them.
+        """
+        exp = self._expansion
+        given = any(v is not None for v in (addr, sda, scl, spi, load, count, hz, pullups, names))
+        if chip == "":
+            if given:
+                raise ValueError("name the chip to attach, e.g. expansion('tca9555', addr=0x20)")
+            return exp.status() if exp is not None else _expansion.ExpansionStatus(attached=False)
+        if chip is None:
+            if given:
+                raise ValueError("expansion(None) detaches; it takes no other arguments")
+            self._detach_expansion()
+            return _expansion.ExpansionStatus(attached=False)
+        info = _expansion.expansion_chip(chip)
+        block = self._wiring_expansion(info)
+        lv = self.get_la_voltage().voltage
+        if lv is None:
+            raise _expansion.ExpansionError("set the LA voltage first (set_la_voltage(3.3) or 1.8): "
+                                            "the expander runs at the LA voltage")
+        if not any(abs(lv - v) < 0.05 for v in info.voltages):
+            ok = " or ".join(f"{v:g} V" for v in info.voltages)
+            raise _expansion.ExpansionError(
+                f"the {info.name} does not run at the LA voltage {lv:g} V (it needs {ok}); pick a chip "
+                "for this voltage (EXPANSION_CHIPS lists them) or change the LA voltage")
+        default_hz = min(400_000 if info.bus == "i2c" else 1_000_000, info.max_hz)
+        hz_i = int(hz if hz is not None else block.get("hz") or default_hz)
+        if isinstance(hz, bool) or hz_i <= 0 or hz_i > info.max_hz:
+            raise ValueError(f"hz must be 1..{info.max_hz} for the {info.name}, got {hz!r}")
+        names_arg = names if names is not None else block.get("names")
+        pull: Optional[str] = None
+        if info.bus == "i2c":
+            if spi is not None or load is not None or (count not in (None, 1)):
+                raise ValueError(f"the {info.name} is an I2C chip: spi, load and count do not apply")
+            sda_i = self._wired(sda if sda is not None else block.get("sda"), "i2c_sda")
+            scl_i = self._wired(scl if scl is not None else block.get("scl"), "i2c_scl")
+            if sda_i == scl_i:
+                raise ValueError("sda and scl must be different LA pins")
+            la_map = {"sda": sda_i, "scl": scl_i}
+            addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
+            n_chips = 1
+            pull = pullups if pullups is not None else block.get("pullups")
+            if pull is None:
+                pull = "pod" if abs(lv - 3.3) < 0.05 and sda_i <= 6 and scl_i <= 6 else "external"
+            check_choice(pull, _i2c_master.PULLUPS, "pullups")
+            if pull == "pod" and (abs(lv - 3.3) >= 0.05 or sda_i > 6 or scl_i > 6):
+                raise _expansion.ExpansionError(
+                    "pullups='pod' needs the LA voltage at 3.3 V and both pins on LA1-LA6 (the pod's "
+                    "pull-ups pull to 3.3 V and only LA1-LA6 have them); use pullups='external' "
+                    "with pull-ups on the breakout")
+        else:
+            if sda is not None or scl is not None or pullups is not None:
+                raise ValueError(f"the {info.name} is an SPI chip: sda, scl and pullups do not "
+                                 "apply (give spi=(sck, mosi, miso, cs))")
+            la_map = self._expansion_spi_pins(info, spi if spi is not None else block.get("spi"))
+            load_v = load if load is not None else block.get("load")
+            if info.name == "74hc165":
+                if load_v is None:
+                    raise ValueError("the 74hc165 needs load=<LA channel> wired to SH/LD (pulsed "
+                                     "low before each read)")
+                la_map["load"] = self._resolve_la(load_v, "load")[0]
+            elif load_v is not None:
+                raise ValueError(f"load only applies to the 74hc165, not the {info.name}")
+            if len(set(la_map.values())) != len(la_map):
+                raise ValueError("each SPI signal (and load) needs its own LA pin: "
+                                 + ", ".join(f"{k}=LA{v}" for k, v in la_map.items()))
+            count_v = count if count is not None else block.get("count")
+            if info.chained:
+                if addr is not None:
+                    raise ValueError(f"a {info.name} chain has no address: give count= instead")
+                n_chips = 1 if count_v is None else count_v
+                if isinstance(n_chips, bool) or not isinstance(n_chips, int) or not \
+                        1 <= n_chips <= _expansion.CHAIN_MAX:
+                    raise ValueError(f"count is the chips in the chain, 1..{_expansion.CHAIN_MAX}, "
+                                     f"got {count_v!r}")
+                addrs = []
+            else:
+                if count_v not in (None, 1):
+                    raise ValueError(f"count is for shift-register chains; give several "
+                                     f"{info.name} addresses with addr=[...] instead")
+                n_chips = 1
+                addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
+        self._detach_expansion()
+        new = _expansion.Expansion(self, info, addrs=addrs, count=n_chips, la=la_map,
+                                   hz=hz_i, pullups=pull, names={})
+        new.names = _expansion.parse_names(names_arg, new.total)
+        self._check_expansion_names(new)
+        if "load" in la_map:
+            self._gpio_configure([la_map["load"]], "output", 1)
+            new.load_claimed = True
+        if pull == "pod":
+            self.enable_pullup(la_map["sda"], la_map["scl"])
+            new.pod_pullups = (la_map["sda"], la_map["scl"])
+        self._expansion = new
+        try:
+            new.attach()
+        except BaseException:
+            self._expansion = None
+            try:
+                new.release_bus()
+                if new.pod_pullups:
+                    self.disable_pullup(*new.pod_pullups)
+                if new.load_claimed:
+                    self.release_gpio(la_map["load"])
+            except Exception:
+                pass
+            raise
+        return new.status()
+
+    def _detach_expansion(self) -> None:
+        exp, self._expansion = self._expansion, None
+        if exp is None:
+            return
+        try:
+            exp.detach()
+        finally:
+            if exp.load_claimed:
+                self.release_gpio(exp.la["load"])
+            if exp.pod_pullups:
+                mine = self._i2c_master_ref() if self._i2c_master_ref is not None else None
+                if mine is None or mine.closed:  # the user's own session still needs them
+                    self.disable_pullup(*exp.pod_pullups)
+
+    def _yield_expansion_bus(self) -> None:
+        """Close the expander's own bus session so the pod's SWD/SPI/I2C engine is free."""
+        exp = getattr(self, "_expansion", None)
+        if exp is not None:
+            exp.release_bus()
+
+    def _wiring_expansion(self, info: "_expansion.ExpansionChip") -> Dict[str, Any]:
+        """The wiring profile's ``expansion`` object when it is for this chip, else ``{}``."""
+        try:
+            block = self.wiring.extra.get("expansion")
+        except Exception:
+            return {}
+        if not isinstance(block, Mapping):
+            return {}
+        named = block.get("chip")
+        if named is not None and _expansion.expansion_chip(str(named)).name != info.name:
+            return {}
+        return dict(block)
+
+    def _expansion_spi_pins(self, info: "_expansion.ExpansionChip", spi: Any) -> Dict[str, int]:
+        """``spi`` as ``{"sck", "mosi", "miso", "cs"}``: a 4-tuple, a mapping, or None for the wiring
+        profile's ``spi_sclk``/``spi_mosi``/``spi_miso``/``spi_cs``."""
+        keys = ("sck", "mosi", "miso", "cs")
+        roles = ("spi_sclk", "spi_mosi", "spi_miso", "spi_cs")
+        if spi is None:
+            values: List[Any] = [None] * 4
+        elif isinstance(spi, Mapping):
+            unknown = set(spi) - set(keys)
+            if unknown:
+                raise ValueError(f"spi takes the keys sck, mosi, miso, cs; got {sorted(unknown)}")
+            values = [spi.get(k) for k in keys]
+        elif isinstance(spi, (list, tuple)) and len(spi) == 4:
+            values = list(spi)
+        else:
+            raise ValueError("spi is (sck, mosi, miso, cs) or {'sck': .., 'mosi': .., 'miso': .., "
+                             "'cs': ..}; the pod's SPI master needs all four pins (a 74HC595's MISO "
+                             "and a 74HC165's MOSI can be any free pin)")
+        return {k: self._wired(v, role) for k, v, role in zip(keys, values, roles)}
+
+    @staticmethod
+    def _expansion_addrs(info: "_expansion.ExpansionChip", addr: Any) -> List[int]:
+        items = list(addr) if isinstance(addr, (list, tuple)) else [addr]
+        out: List[int] = []
+        for a in items:
+            if a is None:
+                a = info.addrs[0]
+            if not info.addrs:  # pragma: no cover - chains never get here
+                raise ValueError(f"the {info.name} has no address")
+            if isinstance(a, str):
+                try:
+                    a = int(a, 0)
+                except ValueError:
+                    raise ValueError(f"addr {a!r} is not a number") from None
+            if isinstance(a, bool) or not isinstance(a, int) or a not in info.addrs:
+                lo, hi = info.addrs[0], info.addrs[-1]
+                what = "hardware addresses" if info.bus == "spi" else "addresses"
+                raise ValueError(f"the {info.name} has {what} 0x{lo:02x}..0x{hi:02x}, got {a!r}")
+            if a in out:
+                raise ValueError(f"addr 0x{a:02x} is listed twice")
+            out.append(a)
+        return out
+
+    def _check_expansion_names(self, exp: "_expansion.Expansion") -> None:
+        try:
+            w = self.wiring
+        except Exception:
+            return
+        taken = {s.name.lower() for s in w.signals} | {k for k, _ in w.assignments()}
+        clash = sorted(n for n in exp.names.values() if n.lower() in taken)
+        if clash:
+            raise ValueError(f"names: {', '.join(clash)} already name LA channels in the wiring profile")
+
+    def _require_expansion(self) -> "_expansion.Expansion":
+        if self._expansion is None:
+            raise _expansion.ExpansionError("no expander is attached: attach one with "
+                                            "bp.expansion('tca9555', addr=0x20, sda=1, scl=2)")
+        return self._expansion
+
+    def _expansion_pin_state(self, n: int) -> "_expansion.ExtPinState":
+        exp = self._require_expansion()
+        return exp.pin_state(n, exp.read([n])[0])
+
+    def _ext(self, value: Any) -> Optional[int]:
+        """The EXT number ``value`` names, or ``None`` when it is not an expander pin."""
+        exp = getattr(self, "_expansion", None)
+        if exp is not None:
+            return exp.resolve(value)
+        n = _expansion.ext_index(value)
+        if n is not None and not any(sig.name.lower() == str(value).strip().lower()
+                                     for sig in self.wiring.signals):
+            raise _expansion.ExpansionError(
+                f"{value} is an expander pin, and no expander is attached: attach one with "
+                "bp.expansion('tca9555', addr=0x20, sda=1, scl=2)")
+        return None
+
+    def _pin_refs(self, la: Any) -> List[Tuple[str, int, Optional[Signal]]]:
+        """Each of ``la`` (one or a list) as ``("la", channel, signal)`` or ``("ext", n, None)``."""
+        items = list(la) if isinstance(la, (list, tuple)) else [la]
+        if not items:
+            raise ValueError("give at least one LA channel")
+        out: List[Tuple[str, int, Optional[Signal]]] = []
+        for x in items:
+            n = self._ext(x) if isinstance(x, str) else None
+            if n is not None:
+                out.append(("ext", n, None))
+            else:
+                la_i, signal = self._resolve_la(x)
+                out.append(("la", la_i, signal))
+        return out
+
+    def _gpio_pin(self, ref: Tuple[str, int, Optional[Signal]]) -> GpioPin:
+        kind, n, signal = ref
+        if kind == "ext":
+            exp = self._require_expansion()
+            return ExtPin(self, n, name=exp.names.get(n))
+        return GpioPin(self, n, signal=signal)
 
     # -- power profiles -------------------------------------------------------
 
@@ -2997,10 +3384,11 @@ class BenchPod:
                              f"(half the step period), got {delay!r}")
         if direction not in (0, 1):
             raise ValueError(f"direction must be 0 or 1, got {direction!r}")
-        req: Dict[str, Any] = {"cmd": "la", "la": self._resolve_la(la)[0], "steps": int(steps),
+        req: Dict[str, Any] = {"cmd": "la", "la": self._resolve_la(la, why=_EXT_PULSES)[0],
+                               "steps": int(steps),
                                "delay_us": delay_us}
         if dir_la is not None:
-            req["dir_la"] = self._resolve_la(dir_la, "dir_la")[0]
+            req["dir_la"] = self._resolve_la(dir_la, "dir_la", why=_EXT_PULSES)[0]
             req["direction"] = int(direction)
         return _dict(self.command(req))
 

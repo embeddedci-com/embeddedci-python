@@ -172,3 +172,60 @@ class GpioPin:
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"GpioPin({self.name}, la={self.la})"
+
+
+class ExtPin(GpioPin):
+    """One expander pin (``EXT1``..``EXTn``) used as GPIO: what :meth:`BenchPod.gpio` and
+    :meth:`BenchPod.signal` return for an EXT pin or its name once an expander is attached
+    (:meth:`BenchPod.expansion`). The same methods as :class:`GpioPin`, each one bus transaction;
+    :meth:`pulse` is refused (pulses are FPGA-timed on LA channels only). :attr:`la` is ``None``."""
+
+    def __init__(self, pod: "BenchPod", ext: int, *, name: Optional[str] = None) -> None:
+        super().__init__(pod, 0)
+        self.la = None  # type: ignore[assignment]
+        #: ``n`` of ``EXTn``.
+        self.ext = ext
+        #: ``"EXTn"``.
+        self.pin = f"EXT{ext}"
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name or self.pin
+
+    def configure(self, mode: Optional["GpioMode"] = None, *, level: Optional[int] = None) -> Any:
+        """Put the pin in ``mode`` (default ``input``) and return its
+        :class:`~embeddedci.benchpod.expansion.ExtPinState`."""
+        return self._pod.configure_gpio([self.pin], mode or "input", level=level)[0]
+
+    def set(self, level: int) -> None:
+        self._pod.set_gpio(self.pin, level)
+
+    def read(self) -> int:
+        """The pin's live level (0/1), read from the expander."""
+        return self._pod.read_gpio(self.pin)
+
+    def wait_for(self, level: int, *, timeout: float, poll: float = 0.005) -> bool:
+        return self._pod.wait_for_level(self.pin, level, timeout=timeout, poll=poll)
+
+    def pulse(self, width: float, *, count: int = 1) -> None:
+        from .expansion import ExpansionError
+
+        raise ExpansionError(f"{self.name} is an expander pin: pulses are timed by the FPGA, which "
+                             "drives LA channels only. Use an LA channel for a pulse, or set() the "
+                             "pin high and low (each a bus transaction, a few milliseconds)")
+
+    def release(self) -> None:
+        """Stop driving the pin: it goes back to input."""
+        self._pod.release_gpio(self.pin)
+
+    def state(self) -> Any:
+        """The pin's current :class:`~embeddedci.benchpod.expansion.ExtPinState`, its live level
+        read from the expander."""
+        return self._pod._expansion_pin_state(self.ext)
+
+    def _level(self, *, active: bool) -> int:
+        return int(active)
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"ExtPin({self.name}, ext={self.ext})"

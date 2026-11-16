@@ -120,7 +120,15 @@ from .errors import (
     UnsupportedFeatureError,
 )
 from .flash import FlashResult
-from .gpio import GpioPin, LaPinState
+from .expansion import (
+    EXPANSION_CHIPS,
+    ExpansionChip,
+    ExpansionError,
+    ExpansionStatus,
+    ExtPinState,
+    expansion_chip,
+)
+from .gpio import ExtPin, GpioPin, LaPinState
 from .i2c import I2CByte, I2CMessage, I2CTransaction
 from .i2c_master import GpioSend, I2CMaster, I2CNackError, I2CResult, I2CSend, SendResult, SpiSend
 from .lease import DeviceLease
@@ -168,6 +176,14 @@ __all__ = [
     # LA pin modes + GPIO
     "GpioPin",
     "LaPinState",
+    # GPIO expanders
+    "EXPANSION_CHIPS",
+    "ExpansionChip",
+    "ExpansionError",
+    "ExpansionStatus",
+    "ExtPin",
+    "ExtPinState",
+    "expansion_chip",
     # power profiles
     "PowerProfile",
     "PowerProfileSession",

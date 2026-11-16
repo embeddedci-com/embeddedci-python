@@ -996,6 +996,111 @@ free channel the train owns it only while it runs. `pin_levels()` reads the pins
 v35+ and falls back to a short capture on older gateware. GPIO needs pod firmware that advertises
 `Capabilities.la_pins`.
 
+## GPIO expanders
+
+Need more GPIOs than the 14 LA channels, for LEDs, buttons, relays or a keypad? Wire an
+off-the-shelf I2C or SPI expander breakout to a few LA channels and attach it with
+`bp.expansion(...)`. Its pins become `EXT1`..`EXTn`, and the GPIO calls above take them next to the
+LA channels:
+
+```python
+bp.expansion("tca9555", addr=0x20, sda=1, scl=2)   # probes the chip: EXT1..EXT16, all inputs
+led = bp.gpio("EXT1", "output")                    # an ExtPin: set(), high(), low(), read(), ...
+led.high()
+bp.gpio_pins(["EXT2", "EXT3", "EXT4"], "output")
+bp.set_gpio(["EXT2", "EXT3", "EXT4"], [1, 0, 1])   # one level per pin: one bus transaction
+assert bp.wait_for_level("EXT9", 1, timeout=2.0)   # polled over the bus
+print(bp.expansion())                              # chip, bus pins, every pin's mode and level
+bp.expansion(None)                                 # every EXT pin back to input; bus released
+```
+
+`expansion(chip="", *, addr=None, sda=None, scl=None, spi=None, load=None, count=None, hz=None,
+pullups=None, names=None)` is the only call for expanders: with a chip name it attaches (checks the
+LA voltage is one the chip runs at, probes it, puts every pin in input, names the pins), with no
+arguments it returns the `ExpansionStatus`, and `expansion(None)` detaches.
+
+- `addr` is the chip's 7-bit I2C address (default: its first, 0x20), or a list of addresses for
+  several chips on one bus: `addr=[0x20, 0x21]` gives `EXT1`..`EXT32`, numbered in that order.
+- `sda` and `scl` default to the wiring profile's `i2c_sda` and `i2c_scl`, so the expander can sit
+  on the DUT's I2C bus.
+- `pullups`: `"pod"` switches on the pod's pull-ups (LA1-LA6 only; they pull to 3.3 V) and
+  `"external"` relies on the breakout's. By default `"pod"` when the LA voltage is 3.3 V and both
+  pins are on LA1-LA6, else `"external"`. At 1.8 V the breakout needs pull-ups to 1.8 V.
+- `hz` defaults to 400 kHz for I2C chips (100 kHz for the PCF8574) and 1 MHz for SPI chips.
+- SPI chips take `spi=(sck, mosi, miso, cs)` (or a dict with those keys) instead of `sda`/`scl`;
+  omitted, the wiring profile's `spi_sclk`, `spi_mosi`, `spi_miso` and `spi_cs`. The pod's SPI
+  master always takes four LA channels, so a 74HC595 chain's MISO and a 74HC165 chain's MOSI are
+  free pins with nothing connected. Several MCP23S17s share one CS by hardware address:
+  `addr=[0, 1]`.
+- Shift-register chains take `count`, the chips in the chain (1..32): `EXT1` is the first chip's
+  QA (74HC595: the chip MOSI feeds) or A (74HC165: the chip whose QH drives MISO). A 74HC595's CS
+  goes to RCLK, which latches the outputs as CS rises. A 74HC165 needs `load`, the LA channel on
+  SH/LD, which the SDK claims as a GPIO output and pulses low before each read; its CS goes to
+  CLK INH.
+- `names` names the pins: `{"EXT1": "LED1", "EXT9": "BUTTON"}` or a list in EXT order. A name works
+  wherever `"EXTn"` does, including `bp.signal("BUTTON")`.
+
+Power the breakout from the LA voltage: an expander on 5 V does not see 3.3 V as a reliable high.
+
+Omitted arguments also come from an `expansion` object in the wiring profile, which the SDK keeps as
+it is:
+
+```json
+{"i2c_sda": 1, "i2c_scl": 2,
+ "expansion": {"chip": "tca9555", "addr": "0x20", "names": {"EXT1": "LED1", "EXT2": "LED2"}}}
+```
+
+What EXT pins do:
+
+- `gpio`, `gpio_pins`, `configure_gpio`, `set_gpio`, `read_gpio`, `wait_for_level`, `release_gpio`
+  and `signal` take EXT pins and their names. `release_gpio()` with no arguments also releases
+  every EXT pin. A mixed list (`[5, "EXT1"]`) sets the LA channels first, then the EXT pins.
+- `set_gpio(pins, level)` takes one level, or a list with one level per pin (LA channels too). EXT
+  pins on one chip are written in one bus transaction, and only the registers that changed.
+- `open_drain` on an EXT pin switches the pin between output low (0) and input (1).
+- An EXT pin is one bus transaction per call, a few milliseconds over the LAN, not FPGA-timed:
+  `pulse()`, `la_step()`, capture triggers, a capture's `send` and `la_dir()` refuse EXT pins
+  with an `ExpansionError` that says why. `pin_levels()` stays LA-only; `expansion()` has the EXT
+  levels.
+
+The bus: SWD, SPI and the I2C master share one engine in the pod. The SDK opens the expander's bus
+on the first EXT access and keeps it open; it closes it on its own before `flash()`,
+`spi_flash()`, `open_i2c()`, `open_spi()` and `close()`, and opens it again when an EXT pin is next
+used. An `open_i2c()` session on the same two pins is used as it is, so the DUT and the expander
+share one bus; on other pins, or while an `open_spi()` session is open, EXT calls raise
+`ExpansionError` naming the session to close.
+
+`EXPANSION_CHIPS` lists every chip the SDK drives as `ExpansionChip` entries (`name`, `bus`,
+`pins` per chip, `la_pins` it uses, `addrs`, `voltages`, `directions`, `max_hz`, `since`,
+`aliases`, `note`, `chained`); `expansion_chip(name)` looks one up by name or alias.
+
+| Chip | Bus | LA pins | Pins gained | LA voltage | Directions |
+|---|---|---|---|---|---|
+| `tca9555` (also `tca9535`) | I2C 0x20-0x27 | 2 | 16 | 1.8 V, 3.3 V | in/out |
+| `pca9555` (also `pca9535`) | I2C 0x20-0x27 | 2 | 16 | 3.3 V | in/out |
+| `mcp23017` | I2C 0x20-0x27 | 2 | 16 | 1.8 V, 3.3 V | in/out |
+| `pcf8574` | I2C 0x20-0x27 | 2 | 8 | 3.3 V | quasi |
+| `pcf8574a` | I2C 0x38-0x3f | 2 | 8 | 3.3 V | quasi |
+| `pcf8575` | I2C 0x20-0x27 | 2 | 16 | 3.3 V | quasi |
+| `tca6416a` | I2C 0x20-0x21 | 2 | 16 | 1.8 V, 3.3 V | in/out |
+| `tca6424a` | I2C 0x22-0x23 | 2 | 24 | 1.8 V, 3.3 V | in/out |
+| `mcp23s17` | SPI, hardware address 0-7 | 4 | 16 | 1.8 V, 3.3 V | in/out |
+| `74hc595` | SPI chain (CS = latch) | 4 | 8 per chip | 3.3 V | out |
+| `74hc165` | SPI chain + `load` | 5 | 8 per chip | 3.3 V | in |
+
+Directions: `in/out` pins are inputs, push-pull outputs or open drain. `quasi` (PCF857x) pins
+have no push-pull high: a high output is a weak pull-up (about 100 µA) that can't drive a load, and
+an input is a high output that something else pulls low. A 74HC595 has outputs only (released is
+low, and `read_gpio` returns the last level written); a 74HC165 has inputs only. Shift registers
+don't answer, so attaching one can't probe it.
+
+`ExpansionStatus`: `attached`, `chip`, `bus`, `la` (the LA channels it uses, `{"sda": 1, "scl": 2}`),
+`addrs`, `count`, `hz`, `pullups`, `pins` (an `ExtPinState` each), `notes`, and `names` (the pin
+list, `["EXT1", ...]`). `ExtPinState`: `ext` (the n of EXTn), `pin` (`"EXT3"`), `name`, `chip_pin`
+(the pin on the chip: `"P02"`, `"GPB0"`), `addr`, `mode` (`none`, `input`, `output`,
+`open_drain`), `level` (the commanded level) and `live` (the level read from the chip). An
+`ExtPin` is a `GpioPin` with `ext` and `pin`; its `la` is `None`.
+
 ## Emulated sensors
 
 The pod can **play sensors** for the DUT: I2C, SPI and UART sensors on LA channels and analog
@@ -1996,9 +2101,10 @@ lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is 
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
 | I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
+| GPIO expanders | `expansion(chip="", *, addr=None, sda=None, scl=None, spi=None, load=None, count=None, hz=None, pullups=None, names=None)` (see [GPIO expanders](#gpio-expanders)) |
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
-| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)`, `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `pin_directions_status`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
+| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)` (`level` may be a list, one per channel), `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `pin_directions_status`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | Emulated sensors | `sensors` (a `SensorEmulation`: `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)`, `define()`, `validate()`, `set()`, `fault()`, `clear_fault()`, `load_stimulus()`, `start_stimulus()`, `stop_stimulus()`, `stop()`, `status()`, `regs()`, `capture()`, `i2c_transactions()`, `library()`); see [Emulated sensors](#emulated-sensors) |
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(..., send=None)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
@@ -2028,8 +2134,9 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
 | `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `dir`, `warn`, `warnings`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
+| `ExtPin` (class) | `gpio`, `gpio_pins`, `signal` on an EXT pin | a `GpioPin` with `ext`, `pin`; `la` is `None`; `pulse()` raises `ExpansionError` |
 | `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled`, `artifact` (the uploaded build, for `flash(build=...)`) |
-| `SpiSession` (class) | `open_spi` | `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
+| `SpiSession` (class) | `open_spi` | `closed`, `flash_id()`, `flash_read(addr, length)`, `flash_erase(addr, length)`, `flash_chip_erase()` (whole chip; seconds taken), `flash_write(addr, data)`, `flash_program(data, addr=0, *, erase=True, verify=True)` (erase, write and verify a whole image), `transfer(data)`, `stream(data, *, head=b"", hold_cs=False)`, `close()` |
 | `I2CMaster` (class) | `open_i2c` (a context manager) | `sda`, `scl`, `hz`, `pullups`, `xfer(addr, write=None, read=0)`, `write(addr, data)`, `read(addr, n)`, `write_read(addr, data, n)`, `read_reg(addr, reg, n=1)`, `write_reg(addr, reg, data)`, `probe(addr)`, `scan(start=0x08, end=0x77)`, `send(addr, write=None, read=0)` (an `I2CSend`), `status()`, `close()` |
 | `I2CResult` | `I2CMaster.xfer` | `addr`, `ack`, `data`, `nack_at`, `check()` (raises `I2CNackError` on a NACK) |
 | `I2CSend`, `SpiSend`, `GpioSend` | `capture_la(send=)` | `addr`, `write`, `read`; `tx`; `la`, `level`; `to_request()` |
