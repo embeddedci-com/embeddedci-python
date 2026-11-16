@@ -195,6 +195,17 @@ def test_calibrate_the_low_range_gain():
     assert t.commands[-1] == {"cmd": "calibrate", "adc": "cal1"}
 
 
+def test_adc_reading_uses_microvolts():
+    """Firmware 3.10.7+ sends uv: the low range resolves ~167 uV, which mv rounds away."""
+    r = AdcReading.from_reply({"source": "adc_ext", "mv": 2497, "uv": 2496583, "count": 1,
+                               "range": "low"})
+    assert r.voltage == pytest.approx(2.496583, abs=1e-9)
+    old = AdcReading.from_reply({"source": "adc_ext", "mv": 2497, "count": 1})
+    assert old.voltage == pytest.approx(2.497)
+    neg = AdcReading.from_reply({"source": "adc_ext", "mv": -1, "uv": -1234, "count": 1})
+    assert neg.voltage == pytest.approx(-0.001234)
+
+
 def test_models_from_older_firmware():
     r = AdcReading.from_reply({"source": "adc_ext", "mv": 100, "count": 1, "span": 2})
     assert r.range == "" and r.fullscale is None and not r.overrange

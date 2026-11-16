@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Cloud connections ask again when the pod answers "device busy". The pod runs one cloud command
+  at a time and refuses a second one with that error before running it, so a command that met a
+  server push or a browser's power poll failed for no reason. It now waits 0.3 s and retries, for
+  up to 15 s. Other "busy" errors (a capture running, the SWD probe in use) are raised as before.
+- `adc_read()` reads to the microvolt on firmware 3.10.7 and later (the reply's new `uv`).
+  `AdcReading.voltage` used whole millivolts, which rounded away most of what the low range
+  resolves (about 167 µV per count). Older firmware still gives millivolts.
+
 ## 2.13.19
 
 - `flash()` flashes an ESP32-family target (`target="esp32"`, `"esp32s3"`, `"ESP32-C3"`, ...) over

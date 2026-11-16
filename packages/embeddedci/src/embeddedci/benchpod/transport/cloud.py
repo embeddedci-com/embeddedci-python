@@ -38,6 +38,13 @@ from .base import request_timeout
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
 _RETRY_DELAYS = (0.5, 1.5)
+#: The pod runs one cloud command at a time and refuses a second with exactly this error,
+#: BEFORE running it (cloud_client.c), so any command can be sent again. The other side is
+#: usually a short server push (power reconcile, pin directions) or a browser's power poll.
+_DEVICE_BUSY = "device busy"
+_BUSY_RETRY_WAIT = 0.3
+#: How long one command keeps asking again while the pod answers "device busy".
+_BUSY_RETRY_BUDGET = 15.0
 _EDGE_ERRORS = {502, 503, 504, 520, 521, 522, 523, 524}
 #: The server's cap on how long one command-channel request may wait for the pod
 #: (benchpodCommandMaxTimeout).
@@ -416,6 +423,22 @@ class CloudTransport(TcpTransport):
             {"command": req, "timeout_ms": int(timeout * 1000)}
         ).encode("utf-8")
         cmd = req.get("cmd")
+        busy_until = time.monotonic() + _BUSY_RETRY_BUDGET
+        while True:
+            payload = self._command_once(url, body, req, cmd, timeout)
+            if (payload.get("status") == "error"
+                    and str(payload.get("error") or "").strip().lower() == _DEVICE_BUSY
+                    and time.monotonic() + _BUSY_RETRY_WAIT < busy_until):
+                time.sleep(_BUSY_RETRY_WAIT)
+                continue
+            break
+        if payload.get("status") == "error":
+            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd)
+        return payload.get("data")
+
+    def _command_once(self, url: str, body: bytes, req: dict, cmd: Any, timeout: float) -> dict:
+        """One POST of a command-channel request: the reply object, with its own retries for an
+        expired token and the edge errors a repeat is safe for."""
         attempt = 0
         renewed = False
         while True:
@@ -465,9 +488,7 @@ class CloudTransport(TcpTransport):
             raise TransportError(f"cloud command {cmd!r}: malformed reply from the server") from exc
         if not isinstance(payload, dict):
             raise TransportError(f"cloud command {cmd!r}: unexpected reply from the server")
-        if payload.get("status") == "error":
-            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd)
-        return payload.get("data")
+        return payload
 
     def close(self) -> None:
         # Each command/raw session owns its own tunnel; nothing persistent to release.
