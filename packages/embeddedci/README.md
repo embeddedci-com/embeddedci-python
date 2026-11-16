@@ -938,8 +938,7 @@ arrived and the oldest were dropped. Running commands such as `power_on` while a
 cloud connection.
 
 **Frame format.** The UART is 8N1 unless you pass `parity` (`"none"`, `"even"`, `"odd"`) or
-`stop_bits` (`1`, `2`) to `open_uart`, `capture_uart` or `power_cycle_and_capture`. Modbus RTU, for
-example, is 8E1 (or 8N2 without parity):
+`stop_bits` (`1`, `2`) to `open_uart`, `capture_uart` or `power_cycle_and_capture`:
 
 ```python
 with bp.open_uart(rx=PIN5, tx=PIN4, baud=19200, parity="even") as uart:   # 8E1
@@ -952,10 +951,14 @@ firmware the call raises `UnsupportedFeatureError` before anything is sent. The 
 stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
 `bp.status()["uart_rx_parity_error"]` turns true for the session.
 
+The LA pins are 1.8 V or 3.3 V only: the pod has no 5 V I/O and no RS-485 port. A 5 V UART needs a
+level shifter, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a 5 V
+transceiver behind a level shifter), between the pod and the device.
+
 **Binary protocols.** A session decodes what it receives as UTF-8, which suits a console. For bytes
-that are not text (Modbus RTU frames), open it with `encoding="latin-1"`: every byte is one
+that are not text (a binary protocol's frames), open it with `encoding="latin-1"`: every byte is one
 character, so `uart.read().encode("latin-1")` gives the bytes back unchanged, and a `bytes` write is
-sent as is. For 5 V serial, RS-485 wiring and a Modbus RTU test, see
+sent as is. For the adapter wiring and a Modbus RTU test through a transceiver, see
 [5 V logic and RS-485](https://www.embeddedci.com/docs/benchpod-5v-rs485).
 
 ## LA bias resistors

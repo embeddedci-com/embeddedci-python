@@ -1088,7 +1088,7 @@
         },
         "parity": {
           "default": "none",
-          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "enum": [
             "none",
             "even",
@@ -1122,7 +1122,7 @@
         },
         "stop_bits": {
           "default": 1,
-          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "description": "Stop bits after the data (and parity) bits.",
           "enum": [
             1,
             2
@@ -3369,7 +3369,7 @@
         },
         "parity": {
           "default": "none",
-          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "enum": [
             "none",
             "even",
@@ -3403,7 +3403,7 @@
         },
         "stop_bits": {
           "default": 1,
-          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "description": "Stop bits after the data (and parity) bits.",
           "enum": [
             1,
             2
@@ -5452,7 +5452,7 @@
         },
         "parity": {
           "default": "none",
-          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "enum": [
             "none",
             "even",
@@ -5486,7 +5486,7 @@
         },
         "stop_bits": {
           "default": 1,
-          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "description": "Stop bits after the data (and parity) bits.",
           "enum": [
             1,
             2

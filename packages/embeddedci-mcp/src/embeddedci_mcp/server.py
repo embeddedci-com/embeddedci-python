@@ -1120,9 +1120,9 @@ UartRx = Annotated[Optional[LaRef], Field(description=(
 UartTx = Annotated[Optional[LaRef], Field(description=(
     "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx."))]
 UartParity = Annotated[Literal["none", "even", "odd"], Field(description=(
-    "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware "
+    "Parity bit after the 8 data bits. Anything but 8N1 needs firmware "
     "3.10.8+ (gateware v56)."))]
-UartStopBits = Annotated[Literal[1, 2], Field(description="Stop bits (2 for Modbus RTU without parity).")]
+UartStopBits = Annotated[Literal[1, 2], Field(description="Stop bits after the data (and parity) bits.")]
 
 
 def _uart_frame(pod: Any, method: str, parity: str, stop_bits: int) -> Dict[str, Any]:
@@ -1204,7 +1204,8 @@ async def uart_open(
     Open it BEFORE an action whose output matters (power_on, reset_target), then uart_read; use
     uart_write to type into the DUT's console. The channels and baud come from the wiring profile
     when omitted; the result says which were used. The frame is 8N1 unless parity or stop_bits say
-    otherwise (Modbus RTU: parity "even", or stop_bits 2). A channel used as GPIO must be released
+    otherwise. The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter and an RS-485 bus
+    (Modbus RTU) an external RS-485 transceiver in between. A channel used as GPIO must be released
     first (gpio_release).
     """
     def op() -> m.UartSessionResult:

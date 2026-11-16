@@ -85,7 +85,7 @@ class UartSession:
         self._max_buffer = max_buffer
         self._chunk = chunk
         #: How received bytes become text, and text written becomes bytes. "latin-1" maps every
-        #: byte to one character and back, for binary protocols (Modbus RTU): ``read().encode("latin-1")``.
+        #: byte to one character and back, for binary protocols: ``read().encode("latin-1")``.
         self.encoding = encoding
         # Decoded incrementally, so a multi-byte character split across reads survives and the
         # read cursor is a character offset (invalid bytes become U+FFFD).

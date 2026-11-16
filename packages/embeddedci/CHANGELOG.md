@@ -3,12 +3,13 @@
 ## Unreleased
 
 - UART parity and stop bits: `open_uart`, `capture_uart` and `power_cycle_and_capture` take
-  `parity` (`"none"`, `"even"`, `"odd"`) and `stop_bits` (1, 2), for Modbus RTU (8E1, 8N2) and
-  other non-8N1 devices. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
+  `parity` (`"none"`, `"even"`, `"odd"`) and `stop_bits` (1, 2), for devices that are not 8N1 (8E1,
+  8N2, ...). The pod's I/O is 1.8/3.3 V only: a 5 V UART needs a level shifter, and Modbus RTU on
+  RS-485 an external RS-485 transceiver, between the pod and the device. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
   `uart_frame`); older firmware is refused with `UnsupportedFeatureError` before anything is sent.
   The USB console transport stays 8N1.
 - `open_uart(encoding=...)`: how the session turns bytes into text (default `"utf-8"`). Use
-  `"latin-1"` for binary protocols such as Modbus RTU: `uart.read().encode("latin-1")` gives the
+  `"latin-1"` for binary protocols: `uart.read().encode("latin-1")` gives the
   received bytes back unchanged.
 
 ## 3.0.0

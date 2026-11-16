@@ -1957,7 +1957,8 @@ class BenchPod:
         used by anything else) is refused with :class:`~embeddedci.benchpod.errors.PinConflictError`.
 
         The frame is 8N1 unless ``parity`` (``"none"``, ``"even"``, ``"odd"``) or ``stop_bits``
-        (1 or 2) say otherwise; Modbus RTU, for example, is 8E1 (or 8N2)::
+        (1 or 2) say otherwise. The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter, and
+        an RS-485 bus (Modbus RTU) an external RS-485 transceiver, between the pod and the device::
 
             with bp.open_uart(rx=5, tx=4, baud=19200, parity="even") as uart:
                 uart.write(request)
