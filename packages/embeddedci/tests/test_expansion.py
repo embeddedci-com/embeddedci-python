@@ -386,6 +386,8 @@ def test_ext_name_without_an_expander():
     bp = BenchPod(transport=ExpPod({}), wiring=Wiring())
     with pytest.raises(ExpansionError, match="no expander is attached"):
         bp.gpio("EXT1")
+    bp = BenchPod(transport=ExpPod({}), wiring=Wiring(signals=[Signal("EXT1", 9, "output")]))
+    assert bp.gpio("EXT1").la == 9                              # a wiring signal of that name
     with pytest.raises(ValueError, match="does not exist"):
         attach()[0].gpio("EXT17")
 

@@ -3280,7 +3280,8 @@ class BenchPod:
         if exp is not None:
             return exp.resolve(value)
         n = _expansion.ext_index(value)
-        if n is not None:
+        if n is not None and not any(sig.name.lower() == str(value).strip().lower()
+                                     for sig in self.wiring.signals):
             raise _expansion.ExpansionError(
                 f"{value} is an expander pin, and no expander is attached: attach one with "
                 "bp.expansion('tca9555', addr=0x20, sda=1, scl=2)")
