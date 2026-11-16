@@ -22,6 +22,7 @@ from ..errors import (
     ConnectionClosedError,
     ConnectionConfigError,
     FirmwareError,
+    UnsupportedFeatureError,
     TransportError,
     TransportTimeout,
 )
@@ -610,7 +611,12 @@ class SerialTransport(Transport):
         cmd = f"dap-start {swclk} {swdio}"
         return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)
 
-    def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
+    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
+                         stop_bits: int = 1) -> RawLink:
+        if parity != "none" or stop_bits != 1:
+            raise UnsupportedFeatureError(
+                "UART parity and stop bits need the network, the USB network or the cloud: the "
+                "USB console's uart-proxy is 8N1 only", feature="uart_frame")
         return self._console_raw_handshake(
             f"uart-proxy {rx} {tx} {baud}", UART_READY, quit_byte=CTRL_RBRACKET
         )

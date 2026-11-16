@@ -49,7 +49,8 @@ from . import i2c_master as _i2c_master
 from . import motor_emulator as _motor_emulator
 from . import spi as _spi
 from . import uart as _uart
-from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE, AffineCal, Capabilities
+from .capabilities import (ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE, UART_FRAME_FIRMWARE,
+                           AffineCal, Capabilities)
 from .constants import (
     ADC_SOURCE_PATHS,
     ADC_GAIN_SOURCES,
@@ -1860,24 +1861,43 @@ class BenchPod:
         baud: Optional[int] = None,
         duration: float,
         until: Optional[_uart.Until] = None,
+        parity: str = "none",
+        stop_bits: int = 1,
     ) -> _uart.UartCapture:
         """Capture the DUT's UART output for ``duration`` seconds.
 
         ``rx`` is the LA channel the pod samples (wire the DUT's TX here); ``tx`` is driven (the
         DUT's RX). ``until`` (substring / compiled regex / predicate) stops early on a match.
-        Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile.
+        Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile. ``parity``
+        (``"none"``, ``"even"``, ``"odd"``) and ``stop_bits`` (1 or 2) set the frame format, as in
+        :meth:`open_uart`.
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
-        link = self._uart_link(rx, tx, baud)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits)
         return _uart.capture(link, duration=duration, until=until)
 
-    def _uart_link(self, rx: Any, tx: Any, baud: Optional[int]) -> Any:
+    def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: str = "none",
+                   stop_bits: int = 1) -> Any:
+        if parity not in ("none", "even", "odd"):
+            raise ValueError(f"parity must be 'none', 'even' or 'odd', got {parity!r}")
+        if isinstance(stop_bits, bool) or stop_bits not in (1, 2):
+            raise ValueError(f"stop_bits must be 1 or 2, got {stop_bits!r}")
+        if parity != "none" or stop_bits != 1:
+            if not self.supports("uart_frame"):
+                fw = self.capabilities.firmware_version or "unknown"
+                raise UnsupportedFeatureError(
+                    f"UART parity and stop bits need firmware {UART_FRAME_FIRMWARE}+ (gateware v56; "
+                    f"this pod runs firmware {fw}): update the pod's firmware",
+                    feature="uart_frame", firmware_version=self.capabilities.firmware_version)
         rx_i = self._wired(rx, "uart_rx")
         tx_i = self._wired(tx, "uart_tx")
+        b = int(self.wiring.uart_baud if baud is None else baud)
         with _classified_errors():
-            return self._transport.uart_proxy_start(
-                rx_i, tx_i, int(self.wiring.uart_baud if baud is None else baud))
+            if parity == "none" and stop_bits == 1:
+                return self._transport.uart_proxy_start(rx_i, tx_i, b)
+            return self._transport.uart_proxy_start(rx_i, tx_i, b, parity=parity,
+                                                    stop_bits=stop_bits)
 
     def power_cycle_and_capture(
         self,
@@ -1890,6 +1910,8 @@ class BenchPod:
         baud: Optional[int] = None,
         until: Optional[_uart.Until] = None,
         off_settle: float = 0.3,
+        parity: str = "none",
+        stop_bits: int = 1,
     ) -> _uart.UartCapture:
         """Power-cycle the target while capturing its boot output.
 
@@ -1904,7 +1926,8 @@ class BenchPod:
         if off_settle:
             time.sleep(off_settle)
         self.power_on(efuse, delay=delay)
-        return self.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=until)
+        return self.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=until,
+                                 parity=parity, stop_bits=stop_bits)
 
     def open_uart(
         self,
@@ -1913,6 +1936,8 @@ class BenchPod:
         tx: Union[Pin, int, str, None] = None,
         baud: Optional[int] = None,
         max_buffer: int = 1 << 20,
+        parity: str = "none",
+        stop_bits: int = 1,
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
 
@@ -1928,8 +1953,20 @@ class BenchPod:
         Over the cloud, other commands run on the cloud command channel while a session is open.
         Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile. A channel in GPIO mode (or
         used by anything else) is refused with :class:`~embeddedci.benchpod.errors.PinConflictError`.
+
+        The frame is 8N1 unless ``parity`` (``"none"``, ``"even"``, ``"odd"``) or ``stop_bits``
+        (1 or 2) say otherwise; Modbus RTU, for example, is 8E1 (or 8N2)::
+
+            with bp.open_uart(rx=5, tx=4, baud=19200, parity="even") as uart:
+                uart.write(request)
+
+        Anything but 8N1 needs firmware 3.10.8+ (gateware v56, capability ``uart_frame``); older
+        firmware is refused with :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError`
+        before anything is sent. The receiver checks the parity bit and the first stop bit; a
+        byte with a wrong parity bit is still delivered, and ``status()["uart_rx_parity_error"]``
+        turns true for the session.
         """
-        link = self._uart_link(rx, tx, baud)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits)
         return _uart.UartSession(link, max_buffer=max_buffer)
 
     # -- SPI master / SPI flash ------------------------------------------------

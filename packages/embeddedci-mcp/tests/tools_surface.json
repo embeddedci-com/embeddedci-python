@@ -1086,6 +1086,17 @@
           "title": "Duration",
           "type": "number"
         },
+        "parity": {
+          "default": "none",
+          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "enum": [
+            "none",
+            "even",
+            "odd"
+          ],
+          "title": "Parity",
+          "type": "string"
+        },
         "rx": {
           "anyOf": [
             {
@@ -1108,6 +1119,16 @@
           "default": null,
           "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
           "title": "Rx"
+        },
+        "stop_bits": {
+          "default": 1,
+          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Stop Bits",
+          "type": "integer"
         },
         "tx": {
           "anyOf": [
@@ -3346,6 +3367,17 @@
           "title": "Off Settle",
           "type": "number"
         },
+        "parity": {
+          "default": "none",
+          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "enum": [
+            "none",
+            "even",
+            "odd"
+          ],
+          "title": "Parity",
+          "type": "string"
+        },
         "rx": {
           "anyOf": [
             {
@@ -3368,6 +3400,16 @@
           "default": null,
           "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
           "title": "Rx"
+        },
+        "stop_bits": {
+          "default": 1,
+          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Stop Bits",
+          "type": "integer"
         },
         "tx": {
           "anyOf": [
@@ -5408,6 +5450,17 @@
           "description": "UART baud rate; omit for the wiring profile's uart_baud.",
           "title": "Baud"
         },
+        "parity": {
+          "default": "none",
+          "description": "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "enum": [
+            "none",
+            "even",
+            "odd"
+          ],
+          "title": "Parity",
+          "type": "string"
+        },
         "rx": {
           "anyOf": [
             {
@@ -5430,6 +5483,16 @@
           "default": null,
           "description": "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx.",
           "title": "Rx"
+        },
+        "stop_bits": {
+          "default": 1,
+          "description": "Stop bits (2 for Modbus RTU without parity).",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Stop Bits",
+          "type": "integer"
         },
         "tx": {
           "anyOf": [

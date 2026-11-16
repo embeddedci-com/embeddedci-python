@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `uart_open`, `capture_uart` and `power_cycle_and_capture` take `parity` (`none`/`even`/`odd`)
+  and `stop_bits` (1/2); `uart_open` reports them. Needs firmware 3.10.8+ for anything but 8N1.
+
 ## 3.0.0
 
 - Needs embeddedci 3.0. Wiring profiles live on the pod: `wiring` lists them and reports

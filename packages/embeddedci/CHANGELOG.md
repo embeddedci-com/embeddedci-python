@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- UART parity and stop bits: `open_uart`, `capture_uart` and `power_cycle_and_capture` take
+  `parity` (`"none"`, `"even"`, `"odd"`) and `stop_bits` (1, 2), for Modbus RTU (8E1, 8N2) and
+  other non-8N1 devices. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
+  `uart_frame`); older firmware is refused with `UnsupportedFeatureError` before anything is sent.
+  The USB console transport stays 8N1.
+
 ## 3.0.0
 
 A major release: wiring profiles live on the pod, nothing is wired by default, and refusals carry

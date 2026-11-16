@@ -1119,6 +1119,20 @@ UartRx = Annotated[Optional[LaRef], Field(description=(
     "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx."))]
 UartTx = Annotated[Optional[LaRef], Field(description=(
     "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx."))]
+UartParity = Annotated[Literal["none", "even", "odd"], Field(description=(
+    "Parity bit after the 8 data bits; Modbus RTU uses even. Anything but 8N1 needs firmware "
+    "3.10.8+ (gateware v56)."))]
+UartStopBits = Annotated[Literal[1, 2], Field(description="Stop bits (2 for Modbus RTU without parity).")]
+
+
+def _uart_frame(pod: Any, method: str, parity: str, stop_bits: int) -> Dict[str, Any]:
+    """The frame-format keyword arguments for an SDK UART call: none for 8N1, so an older SDK
+    still works; refused when the SDK predates them."""
+    if parity == "none" and stop_bits == 1:
+        return {}
+    if "parity" not in inspect.signature(getattr(type(pod), method)).parameters:
+        raise ValueError("UART parity and stop bits need a newer embeddedci SDK; upgrade embeddedci")
+    return {"parity": parity, "stop_bits": stop_bits}
 
 
 @mcp.tool(annotations=_ann("Capture UART output"))
@@ -1128,15 +1142,23 @@ async def capture_uart(
     tx: UartTx = None,
     baud: WiredBaud = None,
     until_regex: Regex = None,
+    parity: UartParity = "none",
+    stop_bits: UartStopBits = 1,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Record the DUT's UART output for a fixed window (or until until_regex matches).
 
-    The channels and baud come from the wiring profile when omitted.
+    The channels and baud come from the wiring profile when omitted; the frame is 8N1 unless
+    parity or stop_bits say otherwise.
     """
     pattern = _compile(until_regex)
-    return await _call_reporting(ctx, "capturing UART", lambda: _uart_result(
-        SESSION.require().capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern)))
+
+    def op() -> m.UartCaptureResult:
+        pod = SESSION.require()
+        return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern,
+                                             **_uart_frame(pod, "capture_uart", parity, stop_bits)))
+
+    return await _call_reporting(ctx, "capturing UART", op)
 
 
 @mcp.tool(annotations=_ann("Power-cycle and capture boot log", destructive=True))
@@ -1149,17 +1171,24 @@ async def power_cycle_and_capture(
     baud: WiredBaud = None,
     until_regex: Regex = None,
     off_settle: Annotated[float, Field(ge=0, le=10)] = 0.3,
+    parity: UartParity = "none",
+    stop_bits: UartStopBits = 1,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Power the target off, then capture UART while it powers back on — the boot banner lands in the window.
 
-    The channels, baud and power rail come from the wiring profile when omitted.
+    The channels, baud and power rail come from the wiring profile when omitted; the frame is 8N1
+    unless parity or stop_bits say otherwise.
     """
     pattern = _compile(until_regex)
-    return await _call_reporting(ctx, "power-cycling", lambda: _uart_result(
-        SESSION.require().power_cycle_and_capture(rx=rx, tx=tx, efuse=efuse, delay=delay,
-                                                  duration=duration, baud=baud, until=pattern,
-                                                  off_settle=off_settle)))
+
+    def op() -> m.UartCaptureResult:
+        pod = SESSION.require()
+        return _uart_result(pod.power_cycle_and_capture(
+            rx=rx, tx=tx, efuse=efuse, delay=delay, duration=duration, baud=baud, until=pattern,
+            off_settle=off_settle, **_uart_frame(pod, "power_cycle_and_capture", parity, stop_bits)))
+
+    return await _call_reporting(ctx, "power-cycling", op)
 
 
 @mcp.tool(annotations=_ann("Open a UART session"))
@@ -1167,22 +1196,27 @@ async def uart_open(
     rx: UartRx = None,
     tx: UartTx = None,
     baud: WiredBaud = None,
+    parity: UartParity = "none",
+    stop_bits: UartStopBits = 1,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
     Open it BEFORE an action whose output matters (power_on, reset_target), then uart_read; use
     uart_write to type into the DUT's console. The channels and baud come from the wiring profile
-    when omitted; the result says which were used. A channel used as GPIO must be released first
-    (gpio_release).
+    when omitted; the result says which were used. The frame is 8N1 unless parity or stop_bits say
+    otherwise (Modbus RTU: parity "even", or stop_bits 2). A channel used as GPIO must be released
+    first (gpio_release).
     """
     def op() -> m.UartSessionResult:
         pod = SESSION.require()
         rx_i, tx_i = _channel(pod, rx, "uart_rx"), _channel(pod, tx, "uart_tx")
         rate = int(pod.wiring.uart_baud if baud is None else baud)
+        frame = _uart_frame(pod, "open_uart", parity, stop_bits)
         SESSION.close_uart()
-        SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate)
+        SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate, **frame)
         SESSION.uart_port = (rx_i, tx_i, rate)
-        return m.UartSessionResult(open=True, rx=rx_i, tx=tx_i, baud=rate)
+        return m.UartSessionResult(open=True, rx=rx_i, tx=tx_i, baud=rate,
+                                   parity=parity, stop_bits=stop_bits)
 
     return await _call(op)
 

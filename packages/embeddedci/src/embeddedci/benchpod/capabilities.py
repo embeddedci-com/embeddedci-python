@@ -86,6 +86,8 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
 #: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
 #: The first gateware with the I2C master, SPI modes 1 and 2 and send-and-capture.
 BUS_MASTER_GATEWARE = 55
+#: The first firmware with UART parity and stop bits (gateware v56, capability ``uart_frame``).
+UART_FRAME_FIRMWARE = "3.10.8"
 #: The first firmware with ``la_dir`` (pin directions).
 LA_DIR_FIRMWARE = (3, 10, 4)
 
@@ -193,6 +195,10 @@ class Capabilities:
     #: ``spi_stream``: send an upload staged in PSRAM through the SPI master in one CS frame
     #: (an FPGA bitstream): :meth:`SpiSession.stream <embeddedci.benchpod.spi.SpiSession.stream>`.
     spi_stream: bool = False
+    #: ``uart_frame``: the UART proxy takes a parity bit and two stop bits (gateware v56+,
+    #: firmware 3.10.8+): :meth:`BenchPod.open_uart` / :meth:`BenchPod.capture_uart` ``parity``,
+    #: ``stop_bits``.
+    uart_frame: bool = False
     #: The running gateware version (``status`` ``gateware``); 0 when not reported.
     gateware: int = 0
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
@@ -357,6 +363,7 @@ class Capabilities:
                 ("usb_cc", "usb_cc"),
                 ("spi_master", "spi_master"),
                 ("spi_stream", "spi_stream"),
+                ("uart_frame", "uart_frame"),
                 ("calibrate", "calibrate"),
                 ("cal_dmm", "cal_dmm"),
                 ("current_out", "current_out"),
@@ -431,6 +438,7 @@ class Capabilities:
             ("capture_b64", "cap.capture_b64"),
             ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
             ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
+            ("uart_frame", "cap.uart_frame"),
             ("calibrate", "cap.calibrate"), ("cal_dmm", "cap.cal_dmm"), ("current_out", "cap.current_out"),
             ("can", "cap.can"), ("pod_current", "cap.pod_current"),
             ("adc_low_range", "cap.adc_low_range"),

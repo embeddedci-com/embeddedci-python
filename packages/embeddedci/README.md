@@ -937,6 +937,22 @@ their match, so the next call only sees newer output. `text` and `lines` keep ev
 arrived and the oldest were dropped. Running commands such as `power_on` while a session is open needs a TCP or
 cloud connection.
 
+**Frame format.** The UART is 8N1 unless you pass `parity` (`"none"`, `"even"`, `"odd"`) or
+`stop_bits` (`1`, `2`) to `open_uart`, `capture_uart` or `power_cycle_and_capture`. Modbus RTU, for
+example, is 8E1 (or 8N2 without parity):
+
+```python
+with bp.open_uart(rx=PIN5, tx=PIN4, baud=19200, parity="even") as uart:   # 8E1
+    uart.write(request)
+```
+
+Anything but 8N1 needs firmware 3.10.8+ (gateware v56, `bp.supports("uart_frame")`); on older
+firmware the call raises `UnsupportedFeatureError` before anything is sent. The USB console
+(`usb` falling back to the serial console) is 8N1 only. The pod checks the parity bit and the first
+stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
+`bp.status()["uart_rx_parity_error"]` turns true for the session. For 5 V serial and RS-485 wiring
+see the [5 V logic and RS-485](https://embeddedci.com/docs/benchpod/5v-logic-rs485) page.
+
 ## LA bias resistors
 
 Eight LA channels carry a fixed, switchable bias resistor. They are referenced to 3V3, so the pod
@@ -2282,7 +2298,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |
