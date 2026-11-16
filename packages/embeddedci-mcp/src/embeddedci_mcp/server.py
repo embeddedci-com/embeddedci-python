@@ -291,6 +291,11 @@ def _la(pod: Any, value: Any) -> int:
     return pod.wiring.la(value) if isinstance(value, str) else int(value)
 
 
+def _is_esp_target(target: str) -> bool:
+    """``target`` names an ESP32-family chip (``esp32``, ``esp32s3``, ``ESP32-C3``)."""
+    return bool(re.fullmatch(r"esp32(-?(s2|s3|c2|c3|c5|c6|h2|p4))?", str(target).strip().lower()))
+
+
 def _channel(pod: Any, value: Any, key: str) -> int:
     """Like :func:`_la`, but an omitted channel comes from the profile's ``key`` role."""
     if value is not None:
@@ -810,10 +815,13 @@ async def flash(
     swdio: Annotated[Optional[LaRef], Field(description=(
         "LA channel (or wiring name) wired to the DUT's SWDIO; omit for the profile's swd_swdio."))] = None,
     target: Annotated[str, Field(description=(
-        "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target."))] = "",
+        "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. "
+        "'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM "
+        "bootloader instead of SWD."))] = "",
     file: Annotated[str, Field(description=(
         "Firmware image path on the machine running this server. Leave empty to flash an uploaded "
-        "build instead (build/repo/ref/artifact)."))] = "",
+        "build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool "
+        "merge_bin) or an ESP-IDF build/flasher_args.json."))] = "",
     nreset: Annotated[Optional[bool], Field(description=(
         "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
         "Omit for the profile's swd_nreset."))] = None,
@@ -840,6 +848,15 @@ async def flash(
     server_side: Annotated[Optional[bool], Field(description=(
         "With build: true has embeddedci.com run OpenOCD (the default on an 'embeddedci:<pod>' "
         "connection), false downloads the file and runs OpenOCD here (the default on LAN/USB)."))] = None,
+    rx: Annotated[Optional[LaRef], Field(description=(
+        "ESP32 only: LA channel (or wiring name) wired to the target's TXD0; omit for the "
+        "profile's uart_rx."))] = None,
+    tx: Annotated[Optional[LaRef], Field(description=(
+        "ESP32 only: LA channel (or wiring name) wired to the target's RXD0; omit for the "
+        "profile's uart_tx."))] = None,
+    boot: Annotated[Optional[LaRef], Field(description=(
+        "ESP32 only: LA channel (or wiring name) wired to the target's IO0 (IO9 on the C3/C6); "
+        "omit for a profile signal named BOOT, IO0 or IO9."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
     """Program the DUT over SWD through the pod's CMSIS-DAP probe.
@@ -850,6 +867,12 @@ async def flash(
     reset flag and the target config come from the wiring profile when omitted. A failed flash is a
     normal result (ok=false): read target_unreachable (unpowered, mis-wired or held in reset),
     stalled, and the log tails to decide what to change; `artifact` says which build was flashed.
+
+    With target 'esp32' (any ESP32-family name) the pod writes `file` through the target's UART
+    ROM bootloader instead: TXD0 on `rx`, RXD0 on `tx`, IO0 on `boot`, EN on the pod's reset pin
+    (`nreset`); `file` is a .bin written at `load_address` (default 0) or an ESP-IDF
+    flasher_args.json. No OpenOCD or esptool needed; works over the cloud too. stdout_tail names
+    the chip and each region written; `reset` false leaves the target in its loader.
     """
     from_build = {k: v for k, v in (("build", build), ("repo", repo), ("ref", ref),
                                     ("artifact", artifact)) if v}
@@ -858,6 +881,20 @@ async def flash(
 
     def op() -> m.FlashResult:
         pod = SESSION.require()
+        if _is_esp_target(target or pod.wiring.swd_target):
+            if from_build:
+                raise ValueError("an ESP32 target is flashed from a file (a .bin or "
+                                 "flasher_args.json), not an uploaded build")
+            if "boot" not in inspect.signature(type(pod).flash).parameters:
+                raise ValueError("flashing an ESP32 needs a newer embeddedci SDK; upgrade embeddedci")
+            r = pod.flash(target=target or pod.wiring.swd_target, file=file,
+                          load_address=load_address, nreset=nreset, reset=reset, check=False,
+                          rx=None if rx is None else _la(pod, rx),
+                          tx=None if tx is None else _la(pod, tx),
+                          boot=None if boot is None else _la(pod, boot))
+            return m.FlashResult(ok=r.ok, returncode=r.returncode, target_unreachable=False,
+                                 stalled=False, stdout_tail=clip(r.stdout, 4000)[-4000:],
+                                 stderr_tail=clip(r.stderr, 4000)[-4000:])
         if from_build and "build" not in inspect.signature(pod.flash).parameters:
             raise ValueError("flashing an uploaded build (build/repo/ref/artifact) needs a newer "
                              "embeddedci SDK; upgrade embeddedci, or pass file= with a local image")

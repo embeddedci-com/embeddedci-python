@@ -1732,6 +1732,29 @@
           "title": "Artifact",
           "type": "string"
         },
+        "boot": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's IO0 (IO9 on the C3/C6); omit for a profile signal named BOOT, IO0 or IO9.",
+          "title": "Boot"
+        },
         "build": {
           "default": "",
           "description": "Flash a build uploaded to embeddedci.com instead of a file: its build id (the upload's build_id output), or 'latest' for the newest one that matches repo/ref.",
@@ -1789,7 +1812,7 @@
         },
         "file": {
           "default": "",
-          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact).",
+          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool merge_bin) or an ESP-IDF build/flasher_args.json.",
           "title": "File",
           "type": "string"
         },
@@ -1828,6 +1851,29 @@
           "default": true,
           "title": "Reset",
           "type": "boolean"
+        },
+        "rx": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's TXD0; omit for the profile's uart_rx.",
+          "title": "Rx"
         },
         "server_side": {
           "anyOf": [
@@ -1890,7 +1936,7 @@
         },
         "target": {
           "default": "",
-          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target.",
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD.",
           "title": "Target",
           "type": "string"
         },
@@ -1917,6 +1963,29 @@
           "maximum": 3600,
           "title": "Timeout",
           "type": "number"
+        },
+        "tx": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ESP32 only: LA channel (or wiring name) wired to the target's RXD0; omit for the profile's uart_tx.",
+          "title": "Tx"
         },
         "verify": {
           "default": true,
