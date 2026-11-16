@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `embeddedci_mcp.cli_login` re-exports the SDK's `embeddedci.benchpod.cli_login` instead of
+  keeping a copy, so the server and the SDK share one refresh of the `benchpod login` session.
+
 ## 2.13.19
 
 - `flash` flashes an ESP32-family target when `target` names one (`esp32`, `esp32s3`, `esp32c3`,
