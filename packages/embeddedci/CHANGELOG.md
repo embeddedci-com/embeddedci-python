@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## 2.13.19
+
+- `flash()` flashes an ESP32-family target (`target="esp32"`, `"esp32s3"`, `"ESP32-C3"`, ...) over
+  its UART ROM bootloader, through the pod: no esptool and no USB cable to the target. `file` is a
+  `.bin` (placed at `load_address`, default 0) or an ESP-IDF `flasher_args.json` (every region and
+  its flash size). New arguments `rx`, `tx` (the target's TXD0 and RXD0) and `boot` (IO0, IO9 on the
+  C3/C6); they default to the wiring profile's `uart_rx` / `uart_tx` and a `BOOT` / `IO0` / `IO9`
+  signal. EN goes on the pod's reset pin (`nreset=True`) or an `EN` signal. Written at 460800 baud
+  and MD5-verified by the chip. Needs firmware 3.10.7.
+
 ## 2.13.18
 
 - Security: a redirect to another host (or from https to http) no longer carries the API key,
