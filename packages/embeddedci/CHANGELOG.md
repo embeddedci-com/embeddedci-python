@@ -2,6 +2,17 @@
 
 ## 3.0.1
 
+- **Pull resistors in the wiring profile:** `Wiring.pulls` lists the LA channels whose pull
+  resistor is on (`{"pulls": [1, 2]}`). `power_on()` switches exactly those on and the others off,
+  after the I/O voltage and before the rail; at 1.8 V, over the serial console, or without the key
+  it leaves them alone. The LA7/LA8 pull-down warnings only fire while that pull-down may be on.
+- **The I/O voltage comes from the profile:** on connect the SDK sets the pod's I/O voltage from
+  the pod's profile (`la_mv`) when the pod has none (no extra reads, never fails the connection,
+  never changes a voltage the pod has). Firmware 3.10.10+ also takes it from the profile itself on
+  the first LA operation. `la voltage not set` now says the profile sets no voltage and how to set
+  it there.
+- A pin's direction follows from what it is used for (a signal's `direction`); `dut_dirs` is still
+  honored for older profiles, but the web and desktop editors no longer write it.
 - `bp.diag()`: the pod's heap, per-task stacks, network-stack and console counters. Firmware 3.10.9
   moved them from `status` to the new `diag` command, so the full status keeps room under the
   2047 bytes a LAN connection takes in one reply; with older firmware `diag()` reads them from
