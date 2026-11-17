@@ -24,7 +24,9 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
-from .constants import PULL_OHMS, PULLDOWN_CHANNELS
+from .constants import PULL_OHMS, PULLDOWN_CHANNELS, PULLUP_CHANNELS
+
+PULL_CHANNELS = PULLUP_CHANNELS + PULLDOWN_CHANNELS
 
 WIRING_VERSION = 2
 #: The schema versions :meth:`Wiring.from_dict` reads: 1 (missing keys = the reference bench) and 2.
@@ -138,9 +140,18 @@ class Wiring:
     #: The DUT direction of a role or signal where its default is wrong: role key or signal name
     #: -> ``dut_input``, ``dut_output`` or ``bidir`` (see :meth:`pin_dut_dirs`).
     dut_dirs: Mapping[str, str] = field(default_factory=dict)
+    #: The LA channels whose pull resistor is on (LA1-LA8 have one each: LA1-LA6 pull up, LA7-LA8
+    #: pull down). :meth:`BenchPod.power_on` switches exactly these on and the others off before
+    #: the rail goes on. ``None``: the profile leaves the pull resistors as they are.
+    pulls: Optional[Tuple[int, ...]] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signals", tuple(self.signals))
+        if isinstance(self.pulls, (list, tuple)):
+            pulls = tuple(self.pulls)
+            if all(_is_int(x) for x in pulls):
+                pulls = tuple(sorted(set(pulls)))
+            object.__setattr__(self, "pulls", pulls)
         if isinstance(self.dut_dirs, Mapping):
             object.__setattr__(self, "dut_dirs", dict(self.dut_dirs))
         object.__setattr__(self, "extra", dict(self.extra))
@@ -248,11 +259,13 @@ class Wiring:
         """The profile's JSON object, version 2: every key, ``null`` for what is not set."""
         out: Dict[str, Any] = {"version": self.version}
         for f in fields(self):
-            if f.name in ("signals", "extra", "source", "version", "dut_dirs", "profile_name", "profile_rev"):
+            if f.name in ("signals", "extra", "source", "version", "dut_dirs", "pulls", "profile_name", "profile_rev"):
                 continue
             out[f.name] = getattr(self, f.name)
         out["signals"] = [s.to_dict() for s in self.signals]
         out["dut_dirs"] = dict(self.dut_dirs)
+        if self.pulls is not None:
+            out["pulls"] = list(self.pulls)
         out.update(self.extra)
         return out
 
@@ -325,13 +338,19 @@ class Wiring:
             la = getattr(self, key)
             if _is_int(la) and la >= 9:
                 out.append(f"{key} is on LA{la}, which has no pod pull-up; the bus needs external pull-ups")
-            elif la in PULLDOWN_CHANNELS:
+            elif la in PULLDOWN_CHANNELS and self._pull_may_be_on(la):
                 out.append(f"{key} is on LA{la}, which has a 10k pull-down; keep it disabled on an "
                            "open-drain bus")
-        if self.uart_rx in PULLDOWN_CHANNELS:
+        if self.uart_rx in PULLDOWN_CHANNELS and self._pull_may_be_on(self.uart_rx):
             out.append(f"uart_rx is on LA{self.uart_rx}, which has a pull-down; the UART idles high, "
                        "so keep the pull disabled")
+        if self.la_mv == 1800 and self.pulls:
+            out.append("pulls: the pull resistors work at 3.3 V only; at 1.8 V they stay off")
         return out
+
+    def _pull_may_be_on(self, la: int) -> bool:
+        """Is LA ``la``'s pull resistor on with this profile, or may it be (``pulls`` None)?"""
+        return self.pulls is None or la in self.pulls
 
     def describe(self) -> str:
         """A readable pin table: channel, what is wired to it, its bias resistor and its DUT
@@ -396,6 +415,13 @@ class Wiring:
                 errs.append(f"signals[{i}].active_low must be true or false")
             if not isinstance(s.description, str) or len(s.description) > 120:
                 errs.append(f"signals[{i}].description must be a string of at most 120 characters")
+        if self.pulls is not None:
+            if not isinstance(self.pulls, (list, tuple)):
+                errs.append("pulls must be a list of the LA channels whose pull resistor is on, e.g. [1, 2]")
+            else:
+                for i, la in enumerate(self.pulls):
+                    if not (_is_int(la) and la in PULL_CHANNELS):
+                        errs.append(f"pulls[{i}] must be an LA channel with a pull resistor (1..8), got {la!r}")
         if not isinstance(self.dut_dirs, Mapping):
             errs.append("dut_dirs must be an object of role or signal name -> direction")
         else:

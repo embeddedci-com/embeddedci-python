@@ -1254,7 +1254,8 @@
       "profile_name",
       "profile_rev",
       "version",
-      "dut_dirs"
+      "dut_dirs",
+      "pulls"
     ],
     "assignments": "(self) -> 'Iterator[Tuple[str, int]]'",
     "coerce": "(cls, value: \"Union['Wiring', Mapping[str, Any], str, Path]\") -> \"'Wiring'\"",

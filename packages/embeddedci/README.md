@@ -155,15 +155,20 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:
     bp.power_on(INTERNAL)
 ```
 
-`BenchPod` is a context manager; `close()` is idempotent. `la_voltage` (1.8 or 3.3) selects the
-**LA I/O-bank voltage** right after connecting — match it to the DUT's I/O voltage. The pod refuses
-every LA-bank operation (flashing, UART, LA capture, pull resistors, sensor emulation) until one
-is selected. You can also call `bp.set_la_voltage(3.3)` later; `bp.get_la_voltage()` returns a
-`LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. Until then a
-refused command raises `FirmwareError` with the message `la voltage not set; set the board's I/O
-voltage first: BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the benchpod_la_voltage
-fixture in conftest.py, or bp.set_la_voltage(3.3)` (prefixed with the command, as every
-`FirmwareError` is).
+`BenchPod` is a context manager; `close()` is idempotent.
+
+**The I/O voltage comes from the wiring profile.** The pod refuses every LA-bank operation
+(flashing, UART, LA capture, pull resistors, sensor emulation) until its LA I/O-bank voltage is
+selected, and it forgets it on every reboot. The profile's `la_mv` (`3300` or `1800`, the board's
+I/O voltage) fills it in: on connect the SDK sets it from the pod's profile when the pod has none,
+and firmware 3.10.10+ takes it from the active profile itself on the first LA operation. So a
+profile that sets its I/O voltage needs nothing else. `la_voltage` (1.8 or 3.3) still sets it right
+after connecting for this session, and `bp.set_la_voltage(3.3)` at any time; `bp.get_la_voltage()`
+returns a `LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. With
+no voltage anywhere, a refused command raises `FirmwareError` with the message `la voltage not set;
+the wiring profile sets no I/O voltage: set la_mv in it (bp.save_wiring(bp.wiring.with_changes(la_mv=3300)),
+1800 for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)`
+(prefixed with the command, as every `FirmwareError` is).
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
 `cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name)),
@@ -389,9 +394,10 @@ has a complete old → new table.
 
 ## pytest plugin
 
-Installing the package registers a pytest plugin (options, fixtures and markers). Set the board's
-I/O voltage **once** for the whole suite in `conftest.py` — the pod refuses flashing, UART, LA
-capture, pull resistors and sensor emulation until an LA bank voltage is selected:
+Installing the package registers a pytest plugin (options, fixtures and markers). The board's I/O
+voltage normally comes from the pod's wiring profile (`la_mv`); when the profile sets none, or a
+suite must not depend on it, set it **once** for the whole suite in `conftest.py`. The pod refuses
+flashing, UART, LA capture, pull resistors and sensor emulation until a voltage is selected:
 
 ```python
 # conftest.py
@@ -617,8 +623,11 @@ pod's bus; reading never touches it. Firmware that stores no profiles: `save_wir
 cloud device's single profile on embeddedci.com, and raises over the LAN or USB.
 
 **Power-on applies the profile.** `bp.power_on()` (or `bp.power_on(wiring_profile="k66")`) sets the
-profile's I/O voltage when the pod has none or another one, then switches the profile's rail on and
-records on the pod which profile powered the board (`target_status`). It never changes the I/O
+profile's I/O voltage when the pod has none or another one, sets its pull resistors, then switches
+the profile's rail on and records on the pod which profile powered the board (`target_status`).
+`Wiring.pulls` lists the LA channels whose pull resistor is on (`{"pulls": [1, 2]}` in the JSON):
+`power_on` switches exactly those on and the others off. They work at 3.3 V only, so at 1.8 V nothing
+is sent, and a profile without `pulls` (`None`) leaves them as they are. It never changes the I/O
 voltage under a board that is already powered: that raises, and `bp.set_la_voltage()` does it if you
 mean it.
 
@@ -1070,10 +1079,13 @@ sends them again.
 Every wired role and signal has a direction. The defaults: `uart_rx` and `spi_miso` are DUT
 outputs (the DUT drives them); `uart_tx`, `spi_sclk`, `spi_mosi`, `spi_cs` and `swd_swclk` DUT
 inputs; the I2C pins and `swd_swdio` `bidir`; a signal with direction `input` (the pod watches it)
-is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. The profile's
-`dut_dirs` overrides any of them (`wiring.dut_dir(name)` is one role's or signal's direction,
-`wiring.pin_dut_dirs()` the per-channel map). Note the point of view: `la_dir` and `dut_dirs`
-describe the DUT's signal, while a signal's `direction` is seen from the pod.
+is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. So a pin's direction
+follows from what it is used for: set a signal's `direction` to change it. `wiring.dut_dir(name)` is
+one role's or signal's direction, `wiring.pin_dut_dirs()` the per-channel map. Profiles from older
+versions may carry `dut_dirs` (role key or signal name -> `dut_input`, `dut_output`, `bidir`), which
+still overrides the defaults; the web and desktop editors no longer write it. Note the point of
+view: `la_dir` and `dut_dirs` describe the DUT's signal, while a signal's `direction` is seen from the
+pod.
 `LaPinState.dir` is a pin's direction (`None` when unknown), and `LaPinState.warn` holds warning
 bits that `LaPinState.warnings` spells out: a pull-up under a push-pull output, and a pin driven high
 or pulled up while the target power is off (it powers an unpowered DUT through its I/O pins).

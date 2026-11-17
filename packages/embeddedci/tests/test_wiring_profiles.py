@@ -205,3 +205,60 @@ def test_firmware_without_profile_storage():
         bp.wiring_profiles()
     with pytest.raises(UnsupportedFeatureError, match="newer firmware"):
         bp.save_wiring()
+
+
+def test_power_on_sets_the_profiles_pull_resistors():
+    pod = ProfilePod({"nrf": {**NRF, "pulls": [2, 1]}}, default="nrf")
+    bp = BenchPod(transport=pod, lease=False)
+    assert bp.wiring.pulls == (1, 2)
+    bp.power_on()
+    sets = {c["la"]: c["pullup"] for c in pod.sent("la")}
+    assert sets == {1: "on", 2: "on", 3: "off", 4: "off", 5: "off", 6: "off", 7: "off", 8: "off"}
+    # Sent before the rail goes on.
+    order = [c["cmd"] for c in pod.commands]
+    assert order.index("target_power") > max(i for i, c in enumerate(order) if c == "la")
+
+
+def test_power_on_leaves_the_pulls_without_the_key_or_at_1v8():
+    pod = ProfilePod({"nrf": NRF, "k66": {**K66, "pulls": [1]}}, default="nrf")
+    bp = BenchPod(transport=pod, lease=False)
+    bp.power_on()
+    bp.power_off()
+    bp.power_off(efuse=2)
+    pod.rails[1] = False
+    bp.power_on(wiring_profile="k66")
+    assert pod.sent("la") == []
+
+
+def test_pulls_key():
+    w = Wiring.from_dict({"version": 2, "pulls": [3, 1, 3]})
+    assert w.pulls == (1, 3) and w.to_dict()["pulls"] == [1, 3]
+    assert "pulls" not in Wiring().to_dict()
+    with pytest.raises(ValueError, match=r"pulls\[0\] must be an LA channel with a pull resistor"):
+        Wiring(pulls=[9])
+    assert not Wiring(i2c_sda=7, pulls=[]).warnings()
+    assert Wiring(i2c_sda=7, pulls=[7]).warnings()
+    assert any("3.3 V only" in x for x in Wiring(la_mv=1800, pulls=[1]).warnings())
+
+
+def test_connect_sets_the_io_voltage_from_the_pods_profile():
+    pod = ProfilePod({"nrf": NRF}, default="nrf")
+    bp = BenchPod(transport=pod, lease=False)
+    assert bp.wiring.source == "pod"   # loaded, as connect does to send the pin directions
+    bp._auto_la_voltage()
+    assert pod.la_mv == 3300
+    # A voltage the pod already has is never changed.
+    pod.la_mv = 1800
+    bp._auto_la_voltage()
+    assert pod.la_mv == 1800
+
+
+def test_connect_leaves_the_voltage_without_one_in_the_profile_or_for_a_dict_profile():
+    pod = ProfilePod({"bare": {"version": 2, "uart_rx": 5}}, default="bare")
+    bp = BenchPod(transport=pod, lease=False)
+    _ = bp.wiring
+    bp._auto_la_voltage()
+    assert not pod.la_mv
+    bp2 = BenchPod(transport=ProfilePod(), lease=False, wiring={"version": 2, "la_mv": 3300})
+    bp2._auto_la_voltage()
+    assert bp2.transport.sent("la_voltage") == []   # type: ignore[attr-defined]
