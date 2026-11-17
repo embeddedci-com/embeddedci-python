@@ -1,23 +1,11 @@
 # Changelog — `embeddedci`
 
-## Unreleased
-
-- UART parity and stop bits: `open_uart`, `capture_uart` and `power_cycle_and_capture` take
-  `parity` (`"none"`, `"even"`, `"odd"`) and `stop_bits` (1, 2), for devices that are not 8N1 (8E1,
-  8N2, ...). The pod's I/O is 1.8/3.3 V only: a 5 V UART needs a level shifter, and Modbus RTU on
-  RS-485 an external RS-485 transceiver, between the pod and the device. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
-  `uart_frame`); older firmware is refused with `UnsupportedFeatureError` before anything is sent.
-  The USB console transport stays 8N1.
-- `open_uart(encoding=...)`: how the session turns bytes into text (default `"utf-8"`). Use
-  `"latin-1"` for binary protocols: `uart.read().encode("latin-1")` gives the
-  received bytes back unchanged.
-
 ## 3.0.0
 
 A major release: wiring profiles live on the pod, nothing is wired by default, and refusals carry
 stable error codes. See "Upgrading to 3.0" below.
 
-- **Wiring profiles stored on the pod** (firmware with the wiring commands): up to 16 named profiles,
+- **Wiring profiles stored on the pod** (firmware 3.10.8+): up to 16 named profiles,
   one of them the default, the same over LAN, USB and the cloud. `BenchPod(conn,
   wiring_profile="k66")` (or `BENCHPOD_WIRING_PROFILE`, pytest `--benchpod-wiring-profile`) loads a
   named one, else the pod's default. New: `bp.load_wiring(name)`, `bp.stored_wiring(name)`,
@@ -35,6 +23,15 @@ stable error codes. See "Upgrading to 3.0" below.
   It never changes the I/O voltage under a powered board.
 - **Error codes**: `FirmwareError.code` (`"BP0009"`), `.values` and `.docs_url`, with the message and
   the fix from the bundled catalog; `embeddedci.benchpod.errors.explain(code)`.
+- UART parity and stop bits: `open_uart`, `capture_uart` and `power_cycle_and_capture` take
+  `parity` (`"none"`, `"even"`, `"odd"`) and `stop_bits` (1, 2), for devices that are not 8N1 (8E1,
+  8N2, ...). The pod's I/O is 1.8/3.3 V only: a 5 V UART needs a level shifter, and Modbus RTU on
+  RS-485 an external RS-485 transceiver, between the pod and the device. Anything but 8N1 needs firmware 3.10.8+ (gateware v56, new capability
+  `uart_frame`); older firmware is refused with `UnsupportedFeatureError` before anything is sent.
+  The USB console transport stays 8N1.
+- `open_uart(encoding=...)`: how the session turns bytes into text (default `"utf-8"`). Use
+  `"latin-1"` for binary protocols: `uart.read().encode("latin-1")` gives the
+  received bytes back unchanged.
 
 ### Upgrading to 3.0
 
@@ -45,7 +42,7 @@ stable error codes. See "Upgrading to 3.0" below.
 - `Wiring.la_voltage`, `.efuse` and `.i2c_address` can be None.
 - Match refusals on `exc.code`, not on the message text.
 
-## 2.13.21
+## 2.13.21 (never published: these changes ship in 3.0.0)
 
 - GPIO expanders: `bp.expansion("tca9555", addr=0x20, sda=1, scl=2)` attaches an off-the-shelf I2C
   expander breakout on two LA channels. It checks the LA voltage, probes the chip, puts every pin in

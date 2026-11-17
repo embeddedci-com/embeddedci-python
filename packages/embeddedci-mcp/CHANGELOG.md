@@ -1,10 +1,5 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
-
-- `uart_open`, `capture_uart` and `power_cycle_and_capture` take `parity` (`none`/`even`/`odd`)
-  and `stop_bits` (1/2); `uart_open` reports them. Needs firmware 3.10.8+ for anything but 8N1.
-
 ## 3.0.0
 
 - Needs embeddedci 3.0. Wiring profiles live on the pod: `wiring` lists them and reports
@@ -15,9 +10,10 @@
 - `power_on` applies the profile first (I/O voltage, then the rail) and names the profile in its
   result.
 - Refusals with a stable error code show the code, the fix for an agent and the docs link.
+- `uart_open`, `capture_uart` and `power_cycle_and_capture` take `parity` (`none`/`even`/`odd`)
+  and `stop_bits` (1/2); `uart_open` reports them. Needs firmware 3.10.8+ for anything but 8N1.
 
-
-## 2.13.21
+## 2.13.21 (never published: these changes ship in 3.0.0)
 
 - Needs embeddedci 2.13.21. New `expansion` tool: attach an I2C/SPI GPIO expander board
   (TCA9555, PCA9555, MCP23017, PCF8574/8574A/8575, TCA6416A, TCA6424A, MCP23S17, 74HC595 and
