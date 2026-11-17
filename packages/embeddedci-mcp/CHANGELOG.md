@@ -1,5 +1,14 @@
 # Changelog — `embeddedci-mcp`
 
+## 3.0.1
+
+- Needs embeddedci 3.0.1. The I/O voltage comes from the wiring profile: `connect` sets it from the
+  pod's profile (`la_mv`), and firmware 3.10.10+ takes it from the profile on the first LA
+  operation. The instructions, the `status` warning and the `la voltage not set` refusal tell the
+  agent to ask the user only when the profile sets none, and to set it in the profile
+  (`set_wiring` with `la_mv`, then `save_wiring`); `set_la_voltage` is for one session.
+- `power_on` also sets the profile's pull resistors (`pulls`, at 3.3 V) before the rail.
+
 ## 3.0.0
 
 - Needs embeddedci 3.0. Wiring profiles live on the pod: `wiring` lists them and reports
