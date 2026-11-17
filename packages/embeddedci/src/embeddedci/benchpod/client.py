@@ -1018,7 +1018,8 @@ class BenchPod:
 
         In order: ``wiring_profile`` (a profile stored on the pod) becomes this connection's
         profile (:meth:`load_wiring`); the profile's I/O voltage is set when the pod has none or
-        another one; then the rail goes on (omitted ``efuse``: the profile's rail), and the pod
+        another one; its pull resistors (:attr:`Wiring.pulls`) are switched on and the others off;
+        then the rail goes on (omitted ``efuse``: the profile's rail), and the pod
         records which profile powered the board (``target_status``). The I/O voltage is never
         changed under a board that is already powered: that raises, set it with
         :meth:`set_la_voltage` yourself if you mean it.
@@ -1037,6 +1038,7 @@ class BenchPod:
                 self.set_la_voltage(w.la_voltage)
                 _log.info("power_on: I/O set to %g V from the wiring profile %s", w.la_voltage,
                           w.profile_name or "(this connection's)")
+        self._apply_profile_pulls(w)
         cmd = self._pod_cmd()
         if w.profile_name and cmd is not None and type(self._transport).__name__ != "SerialTransport":
             req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "state": 1,
@@ -1045,6 +1047,19 @@ class BenchPod:
                 cmd(req)
             return
         self.target_power(rail, on=True, delay=delay)
+
+    def _apply_profile_pulls(self, w: Wiring) -> None:
+        """Switch the pull resistors the profile lists on and the others off (``pulls`` None: leave
+        them). They work at 3.3 V only, and the console (serial) transport can't set them."""
+        if w.pulls is None or type(self._transport).__name__ == "SerialTransport":
+            return
+        volts = w.la_voltage if w.la_voltage is not None else self.get_la_voltage().voltage
+        if volts is None or abs(volts - 3.3) > 0.05:
+            return
+        for la in PULLUP_CHANNELS + PULLDOWN_CHANNELS:
+            self.set_pull(la, la in w.pulls)
+        _log.info("power_on: pull resistors on LA%s from the wiring profile",
+                  ", LA".join(str(x) for x in w.pulls) if w.pulls else " none")
 
     def _rail_on(self, rail: int) -> bool:
         try:

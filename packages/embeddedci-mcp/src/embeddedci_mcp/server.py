@@ -689,7 +689,8 @@ async def power_on(
         "omit to use the current one."))] = None,
 ) -> m.PowerResult:
     """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
-    (when the pod has none or another one), then the rail goes on, and the pod records the profile.
+    (when the pod has none or another one), its pull resistors (pulls, at 3.3 V) are set, then the
+    rail goes on, and the pod records the profile.
     The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
     a board that is already powered."""
     return await _call(lambda: _switch_power(efuse, True, delay, wiring_profile))

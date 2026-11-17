@@ -204,7 +204,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay`, `wiring_profile` |
+| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay`, `wiring_profile` |
 | `power_off` | Switch the target's power rail off. | `efuse`, `delay` |
 | `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
 | `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse=0.1` |
@@ -468,7 +468,8 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
 - **Pin directions on by default.** Every wired role and signal has a DUT direction, shown per
   channel in `wiring` (`dut_dir`): `uart_rx` and `spi_miso` are DUT outputs; `uart_tx`, the other
   SPI pins and SWCLK DUT inputs; I2C and SWDIO bidirectional; a signal the pod watches (`input`) a
-  DUT output, one it drives (`output`) a DUT input. The profile's `dut_dirs` overrides any of them.
+  DUT output, one it drives (`output`) a DUT input. So the direction follows from what a pin is used
+  for. Older profiles may carry `dut_dirs`, which still overrides the defaults.
   On firmware 3.10.4+ `connect` and `set_wiring` send them to the pod (`la_dir`), which then
   refuses a push-pull driver on a DUT output pin, so the pod never drives against the DUT. Older
   firmware is skipped quietly. `wiring` and `set_wiring` report `directions`, and `status` warns

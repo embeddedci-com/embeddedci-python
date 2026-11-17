@@ -617,8 +617,11 @@ pod's bus; reading never touches it. Firmware that stores no profiles: `save_wir
 cloud device's single profile on embeddedci.com, and raises over the LAN or USB.
 
 **Power-on applies the profile.** `bp.power_on()` (or `bp.power_on(wiring_profile="k66")`) sets the
-profile's I/O voltage when the pod has none or another one, then switches the profile's rail on and
-records on the pod which profile powered the board (`target_status`). It never changes the I/O
+profile's I/O voltage when the pod has none or another one, sets its pull resistors, then switches
+the profile's rail on and records on the pod which profile powered the board (`target_status`).
+`Wiring.pulls` lists the LA channels whose pull resistor is on (`{"pulls": [1, 2]}` in the JSON):
+`power_on` switches exactly those on and the others off. They work at 3.3 V only, so at 1.8 V nothing
+is sent, and a profile without `pulls` (`None`) leaves them as they are. It never changes the I/O
 voltage under a board that is already powered: that raises, and `bp.set_la_voltage()` does it if you
 mean it.
 
@@ -1070,10 +1073,13 @@ sends them again.
 Every wired role and signal has a direction. The defaults: `uart_rx` and `spi_miso` are DUT
 outputs (the DUT drives them); `uart_tx`, `spi_sclk`, `spi_mosi`, `spi_cs` and `swd_swclk` DUT
 inputs; the I2C pins and `swd_swdio` `bidir`; a signal with direction `input` (the pod watches it)
-is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. The profile's
-`dut_dirs` overrides any of them (`wiring.dut_dir(name)` is one role's or signal's direction,
-`wiring.pin_dut_dirs()` the per-channel map). Note the point of view: `la_dir` and `dut_dirs`
-describe the DUT's signal, while a signal's `direction` is seen from the pod.
+is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. So a pin's direction
+follows from what it is used for: set a signal's `direction` to change it. `wiring.dut_dir(name)` is
+one role's or signal's direction, `wiring.pin_dut_dirs()` the per-channel map. Profiles from older
+versions may carry `dut_dirs` (role key or signal name -> `dut_input`, `dut_output`, `bidir`), which
+still overrides the defaults; the web and desktop editors no longer write it. Note the point of
+view: `la_dir` and `dut_dirs` describe the DUT's signal, while a signal's `direction` is seen from the
+pod.
 `LaPinState.dir` is a pin's direction (`None` when unknown), and `LaPinState.warn` holds warning
 bits that `LaPinState.warnings` spells out: a pull-up under a push-pull output, and a pin driven high
 or pulled up while the target power is off (it powers an unpowered DUT through its I/O pins).
