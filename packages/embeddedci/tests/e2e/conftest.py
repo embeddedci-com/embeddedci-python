@@ -133,6 +133,10 @@ def rev3(pod: BenchPod, bench: Bench) -> bool:
     # "v3" accepts any v3 board revision ("v3r2"); "v3r2" asks for exactly that one.
     want = bench.board_rev
     if want and not (detected == want or (len(want) == 2 and detected.startswith(want + "r"))):
-        pytest.fail(f"the pod reports board_rev={detected!r} (strap {status.get('board_rev_mv')} mV), "
+        try:
+            strap = pod.diag().get("board_rev_mv")   # in diag from firmware 3.10.9, in status before
+        except Exception:  # noqa: BLE001: only for the message
+            strap = None
+        pytest.fail(f"the pod reports board_rev={detected!r} (strap {strap} mV), "
                     f"the bench expects {bench.board_rev!r} (BENCHPOD_E2E_BOARD_REV)")
     return bool(status.get("nrst_pin"))

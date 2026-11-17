@@ -122,6 +122,7 @@
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
     "delete_wiring": "(self, name: 'str') -> 'None'",
+    "diag": "(self) -> 'Dict[str, Any]'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",

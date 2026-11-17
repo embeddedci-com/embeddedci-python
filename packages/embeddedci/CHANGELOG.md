@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## 3.0.1
+
+- `bp.diag()`: the pod's heap, per-task stacks, network-stack and console counters. Firmware 3.10.9
+  moved them from `status` to the new `diag` command, so the full status keeps room under the
+  2047 bytes a LAN connection takes in one reply; with older firmware `diag()` reads them from
+  `status`.
+- When a LAN or USB-network status comes back as the short form (the full one did not fit the
+  connection), the SDK reads it once more and, when it is still short, logs a warning: the ADC
+  calibration and feature flags then come from embeddedci.com, else the board's defaults.
+
 ## 3.0.0
 
 A major release: wiring profiles live on the pod, nothing is wired by default, and refusals carry

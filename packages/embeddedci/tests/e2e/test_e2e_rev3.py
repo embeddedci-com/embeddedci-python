@@ -72,7 +72,8 @@ def test_board_strap_reads_as_rev3_or_later(v3):
     bands = {"v3": (2900, 3250), "v3r2": (2550, 2849)}
     assert status["board_rev"] in bands, status
     low, high = bands[status["board_rev"]]
-    assert low <= status["board_rev_mv"] <= high, status
+    strap = v3.diag().get("board_rev_mv")   # in diag from firmware 3.10.9, in status before
+    assert strap is not None and low <= strap <= high, (strap, status)
     caps = v3.refresh_capabilities()
     assert caps.board_rev == status["board_rev"] and caps.nrst_pin and caps.usb_cc, caps
 
