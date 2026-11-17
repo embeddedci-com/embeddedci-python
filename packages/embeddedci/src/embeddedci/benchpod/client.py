@@ -286,8 +286,10 @@ class BenchPod:
         instead.
 
         ``la_voltage`` (1.8 or 3.3 volts, falling back to ``BENCHPOD_LA_VOLTAGE``) selects the LA
-        I/O-bank voltage right after connecting. The pod refuses every LA-bank operation —
-        flashing, UART, LA capture, pull resistors, sensor emulation — until one is selected.
+        I/O-bank voltage right after connecting. Without it, the wiring profile's ``la_mv`` is
+        used when the pod has none yet, so a profile that sets its I/O voltage needs neither. The
+        pod refuses every LA-bank operation (flashing, UART, LA capture, pull resistors, sensor
+        emulation) while no voltage is selected.
 
         Cloud options: ``api_key`` (or ``BENCHPOD_API_KEY``) authenticates anywhere; else
         ``cloud_user_token``, a callable returning a logged-in user's access token, is exchanged
@@ -397,9 +399,33 @@ class BenchPod:
             if la_voltage is not None:
                 self.set_la_voltage(la_voltage)
             self._auto_pin_directions()
+            if la_voltage is None:
+                self._auto_la_voltage()
         except BaseException:
             self.close()
             raise
+
+    def _auto_la_voltage(self) -> None:
+        """On connect: when the pod has no I/O voltage yet and the wiring profile sets one, set it.
+        Only for a profile stored on the pod that connect already loaded (to send the pin
+        directions, firmware 3.10.4+), so it costs no extra reads otherwise; firmware 3.10.10+ takes the voltage
+        from the profile itself on the first LA operation. Never changes a voltage the pod already
+        has, and never fails the connection."""
+        # A profile stored on the pod (what the firmware itself would use); a file or dict profile
+        # sets its voltage at power_on, as before.
+        if self._wiring is None or self._wiring.source != "pod":
+            return
+        try:
+            want = self._wiring.la_voltage
+            if want is None:
+                return
+            if self.get_la_voltage().voltage is not None:
+                return
+            self.set_la_voltage(want)
+            _log.info("connect: I/O voltage %g V from the wiring profile %s", want,
+                      self._wiring.profile_name or "(this connection's)")
+        except Exception as exc:  # noqa: BLE001 -- a convenience; the LA call that needs it says why
+            _log.debug("connect: I/O voltage from the wiring profile not set: %s", exc)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -985,10 +1011,11 @@ class BenchPod:
     def set_la_voltage(self, voltage: float) -> LaVoltage:
         """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod).
 
-        Match it to the DUT's I/O voltage. It must be set before any LA-bank operation —
-        flashing, the UART proxy, LA capture, pull resistors, sensor emulation — or the pod
-        refuses them with "la voltage not set". :class:`BenchPod` sets it on connect when
-        ``la_voltage`` / ``BENCHPOD_LA_VOLTAGE`` is given.
+        Match it to the DUT's I/O voltage. It must be set before any LA-bank operation (flashing,
+        the UART proxy, LA capture, pull resistors, sensor emulation), or the pod refuses them with
+        "la voltage not set". Usually it comes from the wiring profile (``la_mv``): :class:`BenchPod`
+        sets it on connect, from ``la_voltage`` / ``BENCHPOD_LA_VOLTAGE`` when given, else from the
+        profile, and firmware 3.10.10+ takes it from the profile on the first LA operation.
         """
         v = float(voltage)
         match = next((ok for ok in LA_VOLTAGES if abs(v - ok) < 0.05), None)

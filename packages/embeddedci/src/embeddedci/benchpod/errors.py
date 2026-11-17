@@ -280,7 +280,8 @@ _UNKNOWN_CMD = "unknown cmd"
 _NO_ANALOG = "this BenchPod has no analog front end"
 
 
-#: The firmware's "la voltage not set; set it with la_voltage (mv 1800 or 3300) first"
+#: The firmware's "la voltage not set; set la_mv ... in the active wiring profile, or call
+#: la_voltage ..." (older firmware: "...; set it with la_voltage (mv 1800 or 3300) first")
 #: (command_handler.c require_la_voltage). Matched on the leading words only.
 _LA_VOLTAGE_UNSET = "la voltage not set"
 
@@ -294,9 +295,9 @@ _STATUS_TOO_LARGE = "too large for the cloud channel"
 def status_too_large(message: str, cmd: Optional[str] = "status") -> bool:
     """Whether a pod refusal is a ``status`` reply that did not fit the cloud channel."""
     return cmd == "status" and _STATUS_TOO_LARGE in message
-_LA_VOLTAGE_SDK = ("la voltage not set; set the board's I/O voltage first: "
-                   "BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the "
-                   "benchpod_la_voltage fixture in conftest.py, or bp.set_la_voltage(3.3)")
+_LA_VOLTAGE_SDK = ("la voltage not set; the wiring profile sets no I/O voltage: set la_mv in it "
+                   "(bp.save_wiring(bp.wiring.with_changes(la_mv=3300)), 1800 for a 1.8 V board), "
+                   "or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)")
 
 #: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint and the pull and
 #: gpio-output checks, command_handler_dap.c, command_handler_dac.c), in the caller's SDK terms.

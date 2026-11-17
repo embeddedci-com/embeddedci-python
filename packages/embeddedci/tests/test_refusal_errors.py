@@ -143,9 +143,10 @@ LA_VOLTAGE_FW = "la voltage not set; set it with la_voltage (mv 1800 or 3300) fi
 def test_la_voltage_not_set_names_the_sdk_ways_to_set_it():
     err = firmware_error(LA_VOLTAGE_FW, cmd="uart_proxy_start")
     assert type(err) is FirmwareError
-    assert str(err) == ("uart_proxy_start: la voltage not set; set the board's I/O voltage first: "
-                        "BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the "
-                        "benchpod_la_voltage fixture in conftest.py, or bp.set_la_voltage(3.3)")
+    assert str(err) == ("uart_proxy_start: la voltage not set; the wiring profile sets no I/O voltage: "
+                        "set la_mv in it (bp.save_wiring(bp.wiring.with_changes(la_mv=3300)), 1800 "
+                        "for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call "
+                        "bp.set_la_voltage(3.3)")
     assert err.firmware_message == LA_VOLTAGE_FW and err.cmd == "uart_proxy_start"
     assert "la voltage not set" in str(err)  # what callers match on
 

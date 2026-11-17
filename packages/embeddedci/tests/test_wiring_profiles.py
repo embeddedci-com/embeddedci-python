@@ -239,3 +239,26 @@ def test_pulls_key():
     assert not Wiring(i2c_sda=7, pulls=[]).warnings()
     assert Wiring(i2c_sda=7, pulls=[7]).warnings()
     assert any("3.3 V only" in x for x in Wiring(la_mv=1800, pulls=[1]).warnings())
+
+
+def test_connect_sets_the_io_voltage_from_the_pods_profile():
+    pod = ProfilePod({"nrf": NRF}, default="nrf")
+    bp = BenchPod(transport=pod, lease=False)
+    assert bp.wiring.source == "pod"   # loaded, as connect does to send the pin directions
+    bp._auto_la_voltage()
+    assert pod.la_mv == 3300
+    # A voltage the pod already has is never changed.
+    pod.la_mv = 1800
+    bp._auto_la_voltage()
+    assert pod.la_mv == 1800
+
+
+def test_connect_leaves_the_voltage_without_one_in_the_profile_or_for_a_dict_profile():
+    pod = ProfilePod({"bare": {"version": 2, "uart_rx": 5}}, default="bare")
+    bp = BenchPod(transport=pod, lease=False)
+    _ = bp.wiring
+    bp._auto_la_voltage()
+    assert not pod.la_mv
+    bp2 = BenchPod(transport=ProfilePod(), lease=False, wiring={"version": 2, "la_mv": 3300})
+    bp2._auto_la_voltage()
+    assert bp2.transport.sent("la_voltage") == []   # type: ignore[attr-defined]

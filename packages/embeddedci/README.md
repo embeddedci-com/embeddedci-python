@@ -155,15 +155,20 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:
     bp.power_on(INTERNAL)
 ```
 
-`BenchPod` is a context manager; `close()` is idempotent. `la_voltage` (1.8 or 3.3) selects the
-**LA I/O-bank voltage** right after connecting — match it to the DUT's I/O voltage. The pod refuses
-every LA-bank operation (flashing, UART, LA capture, pull resistors, sensor emulation) until one
-is selected. You can also call `bp.set_la_voltage(3.3)` later; `bp.get_la_voltage()` returns a
-`LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. Until then a
-refused command raises `FirmwareError` with the message `la voltage not set; set the board's I/O
-voltage first: BenchPod(conn, la_voltage=3.3) (1.8 for a 1.8 V target), the benchpod_la_voltage
-fixture in conftest.py, or bp.set_la_voltage(3.3)` (prefixed with the command, as every
-`FirmwareError` is).
+`BenchPod` is a context manager; `close()` is idempotent.
+
+**The I/O voltage comes from the wiring profile.** The pod refuses every LA-bank operation
+(flashing, UART, LA capture, pull resistors, sensor emulation) until its LA I/O-bank voltage is
+selected, and it forgets it on every reboot. The profile's `la_mv` (`3300` or `1800`, the board's
+I/O voltage) fills it in: on connect the SDK sets it from the pod's profile when the pod has none,
+and firmware 3.10.10+ takes it from the active profile itself on the first LA operation. So a
+profile that sets its I/O voltage needs nothing else. `la_voltage` (1.8 or 3.3) still sets it right
+after connecting for this session, and `bp.set_la_voltage(3.3)` at any time; `bp.get_la_voltage()`
+returns a `LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. With
+no voltage anywhere, a refused command raises `FirmwareError` with the message `la voltage not set;
+the wiring profile sets no I/O voltage: set la_mv in it (bp.save_wiring(bp.wiring.with_changes(la_mv=3300)),
+1800 for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)`
+(prefixed with the command, as every `FirmwareError` is).
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
 `cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name)),
@@ -389,9 +394,10 @@ has a complete old → new table.
 
 ## pytest plugin
 
-Installing the package registers a pytest plugin (options, fixtures and markers). Set the board's
-I/O voltage **once** for the whole suite in `conftest.py` — the pod refuses flashing, UART, LA
-capture, pull resistors and sensor emulation until an LA bank voltage is selected:
+Installing the package registers a pytest plugin (options, fixtures and markers). The board's I/O
+voltage normally comes from the pod's wiring profile (`la_mv`); when the profile sets none, or a
+suite must not depend on it, set it **once** for the whole suite in `conftest.py`. The pod refuses
+flashing, UART, LA capture, pull resistors and sensor emulation until a voltage is selected:
 
 ```python
 # conftest.py

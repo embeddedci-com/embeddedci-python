@@ -35,8 +35,10 @@ claude mcp add benchpod \
   -- uvx embeddedci-mcp
 ```
 
-`BENCHPOD_LA_VOLTAGE` is the board's I/O voltage, configured once here — use `1.8` for a 1V8
-board. Without it the agent is told to call `set_la_voltage` before touching the LA bank.
+`BENCHPOD_LA_VOLTAGE` overrides the board's I/O voltage (`1.8` for a 1V8 board). Usually it is
+not needed: the pod's wiring profile carries it (`la_mv`), and `connect` sets it from there. Only
+when neither sets one is the agent told to ask for it and set it in the profile or with
+`set_la_voltage`.
 
 Both variables are optional. `connect` picks the pod, first match wins:
 
@@ -181,7 +183,7 @@ description, ranges and enums, so an agent sees more than this table.
 | `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. `wiring_profile` names a profile stored on the pod (default: the pod's default profile). | `connection`, `la_voltage`, `lease_wait=30`, `wiring_profile` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
 | `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected); `eth_mac` and `wifi_mac`, the MACs a network admin registers before the pod gets an address (from the pod with firmware after 3.10.7, else from embeddedci.com's record; `wifi_mac` null until the pod scanned for Wi-Fi or joined). | none |
-| `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). | **`voltage`** |
+| `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). Usually not needed: `connect` sets it from the wiring profile's `la_mv`. | **`voltage`** |
 
 ### Cloud (embeddedci.com)
 
@@ -420,8 +422,8 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
 ## How it behaves
 
 - **Instructions.** The server sends usage instructions at initialisation — session start, typical
-  flows, units, error contract — so the agent knows to `connect` and `set_la_voltage` before
-  anything else.
+  flows, units, error contract — so the agent knows to `connect` first, and that the I/O voltage comes
+  from the wiring profile.
 - **Typed, structured results.** Every tool has an input schema with enums and ranges (paths,
   sources, LA channels 1-14, internal 5 V (efuse 1) or external (efuse 2), …) and an output
   schema; results come back as structured content. Units are volts, seconds and hertz.
@@ -439,8 +441,9 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   feature, or it is the digital-only board without the analog front end; the hint says which.
   `status` also warns when a cloud job holds the pod or the LAN policy is locked.
   Refusals whose fix the firmware spells as a raw protocol command name the tool instead:
-  `FirmwareError: uart_proxy_start: la voltage not set; call set_la_voltage first with the DUT's
-  I/O voltage (1.8 or 3.3)` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
+  `FirmwareError: uart_proxy_start: la voltage not set; the wiring profile sets no I/O voltage: ask
+  the user for the board's (1.8 or 3.3), set it in the profile (set_wiring with la_mv 1800 or 3300,
+  then save_wiring) or call set_la_voltage` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
   by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
   `sensor_stop`; a pull conflict to `set_pull(las=[7], enabled=false)`.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can

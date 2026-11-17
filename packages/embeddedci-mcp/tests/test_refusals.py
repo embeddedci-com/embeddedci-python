@@ -88,8 +88,10 @@ def test_la_voltage_not_set_names_set_la_voltage(connected):
     _refuse(connected, "la", "la voltage not set; set it with la_voltage (mv 1800 or 3300) first")
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith("FirmwareError: la: la voltage not set; call set_la_voltage "
-                                    "first with the DUT's I/O voltage (1.8 or 3.3)")
+    assert str(info.value).endswith("FirmwareError: la: la voltage not set; the wiring profile sets no "
+                                    "I/O voltage: ask the user for the board's (1.8 or 3.3), set it in "
+                                    "the profile (set_wiring with la_mv 1800 or 3300, then save_wiring) "
+                                    "or call set_la_voltage")
 
 
 @pytest.mark.parametrize("function, hint, fix", [

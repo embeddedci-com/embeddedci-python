@@ -152,10 +152,11 @@ def _refusal_hint(exc: BenchPodError) -> str:
     return ""
 
 
-#: The firmware's "la voltage not set; set it with la_voltage (mv 1800 or 3300) first".
+#: The firmware's "la voltage not set; ..." (any firmware version).
 _LA_VOLTAGE_UNSET = "la voltage not set"
-_LA_VOLTAGE_MCP = ("la voltage not set; call set_la_voltage first with the DUT's I/O voltage "
-                   "(1.8 or 3.3)")
+_LA_VOLTAGE_MCP = ("la voltage not set; the wiring profile sets no I/O voltage: ask the user "
+                   "for the board's (1.8 or 3.3), set it in the profile (set_wiring with la_mv "
+                   "1800 or 3300, then save_wiring) or call set_la_voltage")
 
 #: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint, the pull and
 #: gpio-output checks, command_handler_dap.c, command_handler_dac.c), named as this server's
@@ -420,8 +421,10 @@ def _status() -> m.StatusResult:
         warnings.append(f"the wiring's pin directions were {dirs} (call la_dir(from_wiring=true) "
                         "once that pin is released)")
     if la is None:
-        warnings.append("LA I/O voltage not selected — call set_la_voltage (1.8 or 3.3, matching "
-                        "the DUT) before flash, UART, LA capture, pulls or sensor emulation")
+        warnings.append("LA I/O voltage not selected, and the wiring profile sets none: ask the user for "
+                        "the board's I/O voltage (1.8 or 3.3) and set la_mv in the profile (set_wiring, "
+                        "then save_wiring), or call set_la_voltage, before flash, UART, LA capture, "
+                        "pulls or sensor emulation")
     try:
         macs = pod.mac_addresses(firmware if isinstance(firmware, dict) else {})
         eth_mac, wifi_mac = macs.eth_mac, macs.wifi_mac
@@ -488,7 +491,9 @@ async def status() -> m.StatusResult:
 async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
     """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod).
 
-    Required before flash, UART, LA capture, pull resistors or sensor emulation.
+    Usually not needed: connect sets it from the wiring profile's la_mv, and firmware 3.10.10+
+    takes it from the profile on the first LA operation. Call it when the profile sets none (ask
+    the user), or to override the profile for this session.
     """
     state = await _call(lambda: SESSION.require().set_la_voltage(voltage))
     return m.LaVoltageResult(voltage=state.voltage, readback=state.readback)
