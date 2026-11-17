@@ -439,6 +439,24 @@ class BenchPod:
         """The pod's status report: firmware version, board, network and advertised features."""
         return _dict(self._transport.status())
 
+    def diag(self) -> Dict[str, Any]:
+        """The pod's health counters: ``heap_free``, ``heap_min``, ``stack_min``, per-task
+        ``stacks``, the network stack's ``lwip_mem_*`` and ``pbuf_pool_*`` high-water marks,
+        ``malloc_failures``, the console's ``rx_dropped``/``tx_dropped`` and ``board_rev_mv``.
+
+        Firmware 3.10.9+ answers the ``diag`` command; older firmware has them in its full
+        :meth:`status`, which this reads instead (over the cloud that status is the short form,
+        so only the heap and ``stack_min`` are there).
+        """
+        try:
+            return _dict(self.command({"cmd": "diag"}))
+        except UnsupportedFeatureError:
+            st = self.status()
+            keys = ("heap_free", "heap_min", "stack_min", "stacks", "lwip_mem_max", "lwip_mem_size",
+                    "pbuf_pool_max", "pbuf_pool_size", "malloc_failures", "rx_dropped", "tx_dropped",
+                    "board_rev_mv")
+            return {k: st[k] for k in keys if k in st}
+
     def mac_addresses(self, status: Optional[Mapping[str, Any]] = None) -> "MacAddresses":
         """The pod's Ethernet and Wi-Fi MACs, for a network that hands out addresses only to
         registered devices.
@@ -491,6 +509,8 @@ class BenchPod:
             except BenchPodError as exc:
                 _log.warning("could not read the pod's status for its capabilities: %s", exc)
                 status, status_ok = {}, False
+            if status_ok and status.get("short_form") and self._direct_network():
+                status = self._full_status(status)
             caps = Capabilities.from_status(status)
             api = self._try_server_api()
             if api is not None and self._device_name:
@@ -504,6 +524,30 @@ class BenchPod:
                 return caps
             self._caps = caps
         return self._caps
+
+    def _direct_network(self) -> bool:
+        """A LAN or USB network connection: one that should get the pod's full status."""
+        from .transport.tcp import TcpTransport
+        return isinstance(self._transport, TcpTransport)
+
+    def _full_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
+        """``status`` was the short form over a direct connection: the full form did not fit the
+        connection whole (more than 2047 bytes, or the connection's send buffer was busy). Ask
+        once more, and warn when it is still short: the ADC calibration and feature flags the
+        short form leaves out then come from embeddedci.com when this computer is signed in,
+        else from the board's defaults."""
+        try:
+            again = self.status()
+        except BenchPodError:
+            again = status
+        if not again.get("short_form"):
+            return again
+        _log.warning(
+            "the pod sent its short status over the network: its full status did not fit the connection. "
+            "The ADC calibration and the feature flags it leaves out come from embeddedci.com when "
+            "this computer is signed in, else from the board's defaults, so ADC readings can be "
+            "off. Firmware 3.10.9 keeps the full status small: update the pod (benchpod flash-self).")
+        return again
 
     def refresh_capabilities(self) -> Capabilities:
         """Drop the cached capabilities and re-read them."""
