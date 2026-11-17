@@ -426,6 +426,22 @@ def test_uart_session_read_write(connected):
     assert call("uart_close")["open"] is False
 
 
+def test_uart_frame_format(connected):
+    # 8N1 by default; parity / stop bits need the pod's uart_frame capability
+    assert call("uart_open", rx=5, tx=4)["parity"] == "none"
+    with pytest.raises(ToolError, match="firmware 3.10.8"):
+        call("uart_open", rx=5, tx=4, parity="even")
+    connected.caps.append("uart_frame")
+    SESSION.require().refresh_capabilities()
+    r = call("uart_open", rx=5, tx=4, baud=19200, parity="even")
+    assert (r["parity"], r["stop_bits"], r["baud"]) == ("even", 1, 19200)
+    call("capture_uart", rx=5, tx=4, duration=0.2, stop_bits=2)
+    assert connected.uart_frames[-2:] == [("even", 1), ("none", 2)]
+    with pytest.raises(ToolError):
+        call("uart_open", rx=5, tx=4, parity="mark")
+    call("uart_close")
+
+
 # -- I2C sensor + pulls ----------------------------------------------------------------
 
 def test_sensor_library_tools_need_no_pod():

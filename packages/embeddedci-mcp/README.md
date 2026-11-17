@@ -251,9 +251,9 @@ the board's with `pullups="external"`.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex` |
-| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay=1`, `duration=4`, `baud`, `until_regex`, `off_settle=0.3` |
-| `uart_open` | Start buffering the DUT's UART in the background. | `rx`, `tx`, `baud` |
+| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits` |
+| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay=1`, `duration=4`, `baud`, `until_regex`, `off_settle=0.3`, `parity`, `stop_bits` |
+| `uart_open` | Start buffering the DUT's UART in the background. 8N1 unless `parity` (`none`/`even`/`odd`) or `stop_bits` (1/2) say otherwise; anything else needs firmware 3.10.8+. | `rx`, `tx`, `baud`, `parity`, `stop_bits` |
 | `uart_write` | Send text to the DUT through the open UART session. | **`text`**, `line_ending=lf` |
 | `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout=2` |
 | `uart_close` | Stop the background UART session. | none |

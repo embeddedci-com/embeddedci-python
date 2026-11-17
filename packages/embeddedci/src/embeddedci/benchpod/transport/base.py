@@ -90,12 +90,15 @@ class Transport(ABC):
         )
 
     @abstractmethod
-    def uart_proxy_start(self, rx: int, tx: int, baud: int) -> RawLink:
+    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
+                         stop_bits: int = 1) -> RawLink:
         """Enter transparent UART-proxy mode and return the raw byte link.
 
         ``rx``/``tx`` are LA channels: ``rx`` is sampled (wire the DUT's TX
-        here), ``tx`` is driven (wire the DUT's RX here). The returned link
-        carries raw 8N1 bytes; ``close()`` leaves the proxy.
+        here), ``tx`` is driven (wire the DUT's RX here). ``parity`` (``"none"``,
+        ``"even"``, ``"odd"``) and ``stop_bits`` (1, 2) set the frame format; only
+        8N1 is sent as before (older firmware knows nothing else). The returned
+        link carries raw bytes; ``close()`` leaves the proxy.
         """
 
     @abstractmethod

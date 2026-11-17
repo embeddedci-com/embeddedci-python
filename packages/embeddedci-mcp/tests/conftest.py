@@ -7,7 +7,7 @@ import base64
 import json
 import math
 import os
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import anyio
 import pytest
@@ -101,6 +101,7 @@ class FakeTransport(Transport):
         self.spi: Optional[Dict[str, Any]] = None
         self.dirs: Dict[int, str] = {}
         self.power_efuse = 1
+        self.uart_frames: List[Tuple[str, int]] = []   # (parity, stop_bits) per uart_proxy_start
         #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
         self.power_samples: Dict[str, Any] = {
             "t_us": [0, 250_000, 500_000, 750_000],
@@ -130,7 +131,8 @@ class FakeTransport(Transport):
     def dap_start(self, swclk: int, swdio: int):
         return FakeRawLink()
 
-    def uart_proxy_start(self, rx: int, tx: int, baud: int):
+    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none", stop_bits: int = 1):
+        self.uart_frames.append((parity, stop_bits))
         for la, fn in list(self.function.items()):  # a new proxy replaces the previous one
             if fn in ("uart_rx", "uart_tx"):
                 self.function[la] = "none"
