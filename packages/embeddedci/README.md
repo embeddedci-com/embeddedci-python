@@ -558,6 +558,7 @@ print(wiring.describe())                        # a pin table: bias resistor and
 | `la_mv` | not set | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
 | `efuse` | not set (pass `efuse=`) | target-power rail: 1 internal 5 V, 2 external |
 | `uart_rx`, `uart_tx`, `uart_baud` | not wired, not wired, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
+| `uart_parity`, `uart_stop_bits` | `"none"`, `1` | The UART frame after the 8 data bits (`"even"`, `"odd"`; 2 stop bits). `open_uart`, `capture_uart` and `power_cycle_and_capture` use it when `parity` / `stop_bits` are omitted; anything but 8N1 needs firmware 3.10.8+ |
 | `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
 | `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | not wired, not wired, `False`, `""` (auto-detect) | flashing |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |

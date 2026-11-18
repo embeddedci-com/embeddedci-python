@@ -1951,28 +1951,33 @@ class BenchPod:
         baud: Optional[int] = None,
         duration: float,
         until: Optional[_uart.Until] = None,
-        parity: str = "none",
-        stop_bits: int = 1,
+        parity: Optional[str] = None,
+        stop_bits: Optional[int] = None,
     ) -> _uart.UartCapture:
         """Capture the DUT's UART output for ``duration`` seconds.
 
         ``rx`` is the LA channel the pod samples (wire the DUT's TX here); ``tx`` is driven (the
         DUT's RX). ``until`` (substring / compiled regex / predicate) stops early on a match.
-        Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile. ``parity``
-        (``"none"``, ``"even"``, ``"odd"``) and ``stop_bits`` (1 or 2) set the frame format, as in
-        :meth:`open_uart`.
+        Omitted ``rx``, ``tx``, ``baud``, ``parity`` and ``stop_bits`` come from the wiring profile.
+        ``parity`` (``"none"``, ``"even"``, ``"odd"``) and ``stop_bits`` (1 or 2) set the frame
+        format, as in :meth:`open_uart`.
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
         link = self._uart_link(rx, tx, baud, parity, stop_bits)
         return _uart.capture(link, duration=duration, until=until)
 
-    def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: str = "none",
-                   stop_bits: int = 1) -> Any:
-        if parity not in ("none", "even", "odd"):
+    def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: Optional[str] = None,
+                   stop_bits: Optional[int] = None) -> Any:
+        if parity is not None and parity not in ("none", "even", "odd"):
             raise ValueError(f"parity must be 'none', 'even' or 'odd', got {parity!r}")
-        if isinstance(stop_bits, bool) or stop_bits not in (1, 2):
+        if stop_bits is not None and (isinstance(stop_bits, bool) or stop_bits not in (1, 2)):
             raise ValueError(f"stop_bits must be 1 or 2, got {stop_bits!r}")
+        # Omitted: the wiring profile's frame (uart_parity, uart_stop_bits; 8N1 unless it says so).
+        if parity is None:
+            parity = getattr(self.wiring, "uart_parity", None) or "none"
+        if stop_bits is None:
+            stop_bits = getattr(self.wiring, "uart_stop_bits", None) or 1
         if parity != "none" or stop_bits != 1:
             if not self.supports("uart_frame"):
                 fw = self.capabilities.firmware_version or "unknown"
@@ -2000,8 +2005,8 @@ class BenchPod:
         baud: Optional[int] = None,
         until: Optional[_uart.Until] = None,
         off_settle: float = 0.3,
-        parity: str = "none",
-        stop_bits: int = 1,
+        parity: Optional[str] = None,
+        stop_bits: Optional[int] = None,
     ) -> _uart.UartCapture:
         """Power-cycle the target while capturing its boot output.
 
@@ -2026,8 +2031,8 @@ class BenchPod:
         tx: Union[Pin, int, str, None] = None,
         baud: Optional[int] = None,
         max_buffer: int = 1 << 20,
-        parity: str = "none",
-        stop_bits: int = 1,
+        parity: Optional[str] = None,
+        stop_bits: Optional[int] = None,
         encoding: str = "utf-8",
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
@@ -2045,7 +2050,8 @@ class BenchPod:
         Omitted ``rx``, ``tx`` and ``baud`` come from the wiring profile. A channel in GPIO mode (or
         used by anything else) is refused with :class:`~embeddedci.benchpod.errors.PinConflictError`.
 
-        The frame is 8N1 unless ``parity`` (``"none"``, ``"even"``, ``"odd"``) or ``stop_bits``
+        The frame is the wiring profile's (``uart_parity``, ``uart_stop_bits``; 8N1 unless it says
+        otherwise) unless ``parity`` (``"none"``, ``"even"``, ``"odd"``) or ``stop_bits``
         (1 or 2) say otherwise. The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter, and
         an RS-485 bus (Modbus RTU) an external RS-485 transceiver, between the pod and the device::
 
