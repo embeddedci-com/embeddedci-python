@@ -14,6 +14,14 @@
   and `entry=UartEntry(...)`, a reset with TX held low, its release and the first bytes, all timed
   on the pod. Needs gateware v57 (capability `uart_hd`); the entry also needs the reset pin.
 
+- **Features from the firmware's features table:** the SDK ships benchpod-firmware's
+  `features/features.json` (`embeddedci.benchpod.feature_map`) and reads the pod's status with
+  `"caps":false`. Firmware after 3.10.10 answers with `features_rev` instead of its `caps` list,
+  and `Capabilities` takes the features from the table (`capabilities.features`,
+  `capabilities.fpga_image`, `Capabilities.has()`); older firmware sends its list as before.
+  `bp.supports()` also takes table names without a flag of their own (`"la_dir"`, `"i2c_master"`,
+  `"diag"`, ...). A pod whose firmware has a newer table than the SDK logs one warning to update it.
+
 ## 3.0.1
 
 - **Pull resistors in the wiring profile:** `Wiring.pulls` lists the LA channels whose pull

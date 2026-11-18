@@ -9,6 +9,9 @@
   (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`: a boot-mode entry the pod times before
   the session). Needs gateware v57.
 
+- Pod features come from the SDK's copy of the firmware's features table for firmware after
+  3.10.10 (embeddedci 3.0.2); older firmware is read as before.
+
 ## 3.0.1
 
 - Needs embeddedci 3.0.1. The I/O voltage comes from the wiring profile: `connect` sets it from the
