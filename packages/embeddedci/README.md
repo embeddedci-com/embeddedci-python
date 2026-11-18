@@ -374,7 +374,18 @@ properties `can_gpio`, `can_trigger`, `can_spi`, `can_profile_power`, `can_calib
 `can_current_out`, `can_reset_target` and `can_analog` name the common ones (`can_config` …
 `can_disable` stay the CAN bus commands). A call the pod cannot serve raises
 `UnsupportedFeatureError` (see [Errors](#errors)), before anything is sent when the capabilities
-already say so:
+already say so.
+
+Where those come from: firmware after 3.10.10 no longer lists its features. The SDK asks for its
+`status` without the list (`"caps":false`) and gets `capabilities.features_rev`, the revision of
+the features table the firmware is built from, plus the running image (`capabilities.fpga_image`)
+and a few hardware facts. The SDK ships that table (`embeddedci.benchpod.feature_map`, a copy of
+benchpod-firmware's `features/features.json`), so this needs no network: `capabilities.features`
+is every feature the table gives the pod, and `bp.supports()` also takes table names without a
+flag of their own (`"la_dir"`, `"i2c_master"`, `"diag"`, `"wiring_store"`, ...). Older firmware
+sends its list as before and gets the same answers. A pod with a higher `features_rev` than the
+SDK knows logs a warning once: update the SDK (`pip install -U embeddedci`) to use those features.
+
 
 ```python
 import pytest

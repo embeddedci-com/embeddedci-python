@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
+
+from . import feature_map as _feature_map
 
 # Built-in nominal front-end calibration per board — the affine fit ``volts = a + b*count``
 # for boards whose analog front-end is inverting (so the naive count/full-scale model would
@@ -205,6 +207,17 @@ class Capabilities:
     uart_hd: bool = False
     #: The running gateware version (``status`` ``gateware``); 0 when not reported.
     gateware: int = 0
+    #: The features-table revision the pod's firmware is built from (``status`` with
+    #: ``"caps":false``, firmware after 3.10.10); 0 for older firmware, which sends a ``caps``
+    #: list instead.
+    features_rev: int = 0
+    #: With :attr:`features_rev`: every feature the table gives this pod
+    #: (:mod:`~embeddedci.benchpod.feature_map`), including ones with no flag here (``la_dir``,
+    #: ``i2c_master``, ``diag``, ...). Empty for older firmware.
+    features: FrozenSet[str] = frozenset()
+    #: The running gateware image: ``"loop"``, ``"deep"``, ``"emu"``, ``"unknown"``; ``""`` when the
+    #: firmware does not say.
+    fpga_image: str = ""
     #: The pod can calibrate its own ADC and keeps the result: :meth:`BenchPod.calibrate`.
     calibrate: bool = False
     #: ``calibrate`` also takes the DMM-guided forms (firmware 3.9.4+): this pod's own DAC line
@@ -384,6 +397,13 @@ class Capabilities:
                     setattr(c, attr, True)
             if "analog" in names:
                 c.analog = True
+        # Firmware after 3.10.10, asked with "caps":false: no list, the features table instead.
+        if (rev := _as_int(status, "features_rev")) is not None and rev > 0:
+            c.features_rev = rev
+            c.fpga_image = str(status.get("fpga_image", "") or "")
+            facts = _feature_map.facts_from_status(status)
+            c.features = _feature_map.resolve(rev, c.gateware, facts)
+            c._apply_features(facts)
         c.safe_mode = _as_bool(status, "safe_mode") is True
         c.safe_reason = str(status.get("safe_reason", "") or "") if c.safe_mode else ""
         c.last_crash = _crash_text(status.get("last_crash", status.get("crash")))
@@ -391,6 +411,28 @@ class Capabilities:
         c._apply_affine(status)
         c._apply_range(status)
         return c
+
+    def _apply_features(self, facts: Mapping[str, Any]) -> None:
+        """Set the flags of :attr:`features` (a table name is the flag's name, except the two
+        below) and the hardware facts."""
+        for name in self.features:
+            attr = _TABLE_ALIASES.get(name, name)
+            if attr in _BOOL_FIELDS:
+                setattr(self, attr, True)
+        for fact in ("usb_cc", "pod_current", "nrst_pin"):
+            if facts.get(fact) is True:
+                setattr(self, fact, True)
+
+    def has(self, feature: str) -> bool:
+        """Whether the pod has ``feature``: a table name (``"la_dir"``, ``"i2c_master"``, ...)
+        when the pod announced :attr:`features_rev`, else the flag of that name (older firmware)."""
+        if self.features_rev and feature in _feature_map.feature_map().get("features", {}):
+            return feature in self.features
+        if feature == "la_dir":
+            return self.la_dir
+        if feature in ("i2c_master", "spi_modes_1_2"):
+            return self.bus_master
+        return bool(getattr(self, _TABLE_ALIASES.get(feature, feature), False))
 
     def _apply_range(self, src: Mapping[str, Any], prefix: str = "") -> None:
         """The ADC input range the fit is for (firmware 3.9.5+)."""
@@ -525,12 +567,16 @@ class Capabilities:
     def la_dir(self) -> bool:
         """The pod takes pin directions (``la_dir``, firmware 3.10.4+). False when the firmware
         version is unknown."""
+        if self.features_rev:
+            return "la_dir" in self.features
         v = _version_tuple(self.firmware_version)
         return v is not None and v >= LA_DIR_FIRMWARE
 
     @property
     def bus_master(self) -> bool:
         """The I2C master, SPI modes 1 and 2 and send-and-capture (gateware v55+)."""
+        if self.features_rev:
+            return "i2c_master" in self.features
         return self.gateware >= BUS_MASTER_GATEWARE
 
     @property
@@ -572,3 +618,8 @@ class Capabilities:
 
 
 _FIELD_NAMES = tuple(f for f in Capabilities().__dict__.keys())
+_BOOL_FIELDS = frozenset(f for f, v in Capabilities().__dict__.items() if isinstance(v, bool))
+
+#: Table names whose flag here has another name: the table's ``uart`` and ``la`` are the old
+#: ``serial`` and ``analyzer`` flags.
+_TABLE_ALIASES = {"uart": "serial", "la": "analyzer"}

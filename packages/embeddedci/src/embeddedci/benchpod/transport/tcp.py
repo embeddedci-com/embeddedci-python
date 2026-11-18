@@ -403,6 +403,9 @@ class TcpTransport(Transport):
     def status(self) -> Any:
         return self.command({"cmd": "status"})
 
+    def status_without_caps(self) -> Any:
+        return self.command({"cmd": "status", "caps": False})
+
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
 
