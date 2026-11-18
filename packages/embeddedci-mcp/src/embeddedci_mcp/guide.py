@@ -46,17 +46,21 @@ WIRING = """\
 BenchPod wiring reference
 
 The pod has no fixed pin roles: 14 generic logic-analyzer channels (LA1-LA14) on the DUT
-header, and any DUT signal can be on any of them. Always confirm the real wiring with the
-user. The example bench (the BMP280 HIL demo) is wired like this:
+header, and any DUT signal can be on any of them. Load your board's profile: the pod stores
+named profiles (load_wiring(name), or connect(wiring_profile=name)); `wiring` shows the one in
+use. The pod's default pins (UART RX LA5, I2C SDA LA1 / SCL LA2) are not any particular bench.
+Always confirm the real wiring with the user. One example, the process-node bench (a
+NUCLEO-F446RE; profile 'process-node-stm32' from the examples repository), is wired like this:
 
   DUT signal                  Pod connection               Tool arguments
   --------------------------  ---------------------------  ---------------------------------
   SWCLK                       LA11                         flash swclk=11
   SWDIO                       LA12                         flash swdio=12
   NRST                        pod reset pin (J1 pin 22)    flash nreset=true, reset_target
-  UART: DUT TX -> pod         LA5                          rx=5
+  UART: DUT TX -> pod         LA3                          rx=3
   UART: DUT RX <- pod         LA4                          tx=4
-  I2C SDA / SCL               LA2 / LA1                    sda=2, scl=1 (engage their pull-ups)
+  I2C SCL / SDA               LA1 / LA2                    scl=1, sda=2 (engage their pull-ups)
+  ALARM (DUT output)          LA5                          signal "ALARM"
   Target power                internal 5 V (efuse 1)       efuse=1 (external: efuse=2)
 
 Bias resistors (3V3-referenced, so unavailable while the LA bank is at 1.8 V):

@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci.benchpod import BenchPod, Signal, Wiring
-from embeddedci.benchpod.wiring import ROLE_KEYS
+from embeddedci.benchpod.wiring import DEFAULT_PINS, REFERENCE_BENCH, ROLE_KEYS
 
 
 def test_nothing_is_wired_by_default():
@@ -21,16 +21,18 @@ def test_nothing_is_wired_by_default():
     assert Wiring.undefined() == w
 
 
-def test_the_reference_preset_is_the_old_default_bench():
-    w = Wiring.preset("embeddedci-reference")
+def test_the_default_preset_is_the_old_default_pins():
+    w = Wiring.preset("embeddedci-default")
     assert (w.uart_rx, w.uart_tx, w.uart_baud, w.i2c_sda, w.i2c_scl) == (5, 4, 115200, 1, 2)
     assert (w.swd_swclk, w.swd_swdio, w.efuse, w.la_voltage, w.i2c_address) == (11, 12, 1, 3.3, 0x76)
     assert w.source == "preset" and w.warnings() == [] and Wiring.defaults() == w
+    assert Wiring.preset() == w and Wiring.preset("embeddedci-reference") == w  # the old name
+    assert DEFAULT_PINS is REFERENCE_BENCH
     with pytest.raises(ValueError, match="no wiring preset"):
         Wiring.preset("nope")
 
 
-def test_version_1_fills_the_reference_bench_and_version_2_does_not():
+def test_version_1_fills_the_default_pins_and_version_2_does_not():
     assert Wiring.from_dict({"uart_rx": 7}).swd_swclk == 11                 # no version: version 1
     assert Wiring.from_dict({"version": 1, "uart_rx": 7}).la_mv == 3300
     v2 = Wiring.from_dict({"version": 2, "uart_rx": 7})
