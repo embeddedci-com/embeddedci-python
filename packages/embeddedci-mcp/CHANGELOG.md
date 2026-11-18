@@ -5,6 +5,9 @@
 - Needs embeddedci 3.0.2. `uart_open`, `capture_uart` and `power_cycle_and_capture` take the
   frame from the wiring profile (`uart_parity`, `uart_stop_bits`) when `parity` / `stop_bits` are
   omitted; `uart_open` reports the frame it used.
+- `uart_open` and `capture_uart` take `half_duplex` (a one-wire UART on `rx`) and `entry`
+  (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`: a boot-mode entry the pod times before
+  the session). Needs gateware v57.
 
 ## 3.0.1
 
