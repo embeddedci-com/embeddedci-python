@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `set_wiring`'s `profile` description lists the `pulls` key (the LA channels whose pull
+  resistor `power_on` switches on).
+
 ## 3.0.2
 
 - Needs embeddedci 3.0.2.

@@ -30,8 +30,9 @@ The ``wiring`` fixture below is THIS bench's map; edit it for your board.
   I2C1 SCL  = PB8   <-> LA1 (4.7k pull-up)     LA1    (wiring.i2c_scl)
   Target 5V power                              --benchpod-efuse (1 = internal)
 
-I2C needs pull-ups, and only LA1-8 have them (LA1/2=4.7k, LA3/4=2.2k, LA5-8=10k);
-LA9-12 have none. So the I2C lines must sit on a pull-up-capable channel — here
+I2C needs pull-ups, and only LA1-6 have them (LA1/2=4.7k, LA3/4=2.2k, LA5/6=10k);
+LA7/8 have 10k pull-downs and LA9-14 have none. So the I2C lines must sit on a
+pull-up-capable channel — here
 LA1/LA2. The test enables them via `enable_pullup(...)` before arming the
 emulated sensor, so the open-drain bus idles high.
 
