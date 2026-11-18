@@ -457,7 +457,8 @@ class TcpTransport(Transport):
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
-                         entry: Any = None) -> RawLink:
+                         entry: Any = None, de: Optional[int] = None,
+                         de_active_low: bool = False) -> RawLink:
         req: dict = {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud}
         # Only a non-8N1 frame adds the fields (firmware 3.10.8+ / gateware v56 take them).
         if parity != "none":
@@ -469,6 +470,11 @@ class TcpTransport(Transport):
             req["half_duplex"] = True
         if entry is not None:
             req["entry"] = entry.to_request()
+        # RS-485 DE driven by the pod (gateware v58), only when asked for.
+        if de is not None:
+            req["de"] = de
+            if de_active_low:
+                req["de_active_low"] = True
         return self._raw_handshake(req, "uart_proxy_start", "uart")
 
     def close(self) -> None:

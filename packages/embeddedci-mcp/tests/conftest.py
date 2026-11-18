@@ -103,6 +103,7 @@ class FakeTransport(Transport):
         self.power_efuse = 1
         self.uart_frames: List[Tuple[str, int]] = []   # (parity, stop_bits) per uart_proxy_start
         self.uart_lines: List[Tuple[int, int, bool, Any]] = []   # (rx, tx, half_duplex, entry)
+        self.uart_des: List[Tuple[Any, bool]] = []               # (de, de_active_low)
         #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
         self.power_samples: Dict[str, Any] = {
             "t_us": [0, 250_000, 500_000, 750_000],
@@ -133,8 +134,10 @@ class FakeTransport(Transport):
         return FakeRawLink()
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none", stop_bits: int = 1,
-                         half_duplex: bool = False, entry: Any = None):
+                         half_duplex: bool = False, entry: Any = None, de: Any = None,
+                         de_active_low: bool = False):
         self.uart_frames.append((parity, stop_bits))
+        self.uart_des.append((de, de_active_low))
         self.uart_lines.append((rx, tx, half_duplex, entry))
         for la, fn in list(self.function.items()):  # a new proxy replaces the previous one
             if fn in ("uart_rx", "uart_tx", "uart_hd"):

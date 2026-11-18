@@ -253,9 +253,9 @@ the board's with `pullups="external"`.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits`, `half_duplex`, `entry` |
+| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low` |
 | `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay=1`, `duration=4`, `baud`, `until_regex`, `off_settle=0.3`, `parity`, `stop_bits` |
-| `uart_open` | Start buffering the DUT's UART in the background. The frame is the profile's (`uart_parity`, `uart_stop_bits`; 8N1 unless set) unless `parity` (`none`/`even`/`odd`) or `stop_bits` (1/2) say otherwise; anything but 8N1 needs firmware 3.10.8+. `half_duplex` runs it on one wire (`rx`; `tx` defaults to it) and `entry` (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`) runs a pod-timed boot-mode entry first: reset with TX held low, release, the first bytes (gateware v57, for boot-ROM pins such as RL78 TOOL0). | `rx`, `tx`, `baud`, `parity`, `stop_bits`, `half_duplex`, `entry` |
+| `uart_open` | Start buffering the DUT's UART in the background. The frame is the profile's (`uart_parity`, `uart_stop_bits`; 8N1 unless set) unless `parity` (`none`/`even`/`odd`) or `stop_bits` (1/2) say otherwise; anything but 8N1 needs firmware 3.10.8+. `half_duplex` runs it on one wire (`rx`; `tx` defaults to it) and `entry` (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`) runs a pod-timed boot-mode entry first: reset with TX held low, release, the first bytes (gateware v57, for boot-ROM pins such as RL78 TOOL0). | `rx`, `tx`, `baud`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low` |
 | `uart_write` | Send text to the DUT through the open UART session. | **`text`**, `line_ending=lf` |
 | `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout=2` |
 | `uart_close` | Stop the background UART session. | none |

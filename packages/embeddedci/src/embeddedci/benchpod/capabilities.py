@@ -205,6 +205,9 @@ class Capabilities:
     #: boot-mode entry (``entry``, with ``nrst_pin``) (gateware v57+): :meth:`BenchPod.open_uart`
     #: / :meth:`BenchPod.capture_uart` ``half_duplex``, ``entry``.
     uart_hd: bool = False
+    #: ``uart_de``: the UART proxy drives an RS-485 transceiver's DE (gateware v58+):
+    #: :meth:`BenchPod.open_uart` / :meth:`BenchPod.capture_uart` ``de``, ``de_active_low``.
+    uart_de: bool = False
     #: The running gateware version (``status`` ``gateware``); 0 when not reported.
     gateware: int = 0
     #: The features-table revision the pod's firmware is built from (``status`` with
@@ -382,6 +385,7 @@ class Capabilities:
                 ("spi_stream", "spi_stream"),
                 ("uart_frame", "uart_frame"),
                 ("uart_hd", "uart_hd"),
+                ("uart_de", "uart_de"),
                 ("calibrate", "calibrate"),
                 ("cal_dmm", "cal_dmm"),
                 ("current_out", "current_out"),

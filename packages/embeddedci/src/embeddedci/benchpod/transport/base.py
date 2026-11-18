@@ -99,7 +99,8 @@ class Transport(ABC):
     @abstractmethod
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
-                         entry: Any = None) -> RawLink:
+                         entry: Any = None, de: Optional[int] = None,
+                         de_active_low: bool = False) -> RawLink:
         """Enter transparent UART-proxy mode and return the raw byte link.
 
         ``rx``/``tx`` are LA channels: ``rx`` is sampled (wire the DUT's TX
@@ -107,7 +108,8 @@ class Transport(ABC):
         ``"even"``, ``"odd"``) and ``stop_bits`` (1, 2) set the frame format; only
         8N1 is sent as before (older firmware knows nothing else). ``half_duplex`` (one
         wire, ``rx == tx``) and ``entry`` (a :class:`~embeddedci.benchpod.uart.UartEntry`) are
-        sent only when set (gateware v57). The returned
+        sent only when set (gateware v57), like ``de`` (an RS-485 transceiver's DE on that LA
+        channel, driven by the pod) and ``de_active_low`` (gateware v58). The returned
         link carries raw bytes; ``close()`` leaves the proxy.
         """
 
