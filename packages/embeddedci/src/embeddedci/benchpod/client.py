@@ -230,8 +230,14 @@ _EXT_REFUSALS = {
 }
 
 
-#: set_pull's "pull not given" (``enabled=`` is the older keyword).
-_NO_PULL = object()
+class _NoPull:
+    """set_pull's "pull not given" (``enabled=`` is the older keyword); a stable repr for the docs."""
+
+    def __repr__(self) -> str:
+        return "<required>"
+
+
+_NO_PULL = _NoPull()
 
 
 def _one_or_many(las: List[int]) -> Any:

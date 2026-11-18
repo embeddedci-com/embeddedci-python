@@ -179,7 +179,7 @@
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
     "set_module_id": "(self, serial: 'str', rev: 'str', module_type: 'str' = 'analog', *, replace: 'bool' = False) -> 'ModuleInfo'",
-    "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Union[PullDirection, bool, None, object]' = <object object at 0x104b217b0>, *, enabled: 'Optional[bool]' = None) -> 'PullState'",
+    "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Union[PullDirection, bool, None, object]' = <required>, *, enabled: 'Optional[bool]' = None) -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
