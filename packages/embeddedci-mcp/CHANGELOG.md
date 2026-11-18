@@ -2,6 +2,9 @@
 
 ## 3.0.2
 
+- `wiring` returns `board_header` and `header_map`: the profile on the pod's real I/O header as
+  text (each pin in its place, then what to connect to it), for showing the user how to wire the
+  board.
 - Needs embeddedci 3.0.2. `uart_open`, `capture_uart` and `power_cycle_and_capture` take the
   frame from the wiring profile (`uart_parity`, `uart_stop_bits`) when `parity` / `stop_bits` are
   omitted; `uart_open` reports the frame it used.

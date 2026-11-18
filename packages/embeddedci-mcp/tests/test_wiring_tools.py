@@ -177,3 +177,16 @@ def test_set_wiring_takes_back_what_wiring_returned(connected):
     result = call("set_wiring", profile={**profile, "swd_target": "target/stm32f4x.cfg"})
     assert result["swd_target"] == "target/stm32f4x.cfg"
     assert SESSION.require().wiring.extra["loop_output_max_v"] == 3.3
+
+
+def test_wiring_draws_the_profile_on_the_pods_header(connected, monkeypatch):
+    _set()
+    pod = SESSION.require()
+    monkeypatch.setattr(type(pod), "board_header", lambda self: "front")
+    result = call("wiring")
+    assert result["board_header"] == "front"
+    assert result["header_map"].startswith("Front connector (2x13)")
+    assert "pin 7 (LA7, UART RX) -> board TX" in result["header_map"]
+    monkeypatch.setattr(type(pod), "board_header", lambda self: None)
+    result = call("wiring")
+    assert result["board_header"] is None and "both are shown" in result["header_map"]

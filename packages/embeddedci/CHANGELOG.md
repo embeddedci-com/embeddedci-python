@@ -2,6 +2,11 @@
 
 ## 3.0.2
 
+- **The profile on the pod's header:** `BenchPod.board_header()` says which I/O header the pod has
+  (`"j1"`, the 2x11 pin headers up to v3-r2, or `"front"`, the 2x13 front connector of digital v3r3
+  and later; asked once per connection with the read-only `module` command), and
+  `header_map(wiring, header)` writes the profile on it as text: every pin in its place, then what
+  to connect to it.
 - **UART frame in the wiring profile:** `Wiring.uart_parity` (`"none"`, `"even"`, `"odd"`) and
   `Wiring.uart_stop_bits` (1, 2), next to `uart_baud`. `open_uart`, `capture_uart` and
   `power_cycle_and_capture` take them from the profile when `parity` / `stop_bits` are omitted

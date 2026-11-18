@@ -653,6 +653,19 @@ A file holds the same JSON object the pod stores:
 `bp.signal(name)` returns a GPIO handle for a signal (see [GPIO on the LA pins](#gpio-on-the-la-pins));
 channel arguments accept a role or signal name too (`bp.open_uart(rx="uart_rx", tx=4)`).
 
+**The profile on the pod's header.** `bp.board_header()` says which I/O header the pod has:
+`"j1"` (the 2x11 pin headers of the one-piece boards up to v3-r2) or `"front"` (the 2x13 connector
+on the front of digital v3r3 and later), None when the pod cannot tell. `header_map(wiring, header)`
+writes the profile on that header as text: every pin in its physical place, then what to connect
+to each pin on your board (header None writes both headers). The web and desktop apps draw the same
+thing from the Pins pane's Visualize button.
+
+```python
+from embeddedci.benchpod import header_map
+
+print(header_map(bp.wiring, bp.board_header()))
+```
+
 ## Power, reset and power monitoring
 
 ```python

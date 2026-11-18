@@ -167,11 +167,13 @@ from . import motor_emulator
 from .motor_emulator import BatteryModel, EmulatorCalibration, MotorEmulator
 from .waveforms import Waveform, WaveformLibrary
 from .wiring import Signal, Wiring
+from .header import header_map
 
 __all__ = [
     "BenchPod",
     # wiring profile
     "Wiring",
+    "header_map",
     "Signal",
     # LA pin modes + GPIO
     "GpioPin",

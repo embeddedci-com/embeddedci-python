@@ -199,6 +199,13 @@ class WiringResult(BaseModel):
     directions: Optional[str] = Field(None, description=(
         "'sent' when the pod has the profile's pin directions (la_dir: sent on connect and by "
         "set_wiring), else 'not sent: <why>' (older firmware, or a DUT output pin driven right now)."))
+    board_header: Optional[str] = Field(None, description=(
+        "The pod's I/O header: 'j1' (2x11 pin headers, one-piece boards up to v3-r2) or 'front' "
+        "(2x13 connector on the front of digital v3r3 and later); null when the pod cannot tell."))
+    header_map: Optional[str] = Field(None, description=(
+        "The profile on that header as text: each header pin in its physical place, then what to "
+        "connect to each pin on the user's board. Show it to the user when they ask how to wire the "
+        "board; both headers when board_header is null."))
 
 
 # -- LA pin ownership + GPIO -------------------------------------------------------

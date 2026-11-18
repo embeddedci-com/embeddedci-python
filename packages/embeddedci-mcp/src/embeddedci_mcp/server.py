@@ -57,6 +57,7 @@ from embeddedci.benchpod import (
     TriggerEdge,
     Waveshape,
     Wiring,
+    header_map,
     i2c,
 )
 from embeddedci.benchpod import decode as sdk_decode
@@ -542,7 +543,8 @@ async def wiring() -> m.WiringResult:
     Returns the profile this connection uses (normally a profile stored on the pod: profile_name,
     the pod's default unless connect named another): a 14-row pin table, the named signals, the
     power rail, the UART baud and the SWD target, warnings about risky wiring, the pod's stored
-    profiles and unsaved_changes (what set_wiring changed that is not stored yet). Every tool whose
+    profiles and unsaved_changes (what set_wiring changed that is not stored yet), and header_map:
+    the profile on the pod's real I/O header as text, to show the user how to wire their board. Every tool whose
     channel, baud, rail or SWD arguments are omitted takes them from this profile; what the profile
     does not set is undefined, and a tool that needs it says so: ask the user, never guess a pin.
     """
@@ -550,6 +552,11 @@ async def wiring() -> m.WiringResult:
         pod = SESSION.require()
         result = wiring_summary(pod.wiring)
         result.directions = pod.pin_directions_status
+        try:
+            result.board_header = pod.board_header()
+        except Exception:  # noqa: BLE001 - the pin map is extra: a pod that cannot say gets both headers
+            result.board_header = None
+        result.header_map = header_map(pod.wiring, result.board_header)
         return _pod_wiring_state(pod, result)
 
     return await _call(op)
