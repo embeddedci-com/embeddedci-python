@@ -576,7 +576,7 @@ async def set_wiring(
         "[{name, la, direction, active_low, description}], pulls (the LA channels whose pull resistor "
         "power_on switches on, e.g. [1, 2]; LA1-LA8 have one, the others it switches off; left out: "
         "power_on leaves the pulls as they are). What it leaves out is undefined (not "
-        "wired); a pin set to null is not wired. {\"version\": 1} objects fill in the reference bench."))],
+        "wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins."))],
     save: Annotated[bool, Field(description=(
         "Also store it on the pod (as save_wiring does). Default false: this connection only, unless "
         "the server runs with --wiring-autosave."))] = False,
