@@ -443,6 +443,11 @@ def test_uart_frame_format(connected):
 
 
 def test_uart_half_duplex_and_entry(connected):
+    if "half_duplex" not in inspect.signature(BenchPod.open_uart).parameters:
+        # The minimum SDK (mcp-min-sdk) predates the arguments: the tool says to upgrade it.
+        with pytest.raises(ToolError, match="newer embeddedci SDK"):
+            call("uart_open", rx=3, half_duplex=True)
+        return
     # one wire and the boot-mode entry need the pod's uart_hd capability (gateware v57)
     with pytest.raises(ToolError, match="gateware v57"):
         call("uart_open", rx=3, half_duplex=True)
