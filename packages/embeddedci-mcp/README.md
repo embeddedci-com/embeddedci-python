@@ -195,7 +195,7 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `wiring` | Which DUT signal is on which LA channel, plus the I/O voltage, power rail, UART baud and SWD target; the profiles stored on the pod and `unsaved_changes` (what this connection changed that is not stored). What a profile does not set is undefined. | none |
+| `wiring` | Which DUT signal is on which LA channel, plus the I/O voltage, power rail, UART baud and SWD target; the profiles stored on the pod and `unsaved_changes` (what this connection changed that is not stored); `board_header` and `header_map`, the profile on the pod's real I/O header as text (each pin in its place, then what to connect to it). What a profile does not set is undefined. | none |
 | `set_wiring` | Replace the wiring profile for this connection only (version 2: what it leaves out is undefined); `save=true`, or the server's `--wiring-autosave`, also stores it on the pod. Autosave never stores a change of the I/O voltage, rail or SWD target. Also sends the profile's pin directions to the pod (`la_dir`, firmware 3.10.4+). | **`profile`**, `save=false` |
 | `save_wiring` | Store this connection's profile (or `profile`) on the pod, under `name` or the profile it was loaded from. Saving the loaded profile refuses with `BP0009` when someone else saved it meanwhile. Never changes the pod's default. | `name`, `profile` |
 | `load_wiring` | Switch this connection to a profile stored on the pod (omit `name`: the pod's default). Nothing on the pod changes. | `name` |

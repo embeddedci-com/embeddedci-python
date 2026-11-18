@@ -1805,6 +1805,33 @@ class BenchPod:
 
     # -- The analog module (two-board BenchPod, digital v3r3) -------------------
 
+    def board_header(self) -> Optional[str]:
+        """Which I/O header this pod has: ``"front"`` (the 2x13 connector on the front of digital
+        v3r3 and later) or ``"j1"`` (the 2x11 pin headers of the one-piece boards up to v3-r2);
+        None when the pod cannot tell. Asked once per connection: the read-only ``module`` command
+        (it answers on a module-link board and refuses on the others, over the cloud too), else the
+        status. :func:`~embeddedci.benchpod.header.header_map` writes the wiring on it."""
+        cached = getattr(self, "_board_header", False)
+        if cached is not False:
+            return cached
+        from .header import header_from_status
+
+        header: Optional[str] = None
+        try:
+            self.command({"cmd": "module"})
+            header = "front"
+        except UnsupportedFeatureError:
+            header = None
+        except BenchPodError as e:
+            header = "j1" if "no module link" in str(e).lower() else None
+        if header is None:
+            try:
+                header = header_from_status(self.status())
+            except BenchPodError:
+                header = None
+        self._board_header = header
+        return header
+
     def module(self) -> ModuleInfo:
         """The analog module and its EEPROM: identity, revision, serial and stored calibration.
 
