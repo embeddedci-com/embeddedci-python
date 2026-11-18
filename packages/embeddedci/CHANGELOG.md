@@ -9,6 +9,10 @@
 - `flash(target="esp32...")` switches the FPGA to the deep-replay image before staging the image,
   so a pod left on the emulation or loop image no longer refuses with `load_bin: deep replay is
   not in the emulation image`.
+- **One-wire UART and boot-mode entry:** `open_uart` and `capture_uart` take `half_duplex=True`
+  (rx and tx on one LA pin; the pod only pulls the line low and does not read back its own bytes)
+  and `entry=UartEntry(...)`, a reset with TX held low, its release and the first bytes, all timed
+  on the pod. Needs gateware v57 (capability `uart_hd`); the entry also needs the reset pin.
 
 ## 3.0.1
 

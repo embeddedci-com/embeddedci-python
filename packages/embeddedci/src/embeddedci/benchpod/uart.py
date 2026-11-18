@@ -23,6 +23,54 @@ from .transport.base import RawLink
 Until = Union[str, "Pattern[str]", Callable[[str], bool]]
 
 
+UART_ENTRY_MS_MAX = 1000
+UART_ENTRY_DATA_MAX = 32
+
+
+@dataclass(frozen=True)
+class UartEntry:
+    """A boot-mode entry the pod runs before a UART session starts (``open_uart(entry=...)``).
+
+    Some boot ROMs pick their mode from the level of the UART pin when the chip leaves reset, and
+    expect a byte soon after (Renesas RL78 on TOOL0, for one). The pod times the whole sequence
+    itself, so the network never sits between the reset and the first byte:
+
+    1. with ``tx_low``, drive TX low;
+    2. hold the target in reset (the pod's reset pin) for ``reset_ms``, release it;
+    3. wait ``hold_ms`` (TX still low with ``tx_low``);
+    4. release TX (the UART starts, the line idles high), wait ``idle_ms``;
+    5. send ``data``.
+
+    Times are whole milliseconds, 0 to 1000; ``data`` is at most 32 bytes. The target's own
+    timing requirements come from its datasheet.
+    """
+
+    reset_ms: int = 10
+    tx_low: bool = True
+    hold_ms: int = 10
+    idle_ms: int = 10
+    data: bytes = b""
+
+    def __post_init__(self) -> None:
+        for name in ("reset_ms", "hold_ms", "idle_ms"):
+            v = getattr(self, name)
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= UART_ENTRY_MS_MAX:
+                raise ValueError(f"{name} must be a whole number of milliseconds, 0 to "
+                                 f"{UART_ENTRY_MS_MAX}, got {v!r}")
+        if not isinstance(self.data, (bytes, bytearray)):
+            raise ValueError(f"data must be bytes, got {type(self.data).__name__}")
+        if len(self.data) > UART_ENTRY_DATA_MAX:
+            raise ValueError(f"data is at most {UART_ENTRY_DATA_MAX} bytes, got {len(self.data)}")
+
+    def to_request(self) -> dict:
+        """The ``entry`` object of the pod's ``uart_proxy_start``."""
+        req: dict = {"reset_ms": self.reset_ms, "tx_low": self.tx_low, "hold_ms": self.hold_ms,
+                     "idle_ms": self.idle_ms}
+        if self.data:
+            req["hex"] = bytes(self.data).hex()
+        return req
+
+
 @dataclass
 class UartCapture:
     """Decoded UART output collected during a capture window."""

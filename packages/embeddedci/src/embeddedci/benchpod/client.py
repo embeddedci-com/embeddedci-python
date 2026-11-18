@@ -1953,6 +1953,8 @@ class BenchPod:
         until: Optional[_uart.Until] = None,
         parity: Optional[str] = None,
         stop_bits: Optional[int] = None,
+        half_duplex: bool = False,
+        entry: Optional[_uart.UartEntry] = None,
     ) -> _uart.UartCapture:
         """Capture the DUT's UART output for ``duration`` seconds.
 
@@ -1960,15 +1962,16 @@ class BenchPod:
         DUT's RX). ``until`` (substring / compiled regex / predicate) stops early on a match.
         Omitted ``rx``, ``tx``, ``baud``, ``parity`` and ``stop_bits`` come from the wiring profile.
         ``parity`` (``"none"``, ``"even"``, ``"odd"``) and ``stop_bits`` (1 or 2) set the frame
-        format, as in :meth:`open_uart`.
+        format, as in :meth:`open_uart`, and so do ``half_duplex`` and ``entry``.
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
-        link = self._uart_link(rx, tx, baud, parity, stop_bits)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry)
         return _uart.capture(link, duration=duration, until=until)
 
     def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: Optional[str] = None,
-                   stop_bits: Optional[int] = None) -> Any:
+                   stop_bits: Optional[int] = None, half_duplex: bool = False,
+                   entry: Optional[_uart.UartEntry] = None) -> Any:
         if parity is not None and parity not in ("none", "even", "odd"):
             raise ValueError(f"parity must be 'none', 'even' or 'odd', got {parity!r}")
         if stop_bits is not None and (isinstance(stop_bits, bool) or stop_bits not in (1, 2)):
@@ -1985,14 +1988,39 @@ class BenchPod:
                     f"UART parity and stop bits need firmware {UART_FRAME_FIRMWARE}+ (gateware v56; "
                     f"this pod runs firmware {fw}): update the pod's firmware",
                     feature="uart_frame", firmware_version=self.capabilities.firmware_version)
+        if entry is not None and not isinstance(entry, _uart.UartEntry):
+            raise ValueError(f"entry must be a UartEntry, got {type(entry).__name__}")
+        if half_duplex or entry is not None:
+            if not self.supports("uart_hd"):
+                fw = self.capabilities.firmware_version or "unknown"
+                raise UnsupportedFeatureError(
+                    f"UART half_duplex and entry need gateware v57 (capability uart_hd; this pod "
+                    f"runs firmware {fw}): update the pod's firmware",
+                    feature="uart_hd", firmware_version=self.capabilities.firmware_version)
+        if entry is not None and not self.supports("nrst_pin"):
+            raise UnsupportedFeatureError(
+                "UART entry needs the pod's reset pin, which this board does not have (v3 boards "
+                "have it): open the UART without entry and reset the target yourself",
+                feature="nrst_pin", firmware_version=self.capabilities.firmware_version)
         rx_i = self._wired(rx, "uart_rx")
-        tx_i = self._wired(tx, "uart_tx")
+        if half_duplex:
+            # One wire: tx defaults to rx, not to the profile's uart_tx.
+            tx_i = rx_i if tx is None else self._wired(tx, "uart_tx")
+            if tx_i != rx_i:
+                raise ValueError(f"half_duplex runs on one pin: rx is LA{rx_i} and tx is LA{tx_i}; "
+                                 "omit tx or give the same channel")
+        else:
+            tx_i = self._wired(tx, "uart_tx")
         b = int(self.wiring.uart_baud if baud is None else baud)
+        kw: Dict[str, Any] = {}
+        if parity != "none" or stop_bits != 1:
+            kw.update(parity=parity, stop_bits=stop_bits)
+        if half_duplex:
+            kw["half_duplex"] = True
+        if entry is not None:
+            kw["entry"] = entry
         with _classified_errors():
-            if parity == "none" and stop_bits == 1:
-                return self._transport.uart_proxy_start(rx_i, tx_i, b)
-            return self._transport.uart_proxy_start(rx_i, tx_i, b, parity=parity,
-                                                    stop_bits=stop_bits)
+            return self._transport.uart_proxy_start(rx_i, tx_i, b, **kw)
 
     def power_cycle_and_capture(
         self,
@@ -2034,6 +2062,8 @@ class BenchPod:
         parity: Optional[str] = None,
         stop_bits: Optional[int] = None,
         encoding: str = "utf-8",
+        half_duplex: bool = False,
+        entry: Optional[_uart.UartEntry] = None,
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
 
@@ -2067,9 +2097,25 @@ class BenchPod:
         ``encoding`` turns the received bytes into text (and text you write into bytes). For a
         binary protocol pass ``"latin-1"``: every byte is one character, so
         ``uart.read().encode("latin-1")`` gives the bytes back unchanged.
+
+        ``half_duplex=True`` runs a one-wire UART on ``rx`` alone (``tx`` defaults to it): the pod
+        only pulls the line low and lets the pull-up hold it high, so the device answers on the
+        same wire, and the pod does not read back its own bytes. Use LA1 to LA6 (the pod turns
+        their pull-up on for the session) or a pull-up on the board.
+
+        ``entry`` runs a boot-mode entry on the pod before the session starts: reset with TX held
+        low, release, then the first bytes, timed on the pod (see :class:`UartEntry`)::
+
+            entry = benchpod.UartEntry(reset_ms=5, hold_ms=3, idle_ms=2, data=b"\\x00")
+            with bp.open_uart(rx=3, half_duplex=True, entry=entry, encoding="latin-1") as uart:
+                uart.write(...)
+
+        Both need gateware v57 (capability ``uart_hd``); ``entry`` also needs the pod's reset pin
+        (capability ``nrst_pin``). Older pods are refused with
+        :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError` before anything is sent.
         """
         codecs.lookup(encoding)  # an unknown encoding fails here, before the proxy starts
-        link = self._uart_link(rx, tx, baud, parity, stop_bits)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry)
         return _uart.UartSession(link, max_buffer=max_buffer, encoding=encoding)
 
     # -- SPI master / SPI flash ------------------------------------------------

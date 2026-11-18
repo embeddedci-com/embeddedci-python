@@ -612,7 +612,12 @@ class SerialTransport(Transport):
         return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
-                         stop_bits: int = 1) -> RawLink:
+                         stop_bits: int = 1, half_duplex: bool = False,
+                         entry: Any = None) -> RawLink:
+        if half_duplex or entry is not None:
+            raise UnsupportedFeatureError(
+                "UART half_duplex and entry need the network, the USB network or the cloud: the "
+                "USB console's uart-proxy has neither", feature="uart_hd")
         if parity != "none" or stop_bits != 1:
             raise UnsupportedFeatureError(
                 "UART parity and stop bits need the network, the USB network or the cloud: the "

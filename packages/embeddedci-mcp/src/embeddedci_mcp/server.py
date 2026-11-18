@@ -27,7 +27,7 @@ import anyio
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from embeddedci.benchpod import (
     EXPANSION_CHIPS,
@@ -1130,6 +1130,26 @@ UartParity = Annotated[Optional[Literal["none", "even", "odd"]], Field(descripti
     "Anything but 8N1 needs firmware 3.10.8+ (gateware v56)."))]
 UartStopBits = Annotated[Optional[Literal[1, 2]], Field(description=(
     "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set)."))]
+UartHalfDuplex = Annotated[bool, Field(description=(
+    "One-wire UART: rx alone carries both directions (tx defaults to rx). The pod only pulls the "
+    "line low and its pull-up (LA1-LA6) or the board's holds it high; the pod does not read back "
+    "its own bytes. For boot-ROM programming pins such as RL78 TOOL0. Needs gateware v57."))]
+
+
+class UartEntryArg(BaseModel):
+    """A boot-mode entry the pod times itself before the session starts."""
+
+    reset_ms: int = Field(10, ge=0, le=1000, description="Target held in reset (the pod's reset pin), ms.")
+    tx_low: bool = Field(True, description="Hold TX low across the reset release (a boot strap on the UART pin).")
+    hold_ms: int = Field(10, ge=0, le=1000, description="After the reset release, TX stays low this long, ms.")
+    idle_ms: int = Field(10, ge=0, le=1000, description="From TX release (line idles high) to the first byte, ms.")
+    data_hex: str = Field("", pattern=r"^([0-9a-fA-F]{2}){0,32}$",
+                          description="Bytes sent right after idle_ms, as hex (at most 32 bytes).")
+
+
+UartEntryOpt = Annotated[Optional[UartEntryArg], Field(description=(
+    "Run a boot-mode entry on the pod first: TX low, reset, release, then the first bytes, all "
+    "timed on the pod. Needs gateware v57 and the pod's reset pin. Omit for a plain session."))]
 
 
 def _uart_frame(pod: Any, method: str, parity: Optional[str], stop_bits: Optional[int]) -> Dict[str, Any]:
@@ -1145,6 +1165,21 @@ def _uart_frame(pod: Any, method: str, parity: Optional[str], stop_bits: Optiona
     return {k: v for k, v in (("parity", parity), ("stop_bits", stop_bits)) if v is not None}
 
 
+def _uart_line(pod: Any, method: str, half_duplex: bool, entry: Optional[UartEntryArg]) -> Dict[str, Any]:
+    """The one-wire and boot-mode entry keyword arguments for an SDK UART call: none when unused,
+    so an older SDK still works; refused when the SDK predates them."""
+    kw: Dict[str, Any] = {}
+    if half_duplex:
+        kw["half_duplex"] = True
+    if entry is not None:
+        from embeddedci.benchpod import UartEntry
+        kw["entry"] = UartEntry(reset_ms=entry.reset_ms, tx_low=entry.tx_low, hold_ms=entry.hold_ms,
+                                idle_ms=entry.idle_ms, data=bytes.fromhex(entry.data_hex))
+    if kw and "half_duplex" not in inspect.signature(getattr(type(pod), method)).parameters:
+        raise ValueError("UART half_duplex and entry need a newer embeddedci SDK; upgrade embeddedci")
+    return kw
+
+
 @mcp.tool(annotations=_ann("Capture UART output"))
 async def capture_uart(
     duration: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds.")],
@@ -1154,19 +1189,24 @@ async def capture_uart(
     until_regex: Regex = None,
     parity: UartParity = None,
     stop_bits: UartStopBits = None,
+    half_duplex: UartHalfDuplex = False,
+    entry: UartEntryOpt = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Record the DUT's UART output for a fixed window (or until until_regex matches).
 
     The channels, baud, parity and stop bits come from the wiring profile when omitted (8N1 unless
     the profile says otherwise).
+    half_duplex runs it on one wire, and entry runs a pod-timed boot-mode entry first (reset
+    with TX low, release, first bytes).
     """
     pattern = _compile(until_regex)
 
     def op() -> m.UartCaptureResult:
         pod = SESSION.require()
         return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern,
-                                             **_uart_frame(pod, "capture_uart", parity, stop_bits)))
+                                             **_uart_frame(pod, "capture_uart", parity, stop_bits),
+                                             **_uart_line(pod, "capture_uart", half_duplex, entry)))
 
     return await _call_reporting(ctx, "capturing UART", op)
 
@@ -1208,6 +1248,8 @@ async def uart_open(
     baud: WiredBaud = None,
     parity: UartParity = None,
     stop_bits: UartStopBits = None,
+    half_duplex: UartHalfDuplex = False,
+    entry: UartEntryOpt = None,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
@@ -1216,20 +1258,25 @@ async def uart_open(
     when omitted; the result says which were used. So do parity and stop_bits (8N1 unless the profile
     says otherwise). The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter and an RS-485 bus
     (Modbus RTU) an external RS-485 transceiver in between. A channel used as GPIO must be released
-    first (gpio_release).
+    first (gpio_release). half_duplex runs the session on one wire (rx; tx defaults to it), and
+    entry runs a pod-timed boot-mode entry before it starts (reset with TX held low, release, the
+    first bytes), for boot-ROM programming such as RL78 TOOL0.
     """
     def op() -> m.UartSessionResult:
         pod = SESSION.require()
-        rx_i, tx_i = _channel(pod, rx, "uart_rx"), _channel(pod, tx, "uart_tx")
+        rx_i = _channel(pod, rx, "uart_rx")
+        tx_i = rx_i if half_duplex and tx is None else _channel(pod, tx, "uart_tx")
         rate = int(pod.wiring.uart_baud if baud is None else baud)
         frame = _uart_frame(pod, "open_uart", parity, stop_bits)
+        line = _uart_line(pod, "open_uart", half_duplex, entry)
         SESSION.close_uart()
-        SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate, **frame)
+        SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate, **frame, **line)
         SESSION.uart_port = (rx_i, tx_i, rate)
         used_parity = parity if parity is not None else getattr(pod.wiring, "uart_parity", None) or "none"
         used_stop = stop_bits if stop_bits is not None else getattr(pod.wiring, "uart_stop_bits", None) or 1
         return m.UartSessionResult(open=True, rx=rx_i, tx=tx_i, baud=rate,
-                                   parity=used_parity, stop_bits=used_stop)
+                                   parity=used_parity, stop_bits=used_stop,
+                                   half_duplex=half_duplex)
 
     return await _call(op)
 

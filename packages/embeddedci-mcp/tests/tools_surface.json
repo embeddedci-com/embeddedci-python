@@ -1063,6 +1063,52 @@
       "title": "Capture UART output"
     },
     "input": {
+      "$defs": {
+        "UartEntryArg": {
+          "description": "A boot-mode entry the pod times itself before the session starts.",
+          "properties": {
+            "data_hex": {
+              "default": "",
+              "description": "Bytes sent right after idle_ms, as hex (at most 32 bytes).",
+              "pattern": "^([0-9a-fA-F]{2}){0,32}$",
+              "title": "Data Hex",
+              "type": "string"
+            },
+            "hold_ms": {
+              "default": 10,
+              "description": "After the reset release, TX stays low this long, ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Hold Ms",
+              "type": "integer"
+            },
+            "idle_ms": {
+              "default": 10,
+              "description": "From TX release (line idles high) to the first byte, ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Idle Ms",
+              "type": "integer"
+            },
+            "reset_ms": {
+              "default": 10,
+              "description": "Target held in reset (the pod's reset pin), ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Reset Ms",
+              "type": "integer"
+            },
+            "tx_low": {
+              "default": true,
+              "description": "Hold TX low across the reset release (a boot strap on the UART pin).",
+              "title": "Tx Low",
+              "type": "boolean"
+            }
+          },
+          "title": "UartEntryArg",
+          "type": "object"
+        }
+      },
       "properties": {
         "baud": {
           "anyOf": [
@@ -1085,6 +1131,24 @@
           "maximum": 600,
           "title": "Duration",
           "type": "number"
+        },
+        "entry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UartEntryArg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run a boot-mode entry on the pod first: TX low, reset, release, then the first bytes, all timed on the pod. Needs gateware v57 and the pod's reset pin. Omit for a plain session."
+        },
+        "half_duplex": {
+          "default": false,
+          "description": "One-wire UART: rx alone carries both directions (tx defaults to rx). The pod only pulls the line low and its pull-up (LA1-LA6) or the board's holds it high; the pod does not read back its own bytes. For boot-ROM programming pins such as RL78 TOOL0. Needs gateware v57.",
+          "title": "Half Duplex",
+          "type": "boolean"
         },
         "parity": {
           "anyOf": [
@@ -5462,6 +5526,52 @@
       "title": "Open a UART session"
     },
     "input": {
+      "$defs": {
+        "UartEntryArg": {
+          "description": "A boot-mode entry the pod times itself before the session starts.",
+          "properties": {
+            "data_hex": {
+              "default": "",
+              "description": "Bytes sent right after idle_ms, as hex (at most 32 bytes).",
+              "pattern": "^([0-9a-fA-F]{2}){0,32}$",
+              "title": "Data Hex",
+              "type": "string"
+            },
+            "hold_ms": {
+              "default": 10,
+              "description": "After the reset release, TX stays low this long, ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Hold Ms",
+              "type": "integer"
+            },
+            "idle_ms": {
+              "default": 10,
+              "description": "From TX release (line idles high) to the first byte, ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Idle Ms",
+              "type": "integer"
+            },
+            "reset_ms": {
+              "default": 10,
+              "description": "Target held in reset (the pod's reset pin), ms.",
+              "maximum": 1000,
+              "minimum": 0,
+              "title": "Reset Ms",
+              "type": "integer"
+            },
+            "tx_low": {
+              "default": true,
+              "description": "Hold TX low across the reset release (a boot strap on the UART pin).",
+              "title": "Tx Low",
+              "type": "boolean"
+            }
+          },
+          "title": "UartEntryArg",
+          "type": "object"
+        }
+      },
       "properties": {
         "baud": {
           "anyOf": [
@@ -5477,6 +5587,24 @@
           "default": null,
           "description": "UART baud rate; omit for the wiring profile's uart_baud.",
           "title": "Baud"
+        },
+        "entry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UartEntryArg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run a boot-mode entry on the pod first: TX low, reset, release, then the first bytes, all timed on the pod. Needs gateware v57 and the pod's reset pin. Omit for a plain session."
+        },
+        "half_duplex": {
+          "default": false,
+          "description": "One-wire UART: rx alone carries both directions (tx defaults to rx). The pod only pulls the line low and its pull-up (LA1-LA6) or the board's holds it high; the pod does not read back its own bytes. For boot-ROM programming pins such as RL78 TOOL0. Needs gateware v57.",
+          "title": "Half Duplex",
+          "type": "boolean"
         },
         "parity": {
           "anyOf": [

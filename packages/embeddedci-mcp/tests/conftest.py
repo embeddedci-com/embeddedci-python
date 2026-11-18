@@ -102,6 +102,7 @@ class FakeTransport(Transport):
         self.dirs: Dict[int, str] = {}
         self.power_efuse = 1
         self.uart_frames: List[Tuple[str, int]] = []   # (parity, stop_bits) per uart_proxy_start
+        self.uart_lines: List[Tuple[int, int, bool, Any]] = []   # (rx, tx, half_duplex, entry)
         #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
         self.power_samples: Dict[str, Any] = {
             "t_us": [0, 250_000, 500_000, 750_000],
@@ -131,15 +132,20 @@ class FakeTransport(Transport):
     def dap_start(self, swclk: int, swdio: int):
         return FakeRawLink()
 
-    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none", stop_bits: int = 1):
+    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none", stop_bits: int = 1,
+                         half_duplex: bool = False, entry: Any = None):
         self.uart_frames.append((parity, stop_bits))
+        self.uart_lines.append((rx, tx, half_duplex, entry))
         for la, fn in list(self.function.items()):  # a new proxy replaces the previous one
-            if fn in ("uart_rx", "uart_tx"):
+            if fn in ("uart_rx", "uart_tx", "uart_hd"):
                 self.function[la] = "none"
         for la in (rx, tx):
             if self.function[la] != "none":
                 raise FirmwareError(self._conflict(la), cmd="uart_proxy_start")
-        self.function[rx], self.function[tx] = "uart_rx", "uart_tx"
+        if half_duplex:
+            self.function[rx] = "uart_hd"
+        else:
+            self.function[rx], self.function[tx] = "uart_rx", "uart_tx"
         link = FakeRawLink(self.uart_data)
         self.uart_links.append(link)
         return link
