@@ -6,6 +6,8 @@
   agent to load the board's own profile by name and shows one consistent example, the
   process-node bench's `process-node-stm32` profile (UART RX on LA3, I2C SCL on LA1 and SDA on LA2,
   the alarm on LA5). It used to mix that bench's I2C pins with the default pins' UART RX (LA5).
+- `set_wiring`'s `profile` description lists the `pulls` key (the LA channels whose pull
+  resistor `power_on` switches on).
 
 ## 3.0.2
 

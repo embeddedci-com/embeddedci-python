@@ -653,7 +653,7 @@ def fake_open(monkeypatch, fake_transport):
     def factory(connection, **kwargs):
         seen["connection"] = connection
         seen.update(kwargs)
-        # The fake bench is wired like the reference bench (version 2 profiles leave nothing wired
+        # The fake bench is wired on the old default pins (version 2 profiles leave nothing wired
         # by default); a test that names a stored profile gets the pod's lookup instead.
         if kwargs.get("wiring_profile"):
             return BenchPod(transport=fake_transport, lease=False, la_voltage=kwargs.get("la_voltage"),
