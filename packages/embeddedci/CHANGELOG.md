@@ -16,7 +16,9 @@
   SDK checks the direction itself. `pull_state` and `enabled_pulls` cover LA1-LA14.
 - **Wiring `pulls` map:** `Wiring.pulls` also takes `{"1": "up", "8": "down"}`; the list of channels
   stays valid and means each channel's own direction. `Wiring.pull_directions()` gives either as
-  the map, and `power_on` applies it.
+  the map, and `power_on` applies it. `to_dict()` writes the list whenever every pull is its
+  channel's own direction, so older readers keep taking it.
+- `LaPinState.pull_dirs`: every direction the channel's pull resistor can pull.
 - The board's pull resistors are one table, `constants.PULL_TABLE` (`PullHw`: dirs, default,
   ohms); `PULL_OHMS`, `PULLUP_CHANNELS` and `PULLDOWN_CHANNELS` come from it.
 - Error catalog and features table synced from benchpod-firmware (BP0023, BP0024, `la_pull_dir`).

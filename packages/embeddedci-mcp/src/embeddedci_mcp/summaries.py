@@ -147,6 +147,8 @@ def pin_state(pin: Any) -> m.LaPinResult:
     """One :class:`~embeddedci.benchpod.LaPinState` as a tool result row."""
     return m.LaPinResult(la=pin.la, function=pin.function, gpio=pin.gpio, level=pin.level,
                          pull=pin.pull, pull_ohms=pin.pull_ohms, pull_on=pin.pull_on,
+                         pull_dirs=(list(pin.pull_dirs) if hasattr(pin, "pull_dirs")
+                                    else ([pin.pull] if pin.pull else [])),
                          in_use=pin.in_use, dir=pin.dir, warnings=pin.warnings or None)
 
 

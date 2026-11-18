@@ -18,7 +18,7 @@ These are the pod's LA pins on the iCE40, driven at the LA I/O voltage through 3
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import BenchPod
@@ -46,7 +46,8 @@ class LaPinState:
     gpio: Optional[str] = None
     #: The commanded level of a GPIO output or open-drain pin.
     level: Optional[int] = None
-    #: ``"up"``, ``"down"`` or ``None`` (LA9-LA14 have no bias resistor).
+    #: The way the pull resistor pulls when on: ``"up"``, ``"down"`` or ``None`` (no resistor:
+    #: LA9-LA14 on today's boards).
     pull: Optional[str] = None
     pull_ohms: Optional[str] = None
     pull_on: bool = False
@@ -57,6 +58,10 @@ class LaPinState:
     #: output) and :data:`WARN_UNPOWERED_DUT` (target power is off while the pin is driven high or
     #: pulled up). :attr:`warnings` spells them out.
     warn: int = 0
+    #: Every direction the pull resistor can pull (``set_pull``): ``("up",)``, ``("down",)``,
+    #: ``("up", "down")`` or ``()``. Firmware before ``la_pull_dir`` does not say; it is then
+    #: ``(pull,)``.
+    pull_dirs: Tuple[str, ...] = ()
     raw: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
@@ -85,7 +90,10 @@ class LaPinState:
         return cls(la=int(e.get("la", 0) or 0), function=str(e.get("function") or "none"),
                    gpio=e.get("gpio") or None, level=None if level is None else int(level),
                    pull=pull.get("dir"), pull_ohms=pull.get("ohms"), pull_on=bool(pull.get("on", False)),
-                   dir=e.get("dir") or None, warn=int(e.get("warn") or 0), raw=dict(e))
+                   dir=e.get("dir") or None, warn=int(e.get("warn") or 0),
+                   pull_dirs=(tuple(str(d) for d in pull["dirs"]) if isinstance(pull.get("dirs"), list)
+                              else ((str(pull["dir"]),) if pull.get("dir") else ())),
+                   raw=dict(e))
 
 
 class GpioPin:

@@ -294,7 +294,12 @@ class Wiring:
         out["signals"] = [s.to_dict() for s in self.signals]
         out["dut_dirs"] = dict(self.dut_dirs)
         if isinstance(self.pulls, Mapping):
-            out["pulls"] = {str(la): d for la, d in self.pulls.items()}
+            # the list whenever every pull is its channel's own direction: every reader takes it
+            dirs = self.pull_directions()
+            if dirs and all(PULL_TABLE.get(la) and PULL_TABLE[la].default == d for la, d in dirs.items()):
+                out["pulls"] = sorted(dirs)
+            else:
+                out["pulls"] = {str(la): d for la, d in self.pulls.items()}
         elif self.pulls is not None:
             out["pulls"] = list(self.pulls)
         out.update(self.extra)

@@ -11,7 +11,8 @@
 - `set_pull(las, pull="up" | "down" | "off")`: pull by direction; the pod picks the resistor.
   `enabled` still works (true = each channel's own direction). Channels 1-14; a direction a
   channel can't pull is refused (BP0024, BP0023 without a resistor).
-- `pull_status` lists all 14 channels with `state` (up, down, off) and `supported` directions.
+- `pull_status` lists all 14 channels with `state` (up, down, off) and `supported` directions;
+  `la_pins` (and the gpio tools' pins) add `pull_dirs`.
 
 ## 3.0.2
 

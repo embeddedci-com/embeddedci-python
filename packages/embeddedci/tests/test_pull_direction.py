@@ -163,8 +163,11 @@ def test_wiring_pulls_map_and_list():
     w = Wiring.from_dict({"version": 2, "pulls": {"1": "up", "2": "UP", "7": "down"}})
     assert w.pulls == {1: "up", 2: "up", 7: "down"}
     assert w.pull_directions() == {1: "up", 2: "up", 7: "down"}
-    assert w.to_dict()["pulls"] == {"1": "up", "2": "up", "7": "down"}
-    assert Wiring.from_dict(w.to_dict()) == w
+    # every pull is its channel's own direction: written as the list, which older readers take
+    assert w.to_dict()["pulls"] == [1, 2, 7]
+    assert Wiring.from_dict(w.to_dict()).pull_directions() == w.pull_directions()
+    # an empty map stays a map (it switches every pull off, like [])
+    assert Wiring.from_dict({"version": 2, "pulls": {}}).to_dict()["pulls"] == {}
     lst = Wiring.from_dict({"version": 2, "pulls": [8, 1]})
     assert lst.pulls == (1, 8) and lst.pull_directions() == {1: "up", 8: "down"}
     assert lst.to_dict()["pulls"] == [1, 8]
@@ -172,6 +175,17 @@ def test_wiring_pulls_map_and_list():
                      ({"1": "sideways"}, '"up" or "down"'), ("1", "map of LA channel")):
         with pytest.raises(ValueError, match=msg):
             Wiring.from_dict({"version": 2, "pulls": bad})
+
+
+def test_la_pins_reports_the_directions():
+    from embeddedci.benchpod.gpio import LaPinState
+
+    new = LaPinState.from_reply({"la": 1, "function": "none", "pull": {"dir": "up", "ohms": "4.7k", "on": False,
+                                                                        "dirs": ["up"]}})
+    assert new.pull_dirs == ("up",)
+    old = LaPinState.from_reply({"la": 7, "function": "none", "pull": {"dir": "down", "ohms": "10k", "on": True}})
+    assert old.pull_dirs == ("down",) and old.pull_on
+    assert LaPinState.from_reply({"la": 9, "function": "none", "pull": None}).pull_dirs == ()
 
 
 def test_power_on_applies_the_map():
