@@ -470,6 +470,11 @@ def test_uart_half_duplex_and_entry(connected):
 
 
 def test_uart_de(connected):
+    if "de" not in inspect.signature(BenchPod.open_uart).parameters:
+        # The minimum SDK (mcp-min-sdk) predates the argument: the tool says to upgrade it.
+        with pytest.raises(ToolError, match="newer embeddedci SDK"):
+            call("uart_open", rx=5, tx=4, de=9)
+        return
     # the pod's RS-485 DE needs the uart_de feature (gateware v58)
     with pytest.raises(ToolError, match="gateware v58"):
         call("uart_open", rx=5, tx=4, de=9)
