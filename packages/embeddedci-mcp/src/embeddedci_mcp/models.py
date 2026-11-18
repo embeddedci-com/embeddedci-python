@@ -452,6 +452,7 @@ class UartSessionResult(BaseModel):
     baud: Optional[int] = None
     parity: Optional[str] = None      # "none" / "even" / "odd" (open sessions)
     stop_bits: Optional[int] = None
+    half_duplex: bool = False         # one wire (rx == tx)
 
 
 class UartWriteResult(BaseModel):

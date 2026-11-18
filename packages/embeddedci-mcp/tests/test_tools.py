@@ -442,6 +442,28 @@ def test_uart_frame_format(connected):
     call("uart_close")
 
 
+def test_uart_half_duplex_and_entry(connected):
+    # one wire and the boot-mode entry need the pod's uart_hd capability (gateware v57)
+    with pytest.raises(ToolError, match="gateware v57"):
+        call("uart_open", rx=3, half_duplex=True)
+    connected.caps.extend(["uart_hd", "nrst_pin"])
+    SESSION.require().refresh_capabilities()
+    r = call("uart_open", rx=3, half_duplex=True)
+    assert (r["rx"], r["tx"], r["half_duplex"]) == (3, 3, True)
+    assert connected.uart_lines[-1][:3] == (3, 3, True)
+    call("uart_open", rx=3, half_duplex=True,
+         entry={"reset_ms": 5, "hold_ms": 3, "idle_ms": 2, "data_hex": "00"})
+    e = connected.uart_lines[-1][3]
+    assert e.to_request() == {"reset_ms": 5, "tx_low": True, "hold_ms": 3, "idle_ms": 2, "hex": "00"}
+    call("capture_uart", rx=1, tx=2, duration=0.2, entry={})
+    assert connected.uart_lines[-1][2] is False and connected.uart_lines[-1][3] is not None
+    with pytest.raises(ToolError):
+        call("uart_open", rx=3, half_duplex=True, entry={"data_hex": "0"})
+    with pytest.raises(ToolError):
+        call("uart_open", rx=3, half_duplex=True, entry={"reset_ms": 5000})
+    call("uart_close")
+
+
 # -- I2C sensor + pulls ----------------------------------------------------------------
 
 def test_sensor_library_tools_need_no_pod():

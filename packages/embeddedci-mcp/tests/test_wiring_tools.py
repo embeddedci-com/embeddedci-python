@@ -109,7 +109,8 @@ def test_wiring_resource_is_registered():
 def test_uart_tools_take_channels_and_baud_from_the_profile(connected):
     _set()
     result = call("uart_open")
-    assert result == {"open": True, "rx": 7, "tx": 8, "baud": 9600, "parity": "none", "stop_bits": 1}
+    assert result == {"open": True, "rx": 7, "tx": 8, "baud": 9600, "parity": "none", "stop_bits": 1,
+                      "half_duplex": False}
     call("uart_close")
     call("capture_uart", duration=0.2)
     assert connected.uart_links[-1] is not None
