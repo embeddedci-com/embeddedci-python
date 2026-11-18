@@ -13,6 +13,11 @@
   (rx and tx on one LA pin; the pod only pulls the line low and does not read back its own bytes)
   and `entry=UartEntry(...)`, a reset with TX held low, its release and the first bytes, all timed
   on the pod. Needs gateware v57 (capability `uart_hd`); the entry also needs the reset pin.
+- **RS-485 direction driven by the pod:** `open_uart` and `capture_uart` take `de=` (the LA channel
+  on a transceiver's DE + /RE) and `de_active_low=`. The pod switches DE itself, from before the
+  first start bit to the end of the last stop bit, so a device that answers within a millisecond
+  is heard (DE switched from the host with GPIO calls drops about 25 ms after the request over
+  LAN). Needs gateware v58 (feature `uart_de`, features table revision 2).
 
 - **Features from the firmware's features table:** the SDK ships benchpod-firmware's
   `features/features.json` (`embeddedci.benchpod.feature_map`) and reads the pod's status with

@@ -616,7 +616,12 @@ class SerialTransport(Transport):
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
-                         entry: Any = None) -> RawLink:
+                         entry: Any = None, de: Optional[int] = None,
+                         de_active_low: bool = False) -> RawLink:
+        if de is not None:
+            raise UnsupportedFeatureError(
+                "UART de needs the network, the USB network or the cloud: the USB console's "
+                "uart-proxy has no DE", feature="uart_de")
         if half_duplex or entry is not None:
             raise UnsupportedFeatureError(
                 "UART half_duplex and entry need the network, the USB network or the cloud: the "

@@ -1165,6 +1165,22 @@ def _uart_frame(pod: Any, method: str, parity: Optional[str], stop_bits: Optiona
     return {k: v for k, v in (("parity", parity), ("stop_bits", stop_bits)) if v is not None}
 
 
+UartDe = Annotated[Optional[LaRef], Field(description=(
+    "LA channel (or wiring name) wired to an RS-485 transceiver's DE + /RE. The pod drives it high "
+    "while it sends and low otherwise, so the transceiver listens whenever the pod is not "
+    "sending and a fast device's reply is heard. Needs gateware v58. Omit for a plain UART."))]
+UartDeActiveLow = Annotated[bool, Field(description="Drive DE low while sending (an active-low enable).")]
+
+
+def _uart_de(pod: Any, method: str, de: Any, de_active_low: bool) -> Dict[str, Any]:
+    """The RS-485 DE keyword arguments for an SDK UART call: none when unused."""
+    if de is None:
+        return {}
+    if "de" not in inspect.signature(getattr(type(pod), method)).parameters:
+        raise ValueError("UART de needs a newer embeddedci SDK; upgrade embeddedci")
+    return {"de": de, "de_active_low": True} if de_active_low else {"de": de}
+
+
 def _uart_line(pod: Any, method: str, half_duplex: bool, entry: Optional[UartEntryArg]) -> Dict[str, Any]:
     """The one-wire and boot-mode entry keyword arguments for an SDK UART call: none when unused,
     so an older SDK still works; refused when the SDK predates them."""
@@ -1191,6 +1207,8 @@ async def capture_uart(
     stop_bits: UartStopBits = None,
     half_duplex: UartHalfDuplex = False,
     entry: UartEntryOpt = None,
+    de: UartDe = None,
+    de_active_low: UartDeActiveLow = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Record the DUT's UART output for a fixed window (or until until_regex matches).
@@ -1199,6 +1217,7 @@ async def capture_uart(
     the profile says otherwise).
     half_duplex runs it on one wire, and entry runs a pod-timed boot-mode entry first (reset
     with TX low, release, first bytes).
+    de: the pod switches an RS-485 transceiver's DE on that LA channel while it sends.
     """
     pattern = _compile(until_regex)
 
@@ -1206,7 +1225,8 @@ async def capture_uart(
         pod = SESSION.require()
         return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern,
                                              **_uart_frame(pod, "capture_uart", parity, stop_bits),
-                                             **_uart_line(pod, "capture_uart", half_duplex, entry)))
+                                             **_uart_line(pod, "capture_uart", half_duplex, entry),
+                                             **_uart_de(pod, "capture_uart", de, de_active_low)))
 
     return await _call_reporting(ctx, "capturing UART", op)
 
@@ -1250,6 +1270,8 @@ async def uart_open(
     stop_bits: UartStopBits = None,
     half_duplex: UartHalfDuplex = False,
     entry: UartEntryOpt = None,
+    de: UartDe = None,
+    de_active_low: UartDeActiveLow = False,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
@@ -1260,7 +1282,8 @@ async def uart_open(
     (Modbus RTU) an external RS-485 transceiver in between. A channel used as GPIO must be released
     first (gpio_release). half_duplex runs the session on one wire (rx; tx defaults to it), and
     entry runs a pod-timed boot-mode entry before it starts (reset with TX held low, release, the
-    first bytes), for boot-ROM programming such as RL78 TOOL0.
+    first bytes), for boot-ROM programming such as RL78 TOOL0. de puts an RS-485 transceiver's
+    DE on an LA channel the pod switches itself while it sends.
     """
     def op() -> m.UartSessionResult:
         pod = SESSION.require()
@@ -1269,6 +1292,7 @@ async def uart_open(
         rate = int(pod.wiring.uart_baud if baud is None else baud)
         frame = _uart_frame(pod, "open_uart", parity, stop_bits)
         line = _uart_line(pod, "open_uart", half_duplex, entry)
+        line.update(_uart_de(pod, "open_uart", de, de_active_low))
         SESSION.close_uart()
         SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate, **frame, **line)
         SESSION.uart_port = (rx_i, tx_i, rate)

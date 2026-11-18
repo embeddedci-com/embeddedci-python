@@ -1969,6 +1969,8 @@ class BenchPod:
         stop_bits: Optional[int] = None,
         half_duplex: bool = False,
         entry: Optional[_uart.UartEntry] = None,
+        de: Union[Pin, int, str, None] = None,
+        de_active_low: bool = False,
     ) -> _uart.UartCapture:
         """Capture the DUT's UART output for ``duration`` seconds.
 
@@ -1980,12 +1982,13 @@ class BenchPod:
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
-        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low)
         return _uart.capture(link, duration=duration, until=until)
 
     def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: Optional[str] = None,
                    stop_bits: Optional[int] = None, half_duplex: bool = False,
-                   entry: Optional[_uart.UartEntry] = None) -> Any:
+                   entry: Optional[_uart.UartEntry] = None,
+                   de: Any = None, de_active_low: bool = False) -> Any:
         if parity is not None and parity not in ("none", "even", "odd"):
             raise ValueError(f"parity must be 'none', 'even' or 'odd', got {parity!r}")
         if stop_bits is not None and (isinstance(stop_bits, bool) or stop_bits not in (1, 2)):
@@ -2011,6 +2014,12 @@ class BenchPod:
                     f"UART half_duplex and entry need gateware v57 (capability uart_hd; this pod "
                     f"runs firmware {fw}): update the pod's firmware",
                     feature="uart_hd", firmware_version=self.capabilities.firmware_version)
+        if de is not None and not self.supports("uart_de"):
+            fw = self.capabilities.firmware_version or "unknown"
+            raise UnsupportedFeatureError(
+                f"UART de (RS-485 direction) needs gateware v58 (feature uart_de; this pod runs "
+                f"firmware {fw}): update the pod's firmware",
+                feature="uart_de", firmware_version=self.capabilities.firmware_version)
         if entry is not None and not self.supports("nrst_pin"):
             raise UnsupportedFeatureError(
                 "UART entry needs the pod's reset pin, which this board does not have (v3 boards "
@@ -2033,6 +2042,13 @@ class BenchPod:
             kw["half_duplex"] = True
         if entry is not None:
             kw["entry"] = entry
+        if de is not None:
+            de_i = self._wired(de, "uart_de")
+            if de_i in (rx_i, tx_i):
+                raise ValueError(f"de needs a pin of its own: LA{de_i} is the UART's rx or tx")
+            kw["de"] = de_i
+            if de_active_low:
+                kw["de_active_low"] = True
         with _classified_errors():
             return self._transport.uart_proxy_start(rx_i, tx_i, b, **kw)
 
@@ -2078,6 +2094,8 @@ class BenchPod:
         encoding: str = "utf-8",
         half_duplex: bool = False,
         entry: Optional[_uart.UartEntry] = None,
+        de: Union[Pin, int, str, None] = None,
+        de_active_low: bool = False,
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
 
@@ -2124,12 +2142,22 @@ class BenchPod:
             with bp.open_uart(rx=3, half_duplex=True, entry=entry, encoding="latin-1") as uart:
                 uart.write(...)
 
-        Both need gateware v57 (capability ``uart_hd``); ``entry`` also needs the pod's reset pin
+        ``de`` is the LA channel on an RS-485 transceiver's DE (tied to /RE): the pod drives it
+        itself, high from before the first start bit of what it sends to the end of the last stop
+        bit, low otherwise, so the transceiver listens whenever the pod is not sending and a fast
+        device's reply is not lost (switching DE from the host takes tens of milliseconds).
+        ``de_active_low`` inverts it. Needs gateware v58 (feature ``uart_de``)::
+
+            with bp.open_uart(rx=5, tx=4, de=9, baud=19200, parity="even",
+                              encoding="latin-1") as uart:
+                uart.write(request)          # no DE handling on the host
+
+        ``half_duplex`` and ``entry`` need gateware v57 (capability ``uart_hd``); ``entry`` also needs the pod's reset pin
         (capability ``nrst_pin``). Older pods are refused with
         :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError` before anything is sent.
         """
         codecs.lookup(encoding)  # an unknown encoding fails here, before the proxy starts
-        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low)
         return _uart.UartSession(link, max_buffer=max_buffer, encoding=encoding)
 
     # -- SPI master / SPI flash ------------------------------------------------

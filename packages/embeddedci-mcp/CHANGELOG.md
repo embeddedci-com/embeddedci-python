@@ -8,6 +8,8 @@
 - `uart_open` and `capture_uart` take `half_duplex` (a one-wire UART on `rx`) and `entry`
   (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`: a boot-mode entry the pod times before
   the session). Needs gateware v57.
+- `uart_open` and `capture_uart` take `de` and `de_active_low`: the pod drives an RS-485
+  transceiver's DE on that LA channel while it sends. Needs gateware v58.
 
 - Pod features come from the SDK's copy of the firmware's features table for firmware after
   3.10.10 (embeddedci 3.0.2); older firmware is read as before.

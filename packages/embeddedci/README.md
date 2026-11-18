@@ -1006,6 +1006,23 @@ character, so `uart.read().encode("latin-1")` gives the bytes back unchanged, an
 sent as is. For the adapter wiring and a Modbus RTU test through a transceiver, see
 [5 V logic and RS-485](https://www.embeddedci.com/docs/benchpod-targets/5v-rs485).
 
+**RS-485 direction (DE).** A half-duplex RS-485 transceiver sends while its DE (tied to /RE) is
+high and listens while it is low. `de=` names the LA channel wired to DE, and the pod switches it
+itself: high from before the first start bit of what it sends to the end of the last stop bit, low
+otherwise. Nothing on the host times it, so a device that answers within a millisecond is still
+heard (switching DE with `gpio` calls from the host takes tens of milliseconds over the network,
+and the reply of a fast device is lost meanwhile). `de_active_low=True` inverts it:
+
+```python
+with bp.open_uart(rx=PIN5, tx=PIN4, de=PIN9, baud=19200, parity="even",
+                  encoding="latin-1") as uart:
+    uart.write(request)                  # DE goes high and low with the bytes
+    reply = uart.read(timeout=0.2)
+```
+
+`de` needs gateware v58 (`bp.supports("uart_de")`); older pods raise `UnsupportedFeatureError`
+before anything is sent. The USB console has no DE.
+
 ## LA bias resistors
 
 Eight LA channels carry a fixed, switchable bias resistor. They are referenced to 3V3, so the pod
