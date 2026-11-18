@@ -2,10 +2,11 @@
 
 ## 3.0.2
 
+- Needs embeddedci 3.0.2.
 - `wiring` returns `board_header` and `header_map`: the profile on the pod's real I/O header as
   text (each pin in its place, then what to connect to it), for showing the user how to wire the
   board.
-- Needs embeddedci 3.0.2. `uart_open`, `capture_uart` and `power_cycle_and_capture` take the
+- `uart_open`, `capture_uart` and `power_cycle_and_capture` take the
   frame from the wiring profile (`uart_parity`, `uart_stop_bits`) when `parity` / `stop_bits` are
   omitted; `uart_open` reports the frame it used.
 - `uart_open` and `capture_uart` take `half_duplex` (a one-wire UART on `rx`) and `entry`
@@ -13,7 +14,6 @@
   the session). Needs gateware v57.
 - `uart_open` and `capture_uart` take `de` and `de_active_low`: the pod drives an RS-485
   transceiver's DE on that LA channel while it sends. Needs gateware v58.
-
 - Pod features come from the SDK's copy of the firmware's features table for firmware after
   3.10.10 (embeddedci 3.0.2); older firmware is read as before.
 
