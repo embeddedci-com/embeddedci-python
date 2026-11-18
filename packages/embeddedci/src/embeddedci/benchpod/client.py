@@ -1432,6 +1432,9 @@ class BenchPod:
         regions, settings = _esp.load_images(file, load_address=_esp.parse_address(load_address))
         size = _esp.parse_flash_size(settings.get("flash_size"))
         stage = getattr(self._transport, "stage_psram", None)
+        # The image is staged in PSRAM, which only the deep-replay gateware image writes: a pod left
+        # on the emulation (or loop) image is switched first (~3 s).
+        self._ensure_image(FpgaImage.DEEP_REPLAY, needed_for="ESP32 flashing", switch=True)
         r = _esp.run(self.command, stage, regions, pins=pins, flash_size=size, run_after=reset)
         lines = [f"{r.chip or 'ESP32'}: {len(r.regions)} region(s) at {r.baud} baud in {r.seconds:.1f} s"]
         lines += [f"0x{g.offset:06x} {g.length} bytes {g.result} md5 {g.md5}" for g in r.regions]

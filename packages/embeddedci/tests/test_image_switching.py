@@ -286,3 +286,53 @@ def test_a_missing_feature_still_skips(benchpod):
     pass
 """)
     pytester.runpytest("-p", "no:cacheprovider").assert_outcomes(passed=1, skipped=1)
+
+
+# -- ESP32 flashing (stages the image in PSRAM: the deep-replay image) ------------------------
+
+class EspImagePod(ImagePod):
+    """ImagePod with esp_flash and PSRAM staging, which the deep-replay image alone accepts."""
+
+    def __init__(self, image: Optional[int]) -> None:
+        super().__init__(image)
+        self.staged_on: List[Optional[int]] = []
+
+    def stage_psram(self, data: bytes) -> int:
+        if self.image not in (1, None):
+            raise BenchPodError("load_bin: deep replay is not in this image")
+        self.staged_on.append(self.image)
+        return len(data)
+
+    def command(self, req: dict) -> Any:
+        if req["cmd"] == "esp_flash":
+            self.commands.append(req)
+            if req["op"] == "status":
+                return {"running": False, "result": "ok", "chip": "ESP32", "md5": "ab" * 16,
+                        "done": 1, "total": 1, "baud": 460800}
+            return {"started": True}
+        return super().command(req)
+
+
+def _flash_esp(pod: EspImagePod, tmp_path: Path):
+    app = tmp_path / "app.bin"
+    app.write_bytes(b"\x01" * 100)
+    bp = BenchPod(transport=pod, lease=False, wiring={"uart_rx": 3, "uart_tx": 4})
+    return bp.flash(target="esp32", file=str(app), boot=6, nreset=True)
+
+
+@pytest.mark.parametrize("image", [0, 2])
+def test_esp_flash_switches_to_the_deep_replay_image_before_staging(image, tmp_path, monkeypatch):
+    from embeddedci.benchpod import esp
+    monkeypatch.setattr(esp.time, "sleep", lambda s: None)
+    pod = EspImagePod(image)
+    assert _flash_esp(pod, tmp_path).ok
+    assert {"cmd": "fpga_image", "image": 1} in pod.commands
+    assert pod.staged_on == [1]
+
+
+def test_esp_flash_on_the_deep_replay_image_does_not_switch(tmp_path, monkeypatch):
+    from embeddedci.benchpod import esp
+    monkeypatch.setattr(esp.time, "sleep", lambda s: None)
+    pod = EspImagePod(1)
+    assert _flash_esp(pod, tmp_path).ok
+    assert not any(c["cmd"] == "fpga_image" and "image" in c for c in pod.commands)
