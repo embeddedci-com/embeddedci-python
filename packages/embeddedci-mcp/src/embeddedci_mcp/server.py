@@ -57,9 +57,14 @@ from embeddedci.benchpod import (
     TriggerEdge,
     Waveshape,
     Wiring,
-    header_map,
     i2c,
 )
+
+try:  # embeddedci 3.0.2+: the profile on the pod's header as text
+    from embeddedci.benchpod import header_map
+except ImportError:  # pragma: no cover - older SDK: wiring leaves board_header/header_map null
+    header_map = None  # type: ignore[assignment]
+
 from embeddedci.benchpod import decode as sdk_decode
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
@@ -552,11 +557,12 @@ async def wiring() -> m.WiringResult:
         pod = SESSION.require()
         result = wiring_summary(pod.wiring)
         result.directions = pod.pin_directions_status
-        try:
-            result.board_header = pod.board_header()
-        except Exception:  # noqa: BLE001 - the pin map is extra: a pod that cannot say gets both headers
-            result.board_header = None
-        result.header_map = header_map(pod.wiring, result.board_header)
+        if header_map is not None and hasattr(pod, "board_header"):
+            try:
+                result.board_header = pod.board_header()
+            except Exception:  # noqa: BLE001 - the pin map is extra: a pod that cannot say gets both headers
+                result.board_header = None
+            result.header_map = header_map(pod.wiring, result.board_header)
         return _pod_wiring_state(pod, result)
 
     return await _call(op)

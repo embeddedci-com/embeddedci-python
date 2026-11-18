@@ -180,6 +180,9 @@ def test_set_wiring_takes_back_what_wiring_returned(connected):
 
 
 def test_wiring_draws_the_profile_on_the_pods_header(connected, monkeypatch):
+    from embeddedci_mcp import server
+    if server.header_map is None:
+        pytest.skip("embeddedci < 3.0.2 has no header_map")
     _set()
     pod = SESSION.require()
     monkeypatch.setattr(type(pod), "board_header", lambda self: "front")
