@@ -453,13 +453,19 @@ class TcpTransport(Transport):
         return self._raw_handshake(req, "dap_start", "flash")
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
-                         stop_bits: int = 1) -> RawLink:
+                         stop_bits: int = 1, half_duplex: bool = False,
+                         entry: Any = None) -> RawLink:
         req: dict = {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud}
         # Only a non-8N1 frame adds the fields (firmware 3.10.8+ / gateware v56 take them).
         if parity != "none":
             req["parity"] = parity
         if stop_bits != 1:
             req["stop_bits"] = stop_bits
+        # One wire and the boot-mode entry (gateware v57), likewise only when asked for.
+        if half_duplex:
+            req["half_duplex"] = True
+        if entry is not None:
+            req["entry"] = entry.to_request()
         return self._raw_handshake(req, "uart_proxy_start", "uart")
 
     def close(self) -> None:

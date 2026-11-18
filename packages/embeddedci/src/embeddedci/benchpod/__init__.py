@@ -161,7 +161,7 @@ from .state import (
     TargetStatus,
     UsbCcStatus,
 )
-from .uart import UartCapture, UartSession
+from .uart import UartCapture, UartEntry, UartSession
 from .spi import SpiFlashInfo, SpiFlashResult, SpiSession, SpiStreamResult
 from . import motor_emulator
 from .motor_emulator import BatteryModel, EmulatorCalibration, MotorEmulator
@@ -212,6 +212,7 @@ __all__ = [
     # flash + UART
     "FlashResult",
     "UartCapture",
+    "UartEntry",
     "UartSession",
     "SpiSession",
     "SpiFlashInfo",

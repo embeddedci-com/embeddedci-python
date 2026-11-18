@@ -965,6 +965,30 @@ The LA pins are 1.8 V or 3.3 V only: the pod has no 5 V I/O and no RS-485 port. 
 level shifter, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a 5 V
 transceiver behind a level shifter), between the pod and the device.
 
+**One wire (half duplex).** Some parts talk UART on a single pin, for example a boot ROM's
+programming pin. `half_duplex=True` runs the session on `rx` alone (`tx` defaults to the same
+channel): the pod only pulls the line low and lets the pull-up hold it high, so the device answers
+on the same wire, and the pod does not read back its own bytes. Use LA1 to LA6, whose pull-up the
+pod turns on for the session, or a pull-up on the board.
+
+**Boot-mode entry.** A boot ROM that picks its mode from the UART pin at reset needs the pin held
+low while the chip leaves reset, then a byte soon after. `entry=UartEntry(...)` has the pod run that
+sequence before the session starts, timed on the pod so no network delay sits in between: TX
+low (`tx_low`), reset for `reset_ms`, release, wait `hold_ms`, release TX, wait `idle_ms`, then send
+`data` (at most 32 bytes). Times are whole milliseconds, 0 to 1000:
+
+```python
+from embeddedci.benchpod import UartEntry
+
+entry = UartEntry(reset_ms=5, hold_ms=3, idle_ms=2, data=b"\x00")
+with bp.open_uart(rx=PIN3, half_duplex=True, entry=entry, encoding="latin-1") as uart:
+    reply = uart.read(timeout=0.5)
+```
+
+Both need gateware v57 (`bp.supports("uart_hd")`), and `entry` also the pod's reset pin
+(`bp.supports("nrst_pin")`); older pods raise `UnsupportedFeatureError` before anything is sent.
+The USB console has neither.
+
 **Binary protocols.** A session decodes what it receives as UTF-8, which suits a console. For bytes
 that are not text (a binary protocol's frames), open it with `encoding="latin-1"`: every byte is one
 character, so `uart.read().encode("latin-1")` gives the bytes back unchanged, and a `bytes` write is
@@ -2257,6 +2281,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `SpiFlashResult` | `spi_flash`, `SpiSession.flash_program` | `jedec_id`, `addr`, `length`, `erased`, `verified`, `seconds` |
 | `SpiStreamResult` | `SpiSession.stream` | `sent`, `seconds` |
 | `UartCapture` | `capture_uart`, `power_cycle_and_capture` | `text`, `lines`, `matched`, `match(pattern)`, `contains(needle)` (also `needle in capture`) |
+| `UartEntry` (frozen dataclass) | passed to `open_uart` / `capture_uart` as `entry` | `reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data`, `to_request()` |
 | `UartSession` (class) | `open_uart` (a context manager) | `write(data)`, `read(*, timeout=0.0)`, `read_until(pattern, *, timeout)`, `expect(pattern, *, timeout)`, `text`, `lines`, `closed`, `error`, `close()` |
 | `Sensor` (class) | `sensors.start`, `sensors.sensor` | `instance`, `kind`, `name`, `params`, `info`, `started`, `set(**values)`, `fault(type, *, duration_s=None, **fields)`, `clear_fault()`, `status()`, `regs(start=0, length=None)`, `capture(samples, sample_rate_hz, *, timeout_s, wait_for_traffic)`, `i2c_transactions(...)`, `stop()` |
 | `SensorEmulation` (class) | `BenchPod.sensors` | see [Emulated sensors](#emulated-sensors) |
@@ -2319,7 +2344,7 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |
