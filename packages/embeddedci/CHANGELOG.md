@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- The preset of the default pins is now `Wiring.preset("embeddedci-default")` (also the default of
+  `Wiring.preset()`), and `wiring.DEFAULT_PINS` is its values: they are the pins the pod used to
+  assume, not the wiring of a particular bench. The old names `"embeddedci-reference"` and
+  `REFERENCE_BENCH` still work. The values are unchanged, so version 1 profiles mean what they did.
+
 ## 3.0.2
 
 - **The profile on the pod's header:** `BenchPod.board_header()` says which I/O header the pod has
