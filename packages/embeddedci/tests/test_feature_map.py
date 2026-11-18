@@ -56,6 +56,8 @@ def test_image_and_gateware_decide():
     assert deep.dac_deep_replay and not deep.dac_control_loop
     old_gw = Capabilities.from_status({**TOP, **NEW_FACTS, "gateware": 55})
     assert not old_gw.uart_frame and old_gw.spi_master and old_gw.bus_master
+    hd = Capabilities.from_status({**TOP, **NEW_FACTS, "gateware": 57})
+    assert hd.uart_hd and not Capabilities.from_status({**TOP, **NEW_FACTS}).uart_hd
     unknown = Capabilities.from_status({**TOP, **NEW_FACTS, "gateware": 0})
     assert not unknown.gpio_read and not unknown.spi_master and unknown.can_fd
 
