@@ -45,7 +45,7 @@ def test_i2c_refusals_name_the_tools():
     assert _mcp_refusal_text("no I2C session: send i2c_start first").endswith("call i2c_open first")
     text = _mcp_refusal_text('I2C needs pull-ups: switch on LA1\'s with {"cmd":"la","la":1,"pullup":"on"}, '
                              'or pass "pullups":"external"')
-    assert "set_pull(las=[1], enabled=true)" in text and 'pullups="external"' in text
+    assert 'set_pull(las=[1], pull="up")' in text and 'pullups="external"' in text
 
 
 def test_la_dir_sets_lists_and_follows_the_wiring(connected):

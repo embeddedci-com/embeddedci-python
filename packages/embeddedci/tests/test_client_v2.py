@@ -205,11 +205,12 @@ def test_pullups_and_pulldowns_are_not_interchangeable():
     bp, t = _bp({"la": lambda req: {"la": req.get("la"), "pullup": 1, "ohms": "10k",
                                     "pull": "down" if req.get("la") in (7, 8) else "up",
                                     "pullups_available": 1}})
-    with pytest.raises(ValueError, match="pull-DOWN"):
+    # firmware without la_pull_dir: the SDK checks the direction itself, like the pod would
+    with pytest.raises(ValueError, match="LA7 supports pull-down only"):
         bp.enable_pullup(7)
-    with pytest.raises(ValueError, match="pull-UP"):
+    with pytest.raises(ValueError, match="LA2 supports pull-up only"):
         bp.enable_pulldown(2)
-    with pytest.raises(ValueError, match="LA1-LA8"):
+    with pytest.raises(ValueError, match="LA9 has no pull resistor"):
         bp.enable_pullup(9)
     assert t.commands == []
     bp.enable_pullup(1, 2)

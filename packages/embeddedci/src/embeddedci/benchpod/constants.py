@@ -18,7 +18,7 @@ Units, everywhere in the public API: **volts**, **seconds**, **hertz**.
 from __future__ import annotations
 
 from enum import Enum, IntEnum
-from typing import Dict, Literal, Sequence, Tuple, Union, get_args
+from typing import Dict, Literal, NamedTuple, Sequence, Tuple, Union, get_args
 
 from .errors import BenchPodError
 
@@ -158,14 +158,36 @@ ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "c
 #: LA I/O-bank voltages the pod supports (volts). 1.8 V needs a rev3 pod.
 LA_VOLTAGES: Tuple[float, ...] = (1.8, 3.3)
 
-#: Fixed bias network per LA channel (LA1..LA8). LA1-LA6 pull UP to +3V3, LA7/LA8 pull
-#: DOWN; LA9-LA14 have none. Source of truth: firmware ``i2c_bus.c``.
-PULL_OHMS: Dict[int, str] = {
-    1: "4.7k", 2: "4.7k", 3: "2.2k", 4: "2.2k",
-    5: "10k", 6: "10k", 7: "10k", 8: "10k",
+#: Pull directions a host asks for (``BenchPod.set_pull``). The pod picks the resistor value.
+PullDirection = Literal["up", "down", "off"]
+PULL_DIRECTIONS: Tuple[str, ...] = ("up", "down", "off")
+
+
+class PullHw(NamedTuple):
+    """One LA channel's pull resistor on a board: the directions it can pull, the one
+    ``set_pull(la, True)`` (and firmware's older ``pullup:on``) engages, and its value."""
+
+    dirs: Tuple[str, ...]
+    default: str
+    ohms: str
+
+
+#: Pull resistors per LA channel on today's boards (every v3 board): LA1-LA6 pull UP, LA7/LA8
+#: pull DOWN, LA9-LA14 have none. The firmware has the same table (``la_pins.c``) and reports it
+#: per channel (``la_pins`` ``dirs``); the SDK only uses this one for firmware that does not
+#: (before the ``la_pull_dir`` feature). A board revision with other resistors gets its own table.
+PULL_TABLE_V3: Dict[int, PullHw] = {
+    1: PullHw(("up",), "up", "4.7k"), 2: PullHw(("up",), "up", "4.7k"),
+    3: PullHw(("up",), "up", "2.2k"), 4: PullHw(("up",), "up", "2.2k"),
+    5: PullHw(("up",), "up", "10k"), 6: PullHw(("up",), "up", "10k"),
+    7: PullHw(("down",), "down", "10k"), 8: PullHw(("down",), "down", "10k"),
 }
-PULLUP_CHANNELS: Tuple[int, ...] = (1, 2, 3, 4, 5, 6)
-PULLDOWN_CHANNELS: Tuple[int, ...] = (7, 8)
+PULL_TABLE: Dict[int, PullHw] = PULL_TABLE_V3
+
+#: Derived from :data:`PULL_TABLE`, kept for existing callers.
+PULL_OHMS: Dict[int, str] = {la: hw.ohms for la, hw in PULL_TABLE.items()}
+PULLUP_CHANNELS: Tuple[int, ...] = tuple(la for la, hw in PULL_TABLE.items() if "up" in hw.dirs)
+PULLDOWN_CHANNELS: Tuple[int, ...] = tuple(la for la, hw in PULL_TABLE.items() if "down" in hw.dirs)
 
 # LA step trains (``la_step``, ``GpioPin.pulse``): the gateware counts steps and the half-period in
 # 16-bit counters, so the pod refuses more steps or a longer half-period.

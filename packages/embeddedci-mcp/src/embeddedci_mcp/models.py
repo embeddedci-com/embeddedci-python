@@ -532,8 +532,13 @@ class I2cRegsResult(BaseModel):
 
 class PullChannel(BaseModel):
     la: int
+    #: What the channel does now: up, down or off.
+    state: str
+    #: The directions it can pull (empty: no pull resistor).
+    supported: List[str]
     enabled: bool
-    direction: str
+    #: The way it pulls when on; None without a resistor.
+    direction: Optional[str]
     ohms: str
     available: bool
 

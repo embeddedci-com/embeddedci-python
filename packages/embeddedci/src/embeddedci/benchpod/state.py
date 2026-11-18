@@ -9,7 +9,7 @@ firmware adds before the SDK names them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .constants import Efuse, coerce_efuse
 
@@ -181,29 +181,55 @@ class UsbCcStatus:
 
 @dataclass(frozen=True)
 class PullState:
-    """The fixed bias resistor on one LA channel (LA1-LA8)."""
+    """The pull resistor on one LA channel: what it does now and what it can do."""
 
     la: int
-    #: The resistor is engaged.
+    #: The resistor is engaged (``state`` is ``"up"`` or ``"down"``).
     enabled: bool
-    #: ``"up"`` (LA1-LA6) or ``"down"`` (LA7/LA8).
-    direction: str
-    #: Nominal resistance, e.g. ``"4.7k"``.
+    #: The way the resistor pulls when engaged: ``"up"`` or ``"down"``; ``None`` on a channel
+    #: without one. On today's boards LA1-LA6 pull up, LA7/LA8 down.
+    direction: Optional[str]
+    #: The resistor's value, e.g. ``"4.7k"`` (``""`` without one). Reported, never chosen: on
+    #: boards with several values the firmware picks one from the pin's function.
     ohms: str
     #: A pull can be engaged right now (the resistors are 3V3-referenced, so not at 1.8 V).
     available: bool = True
+    #: Every direction the channel can pull: ``("up",)``, ``("down",)``, ``("up", "down")`` or ``()``.
+    supported: Tuple[str, ...] = ()
     raw: Dict[str, Any] = _raw()
+
+    @property
+    def state(self) -> str:
+        """What the channel does now: ``"up"``, ``"down"`` or ``"off"``."""
+        return (self.direction or "off") if self.enabled else "off"
+
+    @classmethod
+    def none(cls, la: int, raw: Optional[Dict[str, Any]] = None) -> "PullState":
+        """A channel without a pull resistor."""
+        return cls(la=la, enabled=False, direction=None, ohms="", supported=(), raw=dict(raw or {}))
 
     @classmethod
     def from_reply(cls, reply: Any, la: int) -> "PullState":
-        from .constants import PULL_OHMS, PULLDOWN_CHANNELS
+        """From the pod's ``la`` reply. Firmware before ``la_pull_dir`` sends no ``state`` or
+        ``dirs``; the board table (:data:`~embeddedci.benchpod.constants.PULL_TABLE`) fills them."""
+        from .constants import PULL_TABLE
 
         d = _d(reply)
-        default_dir = "down" if la in PULLDOWN_CHANNELS else "up"
-        return cls(la=int(d.get("la", la)), enabled=bool(d.get("pullup", 0)),
-                   direction=str(d.get("pull", default_dir)),
-                   ohms=str(d.get("ohms", PULL_OHMS.get(la, ""))),
-                   available=bool(d.get("pullups_available", 1)), raw=d)
+        la = int(d.get("la", la))
+        hw = PULL_TABLE.get(la)
+        dirs = d.get("dirs")
+        supported = (tuple(str(x) for x in dirs) if isinstance(dirs, list)
+                     else (hw.dirs if hw else ()))
+        pull = d.get("pull")
+        direction: Optional[str] = (str(pull) if pull in ("up", "down")
+                                    else (hw.default if hw and pull is None else None))
+        state = d.get("state")
+        enabled = (state in ("up", "down")) if isinstance(state, str) else bool(d.get("pullup", 0))
+        if isinstance(state, str) and state in ("up", "down"):
+            direction = state
+        return cls(la=la, enabled=enabled, direction=direction,
+                   ohms=str(d.get("ohms", hw.ohms if hw else "") or ""),
+                   available=bool(d.get("pullups_available", 1)), supported=supported, raw=d)
 
 
 @dataclass(frozen=True)

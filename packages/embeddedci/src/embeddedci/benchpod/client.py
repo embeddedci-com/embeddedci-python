@@ -72,9 +72,10 @@ from .constants import (
     LA_STEP_MAX_STEPS,
     LA_STEP_MIN_DELAY_US,
     LA_VOLTAGES,
-    PULLDOWN_CHANNELS,
-    PULLUP_CHANNELS,
+    PULL_DIRECTIONS,
+    PULL_TABLE,
     REPLAY_MAPPINGS,
+    PullDirection,
     WAVESHAPES,
     AdcGainSource,
     AdcRange,
@@ -99,8 +100,8 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, FirmwareError, UnsupportedFeatureError, classify_firmware_error,
-                     status_too_large)
+from .errors import (BenchPodError, FirmwareError, PullDirectionError, UnsupportedFeatureError,
+                     classify_firmware_error, firmware_error, status_too_large)
 from .flash import FlashResult
 from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -227,6 +228,10 @@ _EXT_REFUSALS = {
     "send la": "a capture's send runs on the FPGA, which drives LA channels only",
     "dir_la": _EXT_PULSES,
 }
+
+
+#: set_pull's "pull not given" (``enabled=`` is the older keyword).
+_NO_PULL = object()
 
 
 def _one_or_many(las: List[int]) -> Any:
@@ -1097,10 +1102,11 @@ class BenchPod:
         volts = w.la_voltage if w.la_voltage is not None else self.get_la_voltage().voltage
         if volts is None or abs(volts - 3.3) > 0.05:
             return
-        for la in PULLUP_CHANNELS + PULLDOWN_CHANNELS:
-            self.set_pull(la, la in w.pulls)
-        _log.info("power_on: pull resistors on LA%s from the wiring profile",
-                  ", LA".join(str(x) for x in w.pulls) if w.pulls else " none")
+        wanted = w.pull_directions()
+        for la in PULL_TABLE:
+            self.set_pull(la, wanted.get(la, "off"))
+        _log.info("power_on: pull resistors from the wiring profile: %s",
+                  ", ".join(f"LA{la} {d}" for la, d in sorted(wanted.items())) or "none")
 
     def _rail_on(self, rail: int) -> bool:
         try:
@@ -1473,56 +1479,125 @@ class BenchPod:
                 timeout=timeout, connect_attempts=connect_attempts,
             )
 
-    # -- LA bias resistors (LA1-8) ------------------------------------------
-    # LA1-LA6 carry a pull-UP, LA7/LA8 a pull-DOWN (see constants.PULL_OHMS). The resistors are
-    # 3V3-referenced, so the pod refuses to engage one while the LA bank is at 1.8 V.
+    # -- LA pull resistors -------------------------------------------------------
+    # The host names a direction ("up", "down", "off"); the pod picks the resistor and reports its
+    # value. Which channels have one and which way each can pull depends on the board: on today's
+    # boards LA1-LA6 pull up, LA7/LA8 down and LA9-LA14 have none (constants.PULL_TABLE). The
+    # resistors are 3V3-referenced, so the pod refuses to engage one while the LA bank is at 1.8 V.
+
+    def _pull_dir_api(self) -> bool:
+        """The pod takes ``pull: up|down|off`` (feature ``la_pull_dir``); older firmware only
+        ``pullup: on|off``, on today's boards."""
+        try:
+            return self.supports("la_pull_dir")
+        except BenchPodError:
+            return False
 
     @staticmethod
-    def _bias_channel(la: Union[Pin, int], allowed: Sequence[int], kind: str) -> int:
-        la_i = coerce_pin(la, "la")
-        if la_i not in allowed:
-            if la_i in PULLDOWN_CHANNELS and kind == "pull-up":
-                raise ValueError(f"LA{la_i} has a pull-DOWN, not a pull-up; use enable_pulldown")
-            if la_i in PULLUP_CHANNELS and kind == "pull-down":
-                raise ValueError(f"LA{la_i} has a pull-UP, not a pull-down; use enable_pullup")
-            raise ValueError(f"LA{la_i} has no {kind} (bias resistors exist on LA1-LA8 only)")
-        return la_i
+    def _pull_want(la: int, pull: Union[str, bool, None]) -> str:
+        """``pull`` as "up" / "down" / "off". True (deprecated) is the channel's own direction."""
+        if pull is None or pull is False:
+            return "off"
+        if pull is True:
+            hw = PULL_TABLE.get(la)
+            return hw.default if hw else "up"
+        want = str(pull).strip().lower()
+        if want == "none":
+            want = "off"
+        check_choice(want, PULL_DIRECTIONS, "pull")
+        return want
 
-    def set_pull(self, la: Union[Pin, int], enabled: bool) -> PullState:
-        """Engage or release LA ``la``'s fixed bias resistor, whichever way it pulls (LA1-LA8)."""
-        la_i = self._bias_channel(la, PULLUP_CHANNELS + PULLDOWN_CHANNELS, "bias resistor")
-        reply = self.command({"cmd": "la", "la": la_i, "pullup": "on" if enabled else "off"})
+    @staticmethod
+    def _pull_refusal(la: int, want: str, supported: Tuple[str, ...]) -> PullDirectionError:
+        """The pod's own refusal (BP0023 / BP0024), for what the SDK refuses before asking."""
+        if not supported:
+            return firmware_error(f"LA{la} has no pull resistor on this board", cmd="la",
+                                  code="BP0023", values={"la": la})  # type: ignore[return-value]
+        have = supported[0]
+        return firmware_error(f"LA{la} supports pull-{have} only on this board", cmd="la",
+                              code="BP0024", values={"la": la, "want": want, "have": have})  # type: ignore[return-value]
+
+    def set_pull(self, la: Union[Pin, int], pull: Union[PullDirection, bool, None, object] = _NO_PULL, *,
+                 enabled: Optional[bool] = None) -> PullState:
+        """Pull LA ``la`` ``"up"``, ``"down"`` or ``"off"`` (``None`` is off too) and return its
+        :class:`PullState`.
+
+        The pod picks the resistor; :attr:`PullState.ohms` says which. A direction the channel's
+        resistor can't pull raises :class:`~embeddedci.benchpod.errors.PullDirectionError` (BP0024,
+        "LA7 supports pull-down only on this board"), and ``"up"``/``"down"`` on a channel without
+        one too (BP0023). ``"off"`` is fine on every channel.
+
+        ``set_pull(la, True)`` / ``set_pull(la, False)`` (and ``enabled=``) still work
+        (deprecated): True engages the channel's own direction (up on LA1-LA6, down on LA7/LA8),
+        False is off.
+        """
+        if pull is _NO_PULL:
+            if enabled is None:
+                raise TypeError('set_pull() needs pull: "up", "down" or "off"')
+            pull = bool(enabled)
+        la_i = coerce_pin(la, "la")
+        want = self._pull_want(la_i, pull)  # type: ignore[arg-type]
+        if self._pull_dir_api():
+            with _classified_errors():
+                reply = self.command({"cmd": "la", "la": la_i, "pull": want})
+            return PullState.from_reply(reply, la_i)
+        # Older firmware: only pullup on/off, which engages the channel's one direction. Check the
+        # direction here, so "up" never engages LA7's pull-down.
+        hw = PULL_TABLE.get(la_i)
+        if want != "off" and (not hw or want not in hw.dirs):
+            raise self._pull_refusal(la_i, want, hw.dirs if hw else ())
+        if not hw:
+            return PullState.none(la_i)
+        with _classified_errors():
+            reply = self.command({"cmd": "la", "la": la_i, "pullup": "off" if want == "off" else "on"})
         return PullState.from_reply(reply, la_i)
 
     def pull_state(self, la: Union[Pin, int]) -> PullState:
-        """Read LA ``la``'s bias resistor: engaged, direction, value (LA1-LA8)."""
-        la_i = self._bias_channel(la, PULLUP_CHANNELS + PULLDOWN_CHANNELS, "bias resistor")
-        return PullState.from_reply(self.command({"cmd": "la", "la": la_i}), la_i)
+        """Read LA ``la``'s pull resistor: engaged, direction, value, supported directions."""
+        la_i = coerce_pin(la, "la")
+        if la_i not in PULL_TABLE and not self._pull_dir_api():
+            return PullState.none(la_i)   # older firmware refuses the query on LA9-LA14
+        with _classified_errors():
+            return PullState.from_reply(self.command({"cmd": "la", "la": la_i}), la_i)
 
     def enabled_pulls(self) -> List[int]:
-        """The LA channels whose bias resistor is currently engaged."""
+        """The LA channels whose pull resistor is currently engaged (either direction)."""
         mask = int(_dict(self.command({"cmd": "la"})).get("la_pullup_mask", 0) or 0)
-        return [la for la in range(1, 9) if mask >> (la - 1) & 1]
+        return [la for la in range(1, 15) if mask >> (la - 1) & 1]
 
     def enable_pullup(self, *las: Union[Pin, int]) -> None:
-        """Engage the pull-up on LA channels from LA1-LA6 — e.g. an open-drain I2C bus's SDA/SCL."""
+        """Pull LA channels up, e.g. an open-drain I2C bus's SDA/SCL (LA1-LA6 on today's boards).
+        Same as ``set_pull(la, "up")``."""
         for la in las:
-            self.set_pull(self._bias_channel(la, PULLUP_CHANNELS, "pull-up"), True)
+            self.set_pull(la, "up")
 
     def disable_pullup(self, *las: Union[Pin, int]) -> None:
-        """Release the pull-up on LA channels from LA1-LA6."""
+        """Release a pull-up. Same as ``set_pull(la, "off")`` on a channel that pulls up."""
         for la in las:
-            self.set_pull(self._bias_channel(la, PULLUP_CHANNELS, "pull-up"), False)
+            self._release_pull(la, "up")
 
     def enable_pulldown(self, *las: Union[Pin, int]) -> None:
-        """Engage the pull-down on LA7 and/or LA8."""
+        """Pull LA channels down (LA7/LA8 on today's boards). Same as ``set_pull(la, "down")``."""
         for la in las:
-            self.set_pull(self._bias_channel(la, PULLDOWN_CHANNELS, "pull-down"), True)
+            self.set_pull(la, "down")
 
     def disable_pulldown(self, *las: Union[Pin, int]) -> None:
-        """Release the pull-down on LA7 and/or LA8."""
+        """Release a pull-down. Same as ``set_pull(la, "off")`` on a channel that pulls down."""
         for la in las:
-            self.set_pull(self._bias_channel(la, PULLDOWN_CHANNELS, "pull-down"), False)
+            self._release_pull(la, "down")
+
+    def _release_pull(self, la: Union[Pin, int], kind: str) -> None:
+        """Switch the pull off, refusing a channel that can't pull ``kind`` at all (so a typo
+        like disable_pullup(7) is not silently a no-op)."""
+        la_i = coerce_pin(la, "la")
+        if self._pull_dir_api():
+            supported = self.pull_state(la_i).supported
+        else:
+            hw = PULL_TABLE.get(la_i)
+            supported = hw.dirs if hw else ()
+        if kind not in supported:
+            raise self._pull_refusal(la_i, kind, supported)
+        self.set_pull(la_i, "off")
 
     # -- emulated sensors ---------------------------------------------------------
 

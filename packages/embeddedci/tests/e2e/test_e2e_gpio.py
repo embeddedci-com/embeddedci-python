@@ -18,6 +18,7 @@ import pytest
 from embeddedci.benchpod import (
     PinConflictError,
     PullConflictError,
+    PullDirectionError,
     Signal,
     Trigger,
     TriggerTimeout,
@@ -97,6 +98,46 @@ def test_pull_down_conflicts_with_open_drain_both_ways(gpio_pod, bench):
     gpio_pod.gpio(ch, "output", level=1)               # a push-pull output may sit on a pull-down
     gpio_pod.enable_pulldown(ch)
     gpio_pod.disable_pulldown(ch)
+
+
+@FREE_PULL_LA
+@FREE_PULLDOWN_LA
+@FREE_LA
+def test_pull_by_direction(gpio_pod, bench):
+    """set_pull(la, "up" | "down" | "off"): the line follows, the other direction is refused with
+    BP0024, a channel without a resistor with BP0023. Firmware with la_pull_dir answers itself;
+    older firmware gets pullup on/off and the SDK refuses the same way."""
+    up, down, bare = bench.free_pull_la, bench.free_pulldown_la, bench.free_la[0]
+    new_fw = gpio_pod.supports("la_pull_dir")
+    try:
+        st = gpio_pod.set_pull(up, "up")
+        assert st.state == "up" and st.supported == ("up",) and st.ohms
+        assert gpio_pod.gpio(up, "input").read() == 1
+        gpio_pod.release_gpio(up)
+        st = gpio_pod.set_pull(down, "down")
+        assert st.state == "down" and st.supported == ("down",)
+        assert gpio_pod.gpio(down, "input").read() == 0
+        gpio_pod.release_gpio(down)
+        if new_fw:
+            assert gpio_pod.pull_state(up).raw.get("dirs") == ["up"]
+        for la, want, have in ((down, "up", "down"), (up, "down", "up")):
+            with pytest.raises(PullDirectionError) as ei:
+                gpio_pod.set_pull(la, want)
+            assert (ei.value.code, ei.value.la, ei.value.want, ei.value.have) == ("BP0024", la, want, have)
+            assert f"LA{la} supports pull-{have} only on this board" in str(ei.value)
+        with pytest.raises(PullDirectionError) as ei:
+            gpio_pod.set_pull(bare, "up")
+        assert ei.value.code == "BP0023" and ei.value.la == bare
+        assert gpio_pod.set_pull(bare, "off").supported == ()
+        assert gpio_pod.pull_state(bare).state == "off"
+        assert sorted(gpio_pod.enabled_pulls()) == sorted([up, down])
+        assert gpio_pod.set_pull(down, True).state == "down"      # the deprecated on/off form
+        assert gpio_pod.set_pull(down, False).state == "off"
+    finally:
+        gpio_pod.release_gpio(up, down)
+        gpio_pod.set_pull(up, "off")
+        gpio_pod.set_pull(down, "off")
+    assert up not in gpio_pod.enabled_pulls() and down not in gpio_pod.enabled_pulls()
 
 
 @FREE_LA

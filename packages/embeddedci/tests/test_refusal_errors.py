@@ -179,7 +179,7 @@ def test_pull_conflict_names_set_pull():
           'idles high); disable it with {"cmd":"la","la":7,"pullup":"off"} or use another channel')
     err = firmware_error(fw, cmd="uart_proxy_start")
     assert type(err) is PullConflictError and err.la == 7
-    assert str(err).endswith("disable it with bp.set_pull(7, False) or use another channel")
+    assert str(err).endswith('disable it with bp.set_pull(7, "off") or use another channel')
     assert err.firmware_message == fw
 
 

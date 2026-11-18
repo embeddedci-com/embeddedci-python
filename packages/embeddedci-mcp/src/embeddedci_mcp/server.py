@@ -94,7 +94,7 @@ LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(descript
     "LA channel 1-14, or a name from the wiring profile — a signal ('READY') or a role "
     "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also "
     "take expander pins ('EXT1') once one is attached (expansion)."))]
-BiasPin = Annotated[int, Field(ge=1, le=8)]
+PullPin = Annotated[int, Field(ge=1, le=14)]
 EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power rail: internal 5 V (efuse 1) or external (efuse 2).")]
 WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
     "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail."))]
@@ -192,9 +192,10 @@ _MCP_FIXES = (
     (re.compile(r"send i2c_stop first"), "call i2c_close first"),
     (re.compile(r"send i2c_start first"), "call i2c_open first"),
     (re.compile(r"i2c_start again"), "call i2c_open again"),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"on"\}'), r"set_pull(las=[\1], enabled=true)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup":"on|pull":"up)"\}'), r'set_pull(las=[\1], pull="up")'),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pull":"down"\}'), r'set_pull(las=[\1], pull="down")'),
     (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"set_pull(las=[\1], enabled=false)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup|pull)":"off"\}'), r'set_pull(las=[\1], pull="off")'),
     (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'gpio_mode(la=[\1], mode="output")'),
     (re.compile(r'\{"cmd":"fpga_image","image":0\}'), 'fpga_image(image="loop")'),
     (re.compile(r'\{"cmd":"dac_loop_input"\}'), "loop_input"),
@@ -573,8 +574,9 @@ async def set_wiring(
     profile: Annotated[Dict[str, Any], Field(description=(
         "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
         "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals "
-        "[{name, la, direction, active_low, description}], pulls (the LA channels whose pull resistor "
-        "power_on switches on, e.g. [1, 2]; LA1-LA8 have one, the others it switches off; left out: "
+        "[{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches "
+        "on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels "
+        "that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: "
         "power_on leaves the pulls as they are). What it leaves out is undefined (not "
         "wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins."))],
     save: Annotated[bool, Field(description=(
@@ -956,7 +958,7 @@ async def i2c_open(
     scl: Annotated[Optional[LaRef], Field(description="SCL channel; omit for the profile's i2c_scl.")] = None,
     hz: Annotated[int, Field(ge=10_000, le=1_000_000, description="SCL rate.")] = 100_000,
     pullups: Annotated[Literal["pod", "external"], Field(description=(
-        "pod: LA1-LA6 with the pod's pull-ups on (set_pull first, LA voltage 3.3); "
+        "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today, LA voltage 3.3); "
         "external: the board has its own."))] = "pod",
 ) -> m.I2cSessionResult:
     """Make the pod an I2C master on two LA pins (gateware v55+), replacing any open session.
@@ -1415,7 +1417,7 @@ async def sensor_library(version: LibraryVersion = None) -> m.SensorLibraryResul
     """The sensor library: ready definitions the pod can emulate (name, kind, label) and the version in use.
 
     Sensor flow: sensor_library -> sensor_show(name) for its params -> set_la_voltage and, for I2C,
-    set_pull on SDA/SCL -> sensor_start(definition=name, pins) -> sensor_set / sensor_fault /
+    set_pull(pull="up") on SDA/SCL -> sensor_start(definition=name, pins) -> sensor_set / sensor_fault /
     sensor_stimulus_load + sensor_stimulus_start -> sensor_status, sensor_regs -> sensor_stop.
     No library entry for the part? Write a definition from its datasheet (sensor_format) and pass
     the YAML to sensor_validate, then sensor_start. Needs no pod.
@@ -1490,7 +1492,7 @@ async def sensor_start(
 ) -> m.SensorStarted:
     """Make the pod play a sensor for the DUT: upload the definition (library name or your own YAML/JSON) and start it on pins.
 
-    Set the LA voltage first, and the pull-ups for I2C (set_pull on sda and scl, LA1-LA6).
+    Set the LA voltage first, and the pull-ups for I2C (set_pull([sda, scl], pull="up"), LA1-LA6).
     Starting an instance name that runs replaces it. Up to 4 I2C sensors (several may share one
     bus at different addresses), 1 SPI, 1 UART and 2 analog sensors (one per output) run at once.
     I2C/SPI/UART sensors load the pod's emulation FPGA image if another runs (image_loaded in the
@@ -1607,25 +1609,62 @@ async def sensor_capture(
     return await _call(op)
 
 
-# -- bias resistors ---------------------------------------------------------------------
+# -- pull resistors ---------------------------------------------------------------------
 
 def _pull(state: Any) -> m.PullChannel:
-    return m.PullChannel(la=state.la, enabled=state.enabled, direction=state.direction,
+    # embeddedci before 3.0.3 has no state / supported on PullState
+    direction = state.direction
+    supported = getattr(state, "supported", None)
+    if supported is None:
+        supported = (direction,) if direction in ("up", "down") else ()
+    return m.PullChannel(la=state.la, state=getattr(state, "state", direction if state.enabled else "off"),
+                         supported=list(supported), enabled=state.enabled, direction=direction,
                          ohms=state.ohms, available=state.available)
+
+
+def _sdk_pulls_by_direction(pod: Any) -> bool:
+    """The SDK takes set_pull(la, "up" | "down" | "off") (embeddedci 3.0.3+)."""
+    return "pull" in inspect.signature(type(pod).set_pull).parameters
+
+
+def _set_pull_old_sdk(pod: Any, la: int, want: Any) -> Any:
+    """set_pull on embeddedci before 3.0.3, which only knows on/off: a direction is checked here,
+    so "up" never engages LA7's pull-down."""
+    from embeddedci.benchpod.constants import PULLDOWN_CHANNELS, PULLUP_CHANNELS
+
+    if want in ("up", "down"):
+        ok = PULLUP_CHANNELS if want == "up" else PULLDOWN_CHANNELS
+        if la not in ok:
+            raise ValueError(f"LA{la} can't pull {want} on this board; upgrade embeddedci for the full "
+                             "message (pull_status shows each channel's direction)")
+        want = True
+    elif want == "off":
+        want = False
+    return pod.set_pull(la, bool(want))
 
 
 @mcp.tool(annotations=_ann("Set pull resistors", idempotent=True))
 async def set_pull(
-    las: Annotated[List[BiasPin], Field(min_length=1, max_length=8, description="LA channels (1-8).")],
-    enabled: bool,
+    las: Annotated[List[PullPin], Field(min_length=1, max_length=14, description="LA channels (1-14).")],
+    pull: Annotated[Optional[Literal["up", "down", "off"]], Field(description=(
+        "The direction: up, down or off. The pod picks the resistor (ohms in the result). A channel "
+        "pulls only the ways its resistor allows (pull_status: supported); today LA1-LA6 pull up, "
+        "LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))] = None,
+    enabled: Annotated[Optional[bool], Field(description=(
+        "Older form, use pull: true engages each channel's own direction, false is off."))] = None,
 ) -> m.PullStatusResult:
-    """Engage or release the fixed bias resistors: LA1-LA6 pull UP (I2C lines), LA7/LA8 pull DOWN.
+    """Pull LA channels up or down, or switch their pull resistor off. For an I2C bus pull SDA and
+    SCL up. The resistors are 3V3-referenced, so the pod refuses to engage them with the LA bank at
+    1.8 V."""
+    if pull is None and enabled is None:
+        raise ValueError('set_pull needs pull: "up", "down" or "off"')
+    want: Any = pull if pull is not None else bool(enabled)
 
-    The resistors are 3V3-referenced, so the pod refuses to engage them with the LA bank at 1.8 V.
-    """
     def op() -> m.PullStatusResult:
         pod = SESSION.require()
-        return m.PullStatusResult(channels=[_pull(pod.set_pull(la, enabled)) for la in las])
+        if _sdk_pulls_by_direction(pod):
+            return m.PullStatusResult(channels=[_pull(pod.set_pull(la, want)) for la in las])
+        return m.PullStatusResult(channels=[_pull(_set_pull_old_sdk(pod, la, want)) for la in las])
 
     return await _call(op)
 
@@ -1683,10 +1722,12 @@ async def lan_tls(
 
 @mcp.tool(annotations=_ann("Pull resistor status", read_only=True))
 async def pull_status() -> m.PullStatusResult:
-    """State, direction and value of the bias resistor on LA1-LA8."""
+    """Every LA channel's pull resistor: state (up, down or off), the directions it supports
+    (empty without a resistor) and its value."""
     def op() -> m.PullStatusResult:
         pod = SESSION.require()
-        return m.PullStatusResult(channels=[_pull(pod.pull_state(la)) for la in range(1, 9)])
+        las = range(1, 15) if _sdk_pulls_by_direction(pod) else range(1, 9)
+        return m.PullStatusResult(channels=[_pull(pod.pull_state(la)) for la in las])
 
     return await _call(op)
 

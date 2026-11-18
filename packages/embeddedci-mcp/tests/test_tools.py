@@ -579,12 +579,28 @@ def test_sensor_tools_refuse_old_firmware(connected):
 
 
 def test_pulls(connected):
-    res = call("set_pull", las=[7], enabled=True)
-    assert res["channels"][0]["direction"] == "down"
+    res = call("set_pull", las=[7], enabled=True)            # the older form still works
+    assert res["channels"][0]["direction"] == "down" and res["channels"][0]["state"] == "down"
+    res = call("set_pull", las=[1, 2], pull="up")
+    assert [c["state"] for c in res["channels"]] == ["up", "up"]
+    assert res["channels"][0]["supported"] == ["up"] and res["channels"][0]["ohms"] == "4.7k"
+    assert call("set_pull", las=[7], pull="off")["channels"][0]["state"] == "off"
     status = call("pull_status")
-    assert [c["la"] for c in status["channels"]] == list(range(1, 9))
-    with pytest.raises(ToolError):
-        call("set_pull", las=[9], enabled=True)
+    new_sdk = "pull" in inspect.signature(BenchPod.set_pull).parameters
+    if not new_sdk:   # embeddedci before 3.0.3 (the mcp-min-sdk job): LA1-LA8, checked here
+        assert [c["la"] for c in status["channels"]] == list(range(1, 9))
+        with pytest.raises(ToolError, match="LA7 can't pull up"):
+            call("set_pull", las=[7], pull="up")
+        return
+    assert [c["la"] for c in status["channels"]] == list(range(1, 15))
+    assert status["channels"][8] == {"la": 9, "state": "off", "supported": [], "enabled": False,
+                                     "direction": None, "ohms": "", "available": True}
+    with pytest.raises(ToolError, match="BP0023"):
+        call("set_pull", las=[9], pull="up")
+    with pytest.raises(ToolError, match="LA7 supports pull-down only on this board"):
+        call("set_pull", las=[7], pull="up")
+    with pytest.raises(ToolError, match="needs pull"):
+        call("set_pull", las=[1])
 
 
 # -- analog + captures -----------------------------------------------------------------

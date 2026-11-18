@@ -239,7 +239,7 @@ description, ranges and enums, so an agent sees more than this table.
 ### I2C master
 
 The pod as an I2C master on two LA pins (gateware v55+), to read and write registers of a chip on
-the DUT's board. The bus needs pull-ups: the pod's on LA1-LA6 (`set_pull` first, LA voltage 3.3), or
+the DUT's board. The bus needs pull-ups: the pod's on LA1-LA6 (`set_pull(pull="up")` first, LA voltage 3.3), or
 the board's with `pullups="external"`.
 
 | Tool | Purpose | Parameters |
@@ -293,8 +293,8 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `set_pull` | Engage or release the bias resistors: LA1-LA6 pull up, LA7/LA8 pull down. | **`las`**, **`enabled`** |
-| `pull_status` | State, direction and value of the bias resistor on LA1-LA8. | none |
+| `set_pull` | Pull LA channels `up` or `down`, or switch their resistor `off`; the pod picks the value. Today LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none; another direction is refused (BP0024, BP0023). `enabled` is the older on/off form. | **`las`**, `pull`, `enabled` |
+| `pull_status` | Every LA channel's pull resistor: state (`up`, `down` or `off`), the directions it supports and its value. | none |
 | `lan_tls` | The pod's LAN API over TLS (firmware 3.9.3+): port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
 | `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
 
@@ -445,7 +445,7 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   the user for the board's (1.8 or 3.3), set it in the profile (set_wiring with la_mv 1800 or 3300,
   then save_wiring) or call set_la_voltage` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
   by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
-  `sensor_stop`; a pull conflict to `set_pull(las=[7], enabled=false)`.
+  `sensor_stop`; a pull conflict to `set_pull(las=[7], pull="off")`.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
   `nrst_pin`, `can`, `calibrate`, `cal_dmm`, `current_out`, `pod_current`, `sensors` and `analog` (false on the

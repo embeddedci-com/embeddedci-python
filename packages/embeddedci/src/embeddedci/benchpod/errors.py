@@ -189,6 +189,20 @@ class PullConflictError(FirmwareError):
         self.la = la
 
 
+class PullDirectionError(FirmwareError, ValueError):
+    """The channel can't pull the way asked: it has no pull resistor (``BP0023``), or its resistor
+    pulls the other way on this board (``BP0024``, "LA7 supports pull-down only on this board").
+    ``la`` is the channel, ``want`` the direction asked for, ``have`` the one it supports ("" when
+    it has none). Also a :class:`ValueError`, which the SDK raised for this before the pod did."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, la: int = 0, want: str = "",
+                 have: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.la = la
+        self.want = want
+        self.have = have
+
+
 class DirectionConflictError(FirmwareError):
     """The pod refused to drive a pin that :meth:`BenchPod.la_dir
     <embeddedci.benchpod.BenchPod.la_dir>` marks as wired to a DUT output (a push-pull GPIO output,
@@ -327,11 +341,12 @@ _SDK_FIXES = (
      "i2c busy: close the I2C session from bp.open_i2c() first"),
     (re.compile(r"send i2c_start first"), "open one with bp.open_i2c() first"),
     (re.compile(r"i2c_start again"), "open it again with bp.open_i2c()"),
-    (re.compile(r'switch on LA(\d+)\'s with \{"cmd":"la","la":\d+,"pullup":"on"\}'),
+    (re.compile(r'switch on LA(\d+)\'s with \{"cmd":"la","la":\d+,"(?:pullup":"on|pull":"up)"\}'),
      r"switch on LA\1's with bp.enable_pullup(\1)"),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"on"\}'), r"bp.enable_pullup(\1)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup":"on|pull":"up)"\}'), r"bp.enable_pullup(\1)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"pull":"down"\}'), r'bp.set_pull(\1, "down")'),
     (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pullup":"off"\}'), r"bp.set_pull(\1, False)"),
+    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup|pull)":"off"\}'), r'bp.set_pull(\1, "off")'),
     (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'bp.gpio(\1, "output")'),
     (re.compile(r'\{"cmd":"fpga_image","image":([012])\}'), r"bp.fpga_image(\1)"),
     (re.compile(r'\{"cmd":"dac_loop_input"\}'), "bp.loop_input()"),
@@ -450,5 +465,10 @@ def firmware_error(message: str, *, cmd: Optional[str] = None, code: str = "",
     exc = FirmwareError(message, cmd=cmd)
     if code == "BP0002":   # unknown command: the firmware lacks the feature
         exc = UnsupportedFeatureError(message, cmd=cmd, feature=cmd or "")
+    elif code in ("BP0023", "BP0024"):   # no pull resistor / the other direction only
+        v = dict(values or {})
+        la = v.get("la", 0)
+        exc = PullDirectionError(message, cmd=cmd, la=int(la) if str(la).isdigit() else 0,
+                                 want=str(v.get("want", "")), have=str(v.get("have", "")))
     exc = classify_firmware_error(exc)
     return _attach_code(exc, code or "", values)

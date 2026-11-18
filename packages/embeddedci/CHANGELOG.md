@@ -6,6 +6,20 @@
   `Wiring.preset()`), and `wiring.DEFAULT_PINS` is its values: they are the pins the pod used to
   assume, not the wiring of a particular bench. The old names `"embeddedci-reference"` and
   `REFERENCE_BENCH` still work. The values are unchanged, so version 1 profiles mean what they did.
+- **Pull resistors by direction:** `BenchPod.set_pull(la, "up" | "down" | "off")` (None is off)
+  returns a `PullState` with `state`, `supported` (the directions the channel can pull) and `ohms`;
+  the pod picks the resistor. `enable_pullup` / `disable_pullup` / `enable_pulldown` /
+  `disable_pulldown` stay as shortcuts. `set_pull(la, True/False)` and `enabled=` still work
+  (deprecated: True pulls the channel's own direction). A direction the channel can't pull raises
+  `PullDirectionError` (code `BP0024`, also a `ValueError`), up/down on a channel without a resistor
+  `BP0023`. Firmware with the `la_pull_dir` feature gets `pull`; older firmware gets `pullup` and the
+  SDK checks the direction itself. `pull_state` and `enabled_pulls` cover LA1-LA14.
+- **Wiring `pulls` map:** `Wiring.pulls` also takes `{"1": "up", "8": "down"}`; the list of channels
+  stays valid and means each channel's own direction. `Wiring.pull_directions()` gives either as
+  the map, and `power_on` applies it.
+- The board's pull resistors are one table, `constants.PULL_TABLE` (`PullHw`: dirs, default,
+  ohms); `PULL_OHMS`, `PULLUP_CHANNELS` and `PULLDOWN_CHANNELS` come from it.
+- Error catalog and features table synced from benchpod-firmware (BP0023, BP0024, `la_pull_dir`).
 
 ## 3.0.2
 
