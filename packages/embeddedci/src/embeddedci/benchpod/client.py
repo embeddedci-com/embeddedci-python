@@ -44,6 +44,7 @@ from . import control_loop as _control_loop
 from . import dsp as _dsp
 from . import esp as _esp
 from . import expansion as _expansion
+from . import feature_map as _feature_map
 from . import flash as _flash
 from . import i2c as _i2c
 from . import i2c_master as _i2c_master
@@ -465,6 +466,12 @@ class BenchPod:
         """The pod's status report: firmware version, board, network and advertised features."""
         return _dict(self._transport.status())
 
+    def _caps_status(self) -> Dict[str, Any]:
+        """``status`` for the capabilities: without the ``caps`` list where the firmware has the
+        features table (:mod:`~embeddedci.benchpod.feature_map`)."""
+        read = getattr(self._transport, "status_without_caps", None)
+        return _dict(read() if callable(read) else self._transport.status())
+
     def diag(self) -> Dict[str, Any]:
         """The pod's health counters: ``heap_free``, ``heap_min``, ``stack_min``, per-task
         ``stacks``, the network stack's ``lwip_mem_*`` and ``pbuf_pool_*`` high-water marks,
@@ -526,7 +533,7 @@ class BenchPod:
         if self._caps is None:
             status_ok = True
             try:
-                status = self.status()
+                status = self._caps_status()
             except FirmwareError as exc:
                 # Firmware 3.10.4's status can be too large for the cloud channel. Reading it again
                 # will not help: use the server's capabilities alone, and keep them.
@@ -538,6 +545,11 @@ class BenchPod:
             if status_ok and status.get("short_form") and self._direct_network():
                 status = self._full_status(status)
             caps = Capabilities.from_status(status)
+            if caps.features_rev > _feature_map.revision():
+                _log.warning(
+                    "this pod's firmware has features this SDK does not know (features table "
+                    "revision %d, the SDK has %d): update the SDK (pip install -U embeddedci) to use them",
+                    caps.features_rev, _feature_map.revision())
             api = self._try_server_api()
             if api is not None and self._device_name:
                 try:
@@ -563,7 +575,7 @@ class BenchPod:
         short form leaves out then come from embeddedci.com when this computer is signed in,
         else from the board's defaults."""
         try:
-            again = self.status()
+            again = self._caps_status()
         except BenchPodError:
             again = status
         if not again.get("short_form"):
@@ -582,9 +594,11 @@ class BenchPod:
 
     def supports(self, feature: str) -> bool:
         """Whether this pod has ``feature``, a :class:`Capabilities` flag (``"spi_master"``,
-        ``"capture_trigger"``, ``"can"``, ...). Reads the capabilities once; ``False`` for a
-        flag this SDK does not know. The ``can_*`` properties name the common ones."""
-        return bool(getattr(self.capabilities, feature, False))
+        ``"capture_trigger"``, ``"can"``, ...) or a name in the features table
+        (:mod:`~embeddedci.benchpod.feature_map`: ``"la_dir"``, ``"i2c_master"``, ``"diag"``, ...).
+        Reads the capabilities once; ``False`` for a name this SDK does not know. The ``can_*``
+        properties name the common ones."""
+        return self.capabilities.has(feature)
 
     @property
     def can_gpio(self) -> bool:

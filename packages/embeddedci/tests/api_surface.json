@@ -318,6 +318,9 @@
       "uart_frame",
       "uart_hd",
       "gateware",
+      "features_rev",
+      "features",
+      "fpga_image",
       "calibrate",
       "cal_dmm",
       "current_out",
@@ -356,6 +359,7 @@
     "counts_to_volts": "(self, count: 'float') -> 'float'",
     "from_parameters": "(cls, params: 'Mapping[str, Any]') -> \"'Capabilities'\"",
     "from_status": "(cls, status: 'Mapping[str, Any]') -> \"'Capabilities'\"",
+    "has": "(self, feature: 'str') -> 'bool'",
     "la_dir": "property",
     "merge": "(self, other: \"'Capabilities'\") -> \"'Capabilities'\""
   },
