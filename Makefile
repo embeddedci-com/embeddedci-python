@@ -2,7 +2,7 @@
 #
 #   make test
 #   make e2e POD=192.168.1.215 [FIRMWARE=path/to/scenario-sensors.elf] [USB=/dev/cu.usbmodem…] [REV=v3] [BOARD=digital]
-#   BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
+#   make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0   (BENCHPOD_API_KEY, else the `benchpod login` session)
 #
 # The board's LA voltage is set once in packages/embeddedci/tests/conftest.py; the bench wiring in
 # packages/embeddedci/tests/e2e/conftest.py (override with BENCHPOD_E2E_* variables).
@@ -51,7 +51,7 @@ e2e: check-sdk
 		--benchpod-connection=$(POD) $(FIRMWARE_OPT)
 
 e2e-cloud:
-	@test -n "$(CLOUD_DEVICE)" || { echo "usage: BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=<name>"; exit 2; }
+	@test -n "$(CLOUD_DEVICE)" || { echo "usage: make e2e-cloud CLOUD_DEVICE=<name>  (BENCHPOD_API_KEY, else the benchpod login session)"; exit 2; }
 	BENCHPOD_E2E_CLOUD_DEVICE="$(CLOUD_DEVICE)" $(REV_ENV) \
 		$(PYTHON) -m pytest -v -rs packages/embeddedci/tests/e2e/test_e2e_cloud.py \
 		--benchpod-connection=embeddedci:$(CLOUD_DEVICE)
