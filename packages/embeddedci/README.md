@@ -579,10 +579,14 @@ print(wiring.describe())                        # a pin table: bias resistor and
 **Nothing is wired unless the profile says so** (schema version 2, SDK 3.0). A pin the profile does
 not set is never driven, and a call that needs it says which one to pass: `bp.flash()` without
 `swclk`/`swdio` in the profile raises `ValueError: swd_swclk was not given and the wiring profile has
-no swd_swclk`. The EmbeddedCI reference bench (a NUCLEO-F446RE: UART on LA5/LA4, I2C on LA1/LA2, SWD
-on LA11/LA12, 3.3 V, internal 5 V), what profiles used to default to, is a preset:
-`Wiring.preset("embeddedci-reference")`. A version 1 file or dict (or one without a `version` key)
-still means what it did: what it leaves out takes the reference bench's values, and the profile you
+no swd_swclk`. The default pins, what profiles used to default to (UART RX on LA5 and TX on LA4, I2C
+SDA on LA1 and SCL on LA2, SWD on LA11/LA12, 3.3 V, internal 5 V), are a preset:
+`Wiring.preset("embeddedci-default")` (the old name `"embeddedci-reference"` still works). They are
+not the wiring of any particular bench: load your board's own profile by name
+(`BenchPod(conn, wiring_profile="process-node-stm32")`, `bp.load_wiring("process-node-stm32")`), as
+the [process-node example](https://github.com/embeddedci-com/examples/tree/main/process-node-stm32)
+does with its `wiring/process-node-stm32.json`. A version 1 file or dict (or one without a `version`
+key) still means what it did: what it leaves out takes the default pins' values, and the profile you
 get back is version 2 with them written out. Re-save such a file as version 2 with
 `benchpod wiring upgrade wiring.json`.
 

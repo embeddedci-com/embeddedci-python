@@ -12,7 +12,7 @@ named signals such as ``TRIGGER`` — so tests use names and defaults instead of
 Profiles live on the pod (firmware with the wiring commands): up to 16 named profiles, one of them
 the default, the same over LAN, USB and the cloud. Schema version 2: what a profile does not set is
 undefined (that pin is not wired, no I/O voltage, no power rail). A version 1 object (or one without
-a version) still means what it did: what it leaves out takes the reference bench's values
+a version) still means what it did: what it leaves out takes the default pins' values
 (:meth:`Wiring.preset`). See :class:`Wiring`.
 """
 
@@ -29,15 +29,20 @@ from .constants import PULL_OHMS, PULLDOWN_CHANNELS, PULLUP_CHANNELS
 PULL_CHANNELS = PULLUP_CHANNELS + PULLDOWN_CHANNELS
 
 WIRING_VERSION = 2
-#: The schema versions :meth:`Wiring.from_dict` reads: 1 (missing keys = the reference bench) and 2.
+#: The schema versions :meth:`Wiring.from_dict` reads: 1 (missing keys = the default pins) and 2.
 WIRING_VERSIONS = (1, 2)
-#: The reference bench (the EmbeddedCI NUCLEO-F446RE wiring), and what a version 1 profile fills in.
-REFERENCE_BENCH: Mapping[str, Any] = {
+#: The default pins: what the pod assumed before profiles left nothing undefined, and what a
+#: version 1 profile fills in. Not the wiring of any particular bench.
+DEFAULT_PINS: Mapping[str, Any] = {
     "la_mv": 3300, "efuse": 1, "uart_rx": 5, "uart_tx": 4, "i2c_sda": 1, "i2c_scl": 2,
     "i2c_addr": "0x76", "swd_swclk": 11, "swd_swdio": 12,
 }
+#: The old name of :data:`DEFAULT_PINS`, kept for older code.
+REFERENCE_BENCH = DEFAULT_PINS
 #: Presets: complete profiles to start a new one from (:meth:`Wiring.preset`). Copied, never linked.
-PRESETS: Mapping[str, Mapping[str, Any]] = {"embeddedci-reference": REFERENCE_BENCH}
+PRESETS: Mapping[str, Mapping[str, Any]] = {"embeddedci-default": DEFAULT_PINS}
+#: Old preset names that still work: name -> the preset it is now.
+PRESET_ALIASES: Mapping[str, str] = {"embeddedci-reference": "embeddedci-default"}
 
 #: Profile keys that name the LA channel of a DUT signal role.
 ROLE_KEYS: Tuple[str, ...] = ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl", "swd_swclk", "swd_swdio",
@@ -105,7 +110,7 @@ class Wiring:
     What is not set is undefined: ``Wiring()`` wires nothing, has no I/O voltage (``la_mv`` None) and
     no power rail (``efuse`` None); a call that needs one of them says so. Only plain call settings
     keep a value (``uart_baud`` 115200, ``swd_nreset`` False, ``swd_target`` auto-detect). Start from
-    the reference bench with ``Wiring.preset("embeddedci-reference")``. Construction validates the whole profile and
+    the default pins with ``Wiring.preset("embeddedci-default")``. Construction validates the whole profile and
     raises :class:`ValueError` listing every problem — including two roles or signals on one LA
     channel. :meth:`warnings` lists wiring that works but is risky (an I2C bus without a pod pull-up).
     """
@@ -170,27 +175,30 @@ class Wiring:
         return cls(source="undefined")
 
     @classmethod
-    def preset(cls, name: str = "embeddedci-reference") -> "Wiring":
-        """A complete profile to start from: ``"embeddedci-reference"`` is the EmbeddedCI reference
-        bench (a NUCLEO-F446RE: UART on LA5/LA4, I2C on LA1/LA2, SWD on LA11/LA12, 3.3 V, internal
-        5 V). Save a copy under your own name: ``bp.save_wiring(Wiring.preset(), name="nucleo")``."""
+    def preset(cls, name: str = "embeddedci-default") -> "Wiring":
+        """A complete profile to start from: ``"embeddedci-default"`` is the default pins, what the
+        pod assumed before version 2 (UART RX on LA5 and TX on LA4, I2C SDA on LA1 and SCL on LA2,
+        SWD on LA11/LA12, 3.3 V, internal 5 V). It is not the wiring of any particular bench: check
+        it against yours, then save a copy under your board's name:
+        ``bp.save_wiring(Wiring.preset().with_changes(uart_rx=3), name="nucleo")``. The old name
+        ``"embeddedci-reference"`` still works."""
         try:
-            values = PRESETS[name]
+            values = PRESETS[PRESET_ALIASES.get(name, name)]
         except KeyError:
             raise ValueError(f"no wiring preset {name!r} (presets: {', '.join(sorted(PRESETS))})") from None
         return cls(**values, source="preset")
 
     @classmethod
     def defaults(cls) -> "Wiring":
-        """The reference bench, what a profile was before version 2 left nothing undefined. Kept for
+        """The default pins, what a profile was before version 2 left nothing undefined. Kept for
         older code: use :meth:`preset` (or :meth:`undefined`)."""
-        return cls.preset("embeddedci-reference")
+        return cls.preset("embeddedci-default")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *, source: str = "dict",
                   strict: bool = True) -> "Wiring":
         """Build a profile from its JSON object. Version 2: absent keys are undefined. Version 1, or no
-        ``version`` key: absent keys take the reference bench's values (:data:`REFERENCE_BENCH`), as
+        ``version`` key: absent keys take the default pins' values (:data:`DEFAULT_PINS`), as
         before version 2; the result is a version 2 profile with them written out. ``null`` pins are
         not wired. ``strict=False`` keeps unknown keys in :attr:`extra` instead of rejecting them (for
         a profile written by a newer server)."""
