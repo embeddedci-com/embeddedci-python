@@ -115,6 +115,9 @@ class Wiring:
     uart_rx: Optional[int] = None
     uart_tx: Optional[int] = None
     uart_baud: int = 115200
+    #: The UART frame after the 8 data bits: parity ("none", "even", "odd"), then 1 or 2 stop bits.
+    uart_parity: str = "none"
+    uart_stop_bits: int = 1
     i2c_sda: Optional[int] = None
     i2c_scl: Optional[int] = None
     i2c_addr: Optional[str] = None
@@ -379,6 +382,10 @@ class Wiring:
             errs.append(f"efuse must be 1 (internal) or 2 (external) (or None: not set), got {self.efuse!r}")
         if not _is_int(self.uart_baud) or not 300 <= self.uart_baud <= 4_000_000:
             errs.append(f"uart_baud must be 300..4000000, got {self.uart_baud!r}")
+        if self.uart_parity not in ("none", "even", "odd"):
+            errs.append(f"uart_parity must be 'none', 'even' or 'odd', got {self.uart_parity!r}")
+        if not _is_int(self.uart_stop_bits) or self.uart_stop_bits not in (1, 2):
+            errs.append(f"uart_stop_bits must be 1 or 2, got {self.uart_stop_bits!r}")
         for key in ROLE_KEYS:
             la = getattr(self, key)
             if la is not None and not (_is_int(la) and 1 <= la <= 14):

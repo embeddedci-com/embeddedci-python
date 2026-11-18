@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## 3.0.2
+
+- **UART frame in the wiring profile:** `Wiring.uart_parity` (`"none"`, `"even"`, `"odd"`) and
+  `Wiring.uart_stop_bits` (1, 2), next to `uart_baud`. `open_uart`, `capture_uart` and
+  `power_cycle_and_capture` take them from the profile when `parity` / `stop_bits` are omitted
+  (8N1 unless the profile says otherwise). The web app and the desktop app set them in Pins.
+- `flash(target="esp32...")` switches the FPGA to the deep-replay image before staging the image,
+  so a pod left on the emulation or loop image no longer refuses with `load_bin: deep replay is
+  not in the emulation image`.
+
 ## 3.0.1
 
 - **Pull resistors in the wiring profile:** `Wiring.pulls` lists the LA channels whose pull

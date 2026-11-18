@@ -1087,15 +1087,22 @@
           "type": "number"
         },
         "parity": {
-          "default": "none",
-          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
-          "enum": [
-            "none",
-            "even",
-            "odd"
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "even",
+                "odd"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Parity",
-          "type": "string"
+          "default": null,
+          "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "title": "Parity"
         },
         "rx": {
           "anyOf": [
@@ -1121,14 +1128,21 @@
           "title": "Rx"
         },
         "stop_bits": {
-          "default": 1,
-          "description": "Stop bits after the data (and parity) bits.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Stop Bits",
-          "type": "integer"
+          "default": null,
+          "description": "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set).",
+          "title": "Stop Bits"
         },
         "tx": {
           "anyOf": [
@@ -3368,15 +3382,22 @@
           "type": "number"
         },
         "parity": {
-          "default": "none",
-          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
-          "enum": [
-            "none",
-            "even",
-            "odd"
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "even",
+                "odd"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Parity",
-          "type": "string"
+          "default": null,
+          "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "title": "Parity"
         },
         "rx": {
           "anyOf": [
@@ -3402,14 +3423,21 @@
           "title": "Rx"
         },
         "stop_bits": {
-          "default": 1,
-          "description": "Stop bits after the data (and parity) bits.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Stop Bits",
-          "type": "integer"
+          "default": null,
+          "description": "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set).",
+          "title": "Stop Bits"
         },
         "tx": {
           "anyOf": [
@@ -5451,15 +5479,22 @@
           "title": "Baud"
         },
         "parity": {
-          "default": "none",
-          "description": "Parity bit after the 8 data bits. Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
-          "enum": [
-            "none",
-            "even",
-            "odd"
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "even",
+                "odd"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Parity",
-          "type": "string"
+          "default": null,
+          "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
+          "title": "Parity"
         },
         "rx": {
           "anyOf": [
@@ -5485,14 +5520,21 @@
           "title": "Rx"
         },
         "stop_bits": {
-          "default": 1,
-          "description": "Stop bits after the data (and parity) bits.",
-          "enum": [
-            1,
-            2
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Stop Bits",
-          "type": "integer"
+          "default": null,
+          "description": "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set).",
+          "title": "Stop Bits"
         },
         "tx": {
           "anyOf": [

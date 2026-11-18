@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-mcp`
 
+## 3.0.2
+
+- Needs embeddedci 3.0.2. `uart_open`, `capture_uart` and `power_cycle_and_capture` take the
+  frame from the wiring profile (`uart_parity`, `uart_stop_bits`) when `parity` / `stop_bits` are
+  omitted; `uart_open` reports the frame it used.
+
 ## 3.0.1
 
 - Needs embeddedci 3.0.1. The I/O voltage comes from the wiring profile: `connect` sets it from the

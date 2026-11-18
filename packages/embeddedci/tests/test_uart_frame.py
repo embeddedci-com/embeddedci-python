@@ -41,9 +41,24 @@ class UartPod:
         return object()
 
 
-def _bp(caps: List[str], version: str = "3.10.8") -> "tuple[BenchPod, UartPod]":
+def _bp(caps: List[str], version: str = "3.10.8", **wiring: Any) -> "tuple[BenchPod, UartPod]":
     pod = UartPod(caps, version)
-    return BenchPod(transport=pod, lease=False), pod
+    return BenchPod(transport=pod, lease=False, wiring={"version": 2, **wiring}), pod
+
+
+def test_omitted_frame_comes_from_the_wiring_profile():
+    bp, pod = _bp(["la_pins", "uart_frame"], uart_parity="even", uart_stop_bits=2)
+    bp._uart_link(5, 4, 19200)
+    bp._uart_link(5, 4, 19200, parity="none")  # an argument wins over the profile
+    assert pod.starts == [{"rx": 5, "tx": 4, "baud": 19200, "parity": "even", "stop_bits": 2},
+                          {"rx": 5, "tx": 4, "baud": 19200, "parity": "none", "stop_bits": 2}]
+
+
+def test_profile_frame_on_old_firmware_is_refused():
+    bp, pod = _bp(["la_pins"], "3.10.7", uart_parity="odd")
+    with pytest.raises(UnsupportedFeatureError):
+        bp._uart_link(5, 4, 9600)
+    assert pod.starts == []
 
 
 def test_8n1_needs_no_capability_and_sends_no_frame_fields():

@@ -1125,20 +1125,24 @@ UartRx = Annotated[Optional[LaRef], Field(description=(
     "LA channel (or wiring name) wired to the DUT's TX; omit for the profile's uart_rx."))]
 UartTx = Annotated[Optional[LaRef], Field(description=(
     "LA channel (or wiring name) wired to the DUT's RX; omit for the profile's uart_tx."))]
-UartParity = Annotated[Literal["none", "even", "odd"], Field(description=(
-    "Parity bit after the 8 data bits. Anything but 8N1 needs firmware "
-    "3.10.8+ (gateware v56)."))]
-UartStopBits = Annotated[Literal[1, 2], Field(description="Stop bits after the data (and parity) bits.")]
+UartParity = Annotated[Optional[Literal["none", "even", "odd"]], Field(description=(
+    "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). "
+    "Anything but 8N1 needs firmware 3.10.8+ (gateware v56)."))]
+UartStopBits = Annotated[Optional[Literal[1, 2]], Field(description=(
+    "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set)."))]
 
 
-def _uart_frame(pod: Any, method: str, parity: str, stop_bits: int) -> Dict[str, Any]:
-    """The frame-format keyword arguments for an SDK UART call: none for 8N1, so an older SDK
-    still works; refused when the SDK predates them."""
-    if parity == "none" and stop_bits == 1:
+def _uart_frame(pod: Any, method: str, parity: Optional[str], stop_bits: Optional[int]) -> Dict[str, Any]:
+    """The frame-format keyword arguments for an SDK UART call: none when both are omitted (the SDK
+    takes the wiring profile's frame) or 8N1 on an older SDK; refused when the SDK predates them."""
+    if parity is None and stop_bits is None:
         return {}
-    if "parity" not in inspect.signature(getattr(type(pod), method)).parameters:
+    has_frame = "parity" in inspect.signature(getattr(type(pod), method)).parameters
+    if not has_frame and (parity or "none") == "none" and (stop_bits or 1) == 1:
+        return {}
+    if not has_frame:
         raise ValueError("UART parity and stop bits need a newer embeddedci SDK; upgrade embeddedci")
-    return {"parity": parity, "stop_bits": stop_bits}
+    return {k: v for k, v in (("parity", parity), ("stop_bits", stop_bits)) if v is not None}
 
 
 @mcp.tool(annotations=_ann("Capture UART output"))
@@ -1148,14 +1152,14 @@ async def capture_uart(
     tx: UartTx = None,
     baud: WiredBaud = None,
     until_regex: Regex = None,
-    parity: UartParity = "none",
-    stop_bits: UartStopBits = 1,
+    parity: UartParity = None,
+    stop_bits: UartStopBits = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Record the DUT's UART output for a fixed window (or until until_regex matches).
 
-    The channels and baud come from the wiring profile when omitted; the frame is 8N1 unless
-    parity or stop_bits say otherwise.
+    The channels, baud, parity and stop bits come from the wiring profile when omitted (8N1 unless
+    the profile says otherwise).
     """
     pattern = _compile(until_regex)
 
@@ -1177,14 +1181,14 @@ async def power_cycle_and_capture(
     baud: WiredBaud = None,
     until_regex: Regex = None,
     off_settle: Annotated[float, Field(ge=0, le=10)] = 0.3,
-    parity: UartParity = "none",
-    stop_bits: UartStopBits = 1,
+    parity: UartParity = None,
+    stop_bits: UartStopBits = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Power the target off, then capture UART while it powers back on — the boot banner lands in the window.
 
-    The channels, baud and power rail come from the wiring profile when omitted; the frame is 8N1
-    unless parity or stop_bits say otherwise.
+    The channels, baud, frame (parity, stop bits) and power rail come from the wiring profile when
+    omitted.
     """
     pattern = _compile(until_regex)
 
@@ -1202,15 +1206,15 @@ async def uart_open(
     rx: UartRx = None,
     tx: UartTx = None,
     baud: WiredBaud = None,
-    parity: UartParity = "none",
-    stop_bits: UartStopBits = 1,
+    parity: UartParity = None,
+    stop_bits: UartStopBits = None,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
     Open it BEFORE an action whose output matters (power_on, reset_target), then uart_read; use
     uart_write to type into the DUT's console. The channels and baud come from the wiring profile
-    when omitted; the result says which were used. The frame is 8N1 unless parity or stop_bits say
-    otherwise. The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter and an RS-485 bus
+    when omitted; the result says which were used. So do parity and stop_bits (8N1 unless the profile
+    says otherwise). The LA pins are 1.8/3.3 V only: a 5 V UART needs a level shifter and an RS-485 bus
     (Modbus RTU) an external RS-485 transceiver in between. A channel used as GPIO must be released
     first (gpio_release).
     """
@@ -1222,8 +1226,10 @@ async def uart_open(
         SESSION.close_uart()
         SESSION.uart = pod.open_uart(rx=rx_i, tx=tx_i, baud=rate, **frame)
         SESSION.uart_port = (rx_i, tx_i, rate)
+        used_parity = parity if parity is not None else getattr(pod.wiring, "uart_parity", None) or "none"
+        used_stop = stop_bits if stop_bits is not None else getattr(pod.wiring, "uart_stop_bits", None) or 1
         return m.UartSessionResult(open=True, rx=rx_i, tx=tx_i, baud=rate,
-                                   parity=parity, stop_bits=stop_bits)
+                                   parity=used_parity, stop_bits=used_stop)
 
     return await _call(op)
 
