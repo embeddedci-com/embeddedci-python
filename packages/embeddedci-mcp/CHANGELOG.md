@@ -1,7 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 3.0.4
 
+- Needs embeddedci 3.0.4.
 - New tools `cloud_runs_list`, `cloud_run_get`, `cloud_run_compare` and `cloud_run_trace`: list
   the test runs on embeddedci.com, read one (the failed cases with their message's first line, the
   measurements outside their limits), see what changed since an earlier run, and read a failed
