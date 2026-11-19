@@ -1,13 +1,18 @@
 """The pod's own lease, on the LAN and the USB network (feature ``lease``).
 
 A pod with the ``lease`` feature keeps one lease in RAM: an id, a holder label, a purpose and a
-deadline. While it is held, only connections that sent ``lease_acquire`` with that id (its
-*owners*) may drive the pod; everyone else gets light reads and ``BP0025``. Every command of the
-TCP transport is its own connection, so a held lease is joined at the start of each one
-(``TcpTransport._dial``); a heartbeat renews it while the session is idle.
+deadline. While it is held, only its owners may drive the pod; everyone else gets light reads and
+``BP0025``. ``lease_acquire`` takes it; every request the TCP transport sends afterwards carries
+``"lease":"<id>"`` (``TcpTransport._encode``), which makes that command an owner's without
+extending the deadline. A heartbeat renews the lease.
 
 ``BENCHPOD_LEASE`` (set by ``benchpod ci`` for the processes it starts) joins the runner's lease
-instead: the same id, never renewed nor released by this process.
+instead: one ``lease_acquire`` with that id to check it, then the same tagging; never renewed nor
+released by this process.
+
+When the lease is stopped from the web app the pod answers ``BP0026`` to anything carrying its id:
+the session raises :class:`~embeddedci.benchpod.errors.PodLeaseLostError` once, stops tagging and
+renewing, and never takes the lease again.
 
 Several :class:`~embeddedci.benchpod.BenchPod` objects of one process on the same pod share one
 lease (a test opening its own pod next to the session's), so they never wait for each other.
@@ -98,9 +103,11 @@ class PodLease:
         self.ttl_s = max(10, min(1800, int(ttl_s)))
         #: Joined the runner's lease (``BENCHPOD_LEASE``): no heartbeat, no release.
         self.joined = joined
-        #: Stopped from the web app or the cloud (BP0026): connections no longer join it.
+        #: Stopped from the web app or the cloud (BP0026): requests no longer carry it.
         self.lost = False
         self.lost_by = ""
+        #: A loss the heartbeat saw, raised by the session's next command (once).
+        self.pending_lost: Optional[PodLeaseLostError] = None
         self.held = False
         self.left_s: Optional[int] = None
         self._users = 0
@@ -113,25 +120,13 @@ class PodLease:
     def active(self) -> bool:
         return self.held and not self.lost
 
-    # -- the per-connection join ---------------------------------------------------------------
-
     def _request(self) -> Dict[str, Any]:
         return {"cmd": "lease_acquire", "id": self.lease_id, "holder": self.holder,
                 "purpose": self.purpose, "ttl_s": self.ttl_s}
 
-    def join(self, transport: Any, sock: Any, timeout: Optional[float]) -> None:
-        """Send ``lease_acquire`` on a new connection so it is an owner. Raises
-        :class:`PodLeasedError` when someone else holds the pod now and
-        :class:`PodLeaseLostError` (once) when the lease was stopped from the web app."""
-        if not self.active:
-            return
-        sock.sendall(encode_request(self._request()))
-        line = transport._recv_line_exact(sock)
-        self._check(parse_reply(line))
-
-    def _check(self, reply: Any) -> Dict[str, Any]:
+    def _check(self, reply: Any, cmd: str = "lease_acquire") -> Dict[str, Any]:
         try:
-            raise_for_status(reply, cmd="lease_acquire")
+            raise_for_status(reply, cmd=cmd)
         except PodLeaseLostError as exc:
             self._mark_lost(exc.by)
             raise
@@ -141,19 +136,43 @@ class PodLease:
             self.left_s = left
         return view
 
-    def _mark_lost(self, by: str) -> None:
-        self.lost = True
-        self.lost_by = by
+    def _mark_lost(self, by: str) -> bool:
+        """End the lease after ``BP0026``. True the first time."""
+        with self._lock:
+            if self.lost:
+                return False
+            self.lost = True
+            self.lost_by = by
         self._stop.set()
         _log.warning("the pod lease %s was stopped by %s; this session goes on without a lease",
                      self.lease_id, by or "someone")
+        try:
+            from .runs.active import active_run
+
+            run = active_run()
+            if run is not None:
+                run.lease_lost(by)
+        except Exception:  # noqa: BLE001 - never fail the session over the run record
+            pass
+        return True
+
+    def lost_by_error(self, exc: BaseException) -> None:
+        """A command got ``BP0026``: the caller raises ``exc``; nothing is raised again later."""
+        self._mark_lost(str(getattr(exc, "by", "") or ""))
+        self.pending_lost = None
+
+    def take_pending_loss(self) -> Optional[PodLeaseLostError]:
+        """The loss the heartbeat saw, if the session has not been told yet (then cleared)."""
+        with self._lock:
+            exc, self.pending_lost = self.pending_lost, None
+        return exc
 
     # -- acquire, heartbeat, release -------------------------------------------------------------
 
     def _command(self, req: Dict[str, Any]) -> Any:
-        """One ``lease_*`` command on its own connection (not joining the lease first)."""
+        """One ``lease_*`` command on its own connection."""
         transport = self._transport
-        sock = transport._dial(transport.timeout, join_lease=False)
+        sock = transport._dial(transport.timeout)
         try:
             sock.sendall(encode_request(req))
             reply = parse_reply(transport._recv_line_exact(sock))
@@ -209,17 +228,24 @@ class PodLease:
     def _renew(self) -> None:
         reply = self._command({"cmd": "lease_renew", "id": self.lease_id, "ttl_s": self.ttl_s})
         try:
-            self._check(reply)
-        except PodLeaseLostError:
-            return
+            self._check(reply, "lease_renew")
+        except PodLeaseLostError as exc:
+            self.pending_lost = exc        # the session's next command raises it
         except PodLeasedError as exc:
             # It ran out and someone else took it: nothing to renew any more.
-            self._mark_lost(exc.holder)
+            if self._mark_lost(exc.holder):
+                self.pending_lost = PodLeaseLostError(
+                    f"lease lost: it ran out and {exc.holder or 'someone else'} holds the pod now",
+                    cmd="lease_renew", by=exc.holder)
         except FirmwareError as exc:
-            if getattr(exc, "code", "") == "BP0027":  # nothing held (ran out, pod restarted)
-                self._check(self._command(self._request()))
-            else:
+            if getattr(exc, "code", "") != "BP0027":
                 raise
+            # Nothing held (it ran out, or the pod restarted): take it again. A stopped lease
+            # answers BP0026 instead, and is never taken again.
+            try:
+                self._check(self._command(self._request()))
+            except PodLeaseLostError as lost:
+                self.pending_lost = lost
 
     def release(self) -> None:
         """Stop the heartbeat and free the lease (not a joined one). Never raises."""

@@ -1,5 +1,7 @@
 """The pod's own lease on the LAN (feature ``lease``), against an in-process fake pod that keeps
-one lease and gates commands per connection the way the firmware does."""
+one lease and gates commands the way the firmware does: a command is an owner's when it carries
+``"lease":"<held id>"`` (or its connection sent ``lease_acquire``), and after a stop from the web
+app the broken id gets ``BP0026``."""
 
 from __future__ import annotations
 
@@ -28,8 +30,7 @@ class LeasePod:
         self.features_rev = features_rev
         self.knows_lease = knows_lease
         self.lease: Optional[Dict[str, Any]] = None   # id, holder, purpose, deadline
-        self.lost_by = ""                            # set: owners' next command gets BP0026
-        self.lost_conns: set = set()
+        self.broken: Dict[str, str] = {}             # stopped id -> by: BP0026 for anything carrying it
         self.owners: set = set()
         self.log: List[Dict[str, Any]] = []          # every request, with its connection number
         self._lock = threading.Lock()
@@ -50,8 +51,8 @@ class LeasePod:
 
     def stop_lease(self, by: str) -> None:
         with self._lock:
-            self.lost_conns = set(self.owners)
-            self.lost_by = by
+            if self.lease:
+                self.broken[self.lease["id"]] = by
             self.lease = None
             self.owners.clear()
 
@@ -117,10 +118,11 @@ class LeasePod:
 
     def _handle(self, n: int, req: Dict[str, Any]) -> Dict[str, Any]:
         cmd = req.get("cmd")
-        if n in self.lost_conns:
-            self.lost_conns.discard(n)
-            return {"status": "error", "code": "BP0026", "args": {"by": self.lost_by},
-                    "message": f"lease lost: stopped by {self.lost_by}"}
+        lease_id = req.get("id") if cmd in ("lease_acquire", "lease_renew") else req.get("lease")
+        if lease_id in self.broken:
+            by = self.broken[lease_id]
+            return {"status": "error", "code": "BP0026", "args": {"by": by},
+                    "message": f"lease lost: stopped by {by}"}
         live = self._live()
         if cmd == "status":
             data: Dict[str, Any] = {"version": "3.10.13", "board": "stm32h563", "gateware": 58,
@@ -128,7 +130,8 @@ class LeasePod:
             if req.get("caps") is False and self.knows_lease:
                 data["local_lease"] = ({"held": True, "holder": self.lease["holder"],
                                         "purpose": self.lease["purpose"],
-                                        "left_s": self._view(n)["left_s"], "mine": n in self.owners}
+                                        "left_s": self._view(n)["left_s"],
+                                        "mine": n in self.owners or req.get("lease") == self.lease["id"]}
                                        if live else {"held": False})
             return {"status": "ok", "data": data}
         if cmd and cmd.startswith("lease_") and not self.knows_lease:
@@ -157,7 +160,8 @@ class LeasePod:
             self.lease = None
             self.owners.clear()
             return {"status": "ok", "data": {"released": live}}
-        if live and cmd not in LIGHT and n not in self.owners:
+        owner = n in self.owners or (live and req.get("lease") == self.lease["id"])
+        if live and cmd not in LIGHT and not owner:
             return self._busy()
         return {"status": "ok", "data": {}}
 
@@ -182,7 +186,7 @@ def _open(p: LeasePod, **kw: Any) -> BenchPod:
     return BenchPod(transport=TcpTransport(p.addr, timeout=2, tls="off"), api_key="", api_base="", **kw)
 
 
-def test_takes_joins_per_connection_and_releases(pod):
+def test_takes_tags_every_request_and_releases(pod):
     bp = _open(pod, lease_purpose="process-node-hil")
     acquire = [r for r in pod.log if r["cmd"] == "lease_acquire"][0]
     assert acquire["id"].startswith("L-") and len(acquire["id"]) == 38
@@ -190,11 +194,20 @@ def test_takes_joins_per_connection_and_releases(pod):
     assert acquire["purpose"] == "process-node-hil" and acquire["ttl_s"] == 120
     assert bp.leased
     before = len(pod.log)
+    deadline = pod.lease["deadline"]
     bp.command({"cmd": "gpio", "la": 3})
+    bp.transport.command_sequence([{"cmd": "ota_begin"}, {"cmd": "ota_end"}])
+    bp.transport.samples({"cmd": "la_capture"})
+    list(bp.transport.stream_chunks({"cmd": "capture_dual"}))
+    bp.transport.dap_start(11, 12).close()
+    bp.transport.uart_proxy_start(3, 4, 115200).close()
+    time.sleep(0.05)
     sent = pod.log[before:]
-    # one connection: lease_acquire first (an owner), then the command
-    assert [r["cmd"] for r in sent] == ["lease_acquire", "gpio"] and sent[0]["conn"] == sent[1]["conn"]
-    assert sent[0]["id"] == acquire["id"]
+    # every request carries the id; nothing else is sent, and nothing extends the deadline
+    assert [r["cmd"] for r in sent] == ["gpio", "ota_begin", "ota_end", "la_capture", "capture_dual",
+                                        "dap_start", "uart_proxy_start"]
+    assert all(r["lease"] == acquire["id"] for r in sent)
+    assert pod.lease["deadline"] == deadline
     state = bp.local_lease()
     assert state == LocalLease(held=True, holder=acquire["holder"], purpose="process-node-hil",
                                left_s=state.left_s, mine=True, reported=True)
@@ -249,7 +262,8 @@ def test_runner_lease_is_joined_never_renewed_or_released(pod, monkeypatch):
     pod.hold("L-runner", "benchpod ci: ward", "hil")
     bp = _open(pod)
     assert bp.leased
-    bp.command({"cmd": "gpio"})                                # an owner through the join
+    bp.command({"cmd": "gpio"})                                # an owner through the tag
+    assert pod.log[-1]["lease"] == "L-runner" and pod.log[-1]["cmd"] == "gpio"
     time.sleep(0.2)
     bp.close()
     cmds = pod.cmds()
@@ -270,12 +284,10 @@ def test_two_sessions_of_one_process_share_the_lease(pod):
     assert pod.cmds()[-1] == "lease_release"
 
 
-def test_lease_stopped_from_the_web_app(pod, tmp_path):
+def test_lease_stopped_from_the_web_app(pod, tmp_path, monkeypatch):
+    monkeypatch.setattr(pod_lease, "HEARTBEAT_S", 0.05)
     bp = _open(pod)
     pod.stop_lease("ward")
-    # the pod tells an owner once; this client's connections are all new, so mimic the firmware:
-    # the next connection's join is answered with BP0026
-    pod.lost_conns = {pod._n + 1}
     run = RunRecording(tmp_path / "run")
     run.attach(bp.transport)
     run.begin_case("c")
@@ -285,18 +297,47 @@ def test_lease_stopped_from_the_web_app(pod, tmp_path):
     assert run.health["lease_lost"] is True and run.health["valid"] is False
     before = len(pod.log)
     bp.command({"cmd": "gpio"})                                # runs without a lease now
-    assert [r["cmd"] for r in pod.log[before:]] == ["gpio"]
+    assert [r["cmd"] for r in pod.log[before:]] == ["gpio"] and "lease" not in pod.log[-1]
     assert not bp.leased
+    time.sleep(0.2)                                            # the heartbeat stopped too
     bp.close()
-    assert "lease_release" not in pod.cmds()
+    cmds = pod.cmds()
+    assert "lease_release" not in cmds and "lease_renew" not in cmds[before:]
+    assert cmds.count("lease_acquire") == 1                    # never taken again
     run.finish()
+
+
+def test_heartbeat_sees_the_stop_and_the_next_command_raises_once(pod, monkeypatch, tmp_path):
+    monkeypatch.setattr(pod_lease, "HEARTBEAT_S", 0.05)
+    run = RunRecording(tmp_path / "run")
+    set_active_run(run)
+    bp = _open(pod)
+    pod.stop_lease("ward")
+    time.sleep(0.3)                                            # the heartbeat gets BP0026
+    assert not bp.leased and run.health["lease_lost"] is True
+    with pytest.raises(PodLeaseLostError):
+        bp.command({"cmd": "gpio"})
+    bp.command({"cmd": "gpio"})                                # once only, then untagged
+    assert "lease" not in pod.log[-1]
+    assert pod.cmds().count("lease_acquire") == 1
+    bp.close()
+    run.finish()
+
+
+def test_a_stopped_runner_lease_fails_the_join(pod, monkeypatch):
+    monkeypatch.setenv("BENCHPOD_LEASE", "L-runner")
+    pod.broken["L-runner"] = "ward"
+    with pytest.raises(PodLeaseLostError):
+        _open(pod)
 
 
 def test_no_lease_feature_takes_none():
     p = LeasePod(features_rev=3)
     try:
         bp = _open(p)
+        bp.command({"cmd": "gpio"})
         assert not bp.leased and "lease_acquire" not in p.cmds()
+        assert not any("lease" in r for r in p.log)             # no extra key for older firmware
         bp.close()
         assert "lease_release" not in p.cmds()
     finally:
@@ -322,7 +363,8 @@ def test_pod_that_does_not_know_the_command_takes_none():
         bp = _open(p)
         assert not bp.leased
         bp.command({"cmd": "gpio"})
-        assert p.cmds().count("lease_acquire") == 1             # the one try, nothing joined
+        assert p.cmds().count("lease_acquire") == 1             # the one try
+        assert "lease" not in p.log[-1]                         # untagged
         bp.close()
         assert bp.local_lease() == LocalLease()
     finally:
