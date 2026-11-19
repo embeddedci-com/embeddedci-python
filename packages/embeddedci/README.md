@@ -260,7 +260,7 @@ power moved to the network too; see the compatibility table above.)
 | `status`, `ping`, LA voltage, target power on/off | yes | yes | yes | yes |
 | Scheduled power changes (`delay=`), flashing, UART, analog, captures, sensor emulation, CAN, control loop | yes | yes | no | yes |
 | `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | yes | no | yes |
-| Device lease | — | — | — | yes |
+| Device lease | the pod's lease (feature `lease`) | the pod's lease (feature `lease`) | no | the server's lease |
 
 ### TLS on the LAN
 
@@ -322,6 +322,7 @@ macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_
 | `BENCHPOD_TLS_CA` | network connections over TLS | PEM file of CA certificates: verify the pod's certificate and host name instead of pinning it |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 | `BENCHPOD_SENSOR_LIBRARY` | no `version` argument / `--benchpod-sensor-library` | sensor library version: `latest` or a release such as `0.2.0` (default: the version the SDK pins), see [Emulated sensors](#emulated-sensors) |
+| `BENCHPOD_LEASE` | connecting | a lease id to join instead of taking a new lease (set by `benchpod ci` for its child processes), see [Device leases](#device-leases) |
 | `BENCHPOD_SENSOR_CACHE` | sensor library downloads | cache folder for downloaded library versions (default `<user cache>/embeddedci/benchpod-sensors`) |
 
 ## Error codes
@@ -483,8 +484,8 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
 | `--benchpod-api-key` | `BENCHPOD_API_KEY` | — | API key for the cloud destination and the waveform library; it, `--benchpod-api-base` and the lease options also reach the short connection that lifts the DAC limits (`BENCHPOD_LIFT_DAC_LIMITS=1`) |
 | `--benchpod-api-base` | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | embeddedci server |
-| `--benchpod-lease-wait` | — | `600` | seconds to wait for a busy cloud device |
-| `--benchpod-no-lease` | — | off | don't lock the cloud device (only when nothing else can use it) |
+| `--benchpod-lease-wait` | — | `600` | seconds to wait for a busy pod (its lease, or the cloud device's) |
+| `--benchpod-no-lease` | — | off | don't lock the pod (only when nothing else can use it) |
 | `--benchpod-build-target` | `BENCHPOD_BUILD_TARGET` | — | platform id recorded by `build_report` (e.g. `stm32f4`) |
 | `--benchpod-sensor-library` | `BENCHPOD_SENSOR_LIBRARY` | the pinned version | sensor library version for `benchpod_sensors` (`latest` or a release) |
 | `--embeddedci-run-dir` | `EMBEDDEDCI_RUN_DIR` | off | record the run into this folder (`auto`: `./embeddedci-runs/<started UTC>-<suite>/`), see [Test run recording](#test-run-recording) |
@@ -573,7 +574,7 @@ pytest --embeddedci-run-dir=auto --embeddedci-suite=process-node-hil --embeddedc
 from git, `pod`, `wiring`, `tools`, `github`), `health`, and `results`: the run's `outcome`
 (`passed`, `failed`, `error`, `invalid`), `counts` and one entry per test in `cases`. A case has its
 `id` (the pytest node id), `outcome` (`passed`, `failed`, `error` for a failure in setup or
-teardown, `skipped`, `xfailed`, `xpassed`), `duration_ms`, `message` (up to 16 KB), `skip_reason`,
+teardown, `skipped`, `xfailed`, `xpassed`), `duration_ms`, `message` (the failure: its crash line, such as `ValueError: bad CRC`, then pytest's full report; up to 16 KB), `skip_reason`,
 `log` (captured output of failed tests, up to 64 KB), `trace` (the trace file, `""` when not kept),
 `measurements`, and `calls`: per pod command the number of calls, the 50th and 95th percentile and
 maximum time in ms, and the errors. `calls` is filled even when the trace file is not kept.
@@ -2252,12 +2253,37 @@ failed**. Auth failures raise `CloudAuthError`.
 
 ### Device leases
 
-A pod can be driven by one consumer at a time, so a cloud `BenchPod` takes an exclusive **lease** on
-the device for its lifetime: acquired on connect, renewed by a background heartbeat, released on
-`close()` (or it expires if the process dies). A run that finds the device busy waits up to
-`lease_wait` seconds (default 600, `--benchpod-lease-wait`) and then raises `DeviceBusyError`, so
-concurrent CI runs queue instead of colliding. `lease=False` / `--benchpod-no-lease` skips locking;
-`lease_ttl` (default 120 s) sets the lease length. Local TCP and USB connections never lease.
+A pod can be driven by one consumer at a time, so a `BenchPod` takes an exclusive **lease** on it
+for its lifetime: acquired on connect, renewed by a background heartbeat, released on `close()` (or
+it runs out if the process dies). A run that finds the pod busy waits up to `lease_wait` seconds
+(default 600, `--benchpod-lease-wait`) and then raises `PodLeasedError` (a `DeviceBusyError`) with
+the `holder`, its `purpose` and the seconds it has left (`left_s`), so concurrent runs queue instead
+of colliding. `lease=False` / `--benchpod-no-lease` skips locking; `lease_ttl` (default 120 s) sets
+the lease length.
+
+- **Cloud** (`embeddedci:<device>`): the lease is the server's.
+- **LAN and the USB network** (`usb`): on a pod with the `lease` feature the lease is the pod's
+  own, kept in its memory and shared by every transport: while it is held, other connections (from
+  this computer or another, over the LAN, USB or the cloud) can read the status but not drive the
+  pod. Every request this session sends carries the lease id (`"lease":"<id>"`), which is what makes
+  it the owner's; the extra key is only sent to pods with the feature. The holder is `SDK: <user>` and the purpose `lease_purpose=` (default: the suite of the test
+  run being recorded, else `sdk`). Without the feature (older firmware) nothing is locked. The USB
+  console never leases.
+- Several `BenchPod` objects of one process on the same pod share its lease, so a test that opens
+  its own connection next to the pytest `benchpod` fixture does not wait for it.
+- `bp.local_lease()` reads the pod's lease from its status: a `LocalLease` with `held`, `holder`,
+  `purpose`, `left_s`, `mine` (this session holds it) and `reported` (the firmware reports a
+  lease). `bp.leased` is true while this session holds either lease.
+- If the lease is stopped from the web app, the next command raises `PodLeaseLostError` (with `by`,
+  who stopped it) once; the session stops renewing it, later commands run without a lease, and it
+  is never taken again. A test run being recorded is marked invalid (`health.lease_lost`). A lease
+  that only ran out (the pod restarted, say) is taken again by the heartbeat.
+
+**Joining a runner's lease.** With `BENCHPOD_LEASE` set (`benchpod ci` sets it for the processes it
+starts), `BenchPod` joins the lease with that id instead of taking its own: on the LAN and the USB
+network it becomes an owner of the pod's lease, over the cloud it uses the id for the server's
+lease. Either way it never renews or releases it; the runner does. On a pod without the `lease`
+feature it logs one warning and runs without a lease.
 
 Over the cloud, ordinary commands go through the server's command channel rather than the byte
 tunnel, so they keep working while a UART session holds the tunnel.
@@ -2267,7 +2293,8 @@ tunnel, so they keep working while a UART session holds the tunnel.
 | `api_base=` / `--benchpod-api-base` / `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | embeddedci server |
 | `api_key=` / `--benchpod-api-key` / `BENCHPOD_API_KEY` | — | API-key authentication (preferred over OIDC when set) |
 | `cloud_token=`, `cloud_audience=` | — | supply a session token / override the OIDC audience |
-| `lease=`, `lease_wait=`, `lease_ttl=` | `True`, `600`, `120` | device lease |
+| `lease=`, `lease_wait=`, `lease_ttl=`, `lease_purpose=` | `True`, `600`, `120`, the run's suite or `"sdk"` | device lease |
+| `BENCHPOD_LEASE` | — | join this lease id (set by `benchpod ci`) instead of taking a new lease |
 
 ## Build reporting
 
@@ -2329,12 +2356,13 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `FirmwareError` | the pod replied with an error (e.g. "la voltage not set"); a fix the firmware spells as a raw protocol command is rewritten into the SDK call in the message, and `firmware_message` keeps the pod's own text | `firmware_message`, `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
-| `DeviceBusyError` | a cloud device lease was not granted within `lease_wait` | |
+| `DeviceBusyError` | a device lease was not granted within `lease_wait` | |
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
 | `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or the USB console | `firmware_message`, `cmd` |
 | `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running | `firmware_message`, `cmd` |
-| `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409) | `holder`, `left_s`, `expires_at`, `status` |
+| `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | someone else holds the pod's lease (`BP0025`), a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409), or the lease did not free within `lease_wait` | `holder`, `purpose`, `left_s`, `expires_at`, `status` |
+| `PodLeaseLostError` (a `FirmwareError`) | the pod's lease this session held was stopped from the web app or the cloud (`BP0026`); the command did not run | `by` |
 | `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
 | `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd`, or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
@@ -2369,11 +2397,11 @@ from this README, so the list stays complete.
 
 `BenchPod(connection=None, *, la_voltage=None, timeout=30.0, transport=None, api_base=None,
 api_key=None, cloud_token=None, cloud_audience=None, cloud_user_token=None, lease=True,
-lease_wait=600.0, lease_ttl=120, wiring=None)`. A context manager; `close()` is idempotent.
+lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context manager; `close()` is idempotent.
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command on firmware 3.10.9+, else the full `status`), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds the cloud lease), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
+| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command on firmware 3.10.9+, else the full `status`), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |

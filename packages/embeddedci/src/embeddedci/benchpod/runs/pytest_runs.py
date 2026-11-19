@@ -148,6 +148,18 @@ def _skip_reason(rep: Any) -> str:
     return text.strip()
 
 
+def _failure_text(rep: Any) -> str:
+    """A failure's text for ``message``: the crash line first (``ValueError: bad CRC: 6f72``,
+    pytest's ``reprcrash.message``), a blank line, then the full report. Just the report when
+    pytest has no crash line (``pytest.fail(..., pytrace=False)``, a collection error)."""
+    full = (getattr(rep, "longreprtext", "") or "").strip("\n")
+    crash = getattr(getattr(rep, "longrepr", None), "reprcrash", None)
+    line = str(getattr(crash, "message", "") or "").strip()
+    if not line or full in line:   # pytest.fail(..., pytrace=False): the report is the message
+        return full
+    return f"{line}\n\n{full}" if full else line
+
+
 def case_outcome(reports: Dict[str, Any]) -> Tuple[str, str, str]:
     """``(outcome, message, skip_reason)`` of a test from its setup/call/teardown reports.
 
@@ -163,16 +175,16 @@ def case_outcome(reports: Dict[str, Any]) -> Tuple[str, str, str]:
         wasxfail = getattr(rep, "wasxfail", None)
         if wasxfail is not None and rep.skipped:
             outcome, reason = "xfailed", str(wasxfail)
-            message = rep.longreprtext or ""
+            message = _failure_text(rep)
         elif wasxfail is not None and rep.passed:
             outcome, reason = "xpassed", str(wasxfail)
         elif rep.failed:
             if when == "call":
-                outcome, message = "failed", rep.longreprtext or ""
+                outcome, message = "failed", _failure_text(rep)
             elif when == "teardown" and outcome == "failed":
-                message = (message + "\n\n" + (rep.longreprtext or "")).strip()
+                message = (message + "\n\n" + _failure_text(rep)).strip()
             else:
-                outcome, message = "error", rep.longreprtext or ""
+                outcome, message = "error", _failure_text(rep)
         elif rep.skipped:
             outcome, reason = "skipped", _skip_reason(rep)
         elif rep.passed and when == "call":
@@ -251,6 +263,7 @@ class RunsPlugin:
         self.run = RunRecording(run_dir, step=settings["step"], keep=settings["keep"],
                                 t0=settings["t0"], handover=settings["handover"],
                                 run_id=settings["run_id"])
+        self.run.suite = self.suite
         set_active_run(self.run)
 
     # -- per test -----------------------------------------------------------------------------
@@ -290,7 +303,7 @@ class RunsPlugin:
         if self.run is None or not report.failed:
             return
         self.cases.append(Case(id=report.nodeid or "<collection>", step=self.run.step, kind="pytest",
-                               outcome="error", message=report.longreprtext or "collection failed"))
+                               outcome="error", message=_failure_text(report) or "collection failed"))
 
     @pytest.hookimpl(trylast=True)
     def pytest_runtest_call(self, item: "pytest.Item") -> None:

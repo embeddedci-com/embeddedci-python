@@ -8,9 +8,10 @@ or saving does not need a second capture).
 ``lock`` serialises device access: tools run on worker threads, and two tool calls must never
 interleave commands on the pod.
 
-Over the cloud the device is shared and ``connect`` holds an exclusive lease. An agent chat can sit
-idle for hours, so after ``idle_timeout`` seconds without a tool call the session closes the
-connection (releasing the lease) and transparently reconnects on the next call.
+The pod is shared and ``connect`` holds an exclusive lease: the server's over the cloud, the pod's
+own on the LAN and USB network (feature ``lease``). An agent chat can sit idle for hours, so after
+``idle_timeout`` seconds without a tool call the session closes a leased connection (releasing the
+lease) and transparently reconnects on the next call.
 """
 
 from __future__ import annotations

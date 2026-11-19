@@ -67,7 +67,12 @@ class DeviceLease:
         ttl_seconds: int = DEFAULT_LEASE_TTL,
         run_label: Optional[str] = None,
         invalidate_token: Optional[Callable[[], bool]] = None,
+        lease_id: Optional[str] = None,
+        joined: bool = False,
     ) -> None:
+        """``lease_id``: use this id instead of a new one (``BENCHPOD_LEASE``: the server's acquire
+        is idempotent for the same id, so a child process joins its runner's lease). ``joined``:
+        the lease belongs to someone else (the runner); never renew or release it."""
         self._api_base = api_base.rstrip("/")
         self._token_provider = token_provider
         # Drops a token the server rejected (HTTP 401) so the provider mints a fresh one.
@@ -75,7 +80,8 @@ class DeviceLease:
         self._device = device_name
         self._ttl = max(15, int(ttl_seconds))
         self._run_label = run_label or _default_run_label()
-        self._lease_id = "lease-" + uuid.uuid4().hex
+        self._lease_id = lease_id or "lease-" + uuid.uuid4().hex
+        self._joined = joined
         self._held = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -107,7 +113,8 @@ class DeviceLease:
                 return
             if holder is None:
                 self._held = True
-                self._start_heartbeat()
+                if not self._joined:
+                    self._start_heartbeat()
                 return
             if time.monotonic() >= deadline:
                 raise DeviceBusyError(
@@ -129,12 +136,12 @@ class DeviceLease:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        if self._held:
+        if self._held and not self._joined:
             try:
                 self._post("lease/release")
             except (CloudAuthError, ConnectionConfigError):
                 pass  # best-effort; the lease will expire on its own
-            self._held = False
+        self._held = False
 
     # -- internals ---------------------------------------------------------------
 

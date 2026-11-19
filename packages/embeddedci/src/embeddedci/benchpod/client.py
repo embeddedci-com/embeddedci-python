@@ -120,6 +120,7 @@ from .state import (
     DacOutput,
     FpgaImageInfo,
     LaVoltage,
+    LocalLease,
     LoopState,
     ModuleInfo,
     PowerStatus,
@@ -130,6 +131,8 @@ from .state import (
 )
 from .transport import Transport, open_transport
 from .transport.cloud import CloudTransport
+from .transport.tcp import TcpTransport
+from . import pod_lease as _pod_lease
 
 if TYPE_CHECKING:  # pragma: no cover
     from .sensors import SensorEmulation
@@ -287,6 +290,7 @@ class BenchPod:
         wiring: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]", None] = None,
         wiring_source: Optional[str] = None,
         wiring_profile: Optional[str] = None,
+        lease_purpose: Optional[str] = None,
     ) -> None:
         """Open a BenchPod.
 
@@ -312,10 +316,16 @@ class BenchPod:
         working; a ``cloud_token`` you pass is used as is. ``api_base`` (or ``BENCHPOD_API_BASE``) points at another embeddedci server. An API
         key also unlocks the cloud waveform library on a LAN/serial connection.
 
-        The cloud device is *shared*, so the client takes an exclusive **lease** on it for the life
-        of this object; a run that finds it busy waits up to ``lease_wait`` seconds and then raises
-        :class:`~embeddedci.benchpod.errors.DeviceBusyError`. ``lease=False`` skips locking. Local
-        TCP/serial connections never lease.
+        The pod is *shared*, so the client takes an exclusive **lease** on it for the life of this
+        object: the server's lease for the cloud destination, the pod's own lease on the LAN and
+        the USB network when the pod has the ``lease`` feature (``lease_purpose`` says what for;
+        default: the recorded test run's suite, else ``"sdk"``). A run that finds the pod busy
+        waits up to ``lease_wait`` seconds and then raises
+        :class:`~embeddedci.benchpod.errors.PodLeasedError` (a
+        :class:`~embeddedci.benchpod.errors.DeviceBusyError`) naming the holder. With
+        ``BENCHPOD_LEASE`` set (``benchpod ci`` sets it for the processes it starts) the client
+        joins that lease instead and never renews or releases it. ``lease=False`` skips locking.
+        The USB console never leases.
 
         ``wiring`` is the bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile (a ``Wiring``, a
         dict, or a ``.json``/``.toml`` path) — see :attr:`wiring`. ``wiring_profile`` (or
@@ -339,6 +349,7 @@ class BenchPod:
         self._wiring: Optional[Wiring] = Wiring.coerce(wiring) if wiring is not None else None
         self.timeout = timeout
         self._lease: Optional[DeviceLease] = None
+        self._pod_lease: Optional["_pod_lease.PodLease"] = None
         # The DAC output this connection last routed (dac_output, analog_path, a routed waveform),
         # so a waveform played with route=False and no dac_path scales for it. None = unknown.
         self._routed_dac_path: Optional[str] = None
@@ -393,15 +404,20 @@ class BenchPod:
             run.attach(self._transport)
         try:
             if lease and isinstance(self._transport, CloudTransport):
+                runner_lease = os.environ.get(_pod_lease.LEASE_ENV, "").strip()
                 self._lease = DeviceLease(
                     api_base=self._transport.api_base,
                     token_provider=self._transport._session_token,
                     invalidate_token=self._transport._invalidate_token,
                     device_name=self._transport.device_name,
                     ttl_seconds=lease_ttl,
+                    lease_id=runner_lease or None,
+                    joined=bool(runner_lease),
                 )
                 self._lease.acquire(wait_timeout=lease_wait)
                 self._transport.lease_id = self._lease.lease_id
+            elif lease:
+                self._take_pod_lease(lease_purpose, lease_ttl, lease_wait)
             # Remember the cloud device name + base so the server client can address the same
             # device (server-side replay) and reuse the transport's session token.
             self._device_name = getattr(self._transport, "device_name", "") or ""
@@ -424,6 +440,27 @@ class BenchPod:
             raise
         if run is not None and run.active:
             run.note_pod(self)
+
+    def _take_pod_lease(self, purpose: Optional[str], ttl: int, wait: float) -> None:
+        """The pod's own lease on a LAN or USB network connection (feature ``lease``)."""
+        if not isinstance(self._transport, TcpTransport):
+            if os.environ.get(_pod_lease.LEASE_ENV, "").strip():
+                _log.warning("%s is set but this connection (%s) takes no lease",
+                             _pod_lease.LEASE_ENV, type(self._transport).__name__)
+            return
+        try:
+            supported = self.supports("lease")
+        except BenchPodError as exc:
+            _log.debug("connect: could not read the capabilities for the lease: %s", exc)
+            supported = False
+        self._pod_lease = _pod_lease.open_pod_lease(
+            self._transport, supported=supported, purpose=purpose, ttl_s=ttl, wait=wait)
+
+    def local_lease(self) -> LocalLease:
+        """The pod's own lease (feature ``lease``) as its status reports it: who holds it, for
+        what, how long it has left and whether this session holds it. ``held`` is False when the
+        firmware does not report a lease."""
+        return LocalLease.from_status(self._caps_status())
 
     def _auto_la_voltage(self) -> None:
         """On connect: when the pod has no I/O voltage yet and the wiring profile sets one, set it.
@@ -456,13 +493,20 @@ class BenchPod:
 
     @property
     def leased(self) -> bool:
-        """True while this client holds the exclusive lease on a shared cloud device."""
+        """True while this client holds an exclusive lease: the server's on a cloud device, or the
+        pod's own lease on the LAN or the USB network."""
+        if self._pod_lease is not None and self._pod_lease.active:
+            return True
         return self._lease is not None and self._lease.held
 
     def close(self) -> None:
-        """Close the connection and release the cloud lease, if any. Idempotent."""
+        """Close the connection and release the lease, if any (not a lease joined through
+        ``BENCHPOD_LEASE``). Idempotent."""
         try:
             self._yield_expansion_bus()
+            if self._pod_lease is not None:
+                lease, self._pod_lease = self._pod_lease, None
+                _pod_lease.close_pod_lease(self._transport, lease)
             self._transport.close()
         finally:
             if self._lease is not None:

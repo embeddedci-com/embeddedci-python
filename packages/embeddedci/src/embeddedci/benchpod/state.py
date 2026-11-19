@@ -610,3 +610,31 @@ __all__: List[str] = [
     "UsbCcStatus", "PullState", "AnalogPathState", "DacOutput", "AdcReading", "Calibration", "FpgaImageInfo",
     "LoopState",
 ]
+
+
+@dataclass(frozen=True)
+class LocalLease:
+    """The pod's own lease as :meth:`BenchPod.local_lease
+    <embeddedci.benchpod.BenchPod.local_lease>` reads it from the status (feature ``lease``).
+
+    ``held`` is False when no lease is held, or when the firmware does not report one. ``mine``:
+    this session holds it. The status never shows the lease id."""
+
+    held: bool = False
+    holder: str = ""
+    purpose: str = ""
+    left_s: Optional[int] = None
+    mine: bool = False
+    #: Whether the pod reported its lease at all (False on firmware without the feature).
+    reported: bool = False
+
+    @classmethod
+    def from_status(cls, status: Mapping[str, Any]) -> "LocalLease":
+        raw = status.get("local_lease") if isinstance(status, Mapping) else None
+        if not isinstance(raw, Mapping):
+            return cls()
+        left = raw.get("left_s")
+        return cls(held=raw.get("held") is True, holder=str(raw.get("holder") or ""),
+                   purpose=str(raw.get("purpose") or ""),
+                   left_s=int(left) if isinstance(left, (int, float)) and not isinstance(left, bool) else None,
+                   mine=raw.get("mine") is True, reported=True)

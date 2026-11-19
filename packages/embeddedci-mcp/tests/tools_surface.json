@@ -1360,7 +1360,7 @@
         },
         "lease_wait": {
           "default": 30.0,
-          "description": "Cloud only: seconds to wait when another run holds the shared device.",
+          "description": "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the pod's own on the LAN and USB network).",
           "maximum": 3600,
           "minimum": 0,
           "title": "Lease Wait",

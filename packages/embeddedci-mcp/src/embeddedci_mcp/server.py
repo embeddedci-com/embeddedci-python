@@ -406,6 +406,12 @@ def _status() -> m.StatusResult:
     if isinstance(lease, dict) and lease.get("held") and not pod.leased:
         warnings.append(f"a cloud job holds this pod ({lease.get('holder') or 'cloud'}, "
                         f"{lease.get('left_s', '?')} s left): over the LAN it can be read, not driven")
+    local_lease = _local_lease(pod)
+    if local_lease is not None and local_lease.get("held") and not local_lease.get("mine"):
+        warnings.append(f"{local_lease.get('holder') or 'someone'} holds this pod's lease "
+                        f"({local_lease.get('purpose') or 'no purpose given'}, "
+                        f"{local_lease.get('left_s', '?')} s left): it can be read, not driven, "
+                        "until they are done")
     if isinstance(firmware, dict) and firmware.get("lan_policy") == "locked" and SESSION.kind == "tcp":
         warnings.append("the pod's LAN policy is locked: configuration and firmware commands need "
                         "the cloud ('embeddedci:<device>') or the USB console")
@@ -441,8 +447,26 @@ def _status() -> m.StatusResult:
         connected=True, connection=SESSION.connection, kind=SESSION.kind, leased=pod.leased,
         la_voltage=la, capabilities=m.CapabilitiesInfo.from_caps(pod.capabilities),
         session=SESSION.info(), warnings=warnings, firmware=firmware, wiring_source=wiring_source,
-        eth_mac=eth_mac, wifi_mac=wifi_mac,
+        eth_mac=eth_mac, wifi_mac=wifi_mac, local_lease=local_lease,
     )
+
+
+def _local_lease(pod: Any) -> Optional[Dict[str, Any]]:
+    """The pod's own lease from its status (feature ``lease``), or None when the pod or the SDK
+    has none."""
+    read = getattr(pod, "local_lease", None)
+    if not callable(read):
+        return None
+    try:
+        if not pod.supports("lease"):
+            return None
+        lease = read()
+    except BenchPodError:
+        return None
+    if not getattr(lease, "reported", False):
+        return None
+    return {"held": lease.held, "holder": lease.holder, "purpose": lease.purpose,
+            "left_s": lease.left_s, "mine": lease.mine}
 
 
 @mcp.tool(annotations=_ann("Connect to a BenchPod", idempotent=True, cloud=True))
@@ -457,7 +481,8 @@ async def connect(
     la_voltage: Annotated[Optional[Literal[1.8, 3.3]], Field(description=(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage)."))] = None,
     lease_wait: Annotated[float, Field(ge=0, le=3600, description=(
-        "Cloud only: seconds to wait when another run holds the shared device."))] = 30.0,
+        "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the "
+        "pod's own on the LAN and USB network)."))] = 30.0,
     wiring_profile: Annotated[Optional[str], Field(description=(
         "A wiring profile stored on the pod to use (the `wiring` tool lists them); omit for the "
         "pod's default profile."))] = None,

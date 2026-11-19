@@ -131,7 +131,9 @@ def test_client_la_voltage_round_trips_over_tcp():
     pod = FakePod(handler)
     try:
         bp = BenchPod(transport=TcpTransport(pod.addr, timeout=2), la_voltage=3.3)
-        assert b'"cmd":"la_voltage"' in seen[0] and b'"mv":3300' in seen[0]
+        # The capabilities come first (does the pod take a lease?), then the voltage.
+        sent = [line for line in seen if b'"cmd":"la_voltage"' in line]
+        assert sent and b'"mv":3300' in sent[0]
         state = bp.get_la_voltage()
         assert b'"mv"' not in seen[-1]  # query form omits mv
         assert state.voltage is None

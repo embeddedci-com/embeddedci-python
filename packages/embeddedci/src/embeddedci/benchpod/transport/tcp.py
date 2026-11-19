@@ -105,6 +105,9 @@ class TcpTransport(Transport):
 
     #: Whether the last connection used TLS (port 8443).
     last_tls: bool = False
+    #: The pod lease this transport's requests carry (:mod:`~embeddedci.benchpod.pod_lease`), or
+    #: None. Set by :class:`~embeddedci.benchpod.BenchPod`.
+    pod_lease: Optional[Any] = None
 
     def __init__(self, addr: str, *, timeout: float = 30.0,
                  dial_timeout: float = DEFAULT_DIAL_TIMEOUT, tls: Optional[str] = None,
@@ -238,6 +241,34 @@ class TcpTransport(Transport):
                 return bytes(out)
             out.extend(b)
 
+    # -- the pod lease -------------------------------------------------------
+
+    def _encode(self, req: dict) -> bytes:
+        """``req`` as a protocol line; while this transport holds the pod's lease
+        (:attr:`pod_lease`, only set on a pod with the ``lease`` feature) it carries
+        ``"lease":"<id>"``, which makes the command an owner's."""
+        lease = self.pod_lease
+        if lease is not None:
+            lost = lease.take_pending_loss()
+            if lost is not None:
+                raise lost
+            if lease.active and "lease" not in req:
+                req = {**req, "lease": lease.lease_id}
+        return encode_request(req)
+
+    def _lease_error(self, exc: BaseException) -> BaseException:
+        """``exc``; a ``BP0026`` (the lease was stopped from the web app) also ends the lease."""
+        lease = self.pod_lease
+        if lease is not None and getattr(exc, "code", "") == "BP0026":
+            lease.lost_by_error(exc)
+        return exc
+
+    def _raise_for_status(self, reply: Any, cmd: Optional[str] = None) -> Any:
+        try:
+            return raise_for_status(reply, cmd=cmd)
+        except BaseException as exc:
+            raise self._lease_error(exc)
+
     # -- Transport API ------------------------------------------------------
 
     def command_sequence(self, reqs: List[dict]) -> List[Any]:
@@ -251,9 +282,9 @@ class TcpTransport(Transport):
         try:
             for req in reqs:
                 with _io_errors(f"{req.get('cmd')}", timeout):
-                    sock.sendall(encode_request(req))
+                    sock.sendall(self._encode(req))
                     reply = parse_reply(self._recv_line(sock, buf))
-                raise_for_status(reply, cmd=req.get("cmd"))
+                self._raise_for_status(reply, cmd=req.get("cmd"))
                 out.append(reply.data)
             return out
         finally:
@@ -265,9 +296,9 @@ class TcpTransport(Transport):
         sock = self._dial(timeout)
         try:
             with _io_errors(f"{req.get('cmd')}", timeout):
-                sock.sendall(encode_request(req))
+                sock.sendall(self._encode(req))
                 reply = parse_reply(self._recv_line(sock, bytearray()))
-            raise_for_status(reply, cmd=req.get("cmd"))
+            self._raise_for_status(reply, cmd=req.get("cmd"))
             return reply.data
         finally:
             try:
@@ -283,12 +314,12 @@ class TcpTransport(Transport):
         out: List[int] = []
         try:
             with _io_errors(f"{req.get('cmd')}", timeout):
-                sock.sendall(encode_request(req))
+                sock.sendall(self._encode(req))
             while True:
                 with _io_errors(f"{req.get('cmd')}", timeout):
                     line = self._recv_line(sock, buf)
                 reply = parse_reply(line)
-                raise_for_status(reply, cmd=req.get("cmd"))
+                self._raise_for_status(reply, cmd=req.get("cmd"))
                 if isinstance(reply.data, list):
                     out.extend(reply.data)
                 if not reply.more:
@@ -314,7 +345,7 @@ class TcpTransport(Transport):
         cmd = req.get("cmd")
         try:
             with _io_errors(f"{cmd}", timeout):
-                sock.sendall(encode_request(req))
+                sock.sendall(self._encode(req))
             while True:
                 with _io_errors(f"{cmd}", timeout):
                     line = self._recv_line(sock, buf)
@@ -328,9 +359,9 @@ class TcpTransport(Transport):
                 if not isinstance(obj, dict):
                     continue
                 if obj.get("status") == "error":
-                    raise firmware_error(obj.get("message") or "capture failed", cmd=cmd,
+                    raise self._lease_error(firmware_error(obj.get("message") or "capture failed", cmd=cmd,
                                          code=str(obj.get("code") or ""),
-                                         values=obj.get("args") if isinstance(obj.get("args"), dict) else None)
+                                         values=obj.get("args") if isinstance(obj.get("args"), dict) else None))
                 yield obj
                 if not bool(obj.get("more", False)):
                     return
@@ -357,18 +388,18 @@ class TcpTransport(Transport):
             if psram:
                 begin["psram"] = True
             with _io_errors("load_bin", timeout):
-                sock.sendall(encode_request(begin))
+                sock.sendall(self._encode(begin))
                 line = self._recv_line(sock, buf)
-            raise_for_status(parse_reply(line), cmd="load_bin")
+            self._raise_for_status(parse_reply(line), cmd="load_bin")
             with _io_errors("load_bin", timeout):
                 sock.sendall(bytes(data))
                 line = self._recv_load_bin_done(sock, buf)
-            raise_for_status(parse_reply(line), cmd="load_bin")
+            self._raise_for_status(parse_reply(line), cmd="load_bin")
             with _io_errors(replay.get("cmd", "replay"), timeout):
-                sock.sendall(encode_request(replay))
+                sock.sendall(self._encode(replay))
                 line = self._recv_line(sock, buf)
             reply = parse_reply(line)
-            raise_for_status(reply, cmd=replay.get("cmd", "replay"))
+            self._raise_for_status(reply, cmd=replay.get("cmd", "replay"))
             return reply.data
         finally:
             try:
@@ -384,14 +415,14 @@ class TcpTransport(Transport):
         buf = bytearray()
         try:
             with _io_errors("load_bin", timeout):
-                sock.sendall(encode_request({"cmd": "load_bin", "total": len(data), "psram": True}))
+                sock.sendall(self._encode({"cmd": "load_bin", "total": len(data), "psram": True}))
                 line = self._recv_line(sock, buf)
-            raise_for_status(parse_reply(line), cmd="load_bin")
+            self._raise_for_status(parse_reply(line), cmd="load_bin")
             with _io_errors("load_bin", timeout):
                 sock.sendall(bytes(data))
                 line = self._recv_load_bin_done(sock, buf)
             reply = parse_reply(line)
-            raise_for_status(reply, cmd="load_bin")
+            self._raise_for_status(reply, cmd="load_bin")
             total = reply.data.get("total") if isinstance(reply.data, dict) else None
             return int(total) if total is not None else len(data)
         finally:
@@ -429,10 +460,10 @@ class TcpTransport(Transport):
         sock = self._dial(timeout, kind=kind)
         try:
             with _io_errors(cmd, timeout):
-                sock.sendall(encode_request(req))
+                sock.sendall(self._encode(req))
                 line = self._recv_line_exact(sock)
             reply = parse_reply(line)
-            raise_for_status(reply, cmd=cmd)
+            self._raise_for_status(reply, cmd=cmd)
             # The session can outlast the per-command timeout: clear it so the caller owns the
             # lifetime, mirroring the Go client.
             sock.settimeout(None)
