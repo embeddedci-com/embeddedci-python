@@ -152,6 +152,9 @@ class PodLease:
             run = active_run()
             if run is not None:
                 run.lease_lost(by)
+                if self.joined:
+                    # The runner's lease (benchpod ci) was stopped: the whole run ends.
+                    run.request_stop(f"run stopped by {by or 'someone'}: the pod's lease was stopped")
         except Exception:  # noqa: BLE001 - never fail the session over the run record
             pass
         return True

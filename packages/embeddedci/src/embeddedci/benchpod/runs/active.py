@@ -148,6 +148,8 @@ class RunRecording:
         self.handover = handover
         #: The suite name (``key.suite``); a pod lease taken during the run uses it as purpose.
         self.suite = ""
+        #: Why the run must end now (the runner's lease was stopped), or "".
+        self.stop_reason = ""
         self.started = time.time()
         self.t0 = float(t0) if t0 is not None else self.started
         self.run_id = run_id or new_run_id(self.started)
@@ -188,6 +190,12 @@ class RunRecording:
             if not self.health["lease_lost"]:
                 self.health["lease_lost"] = True
                 self.add_reason(f"the pod lease was stopped by {by or 'someone'} during the run")
+
+    def request_stop(self, reason: str) -> None:
+        """End the run after the current test (the pytest plugin exits the session)."""
+        with self._lock:
+            if not self.stop_reason:
+                self.stop_reason = reason
 
     def add_reason(self, reason: str, *, invalid: bool = True) -> None:
         """A note on the run's health; ``invalid`` (default) marks the run as not a valid measurement."""

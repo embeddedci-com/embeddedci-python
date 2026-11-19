@@ -353,6 +353,18 @@ class RunsPlugin:
             skip_reason=reason, attempt=1, trace=trace,
             log=_captured_output(reports) if outcome in ("failed", "error") else "",
             measurements=run.measurements(nodeid)[:MEASUREMENTS_PER_CASE], calls=calls))
+        self._exit_if_stopped()
+
+    def _exit_if_stopped(self) -> None:
+        """The runner's lease was stopped from the web app: end the session now. The cases so far
+        and the run's health still go to the run folder (``pytest_sessionfinish``)."""
+        run = self.run
+        if run is not None and run.stop_reason:
+            pytest.exit(run.stop_reason, returncode=pytest.ExitCode.INTERRUPTED)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_setup(self, item: "pytest.Item") -> None:
+        self._exit_if_stopped()
 
     def pytest_collectreport(self, report: Any) -> None:
         if self.run is None or not report.failed:

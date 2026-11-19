@@ -380,6 +380,11 @@ def build_part_record(*, step: str, cases: Sequence[Case], health: Mapping[str, 
     part_health = {k: health.get(k, empty_health()[k]) for k in
                    ("lost_samples", "rate_misses", "busy_retries", "reconnects",
                     "measurements_dropped", "trace_truncated", "reasons")}
+    # Not in the spec's part shape, honored by the runner: a lost lease invalidates the whole run.
+    if health.get("lease_lost"):
+        part_health["lease_lost"] = True
+    if health.get("valid") is False:
+        part_health["valid"] = False
     out: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "step": step,

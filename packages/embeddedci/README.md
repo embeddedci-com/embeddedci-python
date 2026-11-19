@@ -2319,7 +2319,9 @@ the lease length.
 starts), `BenchPod` joins the lease with that id instead of taking its own: on the LAN and the USB
 network it becomes an owner of the pod's lease, over the cloud it uses the id for the server's
 lease. Either way it never renews or releases it; the runner does. On a pod without the `lease`
-feature it logs one warning and runs without a lease.
+feature it logs one warning and runs without a lease. When the runner's lease is stopped from the
+web app, the pytest plugin ends the session after the test that saw it (exit code 2, "run stopped
+by ..."); the cases so far, `health.lease_lost` and the reason still go to the run folder.
 
 Over the cloud, ordinary commands go through the server's command channel rather than the byte
 tunnel, so they keep working while a UART session holds the tunnel.

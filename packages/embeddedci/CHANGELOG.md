@@ -19,6 +19,10 @@
 - Run folder file names always pass the server's rule (`[A-Za-z0-9._-]`, no leading dot): a case
   id starting with `.` gets a trace name without it, and attachment names keep ASCII letters only.
 - `tests/benchpod-ci.yaml` runs this repository's hardware tests with `benchpod ci`.
+- Under `benchpod ci`, a stop of the runner's lease from the web app (`BP0026` on a lease joined
+  through `BENCHPOD_LEASE`) ends the pytest session after the test that saw it (exit code 2); the
+  step's `parts/<step>.json` still has the cases so far, `lease_lost` and the reason. With the SDK's
+  own lease the session goes on without it, as before.
 - Test run recording: a failed case's `message` starts with the crash line (`ValueError: bad CRC:
   6f72`), then a blank line and pytest's full report, still capped at 16 KB.
 - **Pod lease on the LAN and the USB network:** on a pod with the `lease` feature (features table
