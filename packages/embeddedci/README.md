@@ -574,7 +574,7 @@ pytest --embeddedci-run-dir=auto --embeddedci-suite=process-node-hil --embeddedc
 from git, `pod`, `wiring`, `tools`, `github`), `health`, and `results`: the run's `outcome`
 (`passed`, `failed`, `error`, `invalid`), `counts` and one entry per test in `cases`. A case has its
 `id` (the pytest node id), `outcome` (`passed`, `failed`, `error` for a failure in setup or
-teardown, `skipped`, `xfailed`, `xpassed`), `duration_ms`, `message` (up to 16 KB), `skip_reason`,
+teardown, `skipped`, `xfailed`, `xpassed`), `duration_ms`, `message` (the failure: its crash line, such as `ValueError: bad CRC`, then pytest's full report; up to 16 KB), `skip_reason`,
 `log` (captured output of failed tests, up to 64 KB), `trace` (the trace file, `""` when not kept),
 `measurements`, and `calls`: per pod command the number of calls, the 50th and 95th percentile and
 maximum time in ms, and the errors. `calls` is filled even when the trace file is not kept.

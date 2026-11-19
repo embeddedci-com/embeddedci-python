@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Test run recording: a failed case's `message` starts with the crash line (`ValueError: bad CRC:
+  6f72`), then a blank line and pytest's full report, still capped at 16 KB.
 - **Pod lease on the LAN and the USB network:** on a pod with the `lease` feature (features table
   revision 4), `BenchPod()` takes the pod's own lease for the session (`lease_acquire`, holder
   `SDK: <user>`, purpose `lease_purpose=` or the recorded run's suite, else `sdk`; 120 s, renewed

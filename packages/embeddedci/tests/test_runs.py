@@ -664,3 +664,62 @@ def test_a(build_report):
 ''')
     res = pytester.runpytest("-p", "no:cacheprovider")
     res.assert_outcomes(passed=1)
+
+
+def test_message_starts_with_the_crash_line(pytester):
+    _write_suite(pytester, tests='''
+import pytest
+
+
+class Bus:
+    pass
+
+
+@pytest.fixture
+def bus():
+    return Bus()
+
+
+def test_registers(bus):
+    raise ValueError("bad CRC: 6f72")
+
+
+def test_huge():
+    raise ValueError("x" * 40000)
+
+
+def test_assert(bus):
+    assert 1 + 1 == 3
+
+
+@pytest.fixture
+def broken():
+    raise RuntimeError("setup broke")
+
+
+def test_setup(broken):
+    pass
+
+
+def test_limit(measure):
+    measure("a", 5, max=1)
+
+
+def test_skip():
+    pytest.skip("no DUT")
+''')
+    out = pytester.path / "out"
+    res = pytester.runpytest(f"--embeddedci-run-dir={out}", "-p", "no:cacheprovider")
+    res.assert_outcomes(failed=4, errors=1, skipped=1)
+    cases = _cases(_run_json(out))
+    msg = cases["test_registers"]["message"]
+    first, _, rest = msg.partition("\n\n")
+    assert first == "ValueError: bad CRC: 6f72"
+    assert "def test_registers(bus):" in rest                 # the full report follows
+    huge = cases["test_huge"]["message"]
+    assert huge.startswith("ValueError: xxx") and len(huge.encode()) <= 16 * 1024
+    assert cases["test_assert"]["message"].startswith("assert ")
+    assert "def test_assert(bus):" in cases["test_assert"]["message"]
+    assert cases["test_setup"]["message"].startswith("RuntimeError: setup broke\n\n")
+    assert cases["test_limit"]["message"].startswith("1 measurement(s) outside their limits")
+    assert cases["test_skip"]["message"] == "" and cases["test_skip"]["skip_reason"] == "no DUT"
