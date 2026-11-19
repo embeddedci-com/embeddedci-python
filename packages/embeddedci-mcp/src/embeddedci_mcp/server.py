@@ -2611,6 +2611,107 @@ async def cloud_list_devices() -> m.CloudDeviceList:
     return await _call(op, lock=False)
 
 
+def _runs_api() -> Tuple[Any, str]:
+    """The SDK's runs API over the same credentials as the other cloud_* tools."""
+    try:
+        from embeddedci.benchpod.runs.api import RunsApi
+    except ImportError as exc:  # an SDK older than the runs API
+        raise ToolError("reading test runs needs a newer embeddedci SDK (embeddedci.benchpod.runs.api); "
+                        "upgrade the embeddedci package") from exc
+    server, auth = _cloud_api()
+    return RunsApi(server), auth
+
+
+def _lookup(fn: Callable[[], T]) -> Callable[[], T]:
+    def op() -> T:
+        try:
+            return fn()
+        except LookupError as exc:
+            raise ToolError(str(exc)) from exc
+    return op
+
+
+@mcp.tool(annotations=_ann("List test runs", read_only=True, cloud=True))
+async def cloud_runs_list(
+    suite: Annotated[Optional[str], Field(description="Only this suite (the run's key.suite).")] = None,
+    dut: Annotated[Optional[str], Field(description="Only this board under test ('none' for pod-only suites).")] = None,
+    build: Annotated[Optional[str], Field(description="Only the runs linked to this build id.")] = None,
+    pod: Annotated[Optional[str], Field(description="Only the runs on this pod (name or id).")] = None,
+    ref: Annotated[Optional[str], Field(description="Only the runs of this git branch or ref of the tests.")] = None,
+    limit: Annotated[int, Field(ge=1, le=200, description="How many runs, newest first.")] = 20,
+    before: Annotated[Optional[str], Field(description="The next_before of the previous page.")] = None,
+) -> m.CloudRunList:
+    """Test runs uploaded to embeddedci.com (benchpod ci, pytest --embeddedci-upload, build_report),
+    newest first, with their outcome and counts. Needs no pod connection; authenticates like
+    cloud_list_devices."""
+    def op() -> m.CloudRunList:
+        api, auth = _runs_api()
+        data = api.list_runs(suite=suite, dut=dut, build=build, pod=pod, ref=ref, limit=limit, before=before)
+        return m.CloudRunList(auth=auth, runs=list(data.get("runs") or []),
+                              next_before=data.get("next_before"), org_pods=data.get("org_pods"))
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Read a test run", read_only=True, cloud=True))
+async def cloud_run_get(
+    run_id: str,
+    full: Annotated[bool, Field(description="Also return the whole run.json (every case, inputs, calls).")] = False,
+) -> m.CloudRun:
+    """One test run: outcome, counts, health, the pod and tests it ran with, the failed cases with
+    the first line of their message, and the measurements outside their limits. cloud_run_trace
+    reads a failed case's pod calls; cloud_run_compare shows what changed since an earlier run."""
+    def op() -> m.CloudRun:
+        from embeddedci.benchpod.runs.api import summarize_run
+
+        api, auth = _runs_api()
+        doc = api.get_run(run_id)
+        return m.CloudRun(auth=auth, summary=summarize_run(doc), files=list(doc.get("files") or []),
+                          run=doc if full else None)
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Compare test runs", read_only=True, cloud=True))
+async def cloud_run_compare(
+    run_id: str,
+    compare_with: Annotated[str, Field(description=(
+        "'previous' (the newest earlier valid run of the same suite and DUT), a run id, or "
+        "'baseline:<branch>' (the newest valid run on that branch)."))] = "previous",
+) -> m.CloudRunCompare:
+    """What changed between an earlier run (a) and this one (b): newly failing and fixed cases,
+    measurements that moved or broke a limit, slower tests and pod calls, and the inputs that differ
+    (pod firmware, wiring, DUT firmware), so the likely cause sits next to the change."""
+    def op() -> m.CloudRunCompare:
+        api, auth = _runs_api()
+        data = api.compare_runs(run_id, compare_with)
+        found = bool(data.get("found", True))
+        return m.CloudRunCompare(auth=auth, found=found, message=data.get("message"),
+                                 diff={k: v for k, v in data.items() if k not in ("found", "message")})
+
+    return await _call(op, lock=False)
+
+
+@mcp.tool(annotations=_ann("Read a test case's pod calls", read_only=True, cloud=True))
+async def cloud_run_trace(
+    run_id: str,
+    case_id: Annotated[str, Field(description=(
+        "The case id (pytest node id), or a unique end of it ('test_ack')."))],
+    errors_only: Annotated[bool, Field(description="Only the calls that failed.")] = False,
+    limit: Annotated[int, Field(ge=1, le=2000, description="How many lines, from the start.")] = 200,
+) -> m.CloudRunTrace:
+    """Every call a test case made to the pod (what it sent, how long it took, what the pod
+    answered), from the trace uploaded with the run. Only failed and error cases have one."""
+    def op() -> m.CloudRunTrace:
+        api, auth = _runs_api()
+        t = api.case_trace(run_id, case_id, errors_only=errors_only, limit=limit)
+        return m.CloudRunTrace(auth=auth, case=t["case"], trace=t["trace"], lines=t["lines"],
+                               total=t["total"], errors=t["errors"], shown=t["shown"],
+                               truncated=t["truncated"])
+
+    return await _call(_lookup(op), lock=False)
+
+
 @mcp.tool(annotations=_ann("Replay a library waveform", destructive=True, cloud=True))
 async def replay_waveform(
     waveform_id: str,

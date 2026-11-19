@@ -1294,6 +1294,201 @@
       "type": "object"
     }
   },
+  "cloud_run_compare": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Compare test runs"
+    },
+    "input": {
+      "properties": {
+        "compare_with": {
+          "default": "previous",
+          "description": "'previous' (the newest earlier valid run of the same suite and DUT), a run id, or 'baseline:<branch>' (the newest valid run on that branch).",
+          "title": "Compare With",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "cloud_run_compareArguments",
+      "type": "object"
+    }
+  },
+  "cloud_run_get": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Read a test run"
+    },
+    "input": {
+      "properties": {
+        "full": {
+          "default": false,
+          "description": "Also return the whole run.json (every case, inputs, calls).",
+          "title": "Full",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "cloud_run_getArguments",
+      "type": "object"
+    }
+  },
+  "cloud_run_trace": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Read a test case's pod calls"
+    },
+    "input": {
+      "properties": {
+        "case_id": {
+          "description": "The case id (pytest node id), or a unique end of it ('test_ack').",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "errors_only": {
+          "default": false,
+          "description": "Only the calls that failed.",
+          "title": "Errors Only",
+          "type": "boolean"
+        },
+        "limit": {
+          "default": 200,
+          "description": "How many lines, from the start.",
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "case_id"
+      ],
+      "title": "cloud_run_traceArguments",
+      "type": "object"
+    }
+  },
+  "cloud_runs_list": {
+    "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List test runs"
+    },
+    "input": {
+      "properties": {
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The next_before of the previous page.",
+          "title": "Before"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only the runs linked to this build id.",
+          "title": "Build"
+        },
+        "dut": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only this board under test ('none' for pod-only suites).",
+          "title": "Dut"
+        },
+        "limit": {
+          "default": 20,
+          "description": "How many runs, newest first.",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "pod": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only the runs on this pod (name or id).",
+          "title": "Pod"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only the runs of this git branch or ref of the tests.",
+          "title": "Ref"
+        },
+        "suite": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only this suite (the run's key.suite).",
+          "title": "Suite"
+        }
+      },
+      "title": "cloud_runs_listArguments",
+      "type": "object"
+    }
+  },
   "command": {
     "annotations": {
       "destructiveHint": true,
