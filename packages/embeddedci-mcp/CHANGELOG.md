@@ -2,6 +2,7 @@
 
 ## 3.0.5
 
+- Needs embeddedci 3.0.5.
 - `pull_status` and `set_pull` channels have `held` on digital v3r4: why a pull that was set is off
   right now (`pin21_down`, `dut_off`, `fault`). `la_pins` reads a listing too large for one cloud
   reply in two parts (through the SDK).
