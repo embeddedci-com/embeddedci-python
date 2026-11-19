@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Pod lease on the LAN and the USB network:** on a pod with the `lease` feature (features table
+  revision 4), `BenchPod()` takes the pod's own lease for the session (`lease_acquire`, holder
+  `SDK: <user>`, purpose `lease_purpose=` or the recorded run's suite, else `sdk`; 120 s, renewed
+  every 40 s, released on `close()`). Every connection joins it, since the pod lets only the
+  lease's owners drive it. A busy pod is polled every 2 s for up to `lease_wait`, then
+  `PodLeasedError` names the `holder`, `purpose` and `left_s`. Several `BenchPod` objects of one
+  process share the lease. `lease=False` / `--benchpod-no-lease` skip it; older firmware takes none.
+- **`BENCHPOD_LEASE`:** joins that lease id instead of taking a new one (on the cloud, as the
+  server lease's id), and never renews or releases it: `benchpod ci` sets it for its child
+  processes.
+- `BenchPod.local_lease()` returns a `LocalLease` (from `status` `local_lease`); `BenchPod.leased`
+  also covers the pod's lease. New `PodLeaseLostError` (`BP0026`, the lease was stopped from the web
+  app); `PodLeasedError` has `purpose`. The error catalog has `BP0025`-`BP0027`. A test run being
+  recorded is marked invalid (`health.lease_lost`) when its lease is stopped.
 - **Test run recording:** `pytest --embeddedci-run-dir DIR` (or `EMBEDDEDCI_RUN_DIR`) writes a run
   folder: `run.json` (schema version 1: outcome, counts, every test case with its measurements and
   per-command call timings, and the firmware, tests, pod, wiring and tool versions it ran with),
