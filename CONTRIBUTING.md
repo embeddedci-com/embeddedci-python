@@ -13,7 +13,9 @@ Thanks for helping out. Issues and pull requests are welcome.
   make test PYTHON=.venv/bin/python
   ```
 
-- If you have a BenchPod, run the hardware tier too: `make e2e POD=<pod host>`.
+- If you have a BenchPod, run the hardware tier too: `make e2e POD=<pod host>`, or record it as a
+  test run with `cd packages/embeddedci/tests && benchpod ci --pod <your pod>`
+  (`packages/embeddedci/tests/benchpod-ci.yaml`; see `packages/embeddedci/tests/e2e/README.md`).
 - The 2.x SDK API and MCP tool surface are frozen (snapshot tests fail on any change). Additions
   are fine; renames and removals wait for a major version.
 - Keep commits small and focused, and describe what changed and why.

@@ -51,8 +51,11 @@ _SLUG_BAD = re.compile(r"[^A-Za-z0-9._-]")
 
 def case_slug(case_id: str) -> str:
     """The file name stem for a case id: every character outside ``[A-Za-z0-9._-]`` replaced by
-    ``_``, at most 120 characters, plus ``-<first 8 hex of sha1(id)>`` when it was cut or changed."""
+    ``_`` (a leading ``.`` too), at most 120 characters, plus ``-<first 8 hex of sha1(id)>`` when it
+    was cut or changed."""
     slug = _SLUG_BAD.sub("_", case_id)
+    if slug.startswith("."):  # a file name may not start with a dot (hidden; the server refuses it)
+        slug = "_" + slug[1:]
     changed = slug != case_id
     if len(slug) > SLUG_MAX_CHARS:
         slug = slug[:SLUG_MAX_CHARS]
@@ -377,6 +380,11 @@ def build_part_record(*, step: str, cases: Sequence[Case], health: Mapping[str, 
     part_health = {k: health.get(k, empty_health()[k]) for k in
                    ("lost_samples", "rate_misses", "busy_retries", "reconnects",
                     "measurements_dropped", "trace_truncated", "reasons")}
+    # Not in the spec's part shape, honored by the runner: a lost lease invalidates the whole run.
+    if health.get("lease_lost"):
+        part_health["lease_lost"] = True
+    if health.get("valid") is False:
+        part_health["valid"] = False
     out: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "step": step,

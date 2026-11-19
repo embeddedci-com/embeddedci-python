@@ -204,9 +204,11 @@
   "BuildReporter": {
     "__init__": "(self, *, api_base: 'str', session_token: 'str', metadata: 'Dict[str, str]', target: 'str' = '', name: 'str' = '') -> 'None'",
     "active": "property",
+    "api_base": "property",
     "build_id": "property",
     "finalize": "(self) -> 'None'",
     "record_wiring": "(self, *, target: 'Optional[str]' = None, swclk: 'Optional[int]' = None, swdio: 'Optional[int]' = None, nreset: 'Optional[bool]' = None, efuse: 'Optional[int]' = None) -> 'None'",
+    "session_token": "property",
     "set_result": "(self, success: 'bool', reason: 'str' = '') -> 'None'",
     "upload_artifact": "(self, path: 'str') -> 'None'",
     "upload_artifacts": "(self, paths: 'Iterable[str]') -> 'None'",

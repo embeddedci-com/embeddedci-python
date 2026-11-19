@@ -118,6 +118,12 @@ class LeasePod:
 
     def _handle(self, n: int, req: Dict[str, Any]) -> Dict[str, Any]:
         cmd = req.get("cmd")
+        if cmd == "_fake_stop":   # the test's stand-in for a stop from the web app
+            if self.lease:
+                self.broken[self.lease["id"]] = req.get("by", "ward")
+            self.lease = None
+            self.owners.clear()
+            return {"status": "ok", "data": {}}
         lease_id = req.get("id") if cmd in ("lease_acquire", "lease_renew") else req.get("lease")
         if lease_id in self.broken:
             by = self.broken[lease_id]
@@ -411,3 +417,63 @@ def test_cloud_lease_reuses_the_runner_id(monkeypatch):
     assert posts == [("lease", "L-runner")] and not lease.held
     own = DeviceLease(api_base="https://x", token_provider=lambda: "t", device_name="pod")
     assert own.lease_id.startswith("lease-")
+
+
+STOP_SUITE = """
+import os
+import pytest
+from embeddedci.benchpod import BenchPod, PodLeaseLostError
+from embeddedci.benchpod.transport.tcp import TcpTransport
+
+
+@pytest.fixture(scope="session")
+def bp():
+    pod = BenchPod(transport=TcpTransport(os.environ["FAKE_POD"], timeout=2, tls="off"),
+                   api_key="", api_base="")
+    yield pod
+    pod.close()
+
+
+def test_1(bp):
+    bp.command({"cmd": "gpio"})
+
+
+def test_2_stopped(bp):
+    bp.command({"cmd": "_fake_stop", "by": "ward"})
+    bp.command({"cmd": "gpio"})
+
+
+def test_3(bp):
+    bp.command({"cmd": "gpio"})
+"""
+
+
+def test_runner_lease_stopped_ends_the_session(pytester, pod, monkeypatch):
+    pod.hold("L-runner", "benchpod ci: ward", "hil")
+    out = pytester.path / "ci-run"
+    monkeypatch.setenv("FAKE_POD", pod.addr)
+    monkeypatch.setenv("BENCHPOD_LEASE", "L-runner")
+    monkeypatch.setenv("EMBEDDEDCI_RUN_DIR", str(out))
+    monkeypatch.setenv("EMBEDDEDCI_RUN_STEP", "hil")
+    pytester.makepyfile(test_suite=STOP_SUITE)
+    res = pytester.runpytest("-p", "no:cacheprovider")
+    assert res.ret == pytest.ExitCode.INTERRUPTED
+    res.stdout.fnmatch_lines(["*run stopped by ward: the pod's lease was stopped*"])
+    part = json.loads((out / "parts" / "hil.json").read_text())
+    outcomes = {c["id"].split("::")[-1]: c["outcome"] for c in part["cases"]}
+    assert outcomes == {"test_1": "passed", "test_2_stopped": "failed"}     # test_3 never ran
+    assert "BP0026" in part["cases"][1]["message"]
+    assert part["health"]["lease_lost"] is True and part["health"]["valid"] is False
+    assert any("ward" in r for r in part["health"]["reasons"])
+    assert [r for r in pod.log if r.get("cmd") == "gpio"][-1].get("lease") == "L-runner"
+
+
+def test_own_lease_stopped_goes_on_without_it(pytester, pod, monkeypatch):
+    out = pytester.path / "run"
+    monkeypatch.setenv("FAKE_POD", pod.addr)
+    pytester.makepyfile(test_suite=STOP_SUITE)
+    res = pytester.runpytest(f"--embeddedci-run-dir={out}", "-p", "no:cacheprovider")
+    res.assert_outcomes(passed=2, failed=1)                   # test_3 still runs, without a lease
+    record = json.loads((out / "run.json").read_text())
+    assert record["results"]["outcome"] == "invalid" and record["health"]["lease_lost"] is True
+    assert "lease" not in [r for r in pod.log if r.get("cmd") == "gpio"][-1]

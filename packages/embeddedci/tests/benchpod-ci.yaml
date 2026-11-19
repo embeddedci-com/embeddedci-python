@@ -1,0 +1,23 @@
+# The SDK's own hardware tests with `benchpod ci` (needs a benchpod-cli that has `ci`):
+#
+#   cd packages/embeddedci/tests && benchpod ci --pod <your pod>
+#
+# The same tests as `make e2e POD=...` from the repository root: the pod, GPIO, rev3, digital and
+# USB tiers of e2e/ and the examples. Without --benchpod-firmware the DUT tier (test_e2e_dut.py)
+# skips, so the suite needs no DUT firmware; add `--benchpod-firmware=<elf>` to `args` (and name
+# the board in `dut`) to run it. The bench wiring comes from BENCHPOD_E2E_* (see e2e/README.md).
+# Results land in ./embeddedci-runs/<time>-embeddedci-sdk-hardware/ (run.json, junit.xml, traces
+# of failed tests).
+version: 1
+suite: embeddedci-sdk-hardware
+dut: none
+env:
+  # Clear the pod's DAC output limits for the run and restore them afterwards (as `make e2e`).
+  BENCHPOD_LIFT_DAC_LIMITS: "1"
+timeout: 60m
+keep:
+  traces: failed
+steps:
+  - id: hardware
+    name: SDK hardware tests
+    pytest: {path: e2e, args: [examples, -v, -rs]}

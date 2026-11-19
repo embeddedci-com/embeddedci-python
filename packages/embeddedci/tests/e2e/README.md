@@ -20,6 +20,16 @@ make e2e POD=192.168.1.215 FIRMWARE=… USB=/dev/cu.usbmodem357D377F31331
 BENCHPOD_API_KEY=eci_… make e2e-cloud CLOUD_DEVICE=benchpod-v2.0.0
 ```
 
+With the BenchPod CLI, `benchpod ci` runs the same suite from `tests/benchpod-ci.yaml` and records
+it as a test run (run.json, junit.xml, the traces of failed tests):
+
+```bash
+cd packages/embeddedci/tests && benchpod ci --pod <your pod>
+```
+
+The file runs the pod-only tiers and the examples (`dut: none`); add `--benchpod-firmware=<elf>` to
+its `args` for the DUT tier.
+
 | Tier | File | Needs | What it proves |
 |---|---|---|---|
 | pod | `test_e2e_pod.py` | `--benchpod-connection` | status/capabilities/typed state, LA voltage, rev3-only features, argument validation, firmware errors, every analog path, DAC codes vs the SDK volts mapping, DAC→ADC readback, `generate` levels in volts, `route=False` loopbacks, replay (shallow, co-triggered, deep on the deep image, refused on the loop image), `stop_dac_after`, shallow + deep ADC, LA + correlated capture, LA step pulses, the achieved LA rate at rounded and burst-capped rates, control loop (fixed/sweep/input map), gateware image round trip and automatic switching (control loop, deep replay, `switch_image=False`), bias resistors, sensor emulation (library sensors, two on one bus, faults, a stimulus, the NMEA GPS), UART session plumbing, CAN loopback + responder |
