@@ -385,6 +385,12 @@ class BenchPod:
                 api_key=self._api_key,
                 user_token=self._cloud_user_token,
             )
+        # A test run being recorded (the pytest plugin's run folder): record this pod's calls too.
+        from .runs.active import active_run
+
+        run = active_run()
+        if run is not None:
+            run.attach(self._transport)
         try:
             if lease and isinstance(self._transport, CloudTransport):
                 self._lease = DeviceLease(
@@ -416,6 +422,8 @@ class BenchPod:
         except BaseException:
             self.close()
             raise
+        if run is not None and run.active:
+            run.note_pod(self)
 
     def _auto_la_voltage(self) -> None:
         """On connect: when the pod has no I/O voltage yet and the wiring profile sets one, set it.

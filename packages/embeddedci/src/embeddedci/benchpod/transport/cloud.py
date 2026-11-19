@@ -330,6 +330,9 @@ class CloudTransport(TcpTransport):
         # Set by BenchPod once it holds a device lease; sent on tunnel/command requests so the server
         # confirms this client is the lease holder (and lets concurrent runs serialize). None = none.
         self.lease_id: "str | None" = None
+        #: How many times a command was sent again because the pod answered "device busy" (read by
+        #: the test-run recorder for the run's health).
+        self.busy_retries = 0
 
     def _session_token(self) -> str:
         """The cloud session token, minted on first use and renewed shortly before it expires, so
@@ -429,6 +432,7 @@ class CloudTransport(TcpTransport):
             if (payload.get("status") == "error"
                     and str(payload.get("error") or "").strip().lower() == _DEVICE_BUSY
                     and time.monotonic() + _BUSY_RETRY_WAIT < busy_until):
+                self.busy_retries = getattr(self, "busy_retries", 0) + 1
                 time.sleep(_BUSY_RETRY_WAIT)
                 continue
             break

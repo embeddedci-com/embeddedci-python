@@ -26,6 +26,8 @@ from .connection import ENV_VAR
 from .wiring import Wiring
 from .constants import PULL_OHMS as _PULL_OHMS
 from .constants import PULLDOWN_CHANNELS
+from .runs import pytest_runs as _runs
+from .runs.pytest_runs import measure  # noqa: F401 -- a fixture of this plugin
 
 #: The channels whose network pulls DOWN rather than up.
 _PULLDOWN_CHANNELS = frozenset(PULLDOWN_CHANNELS)
@@ -218,6 +220,7 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
         help="Sensor library version for the benchpod_sensors fixture: 'latest' or a release "
         "such as 0.2.0 (default: the version this SDK pins, or BENCHPOD_SENSOR_LIBRARY).",
     )
+    _runs.add_options(parser)
     parser.addini(
         "benchpod_connection",
         help="Default BenchPod connection (host[:port], device path, 'usb', or "
@@ -227,6 +230,10 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
 
 
 def pytest_configure(config: "pytest.Config") -> None:
+    # Test run recording (--embeddedci-run-dir / benchpod ci) and the measure fixture's limits.
+    pm = getattr(config, "pluginmanager", None)
+    if pm is not None and not pm.has_plugin(_runs.PLUGIN_NAME):
+        pm.register(_runs.RunsPlugin(config), _runs.PLUGIN_NAME)
     config.addinivalue_line(
         "markers",
         "hardware: test needs a real BenchPod (and usually a wired DUT); "
