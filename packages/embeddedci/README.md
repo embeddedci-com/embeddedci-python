@@ -2265,7 +2265,8 @@ the lease length.
 - **LAN and the USB network** (`usb`): on a pod with the `lease` feature the lease is the pod's
   own, kept in its memory and shared by every transport: while it is held, other connections (from
   this computer or another, over the LAN, USB or the cloud) can read the status but not drive the
-  pod. The holder is `SDK: <user>` and the purpose `lease_purpose=` (default: the suite of the test
+  pod. Every request this session sends carries the lease id (`"lease":"<id>"`), which is what makes
+  it the owner's; the extra key is only sent to pods with the feature. The holder is `SDK: <user>` and the purpose `lease_purpose=` (default: the suite of the test
   run being recorded, else `sdk`). Without the feature (older firmware) nothing is locked. The USB
   console never leases.
 - Several `BenchPod` objects of one process on the same pod share its lease, so a test that opens
@@ -2274,7 +2275,9 @@ the lease length.
   `purpose`, `left_s`, `mine` (this session holds it) and `reported` (the firmware reports a
   lease). `bp.leased` is true while this session holds either lease.
 - If the lease is stopped from the web app, the next command raises `PodLeaseLostError` (with `by`,
-  who stopped it) and later commands run without a lease.
+  who stopped it) once; the session stops renewing it, later commands run without a lease, and it
+  is never taken again. A test run being recorded is marked invalid (`health.lease_lost`). A lease
+  that only ran out (the pod restarted, say) is taken again by the heartbeat.
 
 **Joining a runner's lease.** With `BENCHPOD_LEASE` set (`benchpod ci` sets it for the processes it
 starts), `BenchPod` joins the lease with that id instead of taking its own: on the LAN and the USB
