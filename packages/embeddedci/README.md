@@ -874,7 +874,7 @@ how finely a transient was resolved. Measured on a v2 pod:
 
 An overload is held at the limit for about 2.8 ms, then the eFuse trips (`TargetStatus` `fault`) and
 retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `current_in`
-input is a 4-20 mA loop terminal (249 Ω), not a way to measure the target's supply.
+input is a 4-20 mA loop terminal (249 Ω, 100 Ω from analog module v3r5), not a way to measure the target's supply.
 
 ## Flashing
 
@@ -1647,7 +1647,26 @@ the 5 V DMM line, see below); it serves every source in the low range and shows 
 ### Calibrating the ADC offset
 
 `"current_in"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
-4.98 V. Each pod's analog input has its own offset, from part tolerances: anywhere from a few mV
+4.98 V. From analog module v3r5 (firmware 3.10.13+) the resistor is 100 Ω behind a series diode and
+a 30 mA current limiter, which lowers what the pod takes from the loop to about 4.3 V at 20 mA:
+
+| | Module up to v3r4 | Module v3r5 and later |
+|---|---|---|
+| 4 mA / 20 mA | 0.996 V / 4.98 V | 0.4 V / 2.0 V |
+| Voltage taken from the loop at 20 mA | about 5 V | about 4.3 V |
+| Range `current_in` reads in by default | the range in use | `low` |
+| Resolution | about 4 µA per count | about 1.7 µA per count (low), 10 µA (normal) |
+| Measurable current | 0 to about 21 mA in the low range, more in normal | 0 to the limiter, 28.5 to 31.5 mA |
+
+On v3r5, `adc_read("current_in")`, `analog_path("current_in")` and `capture_adc(source="current_in")`
+without `range` switch the ADC to the low range; the next route of another source or a DAC output
+gives the normal range back. A reading that sits near 30 mA whatever the loop does is the limiter.
+A reversed loop reads 0 (the diode blocks it). `AdcReading.sense_ohms` and
+`Calibration.sense_ohms` give the resistance the pod converts with (249, or 100 Ω in parallel with
+the ADC input divider: 99.990 normal, 99.995 low); captures of `current_in` use it for `currents`.
+Calibration is the same on both: J8 open is 0 V.
+
+Each pod's analog input has its own offset, from part tolerances: anywhere from a few mV
 to about 50 mV. With J8 open the terminal is at 0 V, so the pod can measure that offset itself and
 keep it in its flash:
 

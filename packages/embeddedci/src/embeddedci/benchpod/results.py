@@ -93,7 +93,8 @@ class Capture:
     sample_rate_hz: float = 0.0
     source: str = ""
     #: Loop current per sample in amps, for a capture of ``current_in`` (the 4-20 mA input, J8):
-    #: ``volts`` across the pod's 249 Ω sense resistor. Empty for every other source.
+    #: ``volts`` across the pod's sense resistor (249 Ω; 100 Ω from analog module v3r5, as the pod
+    #: reports it in ``Calibration.sense_ohms``). Empty for every other source.
     currents: List[float] = field(default_factory=list)
     #: The trigger that started the capture (t = 0 is its moment), or ``None``.
     trigger: Optional[Trigger] = None

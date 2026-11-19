@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## 3.0.5
+
+- **4-20 mA input on analog module v3r5** (firmware 3.10.13+): the sense resistor is 100 Ω (249 Ω up
+  to v3r4). `AdcReading.sense_ohms` and `Calibration.sense_ohms` give the resistance the pod
+  converts with, and `capture_adc(source="current_in")` uses it for `currents` (249 Ω when the
+  firmware does not say). On v3r5 the pod reads `current_in` in the low range unless `range` is
+  given; the SDK follows that range, and gives it back when a DAC output is routed after it.
+
 ## 3.0.4
 
 - **Read test runs back:** `embeddedci.benchpod.runs.api` lists the runs on embeddedci.com

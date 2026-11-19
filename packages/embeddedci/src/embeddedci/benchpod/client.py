@@ -162,7 +162,9 @@ _CURRENT_OUT = "current_out"
 # The DAC output each named analog path drives (cal1/cal2 loop the 5 V / 12 V DAC back to the ADC).
 _ANALOG_PATH_DAC = {"dac_3v3": "3v3", "dac_5v": "5v", "dac_12v": "12v", "cal1": "5v", "cal2": "12v",
                     "current_out": _CURRENT_OUT}
-#: The sense resistor on the 4-20 mA input (J8): ``current_in`` reads the voltage across it.
+#: The sense resistor on the 4-20 mA input (J8): ``current_in`` reads the voltage across it. 249 Ω
+#: on analog modules up to v3r4 and the default for firmware that does not say; from v3r5 the pod
+#: reports its own value (``Calibration.sense_ohms``, 100 Ω with the ADC divider in parallel).
 _CURRENT_IN_SENSE_OHMS = 249.0
 #: The live zero a stopped current waveform returns to (microamps).
 _CURRENT_OUT_ZERO_UA = 4000
@@ -364,6 +366,9 @@ class BenchPod:
         # The DAC output this connection last routed (dac_output, analog_path, a routed waveform),
         # so a waveform played with route=False and no dac_path scales for it. None = unknown.
         self._routed_dac_path: Optional[str] = None
+        #: The pod put the ADC in the low range by itself, routing ``current_in`` on analog module
+        #: v3r5 (firmware 3.10.13+); the next DAC route puts it back, without saying so.
+        self._adc_low_auto = False
         self._api_base = api_base or os.environ.get(API_BASE_ENV)
         self._api_key = api_key or os.environ.get(API_KEY_ENV)
         self._cloud_user_token = cloud_user_token
@@ -1744,8 +1749,10 @@ class BenchPod:
         if range is not None:
             check_choice(range, ADC_RANGES, "range")
             req["range"] = range
+        before = self.capabilities.adc_range
         state = AnalogPathState.from_reply(self.command(req))
         self._follow_adc_range(state.range)
+        self._note_auto_range(path == "current_in", range, before, state.range)
         if path in _ANALOG_PATH_DAC:
             self._routed_dac_path = _ANALOG_PATH_DAC[path]
         elif path == "off":
@@ -1766,6 +1773,7 @@ class BenchPod:
             req["volts"] = float(volts)
         out = DacOutput.from_reply(self.command(req))
         self._routed_dac_path = None if path == "off" else path
+        self._dac_routed()
         return out
 
     # -- the 4-20 mA output (J9) ------------------------------------------------
@@ -1817,7 +1825,11 @@ class BenchPod:
 
         On ``current_in`` the reading also carries ``current``, the loop current in amps, and
         already has this pod's calibration offset taken out (:meth:`calibrate`); ``offset`` says
-        how much that was.
+        how much that was. From analog module v3r5 (100 Ω sense resistor, 30 mA limiter, firmware
+        3.10.13+) ``current_in`` reads in the low range unless ``range`` says otherwise: about
+        1.7 µA per count, up to the limiter's 28.5 to 31.5 mA. The next route of another source or
+        output gives the normal range back. ``sense_ohms`` is the resistance ``current`` was
+        computed with.
 
         ``range`` switches the ADC input range first (:meth:`adc_range`): ``"low"`` reads up to
         ±5.46 V at about 6x the resolution on analog module v3r4+ (not on ``cal2``). The reading
@@ -1828,8 +1840,10 @@ class BenchPod:
         if range is not None:
             check_choice(range, ADC_RANGES, "range")
             req["range"] = range
+        before = self.capabilities.adc_range
         reading = AdcReading.from_reply(self.command(req))
         self._follow_adc_range(reading.range)
+        self._note_auto_range(source == "current_in", range, before, reading.range)
         return reading
 
     # -- the ADC input range (analog module v3r4+) -------------------------------
@@ -1853,6 +1867,8 @@ class BenchPod:
             check_choice(range, ADC_RANGES, "range")
             req["range"] = range
         state = AdcRangeState.from_reply(self.command(req))
+        if range is not None:
+            self._adc_low_auto = False
         self._set_adc_range_fit(state)
         return state
 
@@ -1874,6 +1890,20 @@ class BenchPod:
         if state.b:
             unwrap = caps.adc_affine.unwrap if caps.adc_affine is not None else True
             caps.adc_affine = AffineCal(a=state.a or 0.0, b=state.b, unwrap=unwrap)
+
+    def _note_auto_range(self, current_in: bool, asked: Optional[str], before: str, after: str) -> None:
+        """After a route: on analog module v3r5 ``current_in`` without a ``range`` takes the low
+        range by itself, and the next route of another path gives it back."""
+        if asked is not None or not current_in:
+            self._adc_low_auto = False
+        elif after == "low" and before != "low":
+            self._adc_low_auto = True
+
+    def _dac_routed(self) -> None:
+        """A DAC output was routed: a low range ``current_in`` picked by itself is normal again."""
+        if self._adc_low_auto:
+            self._adc_low_auto = False
+            self._follow_adc_range("normal")
 
     def _follow_adc_range(self, rng: str) -> None:
         """A reply said the pod is in range ``rng``: re-read the fit when the cached one is for
@@ -2645,7 +2675,8 @@ class BenchPod:
             else:
                 unwrapped = (c + ADC_WRAP_SPAN if c < ADC_WRAP_THRESHOLD else c for c in cap.counts)
             cap.volts = [fit.a + fit.b * c for c in unwrapped]
-            cap.currents = [v / _CURRENT_IN_SENSE_OHMS for v in cap.volts]
+            ohms = fit.sense_ohms or _CURRENT_IN_SENSE_OHMS
+            cap.currents = [v / ohms for v in cap.volts]
         return cap
 
     def capture_la(self, samples: int = 4096, *, sample_rate_hz: Optional[float] = None,
@@ -2795,6 +2826,7 @@ class BenchPod:
             self.command({"cmd": "analog_path", "path": _CURRENT_OUT})
         else:
             self.command({"cmd": "dac_out", "path": dac_path})
+            self._dac_routed()
         self._routed_dac_path = dac_path
 
     def _default_dac_path(self, route: bool) -> str:
@@ -2933,6 +2965,8 @@ class BenchPod:
         d = _dict(self.command(req))
         if route:
             self._routed_dac_path = dac_path  # the pod routed it
+            if dac_path != _CURRENT_OUT:
+                self._dac_routed()
         return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
                          cotrig=bool(d.get("cotrig", False)), data=d)
 

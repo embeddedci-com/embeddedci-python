@@ -609,6 +609,10 @@ class AdcReadResult(BaseModel):
         "The pod's own calibration offset in volts, already taken out of voltage (current_in only)."))
     current: Optional[float] = Field(None, description=(
         "Loop current in amps on the 4-20 mA input (current_in only): 0.004 to 0.020 for a live loop."))
+    sense_ohms: Optional[float] = Field(None, description=(
+        "The resistance current was computed with, ohms (current_in only, firmware 3.10.13+): 249 up to "
+        "analog module v3r4, about 100 from v3r5 (100 ohm behind a 30 mA limiter, so a loop reads at most "
+        "28.5 to 31.5 mA). Null on older firmware (249)."))
     range: Optional[str] = Field(None, description=(
         "The ADC input range the reading was taken in: normal or low (firmware 3.9.5+)."))
     fullscale: Optional[float] = Field(None, description="That range's full scale, volts (±).")
