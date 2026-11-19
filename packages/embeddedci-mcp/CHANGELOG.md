@@ -2,6 +2,9 @@
 
 ## 3.0.5
 
+- `pull_status` and `set_pull` channels have `held` on digital v3r4: why a pull that was set is off
+  right now (`pin21_down`, `dut_off`, `fault`). `la_pins` reads a listing too large for one cloud
+  reply in two parts (through the SDK).
 - **Digital board v3r4:** `set_la_voltage` takes `5.0` (and `connect` `la_voltage=5.0`, the
   `--la-voltage` flag too) on a pod with 5 V I/O, and `voltage` may be omitted to read the voltage
   without changing it. The result has `pin21` (source, setting, measured, state, up) there; the

@@ -568,6 +568,9 @@ class PullChannel(BaseModel):
     available: bool
     #: Digital v3r4: 10k, 2.2k or both (about 1.8k), none when off; picked from the pin's function.
     strength: Optional[str] = None
+    #: Digital v3r4: why a pull that was set is off right now (pin21_down, dut_off, fault); the pod
+    #: puts it back by itself. None when everything set is on.
+    held: Optional[str] = None
 
 
 class PullStatusResult(BaseModel):

@@ -599,7 +599,8 @@ def test_pulls(connected):
         return
     assert [c["la"] for c in status["channels"]] == list(range(1, 15))
     assert status["channels"][8] == {"la": 9, "state": "off", "supported": [], "enabled": False,
-                                     "direction": None, "ohms": "", "available": True, "strength": None}
+                                     "direction": None, "ohms": "", "available": True, "strength": None,
+                                     "held": None}
     with pytest.raises(ToolError, match="BP0023"):
         call("set_pull", las=[9], pull="up")
     with pytest.raises(ToolError, match="LA7 supports pull-down only on this board"):

@@ -2,6 +2,12 @@
 
 ## 3.0.5
 
+- `la_pins(la=...)` lists only those channels (firmware after 3.10.12 sends only them; older
+  firmware sends all 14 and the SDK keeps the ones asked for). A full listing the pod answers with
+  "reply too large" is read in two parts by itself.
+- **Digital board v3r4:** `PullState.held` says why a pull that was set is off right now
+  (`pin21_down`, `dut_off`, `fault`), and `enabled`/`state` are what is on the wire. `la_dir()` and
+  `gpio` entries now report both pull directions there, like `la_pins()`.
 - **Digital board v3r4:** `set_la_voltage(5.0)` (and `la_mv: 5000` in a wiring profile) on a pod
   with the `la_5v` feature: the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V; other
   pods raise `ValueError` before anything is sent. `LaVoltage.pin21` (new `Pin21`: `source`,

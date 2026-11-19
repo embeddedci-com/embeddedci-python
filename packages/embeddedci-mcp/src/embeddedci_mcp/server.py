@@ -1665,7 +1665,8 @@ def _pull(state: Any) -> m.PullChannel:
     return m.PullChannel(la=state.la, state=getattr(state, "state", direction if state.enabled else "off"),
                          supported=list(supported), enabled=state.enabled, direction=direction,
                          ohms=state.ohms, available=state.available,
-                         strength=getattr(state, "strength", None))
+                         strength=getattr(state, "strength", None),
+                         held=getattr(state, "held", None))
 
 
 def _sdk_pulls_by_direction(pod: Any) -> bool:

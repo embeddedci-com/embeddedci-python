@@ -243,6 +243,11 @@ class PullState:
     #: Digital v3r4: the resistors engaged, ``"10k"``, ``"2.2k"`` or ``"both"`` (about 1.8k;
     #: ``"none"`` when off). The pod picks them from the pin's function. ``None`` on other boards.
     strength: Optional[str] = None
+    #: Digital v3r4: why a pull the host set is off right now, else ``None``. ``"pin21_down"``
+    #: (pin 21 is down: every pull off), ``"dut_off"`` (pull-ups suspended after the pod switched the
+    #: DUT off), ``"fault"`` (an expander write failed). ``enabled`` is what is on the wire; the pod
+    #: puts the pull back by itself.
+    held: Optional[str] = None
     raw: Dict[str, Any] = _raw()
 
     @property
@@ -277,7 +282,8 @@ class PullState:
         return cls(la=la, enabled=enabled, direction=direction,
                    ohms=str(d.get("ohms", hw.ohms if hw else "") or ""),
                    available=bool(d.get("pullups_available", 1)), supported=supported,
-                   strength=str(d["strength"]) if isinstance(d.get("strength"), str) else None, raw=d)
+                   strength=str(d["strength"]) if isinstance(d.get("strength"), str) else None,
+                   held=str(d["held"]) if isinstance(d.get("held"), str) else None, raw=d)
 
 
 @dataclass(frozen=True)
