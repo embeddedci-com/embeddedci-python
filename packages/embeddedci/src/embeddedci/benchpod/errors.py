@@ -251,12 +251,23 @@ class PodLeasedError(PodBusyError, DeviceBusyError, TransportError):
 
     def __init__(self, message: str, *, cmd: Optional[str] = None, holder: str = "",
                  left_s: Optional[int] = None, expires_at: str = "",
-                 status: Optional[int] = None) -> None:
+                 status: Optional[int] = None, purpose: str = "") -> None:
         super().__init__(message, cmd=cmd)
         self.holder = holder
         self.left_s = left_s
         self.expires_at = expires_at
         self.status = status
+        self.purpose = purpose
+
+
+class PodLeaseLostError(FirmwareError):
+    """The pod's lease this session held was stopped from the web app or the cloud (``BP0026``):
+    the command was not run. :attr:`by` names who stopped it. The pod says so once; later
+    commands run without a lease."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, by: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.by = by
 
 
 class PermissionDeniedError(FirmwareError, TransportError):
@@ -463,10 +474,17 @@ def firmware_error(message: str, *, cmd: Optional[str] = None, code: str = "",
     """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal.
     ``code`` / ``values``: the pod's stable error code and its args, when the firmware sends them."""
     exc = FirmwareError(message, cmd=cmd)
-    if code == "BP0002":   # unknown command: the firmware lacks the feature
+    v = dict(values or {})
+    if code == "BP0025":   # the pod's lease: someone else holds it
+        left = v.get("left_s")
+        exc = PodLeasedError(message, cmd=cmd, holder=str(v.get("holder") or ""),
+                             purpose=str(v.get("purpose") or ""),
+                             left_s=int(left) if isinstance(left, (int, float)) and not isinstance(left, bool) else None)
+    elif code == "BP0026":   # the lease was stopped from the web app or the cloud
+        exc = PodLeaseLostError(message, cmd=cmd, by=str(v.get("by") or ""))
+    elif code == "BP0002":   # unknown command: the firmware lacks the feature
         exc = UnsupportedFeatureError(message, cmd=cmd, feature=cmd or "")
     elif code in ("BP0023", "BP0024"):   # no pull resistor / the other direction only
-        v = dict(values or {})
         la = v.get("la", 0)
         exc = PullDirectionError(message, cmd=cmd, la=int(la) if str(la).isdigit() else 0,
                                  want=str(v.get("want", "")), have=str(v.get("have", "")))

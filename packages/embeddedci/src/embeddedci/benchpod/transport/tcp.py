@@ -105,6 +105,9 @@ class TcpTransport(Transport):
 
     #: Whether the last connection used TLS (port 8443).
     last_tls: bool = False
+    #: The pod lease this transport's connections join (:mod:`~embeddedci.benchpod.pod_lease`), or
+    #: None. Set by :class:`~embeddedci.benchpod.BenchPod`.
+    pod_lease: Optional[Any] = None
 
     def __init__(self, addr: str, *, timeout: float = 30.0,
                  dial_timeout: float = DEFAULT_DIAL_TIMEOUT, tls: Optional[str] = None,
@@ -132,12 +135,32 @@ class TcpTransport(Transport):
         except ValueError:
             raise TransportError(f"invalid port in address {self.addr!r}") from None
 
-    def _dial(self, timeout: Optional[float] = None, kind: Optional[str] = None) -> socket.socket:
+    def _dial(self, timeout: Optional[float] = None, kind: Optional[str] = None, *,
+              join_lease: bool = True) -> socket.socket:
         """Connect, with ``timeout`` (default: the transport's) on every later read.
 
         ``kind`` names what the connection is for (``"uart"``, ``"capture"``, ``"dac"``,
         ``"flash"``). The cloud transport passes it to the server so a UART console and a capture
-        can share the pod as they do here; a LAN socket needs no such hint and ignores it."""
+        can share the pod as they do here; a LAN socket needs no such hint and ignores it.
+
+        While this transport holds the pod's lease (:attr:`pod_lease`), the new connection first
+        joins it: the pod lets only connections that sent ``lease_acquire`` with the held id drive
+        it, and every command here is its own connection. ``join_lease=False`` skips that (the
+        ``lease_*`` commands themselves)."""
+        sock = self._open_socket(timeout, kind)
+        lease = self.pod_lease
+        if join_lease and lease is not None:
+            try:
+                lease.join(self, sock, self.timeout if timeout is None else timeout)
+            except BaseException:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+                raise
+        return sock
+
+    def _open_socket(self, timeout: Optional[float] = None, kind: Optional[str] = None) -> socket.socket:
         host, port = self._split_addr()
         io_timeout = self.timeout if timeout is None else timeout
         p = _tls.plan(host, port, self.tls)

@@ -251,6 +251,7 @@ class RunsPlugin:
         self.run = RunRecording(run_dir, step=settings["step"], keep=settings["keep"],
                                 t0=settings["t0"], handover=settings["handover"],
                                 run_id=settings["run_id"])
+        self.run.suite = self.suite
         set_active_run(self.run)
 
     # -- per test -----------------------------------------------------------------------------

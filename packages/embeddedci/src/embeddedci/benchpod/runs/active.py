@@ -138,6 +138,8 @@ class RunRecording:
         self.kind = kind
         self.keep = keep
         self.handover = handover
+        #: The suite name (``key.suite``); a pod lease taken during the run uses it as purpose.
+        self.suite = ""
         self.started = time.time()
         self.t0 = float(t0) if t0 is not None else self.started
         self.run_id = run_id or new_run_id(self.started)
@@ -171,6 +173,13 @@ class RunRecording:
     def add_health(self, key: str, n: int = 1) -> None:
         with self._lock:
             self.health[key] = int(self.health.get(key, 0)) + n
+
+    def lease_lost(self, by: str = "") -> None:
+        """The pod's lease was stopped during the run (``BP0026``): the run is not valid."""
+        with self._lock:
+            if not self.health["lease_lost"]:
+                self.health["lease_lost"] = True
+                self.add_reason(f"the pod lease was stopped by {by or 'someone'} during the run")
 
     def add_reason(self, reason: str, *, invalid: bool = True) -> None:
         """A note on the run's health; ``invalid`` (default) marks the run as not a valid measurement."""

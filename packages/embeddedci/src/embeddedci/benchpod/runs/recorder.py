@@ -220,6 +220,8 @@ class Recorder:
             except BaseException as exc:
                 ms = (time.perf_counter() - start) * 1000.0
                 rec._counters()
+                if getattr(exc, "code", "") == "BP0026":
+                    run.lease_lost(str(getattr(exc, "by", "") or ""))
                 run.record(t=t, op=op, cmd=cmd, req=req, ms=ms, ok=False, error=_error_text(exc),
                            recorder=rec)
                 raise
