@@ -1106,11 +1106,10 @@ class BenchPod:
         """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod), or
         ``5.0`` on a pod with the digital board v3r4 (feature ``la_5v``).
 
-        At 5.0 the pod keeps the bank at 3.3 V and switches J1 pin 21, the rail the pull-ups pull
-        to, to 5 V: it reads 5 V signals at full speed, and its outputs reach 5 V through their
-        pull-ups (switch them on for outputs into 5 V CMOS-level inputs). It checks pin 21 and
-        raises :class:`~embeddedci.benchpod.errors.FirmwareError` ``BP0025`` when 5 V did not
-        come up. :attr:`LaVoltage.pin21` reports pin 21.
+        At 5.0 the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V, and outputs
+        reach 5 V through their pull-ups: https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io
+        Raises :class:`~embeddedci.benchpod.errors.FirmwareError` ``BP0028`` when 5 V did not come
+        up. :attr:`LaVoltage.pin21` reports pin 21.
 
         Match it to the DUT's I/O voltage. It must be set before any LA-bank operation (flashing,
         the UART proxy, LA capture, pull resistors, sensor emulation), or the pod refuses them with

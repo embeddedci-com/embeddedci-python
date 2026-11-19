@@ -51,7 +51,7 @@ class Pod:
                     raise firmware_error("la voltage must be 1800 or 3300 (mv)", cmd="la_voltage")
                 if req["mv"] == 5000 and not self.five_v_ok:
                     raise firmware_error("5 V did not come up on pin 21 (4120 mV); check the USB supply",
-                                         cmd="la_voltage", code="BP0025", values={"mv": 4120})
+                                         cmd="la_voltage", code="BP0028", values={"mv": 4120})
                 self.mv = req["mv"]
                 self.pin21_mv = 4920 if self.mv == 5000 else self.mv
             out: Dict[str, Any] = {"mv": self.mv, "st": 1, "readback_mv": 3300 if self.mv == 5000 else self.mv}
@@ -130,7 +130,7 @@ def test_5v_that_did_not_come_up():
     pod.five_v_ok = False
     with pytest.raises(FirmwareError) as e:
         bp.set_la_voltage(5.0)
-    assert e.value.code == "BP0025"
+    assert e.value.code == "BP0028"
 
 
 def test_other_voltages_name_5v_only_where_it_exists():

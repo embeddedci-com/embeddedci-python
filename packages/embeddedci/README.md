@@ -172,10 +172,9 @@ the wiring profile sets no I/O voltage: set la_mv in it (bp.save_wiring(bp.wirin
 
 **5 V I/O (digital board v3r4).** On a pod with the digital board v3r4 (`bp.supports("la_5v")`,
 `bp.capabilities.vref_out`), `bp.set_la_voltage(5.0)` (or `la_mv: 5000` in the profile) keeps the
-bank at 3.3 V and switches J1 pin 21, the rail every pull-up pulls to, to 5 V. The pod reads 5 V
-signals at full speed; its outputs reach 5 V only through their pull-ups, so switch the pull-up on
-for outputs into 5 V CMOS-level inputs (`bp.set_pull(la, "up")`). The pod checks pin 21 and raises
-`FirmwareError` `BP0028` when 5 V did not come up (a weak USB supply). Other pods raise
+bank at 3.3 V and switches J1 pin 21, the pull-up rail, to 5 V; outputs reach 5 V through their
+pull-up (`bp.set_pull(la, "up")`). What that means for the wiring is on the
+[5 V page](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io). `FirmwareError` `BP0028`: 5 V did not come up. Other pods raise
 `ValueError` before anything is sent. On v3r4, `LaVoltage.pin21` reports pin 21 (`None` elsewhere):
 
 ```python
@@ -1144,9 +1143,9 @@ firmware the call raises `UnsupportedFeatureError` before anything is sent. The 
 stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
 `bp.status()["uart_rx_parity_error"]` turns true for the session.
 
-The LA pins are 1.8 V or 3.3 V only: the pod has no 5 V I/O and no RS-485 port. A 5 V UART needs a
-level shifter, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a 5 V
-transceiver behind a level shifter), between the pod and the device.
+No pod has an RS-485 port, and boards before the digital v3r4 have no 5 V I/O: a 5 V UART needs a
+level shifter there, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a
+5 V transceiver behind a level shifter). The digital v3r4 has [5 V I/O](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io).
 
 **One wire (half duplex).** Some parts talk UART on a single pin, for example a boot ROM's
 programming pin. `half_duplex=True` runs the session on `rx` alone (`tx` defaults to the same

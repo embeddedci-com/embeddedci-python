@@ -73,7 +73,8 @@ class Pin21:
 class LaVoltage:
     """The LA I/O-bank voltage (``BenchPod.set_la_voltage`` / ``get_la_voltage``)."""
 
-    #: Selected bank voltage in volts (1.8 or 3.3), or ``None`` when none has been chosen yet —
+    #: Selected I/O voltage in volts (1.8 or 3.3; 5.0 in 5 V I/O on digital v3r4, where the bank
+    #: stays at 3.3 V), or ``None`` when none has been chosen yet —
     #: the pod refuses every LA-bank operation until one is.
     voltage: Optional[float]
     #: The measured bank voltage in volts, or ``None`` when the board cannot measure it. In 5 V

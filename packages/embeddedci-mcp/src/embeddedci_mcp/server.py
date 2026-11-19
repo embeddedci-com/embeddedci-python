@@ -161,7 +161,7 @@ def _refusal_hint(exc: BenchPodError) -> str:
 #: The firmware's "la voltage not set; ..." (any firmware version).
 _LA_VOLTAGE_UNSET = "la voltage not set"
 _LA_VOLTAGE_MCP = ("la voltage not set; the wiring profile sets no I/O voltage: ask the user "
-                   "for the board's (1.8 or 3.3), set it in the profile (set_wiring with la_mv "
+                   "for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in the profile (set_wiring with la_mv "
                    "1800 or 3300, then save_wiring) or call set_la_voltage")
 
 #: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint, the pull and
@@ -435,7 +435,7 @@ def _status() -> m.StatusResult:
                         "once that pin is released)")
     if la is None:
         warnings.append("LA I/O voltage not selected, and the wiring profile sets none: ask the user for "
-                        "the board's I/O voltage (1.8 or 3.3) and set la_mv in the profile (set_wiring, "
+                        "the board's I/O voltage (1.8 or 3.3, 5.0 on a digital v3r4 pod) and set la_mv in the profile (set_wiring, "
                         "then save_wiring), or call set_la_voltage, before flash, UART, LA capture, "
                         "pulls or sensor emulation")
     try:
@@ -539,8 +539,8 @@ async def set_la_voltage(voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Fi
     takes it from the profile on the first LA operation. Call it when the profile sets none (ask
     the user), or to override the profile for this session.
 
-    At 5.0 the pod reads 5 V signals at full speed, and its outputs reach 5 V only through their
-    pull-ups: switch on the pull-up (set_pull up) on outputs into 5 V CMOS-level inputs. On digital
+    At 5.0 outputs reach 5 V only through their pull-ups: switch on the pull-up (set_pull up) on
+    outputs into 5 V CMOS-level inputs. Point the user to https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io for the details. On digital
     v3r4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
     voltage (select 5.0 or remove the signal).
     """
