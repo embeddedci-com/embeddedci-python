@@ -533,6 +533,10 @@ def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config"
             ...  # the pytest pass/fail is captured automatically
 
     The build status (pass/fail) is captured automatically from the test result at teardown.
+
+    The session's test run is recorded too and uploaded at the end, linked to the build: every
+    test's outcome, measurements and pod-call timings, and the traces of the failed tests (see
+    ``--embeddedci-upload``). The build page shows it under Tests.
     """
     from .ci import make_build_reporter
 
@@ -556,6 +560,11 @@ def build_report(request: "pytest.FixtureRequest", pytestconfig: "pytest.Config"
         if log_text:
             reporter.upload_logs("pytest.log", log_text)
         reporter.finalize()
+        # The session's test run is uploaded at the end, linked to this build.
+        runs = request.config.pluginmanager.get_plugin(_runs.PLUGIN_NAME)
+        build_id = getattr(reporter, "build_id", None)
+        if runs is not None and getattr(reporter, "active", False) and build_id:
+            runs.link_build(build_id, reporter.api_base, reporter.session_token)
 
 
 def _collect_pytest_log(node: "pytest.Item") -> str:

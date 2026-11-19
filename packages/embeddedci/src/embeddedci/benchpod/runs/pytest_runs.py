@@ -38,6 +38,8 @@ from .schema import (
 )
 
 PLUGIN_NAME = "embeddedci-runs"
+#: ``EMBEDDEDCI_UPLOAD=1`` uploads the recorded run (like ``--embeddedci-upload``).
+UPLOAD_ENV = "EMBEDDEDCI_UPLOAD"
 #: ``--embeddedci-run-dir auto``: the default folder, ``./embeddedci-runs/<started UTC>-<suite>/``.
 AUTO_RUN_DIR = "auto"
 
@@ -60,11 +62,27 @@ def add_options(parser: "pytest.Parser") -> None:
         help="Name of the board under test recorded in run.json (key.dut; default '').",
     )
     group.addoption(
+        "--embeddedci-upload", action="store_true", default=False, dest="embeddedci_upload",
+        help="Upload the recorded run to embeddedci.com at the end (records into "
+        "./embeddedci-runs/ when --embeddedci-run-dir is not given). Credentials: BENCHPOD_API_KEY, "
+        "else the benchpod login session, else GitHub Actions OIDC. Also the embeddedci_upload ini "
+        "option and EMBEDDEDCI_UPLOAD=1.",
+    )
+    parser.addini("embeddedci_upload", type="bool", default=False,
+                  help="Upload the recorded run to embeddedci.com (see --embeddedci-upload).")
+    group.addoption(
         "--embeddedci-keep-traces", action="store", default=None, dest="embeddedci_keep_traces",
         choices=list(KEEP_POLICIES),
         help="Which pod-call traces to keep: all (default), failed (failed and error tests only) or "
         "none. Falls back to EMBEDDEDCI_KEEP_TRACES.",
     )
+
+
+def _ini_bool(config: Any, name: str) -> bool:
+    try:
+        return bool(config.getini(name))
+    except (ValueError, KeyError):
+        return False
 
 
 # -- measure -------------------------------------------------------------------------------------
@@ -220,6 +238,13 @@ class RunsPlugin:
         self.dut = ""
         self.record: Optional[Dict[str, Any]] = None
         self._reports: Dict[str, Dict[str, Any]] = {}
+        #: Upload the run at the end (--embeddedci-upload, the ini option, EMBEDDEDCI_UPLOAD=1).
+        self.upload = False
+        #: The build a build_report fixture created: (build id, api base, session token).
+        self.build_link: Optional[Tuple[str, str, str]] = None
+        #: The upload's result ({"id", "url", "build_id"}) or the warning it ended with.
+        self.uploaded: Optional[Dict[str, Any]] = None
+        self.upload_warning = ""
 
     # -- start --------------------------------------------------------------------------------
 
@@ -236,15 +261,19 @@ class RunsPlugin:
                 or os.environ.get(KEEP_TRACES_ENV, "").strip().lower() or "all")
         if keep not in KEEP_POLICIES:
             raise pytest.UsageError(f"{KEEP_TRACES_ENV} must be one of {', '.join(KEEP_POLICIES)}, got {keep!r}")
+        self.upload = bool(config.getoption("embeddedci_upload", False)
+                           or _ini_bool(config, "embeddedci_upload")
+                           or os.environ.get(UPLOAD_ENV, "").strip().lower() in ("1", "true", "yes"))
         t0_text = os.environ.get(RUN_T0_ENV, "").strip()
         try:
             t0 = float(t0_text) if t0_text else None
         except ValueError:
             raise pytest.UsageError(f"{RUN_T0_ENV} must be unix seconds, got {t0_text!r}") from None
         if env_dir and env_step:
+            self.upload = False  # benchpod ci uploads the whole run itself
             return {"run_dir": env_dir, "step": env_step, "handover": True, "keep": keep, "t0": t0,
                     "run_id": os.environ.get(RUN_ID_ENV, "").strip()}
-        run_dir = opt_dir or env_dir
+        run_dir = opt_dir or env_dir or (AUTO_RUN_DIR if self.upload else "")
         if not run_dir:
             return None
         return {"run_dir": run_dir, "step": "pytest", "handover": False, "keep": keep, "t0": t0,
@@ -253,8 +282,34 @@ class RunsPlugin:
     @pytest.hookimpl(tryfirst=True)
     def pytest_sessionstart(self, session: "pytest.Session") -> None:
         settings = self._settings()
-        if settings is None:
+        if settings is not None:
+            self._start(settings)
+
+    def pytest_collection_finish(self, session: "pytest.Session") -> None:
+        """A suite whose tests use ``build_report`` records its run in GitHub Actions (when nothing
+        else asked for it), so the run can be uploaded linked to the build the fixture reports."""
+        if self.run is not None or hasattr(self.config, "workerinput"):
             return
+        if os.environ.get(RUN_STEP_ENV, "").strip():
+            return
+        from ..ci import running_in_github_actions
+
+        if not running_in_github_actions():
+            return
+        if not any("build_report" in getattr(item, "fixturenames", ()) for item in session.items):
+            return
+        self._settings()
+        self._start({"run_dir": AUTO_RUN_DIR, "step": "pytest", "handover": False,
+                     "keep": os.environ.get(KEEP_TRACES_ENV, "").strip().lower() or "failed",
+                     "t0": None, "run_id": ""})
+
+    def link_build(self, build_id: str, api_base: str, token: str) -> None:
+        """The ``build_report`` fixture created ``build_id``: link the run to it (the first one) and
+        upload it at the end with the fixture's credentials."""
+        if build_id and self.build_link is None:
+            self.build_link = (build_id, api_base, token)
+
+    def _start(self, settings: Dict[str, Any]) -> None:
         run_dir = settings["run_dir"]
         if run_dir == AUTO_RUN_DIR:
             import time
@@ -335,8 +390,32 @@ class RunsPlugin:
             "tools": tools,
             "github": provenance.github_info(),
         }
+        if self.build_link is not None:
+            inputs["dut_firmware"] = {**inputs["dut_firmware"], "build_id": self.build_link[0]}
         key = {"suite": self.suite, "dut": self.dut, "definition_sha256": ""}
         self.record = run.write_run(cases=self.cases, key=key, inputs=inputs, suite=self.suite)
+        if self.upload or self.build_link is not None:
+            self._upload(run)
+
+    def _upload(self, run: RunRecording) -> None:
+        from .upload import RunUploadError, upload_run
+
+        problems: List[str] = []
+        api_base = (self.config.getoption("benchpod_api_base", None)
+                    or os.environ.get("BENCHPOD_API_BASE") or None)
+        token = None
+        build_id = None
+        if self.build_link is not None:
+            build_id, base, token = self.build_link
+            api_base = api_base or base
+        try:
+            self.uploaded = upload_run(run.run_dir, api_base=api_base, token=token,
+                                       build_id=build_id, warn=problems.append)
+        except RunUploadError as exc:
+            self.upload_warning = str(exc)
+            return
+        if problems:
+            self.upload_warning = "some files were not uploaded: " + "; ".join(problems[:5])
 
     def pytest_terminal_summary(self, terminalreporter: Any) -> None:
         run = self.run
@@ -347,6 +426,10 @@ class RunsPlugin:
         elif self.record is not None:
             outcome = self.record["results"]["outcome"]
             terminalreporter.write_line(f"embeddedci: run {outcome}, recorded in {run.run_dir}")
+        if self.uploaded is not None:
+            terminalreporter.write_line(f"embeddedci: run uploaded: {self.uploaded.get('url') or self.uploaded.get('id')}")
+        if self.upload_warning:
+            terminalreporter.write_line(f"embeddedci: warning: run upload: {self.upload_warning}", yellow=True)
 
     def pytest_unconfigure(self, config: "pytest.Config") -> None:
         if self.run is not None and self.run.active:

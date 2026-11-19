@@ -94,6 +94,16 @@ class BuildReporter:
     def build_id(self) -> Optional[str]:
         return self._build_id
 
+    @property
+    def api_base(self) -> str:
+        """The embeddedci server this reporter talks to."""
+        return self._api_base
+
+    @property
+    def session_token(self) -> str:
+        """The session token the reporter uses (the test run is uploaded with it too)."""
+        return self._token
+
     # -- public API used by tests -------------------------------------------------
 
     def record_wiring(
@@ -169,7 +179,10 @@ class BuildReporter:
         self._result = (bool(success), reason)
 
     def finalize(self) -> None:
-        """Create the build if needed and post the final pytest status. Idempotent."""
+        """Create the build if needed and post the final pytest status. Idempotent.
+
+        The status call is kept for servers that predate test runs; newer servers keep the build's
+        own status and show the test results from the run linked to the build instead."""
         if self._finalized:
             return
         self._finalized = True
