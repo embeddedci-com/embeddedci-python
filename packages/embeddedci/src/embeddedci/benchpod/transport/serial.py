@@ -54,6 +54,8 @@ DAP_READY = "dap ready"          # console prints "dap ready" then carries frame
 DAP_LEAVE = b"\x00\x00"          # zero-length frame — leaves the console DAP passthrough
 UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to exit)"
 CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
+# The prompt followed only by complete firmware log lines ("[sig] ...\r\n"): see _read_until_prompt.
+_PROMPT_THEN_LOG = re.compile(r"(?:^|\n)>[ \t]*(?P<log>(?:\[[A-Za-z0-9_.:-]+\][^\r\n]*\r?\n)+)\Z")
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
 _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
 UNKNOWN_COMMAND = "unknown command"
@@ -429,7 +431,11 @@ class SerialTransport(Transport):
         self._port.flush()
 
     def _read_until_prompt(self, deadline: float) -> str:
-        """Accumulate output until the trailing ``"> "`` prompt or timeout."""
+        """Accumulate output until the trailing ``"> "`` prompt or timeout.
+
+        Firmware log lines (``[sig] SPI1 link at ...``) are printed from other tasks and can land
+        right after the prompt, so the reply no longer ends with it. A prompt followed only by
+        complete ``[tag] ...`` lines ends the reply too; those lines are dropped."""
         buf = bytearray()
         while time.monotonic() < deadline:
             chunk = self._port.read(256)
@@ -438,6 +444,9 @@ class SerialTransport(Transport):
                 text = buf.decode("utf-8", errors="replace")
                 if text.rstrip(" \t").endswith(">"):
                     return text
+                trailing = _PROMPT_THEN_LOG.search(text)
+                if trailing:
+                    return text[:trailing.start("log")]
         raise TransportTimeout(
             f"timed out waiting for console prompt; got: "
             f"{buf.decode('utf-8', errors='replace')!r}"

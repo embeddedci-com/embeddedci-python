@@ -193,3 +193,35 @@ def test_a_silent_console_is_a_timeout():
     t._port._process = lambda line: None  # the pod stops answering
     with pytest.raises(TransportTimeout):
         t.ping()
+
+
+class LogAfterPromptPort(TextConsolePort):
+    """Firmware up to 3.10.12 printed its SPI1 link rate from the hw task on every `status`; the
+    line could land after the prompt, so the reply ended "> [sig] ...\\r\\n" with no new prompt."""
+
+    LOG = "[sig] SPI1 link at 3906250 Hz (/64) for gateware 58\r\n"
+
+    def _reply(self, text: str) -> None:
+        super()._reply(text)
+        self._in.extend(self.LOG.encode())
+
+
+def test_a_log_line_after_the_prompt_ends_the_reply():
+    t = SerialTransport(port=LogAfterPromptPort(), timeout=1)
+    start = time.monotonic()
+    st = t.status()
+    assert time.monotonic() - start < 0.5
+    assert st["device"] == "benchpod"
+    assert t.status()["device"] == "benchpod"   # the next command is not thrown off either
+
+
+def test_a_log_line_inside_the_reply_is_not_a_prompt():
+    from embeddedci.benchpod.transport.serial import _PROMPT_THEN_LOG
+
+    # Real status output: the log line arrives mid-reply, before the prompt. No early return.
+    mid = "status\r\n  device : benchpod\r\n[sig] SPI1 link at 3906250 Hz (/64) for gateware 58\r\n"
+    assert _PROMPT_THEN_LOG.search(mid) is None
+    # A partial log line after the prompt: wait for the rest.
+    assert _PROMPT_THEN_LOG.search("x\r\n> [sig] SPI1 li") is None
+    m = _PROMPT_THEN_LOG.search("x\r\n> [sig] SPI1 link\r\n[c3] up\r\n")
+    assert m and "x\r\n> [sig] SPI1 link\r\n[c3] up\r\n"[:m.start("log")] == "x\r\n> "

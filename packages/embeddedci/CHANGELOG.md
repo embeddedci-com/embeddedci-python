@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- USB console: a firmware log line printed right after the prompt (`[sig] SPI1 link at ... for
+  gateware 58`, on every `status` up to firmware 3.10.12) no longer makes the serial transport
+  time out waiting for the prompt. A prompt followed only by complete `[tag] ...` lines ends the
+  reply.
+
 ## 3.0.3
 
 - The preset of the default pins is now `Wiring.preset("embeddedci-default")` (also the default of
