@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Read test runs back:** `embeddedci.benchpod.runs.api` lists the runs on embeddedci.com
+  (`list_runs`, by suite, DUT, build, pod or ref), reads one (`get_run`, `summarize_run`: the
+  failed cases and the measurements outside their limits), compares two (`compare_runs` with
+  `previous`, a run id or `baseline:<branch>`) and fetches their files (`get_run_file`,
+  `case_trace`: a case's pod calls). `RunsApi` takes your own `ServerApi`.
 - **Console log level:** `bp.log_level()` reads how much the pod prints on its USB console and
   `bp.set_log_level(level)` sets it (`LOG_LEVELS`: `error`, `warn`, `info`, `debug`; default
   `info`, stored on the pod). Firmware newer than 3.10.12 (feature `log_level`); older firmware

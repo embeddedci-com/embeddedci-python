@@ -644,6 +644,26 @@ from embeddedci.benchpod.runs.upload import upload_run
 print(upload_run("embeddedci-runs/20261118T140211Z-hil")["url"])
 ```
 
+**Reading runs back.** `embeddedci.benchpod.runs.api` lists, reads and compares the runs on
+embeddedci.com, with the same credentials as the upload:
+
+```python
+from embeddedci.benchpod.runs import api
+
+runs = api.list_runs(suite="process-node-hil", ref="main", limit=5)["runs"]   # newest first
+run = api.get_run(runs[0]["id"])
+print(api.summarize_run(run)["failed_cases"])          # id, outcome, the message's first line
+diff = api.compare_runs(run["id"], "previous")         # or a run id, or "baseline:main"
+print(diff["cases"]["newly_failing"], diff["inputs_changed"])
+trace = api.case_trace(run, "test_ack", errors_only=True)   # the failed case's pod calls
+junit = api.get_run_file(run["id"], "junit.xml")
+```
+
+`list_runs` takes `suite`, `dut`, `build`, `pod` (name or id), `ref`, `limit` (up to 200) and
+`before` (the previous page's `next_before`). `RunsApi(server)` does the same with a `ServerApi`
+of your own. The MCP server's `cloud_runs_list`, `cloud_run_get`, `cloud_run_compare` and
+`cloud_run_trace` tools are built on it.
+
 **Inside `benchpod ci`.** The `benchpod ci` runner hands its run folder to the `pytest` steps it
 starts through the environment; the plugin then writes `parts/<step>.json` (the cases, health
 counters, tool versions and pod) and its traces into that folder, and the runner merges them into
