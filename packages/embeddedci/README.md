@@ -34,7 +34,7 @@ No pin numbers: the SWD channels, the UART pair, the baud and the power rail com
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
 [API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) ·
 [Power and reset](#power-reset-and-power-monitoring) · [Flashing](#flashing) · [UART](#uart) ·
-[Bias resistors](#la-bias-resistors) · [Emulated sensors](#emulated-sensors) ·
+[Pull resistors](#la-pull-resistors) · [Emulated sensors](#emulated-sensors) ·
 [Analog paths](#analog-paths-dc-output-and-single-readings) · [Captures](#captures) ·
 [DAC](#dac-generator-replay-and-faults) · [Control loop](#in-fabric-dac-control-loop) ·
 [CAN](#can) · [AI Vision](#ai-vision-board) · [Cloud](#cloud-embeddedcidevice-name) · [Build reporting](#build-reporting) ·
@@ -641,7 +641,9 @@ cloud device's single profile on embeddedci.com, and raises over the LAN or USB.
 **Power-on applies the profile.** `bp.power_on()` (or `bp.power_on(wiring_profile="k66")`) sets the
 profile's I/O voltage when the pod has none or another one, sets its pull resistors, then switches
 the profile's rail on and records on the pod which profile powered the board (`target_status`).
-`Wiring.pulls` lists the LA channels whose pull resistor is on (`{"pulls": [1, 2]}` in the JSON):
+`Wiring.pulls` says which pull resistors are on, as a map of channel to direction
+(`{"pulls": {"1": "up", "2": "up", "8": "down"}}` in the JSON) or as a list of channels that pull
+their own direction (`{"pulls": [1, 2]}`); `Wiring.pull_directions()` gives either as the map.
 `power_on` switches exactly those on and the others off. They work at 3.3 V only, so at 1.8 V nothing
 is sent, and a profile without `pulls` (`None`) leaves them as they are. It never changes the I/O
 voltage under a board that is already powered: that raises, and `bp.set_la_voltage()` does it if you
@@ -1040,29 +1042,44 @@ with bp.open_uart(rx=PIN5, tx=PIN4, de=PIN9, baud=19200, parity="even",
 `de` needs gateware v58 (`bp.supports("uart_de")`); older pods raise `UnsupportedFeatureError`
 before anything is sent. The USB console has no DE.
 
-## LA bias resistors
+## LA pull resistors
 
-Eight LA channels carry a fixed, switchable bias resistor. They are referenced to 3V3, so the pod
-won't engage one while the LA bank is at 1.8 V (`PullState.available` is false).
+You name the direction, `"up"`, `"down"` or `"off"`; the pod picks the resistor and reports its
+value. Which channels have one and which way each can pull depends on the board, and
+`PullState.supported` says it per channel. On today's boards each resistor pulls one way only:
 
-| Channels | Resistor | Value |
+| Channels | Pulls | Value |
 |---|---|---|
-| LA1, LA2 | pull-up | 4.7k |
-| LA3, LA4 | pull-up | 2.2k |
-| LA5, LA6 | pull-up | 10k |
-| LA7, LA8 | pull-**down** | 10k |
+| LA1, LA2 | up | 4.7k |
+| LA3, LA4 | up | 2.2k |
+| LA5, LA6 | up | 10k |
+| LA7, LA8 | **down** | 10k |
 | LA9–LA14 | none | — |
+
+The resistors are referenced to 3V3, so the pod won't engage one while the LA bank is at 1.8 V
+(`PullState.available` is false).
 
 ```python
 from embeddedci.benchpod import PIN1, PIN2, PIN7
 
-bp.enable_pullup(PIN1, PIN2)       # LA1-LA6 only: ValueError on LA7/LA8
-bp.enable_pulldown(PIN7)           # LA7/LA8 only
-print(bp.pull_state(PIN1))         # PullState(la=1, enabled=True, direction='up', ohms='4.7k', available=True)
-print(bp.enabled_pulls())          # [1, 2, 7]
-bp.set_pull(PIN7, False)           # either direction
-bp.disable_pullup(PIN1, PIN2)
+bp.set_pull(PIN1, "up")            # PullState(la=1, enabled=True, direction='up', ohms='4.7k', supported=('up',), ...)
+bp.set_pull(PIN7, "down")
+bp.set_pull(PIN7, "off")           # None is off too; "off" works on every channel
+print(bp.pull_state(PIN1).state)   # 'up' ('up', 'down' or 'off')
+print(bp.enabled_pulls())          # [1]
+bp.enable_pullup(PIN1, PIN2)       # shortcuts: set_pull(la, "up") ...
+bp.enable_pulldown(PIN7)           # ... and set_pull(la, "down")
+bp.disable_pullup(PIN1, PIN2)      # off, on a channel that pulls up
 ```
+
+A direction the channel can't pull raises `PullDirectionError` (a `FirmwareError` and a
+`ValueError`) with code `BP0024`, "LA7 supports pull-down only on this board", and `"up"` or `"down"`
+on a channel without a resistor raises it with `BP0023`. `.la`, `.want` and `.have` name the channel
+and the directions. `set_pull(la, True)` / `set_pull(la, False)` (or `enabled=`) still work but are
+deprecated: True pulls the channel's own direction.
+
+Firmware before the `la_pull_dir` feature (`bp.supports("la_pull_dir")`) only takes on/off; the SDK
+then sends that and checks the direction itself, so the calls above work on every pod.
 
 An open-drain bus such as I2C must sit on LA1–LA6.
 
@@ -1110,7 +1127,7 @@ The other owners point to `bp.sensors.stop("<instance>")`, closing the session f
 `bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train to finish. The pod's own
 text, with its raw protocol command, stays in `exc.firmware_message`.
 
-`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`),
+`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`, `pull_dirs`),
 and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()` returning those states.
 Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
 disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),
@@ -2247,6 +2264,7 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `DirectionConflictError` | a push-pull driver on a pin `la_dir` marks as a DUT output (a `FirmwareError`) | `la` |
 | `I2CNackError` | an I2C device did not acknowledge (`I2CMaster.write`, `read`, `write_read`, `read_reg`, `write_reg`) | `addr`, `nack_at` |
 | `PullConflictError` | an engaged bias resistor can't work with the channel's function (a `FirmwareError`) | `la` |
+| `PullDirectionError` | the channel can't pull that way (BP0024) or has no pull resistor (BP0023); also a `ValueError` | `la`, `want`, `have` |
 | `TriggerTimeout` | a triggered capture's condition never happened (a `FirmwareError`) | `la`, `edge` |
 | `CanTimeout` | `CanBus.expect` timed out | `frames` |
 
@@ -2313,7 +2331,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
-| `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `dir`, `warn`, `warnings`, `in_use` |
+| `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `pull_dirs`, `dir`, `warn`, `warnings`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
 | `ExtPin` (class) | `gpio`, `gpio_pins`, `signal` on an EXT pin | a `GpioPin` with `ext`, `pin`; `la` is `None`; `pulse()` raises `ExpansionError` |
 | `FlashResult` | `flash` | `ok`, `returncode`, `stdout`, `stderr`, `target_unreachable`, `stalled`, `artifact` (the uploaded build, for `flash(build=...)`) |

@@ -179,7 +179,7 @@
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
     "set_module_id": "(self, serial: 'str', rev: 'str', module_type: 'str' = 'analog', *, replace: 'bool' = False) -> 'ModuleInfo'",
-    "set_pull": "(self, la: 'Union[Pin, int]', enabled: 'bool') -> 'PullState'",
+    "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Union[PullDirection, bool, None, object]' = <required>, *, enabled: 'Optional[bool]' = None) -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
@@ -724,6 +724,7 @@
       "pull_on",
       "dir",
       "warn",
+      "pull_dirs",
       "raw"
     ],
     "from_reply": "(cls, entry: 'Any') -> \"'LaPinState'\"",
@@ -940,6 +941,9 @@
   "PullConflictError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0) -> 'None'"
   },
+  "PullDirectionError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, want: 'str' = '', have: 'str' = '') -> 'None'"
+  },
   "PullState": {
     "__fields__": [
       "la",
@@ -947,9 +951,12 @@
       "direction",
       "ohms",
       "available",
+      "supported",
       "raw"
     ],
-    "from_reply": "(cls, reply: 'Any', la: 'int') -> \"'PullState'\""
+    "from_reply": "(cls, reply: 'Any', la: 'int') -> \"'PullState'\"",
+    "none": "(cls, la: 'int', raw: 'Optional[Dict[str, Any]]' = None) -> \"'PullState'\"",
+    "state": "property"
   },
   "RailPower": {
     "__fields__": [
@@ -1289,6 +1296,7 @@
     "pin_dut_dirs": "(self) -> 'Dict[int, str]'",
     "pins": "(self) -> 'Dict[int, str]'",
     "preset": "(cls, name: 'str' = 'embeddedci-default') -> \"'Wiring'\"",
+    "pull_directions": "(self) -> 'Dict[int, str]'",
     "signal": "(self, name: 'str') -> 'Signal'",
     "to_dict": "(self) -> 'Dict[str, Any]'",
     "undefined": "(cls) -> \"'Wiring'\"",
@@ -1407,6 +1415,7 @@
     "PowerProfileSession",
     "PowerStatus",
     "PullConflictError",
+    "PullDirectionError",
     "PullState",
     "RailPower",
     "ReplayHandle",

@@ -89,7 +89,8 @@ def test_status_and_typed_state(connected):
     assert [w for w in connected["warnings"] if "default USB power" not in w] == []
     assert "internal" in call("power_status")
     channels = call("pull_status")["channels"]
-    assert [c["direction"] for c in channels] == ["up"] * 6 + ["down"] * 2
+    assert [c["direction"] for c in channels] == ["up"] * 6 + ["down"] * 2 + [None] * 6
+    assert [c["supported"] for c in channels] == [["up"]] * 6 + [["down"]] * 2 + [[]] * 6
 
 
 def test_analog_round_trip(connected):

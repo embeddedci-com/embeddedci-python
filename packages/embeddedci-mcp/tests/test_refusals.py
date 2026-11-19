@@ -122,7 +122,7 @@ def test_pull_conflict_names_set_pull(connected):
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     assert "PullConflictError: la: pull conflict: LA7" in str(info.value)
-    assert str(info.value).endswith("disable it with set_pull(las=[7], enabled=false) or use another channel")
+    assert str(info.value).endswith('disable it with set_pull(las=[7], pull="off") or use another channel')
 
 
 def test_efuse_rails_are_named_the_same_everywhere():

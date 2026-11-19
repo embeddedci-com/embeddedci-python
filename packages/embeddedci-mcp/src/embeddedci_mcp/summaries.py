@@ -12,6 +12,11 @@ from typing import Any, List, Optional, Sequence, Tuple
 from embeddedci.benchpod import Capture, LaCapture, PowerProfile, Trigger, Wiring
 from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
 
+try:   # embeddedci 3.0.3+: the board's pull table (directions per channel)
+    from embeddedci.benchpod.constants import PULL_TABLE
+except ImportError:   # pragma: no cover - the mcp-min-sdk job
+    PULL_TABLE = {}
+
 from . import models as m
 
 _V_DIGITS = 5
@@ -113,6 +118,9 @@ def send_summary(r: Any) -> Optional[m.SendResultModel]:
 # -- wiring, pins and power ------------------------------------------------------------
 
 def _bias(la: int) -> Optional[str]:
+    hw = PULL_TABLE.get(la)
+    if hw:
+        return f"{hw.ohms} {'/'.join(hw.dirs)}"
     ohms = PULL_OHMS.get(la)
     return None if not ohms else f"{ohms} {'down' if la in PULLDOWN_CHANNELS else 'up'}"
 
@@ -139,6 +147,8 @@ def pin_state(pin: Any) -> m.LaPinResult:
     """One :class:`~embeddedci.benchpod.LaPinState` as a tool result row."""
     return m.LaPinResult(la=pin.la, function=pin.function, gpio=pin.gpio, level=pin.level,
                          pull=pin.pull, pull_ohms=pin.pull_ohms, pull_on=pin.pull_on,
+                         pull_dirs=(list(pin.pull_dirs) if hasattr(pin, "pull_dirs")
+                                    else ([pin.pull] if pin.pull else [])),
                          in_use=pin.in_use, dir=pin.dir, warnings=pin.warnings or None)
 
 

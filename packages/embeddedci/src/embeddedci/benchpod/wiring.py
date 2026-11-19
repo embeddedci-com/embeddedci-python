@@ -24,7 +24,7 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
-from .constants import PULL_OHMS, PULLDOWN_CHANNELS, PULLUP_CHANNELS
+from .constants import PULL_TABLE, PULLDOWN_CHANNELS, PULLUP_CHANNELS
 
 PULL_CHANNELS = PULLUP_CHANNELS + PULLDOWN_CHANNELS
 
@@ -68,6 +68,17 @@ _SIGNAL_KEYS = ("name", "la", "direction", "active_low", "description")
 #: Keys other parts of the product keep in the profile; the SDK passes them through untouched.
 #: ``expansion`` is the GPIO expander's object (BenchPod.expansion reads it).
 _PASSTHROUGH_PREFIXES = ("loop_input_", "loop_output_", "expansion")
+
+
+def _channels(las: Tuple[int, ...]) -> str:
+    """``(1, 2, 3, 7, 8)`` -> ``"1..3, 7..8"``."""
+    runs: List[List[int]] = []
+    for la in sorted(las):
+        if runs and la == runs[-1][-1] + 1:
+            runs[-1].append(la)
+        else:
+            runs.append([la])
+    return ", ".join(f"{r[0]}..{r[-1]}" if len(r) > 1 else str(r[0]) for r in runs)
 
 
 def _is_int(value: Any) -> bool:
@@ -148,10 +159,12 @@ class Wiring:
     #: The DUT direction of a role or signal where its default is wrong: role key or signal name
     #: -> ``dut_input``, ``dut_output`` or ``bidir`` (see :meth:`pin_dut_dirs`).
     dut_dirs: Mapping[str, str] = field(default_factory=dict)
-    #: The LA channels whose pull resistor is on (LA1-LA8 have one each: LA1-LA6 pull up, LA7-LA8
-    #: pull down). :meth:`BenchPod.power_on` switches exactly these on and the others off before
-    #: the rail goes on. ``None``: the profile leaves the pull resistors as they are.
-    pulls: Optional[Tuple[int, ...]] = None
+    #: The pull resistors :meth:`BenchPod.power_on` switches on (the others off) before the rail
+    #: goes on: a map of LA channel -> ``"up"`` or ``"down"`` (``{1: "up", 2: "up"}``), or a list
+    #: of channels (``[1, 2]``), which pull their own direction (up on LA1-LA6, down on LA7/LA8 on
+    #: today's boards). ``None``: the profile leaves the pull resistors as they are.
+    #: :meth:`pull_directions` gives either form as the map.
+    pulls: Optional[Union[Tuple[int, ...], Mapping[int, str]]] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signals", tuple(self.signals))
@@ -160,6 +173,11 @@ class Wiring:
             if all(_is_int(x) for x in pulls):
                 pulls = tuple(sorted(set(pulls)))
             object.__setattr__(self, "pulls", pulls)
+        elif isinstance(self.pulls, Mapping):
+            # JSON keys are strings ("1"); keep anything else as it is for validate() to name
+            m = {(int(k) if isinstance(k, str) and k.strip().isdigit() else k):
+                 (v.strip().lower() if isinstance(v, str) else v) for k, v in self.pulls.items()}
+            object.__setattr__(self, "pulls", dict(sorted(m.items(), key=lambda kv: str(kv[0]).zfill(3))))
         if isinstance(self.dut_dirs, Mapping):
             object.__setattr__(self, "dut_dirs", dict(self.dut_dirs))
         object.__setattr__(self, "extra", dict(self.extra))
@@ -275,7 +293,14 @@ class Wiring:
             out[f.name] = getattr(self, f.name)
         out["signals"] = [s.to_dict() for s in self.signals]
         out["dut_dirs"] = dict(self.dut_dirs)
-        if self.pulls is not None:
+        if isinstance(self.pulls, Mapping):
+            # the list whenever every pull is its channel's own direction: every reader takes it
+            dirs = self.pull_directions()
+            if dirs and all(PULL_TABLE.get(la) and PULL_TABLE[la].default == d for la, d in dirs.items()):
+                out["pulls"] = sorted(dirs)
+            else:
+                out["pulls"] = {str(la): d for la, d in self.pulls.items()}
+        elif self.pulls is not None:
             out["pulls"] = list(self.pulls)
         out.update(self.extra)
         return out
@@ -349,19 +374,34 @@ class Wiring:
             la = getattr(self, key)
             if _is_int(la) and la >= 9:
                 out.append(f"{key} is on LA{la}, which has no pod pull-up; the bus needs external pull-ups")
-            elif la in PULLDOWN_CHANNELS and self._pull_may_be_on(la):
-                out.append(f"{key} is on LA{la}, which has a 10k pull-down; keep it disabled on an "
-                           "open-drain bus")
-        if self.uart_rx in PULLDOWN_CHANNELS and self._pull_may_be_on(self.uart_rx):
+            elif _is_int(la) and self._pull_may_be(la, "down"):
+                out.append(f"{key} is on LA{la}, which has a {PULL_TABLE[la].ohms} pull-down; keep it "
+                           "disabled on an open-drain bus")
+        if _is_int(self.uart_rx) and self._pull_may_be(self.uart_rx, "down"):
             out.append(f"uart_rx is on LA{self.uart_rx}, which has a pull-down; the UART idles high, "
                        "so keep the pull disabled")
         if self.la_mv == 1800 and self.pulls:
             out.append("pulls: the pull resistors work at 3.3 V only; at 1.8 V they stay off")
         return out
 
-    def _pull_may_be_on(self, la: int) -> bool:
-        """Is LA ``la``'s pull resistor on with this profile, or may it be (``pulls`` None)?"""
-        return self.pulls is None or la in self.pulls
+    def pull_directions(self) -> Dict[int, str]:
+        """The pulls :meth:`BenchPod.power_on` switches on: LA channel -> ``"up"`` / ``"down"``. A
+        list of channels gives each channel's own direction; ``pulls`` None gives ``{}``."""
+        if isinstance(self.pulls, Mapping):
+            return {int(la): str(d) for la, d in self.pulls.items()}
+        out: Dict[int, str] = {}
+        for la in self.pulls or ():
+            hw = PULL_TABLE.get(la) if _is_int(la) else None
+            if hw:
+                out[int(la)] = hw.default
+        return out
+
+    def _pull_may_be(self, la: int, direction: str) -> bool:
+        """Does LA ``la`` pull ``direction`` with this profile, or may it (``pulls`` None)?"""
+        if self.pulls is None:
+            hw = PULL_TABLE.get(la)
+            return bool(hw and direction in hw.dirs)
+        return self.pull_directions().get(la) == direction
 
     def describe(self) -> str:
         """A readable pin table: channel, what is wired to it, its bias resistor and its DUT
@@ -372,8 +412,8 @@ class Wiring:
         rail = f"eFuse {self.efuse}" if self.efuse is not None else "not set"
         lines = [f"LA I/O {io}, target power {rail}"]
         for la in range(1, 15):
-            pull = PULL_OHMS.get(la)
-            bias = (f"{pull} pull-{'down' if la in PULLDOWN_CHANNELS else 'up'}" if pull else "no pull")
+            hw = PULL_TABLE.get(la)
+            bias = f"{hw.ohms} pull-{'/'.join(hw.dirs)}" if hw else "no pull"
             line = f"LA{la:<3} {pins.get(la, '-'):<12} {bias:<16} {dirs.get(la, '')}"
             lines.append(line.rstrip())
         return "\n".join(lines + [f"warning: {w}" for w in self.warnings()])
@@ -430,13 +470,25 @@ class Wiring:
                 errs.append(f"signals[{i}].active_low must be true or false")
             if not isinstance(s.description, str) or len(s.description) > 120:
                 errs.append(f"signals[{i}].description must be a string of at most 120 characters")
-        if self.pulls is not None:
+        if isinstance(self.pulls, Mapping):
+            for la, d in self.pulls.items():
+                hw = PULL_TABLE.get(la) if _is_int(la) else None
+                if not hw:
+                    errs.append(f"pulls.{la}: must be an LA channel with a pull resistor "
+                                f"({_channels(PULL_CHANNELS)}), got {la!r}")
+                elif d not in ("up", "down"):
+                    errs.append(f"pulls.{la}: must be \"up\" or \"down\", got {d!r}")
+                elif d not in hw.dirs:
+                    errs.append(f"pulls.{la}: LA{la} supports pull-{hw.default} only on this board")
+        elif self.pulls is not None:
             if not isinstance(self.pulls, (list, tuple)):
-                errs.append("pulls must be a list of the LA channels whose pull resistor is on, e.g. [1, 2]")
+                errs.append("pulls must be a map of LA channel -> \"up\" or \"down\" "
+                            "(e.g. {\"1\": \"up\"}) or a list of channels (e.g. [1, 2])")
             else:
                 for i, la in enumerate(self.pulls):
                     if not (_is_int(la) and la in PULL_CHANNELS):
-                        errs.append(f"pulls[{i}] must be an LA channel with a pull resistor (1..8), got {la!r}")
+                        errs.append(f"pulls[{i}] must be an LA channel with a pull resistor "
+                                    f"({_channels(PULL_CHANNELS)}), got {la!r}")
         if not isinstance(self.dut_dirs, Mapping):
             errs.append("dut_dirs must be an object of role or signal name -> direction")
         else:

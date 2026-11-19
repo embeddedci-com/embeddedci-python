@@ -217,7 +217,10 @@ class LaPinResult(BaseModel):
         "swd_dio, i2c_sda, i2c_scl, step, step_dir, spi_*, sensor_*, or i2cm_sda/i2cm_scl (i2c_open)."))
     gpio: Optional[str] = Field(None, description="GPIO mode when function is gpio: input, output or open_drain.")
     level: Optional[int] = Field(None, description="Commanded level of a GPIO output / open-drain channel.")
-    pull: Optional[str] = Field(None, description="Bias direction: up, down, or null on LA9-LA14.")
+    pull: Optional[str] = Field(None, description=(
+        "The way its pull resistor pulls when on: up or down; null without one (LA9-LA14 today)."))
+    pull_dirs: Optional[List[str]] = Field(None, description=(
+        "Every direction set_pull can pull it: [up], [down], [up, down] or []."))
     pull_ohms: Optional[str] = None
     pull_on: bool = False
     in_use: bool = Field(description="A function other than none owns the channel.")
@@ -532,8 +535,13 @@ class I2cRegsResult(BaseModel):
 
 class PullChannel(BaseModel):
     la: int
+    #: What the channel does now: up, down or off.
+    state: str
+    #: The directions it can pull (empty: no pull resistor).
+    supported: List[str]
     enabled: bool
-    direction: str
+    #: The way it pulls when on; None without a resistor.
+    direction: Optional[str]
     ohms: str
     available: bool
 

@@ -6,8 +6,13 @@
   agent to load the board's own profile by name and shows one consistent example, the
   process-node bench's `process-node-stm32` profile (UART RX on LA3, I2C SCL on LA1 and SDA on LA2,
   the alarm on LA5). It used to mix that bench's I2C pins with the default pins' UART RX (LA5).
-- `set_wiring`'s `profile` description lists the `pulls` key (the LA channels whose pull
-  resistor `power_on` switches on).
+- `set_wiring`'s `profile` description lists the `pulls` key: a map of LA channel to `up` /
+  `down`, or a list of channels that pull their own direction.
+- `set_pull(las, pull="up" | "down" | "off")`: pull by direction; the pod picks the resistor.
+  `enabled` still works (true = each channel's own direction). Channels 1-14; a direction a
+  channel can't pull is refused (BP0024, BP0023 without a resistor).
+- `pull_status` lists all 14 channels with `state` (up, down, off) and `supported` directions;
+  `la_pins` (and the gpio tools' pins) add `pull_dirs`.
 
 ## 3.0.2
 
