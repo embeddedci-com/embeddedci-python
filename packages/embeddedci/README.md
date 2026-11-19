@@ -944,7 +944,7 @@ slave-SPI configuration port). It needs a LAN or cloud connection and firmware w
 Pods with gateware v55+ (`bp.capabilities.gateware`, `bp.capabilities.bus_master`) are an I2C master
 on any two LA pins, 10 kHz to 1 MHz: read and write registers of a chip on the DUT's board, or scan
 the bus. The pins are open drain, so the bus needs pull-ups: the pod's own on LA1-LA6 (switch them
-on first; they pull to 3.3 V, so the LA voltage must be 3.3 V), or the board's with
+on first; they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12), or the board's with
 `pullups="external"`.
 
 ```python
@@ -1298,9 +1298,10 @@ arguments it returns the `ExpansionStatus`, and `expansion(None)` detaches.
   several chips on one bus: `addr=[0x20, 0x21]` gives `EXT1`..`EXT32`, numbered in that order.
 - `sda` and `scl` default to the wiring profile's `i2c_sda` and `i2c_scl`, so the expander can sit
   on the DUT's I2C bus.
-- `pullups`: `"pod"` switches on the pod's pull-ups (LA1-LA6 only; they pull to 3.3 V) and
-  `"external"` relies on the breakout's. By default `"pod"` when the LA voltage is 3.3 V and both
-  pins are on LA1-LA6, else `"external"`. At 1.8 V the breakout needs pull-ups to 1.8 V.
+- `pullups`: `"pod"` switches on the pod's pull-ups (LA1-LA6 only; they pull to the LA voltage)
+  and `"external"` relies on the breakout's. By default `"pod"` when both pins are on LA1-LA6 and
+  the pod has pull-ups at this LA voltage, else `"external"`. At 1.8 V that needs firmware newer
+  than 3.10.12; with older firmware the breakout needs its own pull-ups to 1.8 V.
 - `hz` defaults to 400 kHz for I2C chips (100 kHz for the PCF8574) and 1 MHz for SPI chips.
 - SPI chips take `spi=(sck, mosi, miso, cs)` (or a dict with those keys) instead of `sda`/`scl`;
   omitted, the wiring profile's `spi_sclk`, `spi_mosi`, `spi_miso` and `spi_cs`. The pod's SPI

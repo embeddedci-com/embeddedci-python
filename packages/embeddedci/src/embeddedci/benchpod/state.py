@@ -192,7 +192,8 @@ class PullState:
     #: The resistor's value, e.g. ``"4.7k"`` (``""`` without one). Reported, never chosen: on
     #: boards with several values the firmware picks one from the pin's function.
     ohms: str
-    #: A pull can be engaged right now (the resistors are 3V3-referenced, so not at 1.8 V).
+    #: A pull can be engaged right now (a bank voltage is set; firmware before ``la_pull_1v8``:
+    #: only at 3.3 V).
     available: bool = True
     #: Every direction the channel can pull: ``("up",)``, ``("down",)``, ``("up", "down")`` or ``()``.
     supported: Tuple[str, ...] = ()

@@ -22,7 +22,7 @@ import pytest
 
 from embeddedci.benchpod import FirmwareError, ResetState, UsbCcStatus
 
-from e2e_bench import FREE_LA, FREE_PULL_LA
+from e2e_bench import FREE_LA, FREE_PULL_LA, FREE_PULLDOWN_LA
 from e2e_helpers import events_during
 
 pytestmark = pytest.mark.hardware
@@ -106,18 +106,47 @@ def test_bank_voltage_reads_back_from_the_mux(v3):
 
 
 @FREE_PULL_LA
-def test_1v8_releases_and_refuses_the_pull_ups(v3, bench):
+def test_pulls_at_1v8(v3, bench):
+    """v3 pull-ups go to the bank rail. Firmware with la_pull_1v8 keeps an engaged pull across the
+    switch to 1.8 V, engages one at 1.8 V and the line reads high there; older firmware releases
+    it on the switch and refuses it at 1.8 V."""
     ch = bench.free_pull_la
     v3.set_la_voltage(3.3)
     before = v3.pull_state(ch).enabled
     try:
         v3.enable_pullup(ch)
         v3.set_la_voltage(1.8)
-        # the pull-ups are referenced to +3V3: left engaged they would lift a 1.8 V line to 3.3 V
-        assert not [la for la in v3.enabled_pulls() if la <= 6], v3.enabled_pulls()
-        with pytest.raises(FirmwareError, match="1.8"):
+        if v3.supports("la_pull_1v8"):
+            assert ch in v3.enabled_pulls(), v3.enabled_pulls()
+            v3.disable_pullup(ch)
             v3.enable_pullup(ch)
+            assert v3.pull_state(ch).state == "up"
+            if v3.capabilities.la_pins:
+                assert v3.read_gpio(ch) == 1     # held high at the 1.8 V bank, nothing driving it
+        else:
+            assert not [la for la in v3.enabled_pulls() if la <= 6], v3.enabled_pulls()
+            with pytest.raises(FirmwareError, match="1.8"):
+                v3.enable_pullup(ch)
     finally:
+        v3.set_la_voltage(3.3)
+        v3.set_pull(ch, before)
+
+
+@FREE_PULLDOWN_LA
+def test_pull_down_at_1v8(v3, bench):
+    """LA7/LA8 pull to ground on every board: firmware with la_pull_1v8 engages them at 1.8 V."""
+    if not v3.supports("la_pull_1v8"):
+        pytest.skip("the pod firmware has no pulls at 1.8 V (feature la_pull_1v8)")
+    ch = bench.free_pulldown_la
+    before = v3.pull_state(ch).enabled
+    try:
+        v3.set_la_voltage(1.8)
+        v3.set_pull(ch, "down")
+        assert v3.pull_state(ch).state == "down"
+        if v3.capabilities.la_pins:
+            assert v3.read_gpio(ch) == 0
+    finally:
+        v3.set_pull(ch, "off")
         v3.set_la_voltage(3.3)
         v3.set_pull(ch, before)
 

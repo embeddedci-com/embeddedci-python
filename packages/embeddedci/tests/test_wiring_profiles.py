@@ -230,6 +230,31 @@ def test_power_on_leaves_the_pulls_without_the_key_or_at_1v8():
     assert pod.sent("la") == []
 
 
+class PullsAt1v8Pod(ProfilePod):
+    """Firmware with la_pull_1v8 (features revision 4): pulls work with the bank at 1.8 V."""
+
+    def status(self) -> Dict[str, Any]:
+        return {"board": "stm32h563", "adc_bits": 16, "version": "3.10.13", "features_rev": 4,
+                "gateware": 58, "fpga_image": "deep", "hw": ["nrst_pin"]}
+
+    def command(self, req: dict) -> Any:
+        if req["cmd"] == "la" and "la" in req:
+            self.commands.append(req)
+            on = req.get("pull", "off") != "off"
+            d = "down" if req["la"] in (7, 8) else "up"
+            return {"la": req["la"], "pullup": int(on), "ohms": "4.7k", "pull": d,
+                    "state": d if on else "off", "dirs": [d], "pullups_available": 1}
+        return super().command(req)
+
+
+def test_power_on_applies_the_pulls_at_1v8_on_firmware_that_has_them():
+    pod = PullsAt1v8Pod({"k66": {**K66, "pulls": [1]}}, default="k66")
+    bp = BenchPod(transport=pod, lease=False)
+    bp.power_on()
+    sets = {c["la"]: c["pull"] for c in pod.sent("la")}
+    assert sets == {1: "up", 2: "off", 3: "off", 4: "off", 5: "off", 6: "off", 7: "off", 8: "off"}
+
+
 def test_pulls_key():
     w = Wiring.from_dict({"version": 2, "pulls": [3, 1, 3]})
     assert w.pulls == (1, 3) and w.to_dict()["pulls"] == [1, 3]
@@ -238,7 +263,7 @@ def test_pulls_key():
         Wiring(pulls=[9])
     assert not Wiring(i2c_sda=7, pulls=[]).warnings()
     assert Wiring(i2c_sda=7, pulls=[7]).warnings()
-    assert any("3.3 V only" in x for x in Wiring(la_mv=1800, pulls=[1]).warnings())
+    assert any("newer than 3.10.12" in x for x in Wiring(la_mv=1800, pulls=[1]).warnings())
 
 
 def test_connect_sets_the_io_voltage_from_the_pods_profile():
