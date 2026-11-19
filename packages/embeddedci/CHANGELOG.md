@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 3.0.4
 
 - **Read test runs back:** `embeddedci.benchpod.runs.api` lists the runs on embeddedci.com
   (`list_runs`, by suite, DUT, build, pod or ref), reads one (`get_run`, `summarize_run`: the
