@@ -4,6 +4,9 @@
 
 - `set_pull`, `power_on`, `i2c_open`, `expansion` and the guide no longer say the pull resistors
   are 3.3 V only: they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12.
+- `status` has `local_lease` (held, holder, purpose, left_s, mine) on a pod with the `lease`
+  feature, and warns when someone else holds it; `leased` also covers the pod's own lease, which
+  `connect` takes on the LAN and USB network with that SDK (`lease_wait` applies there too).
 
 ## 3.0.3
 

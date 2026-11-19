@@ -117,12 +117,17 @@ class StatusResult(BaseModel):
     kind: Optional[str] = Field(None, description=(
         "tcp, serial (USB console), usb_net ('usb' reached the pod's USB network adapter), "
         "discover or embeddedci (cloud)."))
-    leased: bool = False
+    leased: bool = Field(False, description=(
+        "This session holds an exclusive lease: the server's on a cloud device, or the pod's own "
+        "lease on the LAN or USB network."))
     la_voltage: Optional[float] = Field(None, description="Selected LA bank voltage; null = not set.")
     capabilities: Optional[CapabilitiesInfo] = None
     session: SessionInfo = Field(default_factory=SessionInfo)
     warnings: List[str] = Field(default_factory=list)
     firmware: Dict[str, Any] = Field(default_factory=dict, description="The pod's raw status report.")
+    local_lease: Optional[Dict[str, Any]] = Field(None, description=(
+        "The pod's own lease (held, holder, purpose, left_s, mine), on firmware with the lease "
+        "feature; null otherwise."))
     eth_mac: Optional[str] = Field(None, description=(
         "The pod's Ethernet MAC (aa:bb:cc:dd:ee:ff), for a network that hands out addresses only to "
         "registered devices; null when not known (firmware 3.10.7 and older over the LAN)."))
