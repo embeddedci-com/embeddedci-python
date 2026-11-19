@@ -6,6 +6,11 @@
   gateware 58`, on every `status` up to firmware 3.10.12) no longer makes the serial transport
   time out waiting for the prompt. A prompt followed only by complete `[tag] ...` lines ends the
   reply.
+- **Pull resistors at 1.8 V:** on firmware with the `la_pull_1v8` feature (newer than 3.10.12) the
+  pod's pulls work with the LA bank at 1.8 V (v3 boards pull up to the bank rail), so `power_on`
+  applies a 1.8 V profile's `pulls` and `expansion(pullups="pod")` (also its default) works at
+  1.8 V. With older firmware both behave as before, and `power_on` logs that the pulls stay off.
+  The `Wiring` warning for `pulls` with `la_mv` 1800 now names the firmware it needs.
 
 ## 3.0.3
 

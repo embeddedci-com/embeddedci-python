@@ -61,7 +61,7 @@ BMP280_CHIP_ID = 0x58
 @pytest.fixture(scope="session")
 def benchpod_la_voltage():
     """The DUT's I/O voltage, selected on the pod when the session connects."""
-    return 3.3  # change to 1.8 for a 1V8 board (the pull-ups then can't be used)
+    return 3.3  # change to 1.8 for a 1V8 board (pod pull-ups at 1.8 V: firmware newer than 3.10.12)
 
 
 @pytest.fixture

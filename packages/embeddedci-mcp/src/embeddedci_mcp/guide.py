@@ -64,7 +64,8 @@ NUCLEO-F446RE; profile 'process-node-stm32' from the examples repository), is wi
   Target power                internal 5 V (efuse 1)       efuse=1 (external: efuse=2)
 
 Pull resistors: set_pull(las, pull="up"|"down"|"off"); the pod picks the value. Today's boards
-(pull_status shows each channel's supported directions; 3V3-referenced, so off at a 1.8 V LA bank):
+(pull_status shows each channel's supported directions; they pull to the LA voltage, 1.8 V or 3.3 V;
+firmware 3.10.12 and older refuses them at 1.8 V):
   LA1, LA2   4.7k up             LA3, LA4   2.2k up             LA5, LA6   10k up
   LA7, LA8   10k down only       LA9-LA14   none
 

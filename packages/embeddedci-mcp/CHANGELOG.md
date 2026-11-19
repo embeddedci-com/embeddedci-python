@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `set_pull`, `power_on`, `i2c_open`, `expansion` and the guide no longer say the pull resistors
+  are 3.3 V only: they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12.
+
 ## 3.0.3
 
 - Needs embeddedci 3.0.3.

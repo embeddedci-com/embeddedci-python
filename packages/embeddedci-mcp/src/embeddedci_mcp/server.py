@@ -711,7 +711,7 @@ async def power_on(
         "omit to use the current one."))] = None,
 ) -> m.PowerResult:
     """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
-    (when the pod has none or another one), its pull resistors (pulls, at 3.3 V) are set, then the
+    (when the pod has none or another one), its pull resistors (pulls; at 1.8 V only on firmware newer than 3.10.12) are set, then the
     rail goes on, and the pod records the profile.
     The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
     a board that is already powered."""
@@ -958,7 +958,7 @@ async def i2c_open(
     scl: Annotated[Optional[LaRef], Field(description="SCL channel; omit for the profile's i2c_scl.")] = None,
     hz: Annotated[int, Field(ge=10_000, le=1_000_000, description="SCL rate.")] = 100_000,
     pullups: Annotated[Literal["pod", "external"], Field(description=(
-        "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today, LA voltage 3.3); "
+        "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today; at 1.8 V firmware newer than 3.10.12); "
         "external: the board has its own."))] = "pod",
 ) -> m.I2cSessionResult:
     """Make the pod an I2C master on two LA pins (gateware v55+), replacing any open session.
@@ -1654,8 +1654,8 @@ async def set_pull(
         "Older form, use pull: true engages each channel's own direction, false is off."))] = None,
 ) -> m.PullStatusResult:
     """Pull LA channels up or down, or switch their pull resistor off. For an I2C bus pull SDA and
-    SCL up. The resistors are 3V3-referenced, so the pod refuses to engage them with the LA bank at
-    1.8 V."""
+    SCL up. The pull-ups pull to the LA voltage, at 1.8 V too on firmware newer than 3.10.12 (older
+    firmware refuses them with the LA bank at 1.8 V)."""
     if pull is None and enabled is None:
         raise ValueError('set_pull needs pull: "up", "down" or "off"')
     want: Any = pull if pull is not None else bool(enabled)
@@ -1959,8 +1959,9 @@ async def expansion(
     hz: Annotated[Optional[int], Field(ge=1, le=6_000_000, description=(
         "Bus clock; default 400 kHz for I2C (100 kHz pcf8574), 1 MHz for SPI."))] = None,
     pullups: Annotated[Optional[Literal["pod", "external"]], Field(description=(
-        "I2C pull-ups: pod (LA1-LA6 only, pull to 3.3 V, switched on here) or external (the "
-        "breakout's). Default pod at 3.3 V on LA1-LA6, else external."))] = None,
+        "I2C pull-ups: pod (LA1-LA6 only, pull to the LA voltage, switched on here) or external (the "
+        "breakout's). Default pod on LA1-LA6 when the pod has pull-ups at this voltage (1.8 V: "
+        "firmware newer than 3.10.12), else external."))] = None,
     names: Annotated[Optional[Dict[str, str]], Field(description=(
         "Names for the pins, {'EXT1': 'LED1', ...}; usable wherever EXTn is."))] = None,
 ) -> m.ExpansionResult:

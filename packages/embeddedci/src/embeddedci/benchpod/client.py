@@ -1102,11 +1102,15 @@ class BenchPod:
 
     def _apply_profile_pulls(self, w: Wiring) -> None:
         """Switch the pull resistors the profile lists on and the others off (``pulls`` None: leave
-        them). They work at 3.3 V only, and the console (serial) transport can't set them."""
+        them). Firmware before ``la_pull_1v8`` has them at 3.3 V only (at 1.8 V they are left
+        off), and the console (serial) transport can't set them."""
         if w.pulls is None or type(self._transport).__name__ == "SerialTransport":
             return
         volts = w.la_voltage if w.la_voltage is not None else self.get_la_voltage().voltage
-        if volts is None or abs(volts - 3.3) > 0.05:
+        if not self._pulls_at(volts):
+            if volts is not None:
+                _log.warning("power_on: this firmware has no pull resistors at %g V; the profile's "
+                             "pulls stay off (update the firmware)", volts)
             return
         wanted = w.pull_directions()
         for la in PULL_TABLE:
@@ -1489,7 +1493,22 @@ class BenchPod:
     # The host names a direction ("up", "down", "off"); the pod picks the resistor and reports its
     # value. Which channels have one and which way each can pull depends on the board: on today's
     # boards LA1-LA6 pull up, LA7/LA8 down and LA9-LA14 have none (constants.PULL_TABLE). The
-    # resistors are 3V3-referenced, so the pod refuses to engage one while the LA bank is at 1.8 V.
+    # pull-ups go to the LA bank rail, so they work at 1.8 V too on firmware with the la_pull_1v8
+    # feature; older firmware refuses to engage one while the LA bank is at 1.8 V.
+
+    def _pulls_at(self, volts: Optional[float]) -> bool:
+        """Whether the pod engages pull resistors at LA voltage ``volts``: at 3.3 V always, at
+        1.8 V on firmware with the ``la_pull_1v8`` feature (older firmware refuses them there)."""
+        if volts is None:
+            return False
+        if abs(volts - 3.3) <= 0.05:
+            return True
+        if abs(volts - 1.8) > 0.05:
+            return False
+        try:
+            return self.supports("la_pull_1v8")
+        except BenchPodError:
+            return False
 
     def _pull_dir_api(self) -> bool:
         """The pod takes ``pull: up|down|off`` (feature ``la_pull_dir``); older firmware only
@@ -3653,9 +3672,10 @@ class BenchPod:
         I2C chips: ``addr`` is the 7-bit address (default: the chip's first), or a list of them for
         several chips on one bus (EXT pins numbered in that order); ``sda``/``scl`` default to the
         wiring profile's ``i2c_sda``/``i2c_scl``, so the expander can share the DUT's bus.
-        ``pullups`` is ``"pod"`` (the pod's pull-ups on LA1-LA6, switched on here; they pull to 3.3 V)
-        or ``"external"`` (the breakout's own); by default ``"pod"`` when the LA voltage is 3.3 V and
-        both pins are on LA1-LA6. ``hz`` defaults to 400 kHz (the chip's limit when lower).
+        ``pullups`` is ``"pod"`` (the pod's pull-ups on LA1-LA6, switched on here; they pull to the LA
+        voltage) or ``"external"`` (the breakout's own); by default ``"pod"`` when both pins are on
+        LA1-LA6 and the pod has pull-ups at this LA voltage (3.3 V, or 1.8 V on firmware with the
+        ``la_pull_1v8`` feature). ``hz`` defaults to 400 kHz (the chip's limit when lower).
 
         ``names`` names the pins: ``{"EXT1": "LED1", ...}`` or a list in EXT order. Omitted
         arguments come from an ``expansion`` object in the wiring profile, when it has one
@@ -3705,13 +3725,14 @@ class BenchPod:
             addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
             n_chips = 1
             pull = pullups if pullups is not None else block.get("pullups")
+            pod_ok = self._pulls_at(lv) and sda_i <= 6 and scl_i <= 6
             if pull is None:
-                pull = "pod" if abs(lv - 3.3) < 0.05 and sda_i <= 6 and scl_i <= 6 else "external"
+                pull = "pod" if pod_ok else "external"
             check_choice(pull, _i2c_master.PULLUPS, "pullups")
-            if pull == "pod" and (abs(lv - 3.3) >= 0.05 or sda_i > 6 or scl_i > 6):
+            if pull == "pod" and not pod_ok:
                 raise _expansion.ExpansionError(
-                    "pullups='pod' needs the LA voltage at 3.3 V and both pins on LA1-LA6 (the pod's "
-                    "pull-ups pull to 3.3 V and only LA1-LA6 have them); use pullups='external' "
+                    "pullups='pod' needs both pins on LA1-LA6 (only they have pod pull-ups) and, at "
+                    "1.8 V, firmware with pull-ups at 1.8 V (newer than 3.10.12); use pullups='external' "
                     "with pull-ups on the breakout")
         else:
             if sda is not None or scl is not None or pullups is not None:

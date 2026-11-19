@@ -2011,7 +2011,7 @@
             }
           ],
           "default": null,
-          "description": "I2C pull-ups: pod (LA1-LA6 only, pull to 3.3 V, switched on here) or external (the breakout's). Default pod at 3.3 V on LA1-LA6, else external.",
+          "description": "I2C pull-ups: pod (LA1-LA6 only, pull to the LA voltage, switched on here) or external (the breakout's). Default pod on LA1-LA6 when the pod has pull-ups at this voltage (1.8 V: firmware newer than 3.10.12), else external.",
           "title": "Pullups"
         },
         "scl": {
@@ -2854,7 +2854,7 @@
         },
         "pullups": {
           "default": "pod",
-          "description": "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today, LA voltage 3.3); external: the board has its own.",
+          "description": "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today; at 1.8 V firmware newer than 3.10.12); external: the board has its own.",
           "enum": [
             "pod",
             "external"

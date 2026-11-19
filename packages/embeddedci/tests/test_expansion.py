@@ -111,15 +111,19 @@ class Mcp23017:
 
 
 class ExpPod:
-    def __init__(self, chips: Dict[int, Any], *, mv: int = 3300) -> None:
+    def __init__(self, chips: Dict[int, Any], *, mv: int = 3300, features_rev: int = 0) -> None:
         self.chips = chips
         self.mv = mv
+        self.features_rev = features_rev
         self.commands: List[dict] = []
         self.session: Optional[dict] = None
         self.pullups: set = set()
         self.gpio: Dict[int, dict] = {}
 
     def status(self) -> Dict[str, Any]:
+        if self.features_rev:   # 4: la_pull_1v8, pulls at a 1.8 V bank
+            return {"board": "stm32h563", "version": "3.10.13", "gateware": 58, "fpga_image": "deep",
+                    "features_rev": self.features_rev, "hw": ["nrst_pin"]}
         return {"board": "stm32h563", "version": "3.10.4", "gateware": 55,
                 "caps": ["la", "la_pins", "gpio_read", "capture_trigger", "spi_master"]}
 
@@ -141,6 +145,11 @@ class ExpPod:
         if cmd == "la" and "pullup" in req:
             (self.pullups.add if req["pullup"] == "on" else self.pullups.discard)(req["la"])
             return {"la": req["la"], "pullup": req["pullup"]}
+        if cmd == "la" and "pull" in req:
+            on = req["pull"] != "off"
+            (self.pullups.add if on else self.pullups.discard)(req["la"])
+            return {"la": req["la"], "pullup": int(on), "ohms": "4.7k", "pull": "up",
+                    "state": "up" if on else "off", "dirs": ["up"], "pullups_available": 1}
         if cmd == "i2c_start":
             if self.session:
                 raise FirmwareError("i2c busy: send i2c_stop first", cmd=cmd)
@@ -175,8 +184,8 @@ class ExpPod:
         raise AssertionError(f"unexpected {req}")
 
 
-def attach(chips=None, *, wiring=None, mv=3300, **kw):
-    fake = ExpPod(chips if chips is not None else {0x20: Tca9555()}, mv=mv)
+def attach(chips=None, *, wiring=None, mv=3300, features_rev=0, **kw):
+    fake = ExpPod(chips if chips is not None else {0x20: Tca9555()}, mv=mv, features_rev=features_rev)
     bp = BenchPod(transport=fake, wiring=wiring or Wiring(i2c_sda=1, i2c_scl=2))
     if "chip" not in kw:
         kw["chip"] = "tca9555"
@@ -237,10 +246,12 @@ def test_voltage_checks():
     fake = ExpPod({0x20: Tca9555()}, mv=0)
     with pytest.raises(ExpansionError, match="set the LA voltage first"):
         BenchPod(transport=fake).expansion("tca9555")
-    with pytest.raises(ExpansionError, match="pullups='pod' needs the LA voltage at 3.3 V"):
-        attach(mv=1800, pullups="pod")
-    bp, fake, st = attach(mv=1800)                               # 1.8 V: the breakout's pull-ups
+    with pytest.raises(ExpansionError, match="at 1.8 V, firmware with pull-ups at 1.8 V"):
+        attach(mv=1800, pullups="pod")                           # older firmware: none at 1.8 V
+    bp, fake, st = attach(mv=1800)                               # so the breakout's pull-ups
     assert st.pullups == "external" and fake.pullups == set()
+    bp, fake, st = attach(mv=1800, features_rev=4)               # la_pull_1v8: the pod's, at 1.8 V
+    assert st.pullups == "pod" and fake.pullups == {1, 2}
 
 
 def test_argument_validation():
