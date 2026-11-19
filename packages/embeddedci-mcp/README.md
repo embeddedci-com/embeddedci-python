@@ -299,6 +299,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `pull_status` | Every LA channel's pull resistor: state (`up`, `down` or `off`), the directions it supports and its value. | none |
 | `lan_tls` | The pod's LAN API over TLS (firmware 3.9.3+): port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
 | `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
+| `log_level` | Read or set how much the pod prints on its USB console (firmware newer than 3.10.12): `error`, `warn`, `info` (the default) or `debug`, which adds every command trace and the reconnect retry detail. Stored on the pod. | `level` |
 
 ### GPIO on the LA pins
 

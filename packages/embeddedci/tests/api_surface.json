@@ -143,6 +143,7 @@
     "leased": "property",
     "load_wiring": "(self, name: 'Optional[str]' = None) -> 'Wiring'",
     "local_lease": "(self) -> 'LocalLease'",
+    "log_level": "(self) -> 'str'",
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
@@ -179,6 +180,7 @@
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
+    "set_log_level": "(self, level: 'str') -> 'str'",
     "set_module_id": "(self, serial: 'str', rev: 'str', module_type: 'str' = 'analog', *, replace: 'bool' = False) -> 'ModuleInfo'",
     "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Union[PullDirection, bool, None, object]' = <required>, *, enabled: 'Optional[bool]' = None) -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
@@ -692,6 +694,7 @@
     ],
     "loop_input": "property"
   },
+  "LOG_LEVELS": "('error', 'warn', 'info', 'debug')",
   "LaCapture": {
     "__fields__": [
       "words",
@@ -1393,6 +1396,7 @@
     "I2CTransaction",
     "INTERNAL",
     "IVPoint",
+    "LOG_LEVELS",
     "LaCapture",
     "LaPinState",
     "LaVoltage",

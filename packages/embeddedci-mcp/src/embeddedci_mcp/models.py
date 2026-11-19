@@ -916,6 +916,11 @@ class LanTlsResult(BaseModel):
     error: str = Field("", description="Why there is no certificate in use.")
 
 
+class LogLevelResult(BaseModel):
+    """The pod's console log level (firmware newer than 3.10.12)."""
+    level: str = Field(description='"error", "warn", "info" (the default) or "debug". Stored on the pod.')
+
+
 class UsbNetworkResult(BaseModel):
     """The pod's USB network setting (firmware 3.9.0+)."""
     setting: str = Field(description='"on" or "off": whether the pod\'s USB port is also a network adapter.')

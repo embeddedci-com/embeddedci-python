@@ -1716,6 +1716,23 @@ async def usb_network(
     return await _call(op)
 
 
+@mcp.tool(annotations=_ann("Console log level", idempotent=True))
+async def log_level(
+    level: Annotated[Optional[Literal["error", "warn", "info", "debug"]], Field(description=(
+        "Omit to read the level. Set one to change it; the pod stores it across reboots and "
+        "firmware updates."))] = None,
+) -> m.LogLevelResult:
+    """Read or set how much the pod prints on its USB console (firmware newer than 3.10.12). info
+    is the default; debug also prints every command trace and the retry detail of the cloud,
+    Wi-Fi and DHCP loops on the pod's console; warn and error print less. It changes only the
+    console, never a tool's result."""
+    def op() -> m.LogLevelResult:
+        pod = SESSION.require()
+        return m.LogLevelResult(level=pod.log_level() if level is None else pod.set_log_level(level))
+
+    return await _call(op)
+
+
 @mcp.tool(annotations=_ann("LAN TLS", destructive=True))
 async def lan_tls(
     https_only: Annotated[Optional[bool], Field(description=(

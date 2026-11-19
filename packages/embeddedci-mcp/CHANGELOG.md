@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- New tool `log_level`: read the pod's console log level, or set it with `level` (`error`,
+  `warn`, `info`, `debug`; `info` is the default, `debug` prints every command trace on the pod's
+  console). Firmware newer than 3.10.12; older firmware gets a clean unsupported-feature error.
+  Needs the embeddedci release with `BenchPod.log_level()`.
 - `set_pull`, `power_on`, `i2c_open`, `expansion` and the guide no longer say the pull resistors
   are 3.3 V only: they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12.
 - With an SDK that takes the pod's own lease, `connect` holds it on the LAN and USB network for as
