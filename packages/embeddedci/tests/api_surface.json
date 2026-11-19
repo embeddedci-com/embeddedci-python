@@ -1296,6 +1296,7 @@
     "pin_dut_dirs": "(self) -> 'Dict[int, str]'",
     "pins": "(self) -> 'Dict[int, str]'",
     "preset": "(cls, name: 'str' = 'embeddedci-default') -> \"'Wiring'\"",
+    "pull_directions": "(self) -> 'Dict[int, str]'",
     "signal": "(self, name: 'str') -> 'Signal'",
     "to_dict": "(self) -> 'Dict[str, Any]'",
     "undefined": "(cls) -> \"'Wiring'\"",
