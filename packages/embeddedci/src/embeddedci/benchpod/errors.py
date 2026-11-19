@@ -89,6 +89,10 @@ class FirmwareError(BenchPodError):
         if status_too_large(message, cmd):
             text += (f"; firmware {STATUS_FITS_FIRMWARE} and later send a status that fits: update "
                      "the pod (`benchpod flash-self`, or the firmware update in the web app)")
+        elif la_pins_too_large(message, cmd):
+            text += ("; firmware after 3.10.12 reads this list in parts (la_pins with la): update "
+                     "the pod (`benchpod flash-self`, or the firmware update in the web app), or ask "
+                     "for fewer channels with bp.la_pins(la=[...])")
         if cmd:
             super().__init__(f"{cmd}: {text}")
         else:
@@ -320,6 +324,13 @@ _STATUS_TOO_LARGE = "too large for the cloud channel"
 def status_too_large(message: str, cmd: Optional[str] = "status") -> bool:
     """Whether a pod refusal is a ``status`` reply that did not fit the cloud channel."""
     return cmd == "status" and _STATUS_TOO_LARGE in message
+
+
+def la_pins_too_large(message: str, cmd: Optional[str] = "la_pins") -> bool:
+    """Whether a pod refusal is a full ``la_pins`` listing too large for one reply (LAN
+    ``reply too large``, cloud ``... for the cloud channel``). Only older firmware leaves it there:
+    newer firmware takes ``la`` and the SDK reads the list in parts."""
+    return cmd == "la_pins" and "reply too large" in message
 _LA_VOLTAGE_SDK = ("la voltage not set; the wiring profile sets no I/O voltage: set la_mv in it "
                    "(bp.save_wiring(bp.wiring.with_changes(la_mv=3300)), 1800 for a 1.8 V board), "
                    "or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)")

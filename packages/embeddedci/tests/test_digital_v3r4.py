@@ -181,8 +181,9 @@ def test_la_pins_too_large_reads_in_two_parts():
                              {"cmd": "la_pins", "la": [8, 9, 10, 11, 12, 13, 14]}]
     # Firmware without the subset cannot help: the error stands.
     pod.subset = False
-    with pytest.raises(FirmwareError, match="reply too large"):
+    with pytest.raises(FirmwareError, match="reply too large") as e:
         bp.la_pins()
+    assert "firmware after 3.10.12 reads this list in parts" in str(e.value)
 
 
 def test_la_dir_and_gpio_entries_pull_both_ways_on_v3r4():

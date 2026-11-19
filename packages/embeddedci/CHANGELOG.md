@@ -4,7 +4,8 @@
 
 - `la_pins(la=...)` lists only those channels (firmware after 3.10.12 sends only them; older
   firmware sends all 14 and the SDK keeps the ones asked for). A full listing the pod answers with
-  "reply too large" is read in two parts by itself.
+  "reply too large" is read in two parts by itself; on older firmware, which cannot, the error
+  says to update the pod or ask for fewer channels.
 - **Digital board v3r4:** `PullState.held` says why a pull that was set is off right now
   (`pin21_down`, `dut_off`, `fault`), and `enabled`/`state` are what is on the wire. `la_dir()` and
   `gpio` entries now report both pull directions there, like `la_pins()`.
