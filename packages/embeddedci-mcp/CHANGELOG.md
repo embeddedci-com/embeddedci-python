@@ -1,7 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 3.0.3
 
+- Needs embeddedci 3.0.3.
 - The wiring reference (the `wiring` resource and the end of the `wiring` tool's text) tells the
   agent to load the board's own profile by name and shows one consistent example, the
   process-node bench's `process-node-stm32` profile (UART RX on LA3, I2C SCL on LA1 and SDA on LA2,
