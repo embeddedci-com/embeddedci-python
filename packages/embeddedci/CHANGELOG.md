@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 3.0.3
 
 - The preset of the default pins is now `Wiring.preset("embeddedci-default")` (also the default of
   `Wiring.preset()`), and `wiring.DEFAULT_PINS` is its values: they are the pins the pod used to
