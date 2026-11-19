@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from embeddedci.benchpod import BenchPod, Wiring
-from embeddedci.benchpod.errors import FirmwareError, UnsupportedFeatureError, firmware_error
+from embeddedci.benchpod.errors import FirmwareError, UnsupportedFeatureError, WiringError, firmware_error
 
 
 class ProfilePod:
@@ -152,6 +152,7 @@ def test_saving_the_loaded_profile_checks_its_revision():
         bp.save_wiring(bp.wiring.with_changes(uart_baud=19200))
     err = exc.value
     assert err.code == "BP0009" and err.values == {"name": "k66", "rev": 2}
+    assert isinstance(err, WiringError) and err.name == "k66"
     assert "load it again" in str(err) and err.docs_url.endswith("#BP0009")
     bp.load_wiring("k66")
     assert bp.save_wiring(bp.wiring.with_changes(uart_baud=19200)).profile_rev == 3
@@ -171,7 +172,7 @@ def test_deleting_the_default_is_refused_with_its_code():
     bp = BenchPod(transport=pod, lease=False)
     with pytest.raises(FirmwareError) as exc:
         bp.delete_wiring("k66")
-    assert exc.value.code == "BP0013"
+    assert exc.value.code == "BP0013" and isinstance(exc.value, WiringError)
     bp.delete_wiring("nrf")
     assert "nrf" not in pod.profiles
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from importlib import resources
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 
 class BenchPodError(Exception):
@@ -238,7 +238,10 @@ class PodLockedError(FirmwareError):
 
 class PodBusyError(FirmwareError):
     """The pod refused because it is busy (``busy: …``): a capture or upload is running, or a
-    cloud job holds it (:class:`PodLeasedError`)."""
+    cloud job holds it (:class:`PodLeasedError`). With error codes: an I2C or SPI session is
+    already open (``BP0003``, ``BP0004``), the engine that runs SWD, SPI and I2C is in use
+    (``BP0005``), or the storage cannot save while the DAC or a capture uses its bus
+    (``BP0016``)."""
 
 
 class PodLeasedError(PodBusyError, DeviceBusyError, TransportError):
@@ -274,6 +277,42 @@ class PodLeaseLostError(FirmwareError):
         self.by = by
 
 
+class WiringError(FirmwareError):
+    """The pod refused a wiring-profile operation (``BP0007`` to ``BP0015``): no profile with that
+    name, a bad name, a revision conflict, the store is full, the profile is too large or not one
+    JSON object, the default cannot be deleted, an upload out of order, or the storage failed.
+    :attr:`name` is the profile's name when the pod sent one (``""`` otherwise); :attr:`code` says
+    which of these it is and :attr:`values` has the rest (``rev``, ``max``, ``bytes``)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, name: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.name = name
+
+
+class ClientTooOldError(FirmwareError):
+    """This SDK is too old for the pod's firmware: the firmware changed a reply or a message in a
+    way this SDK would misread, so it is not used with it.
+
+    Raised on connect when the pod announces a client API level (``api``) above
+    :data:`~embeddedci.benchpod.feature_map.CLIENT_API`, the highest this SDK handles, and for the
+    pod's own refusal ``BP0030`` (the SDK's level is below the firmware's ``min_client_api``).
+    :attr:`client_api` is this SDK's level, :attr:`api` the pod's (0 when unknown),
+    :attr:`min_client_api` the lowest the pod takes (0 when unknown) and :attr:`firmware_version`
+    the pod's firmware when known. The fix is to update the SDK: ``pip install -U embeddedci``.
+
+    Not an :class:`UnsupportedFeatureError`: the pod can do it, this client cannot talk to it. A
+    :class:`FirmwareError` (and so a :class:`BenchPodError`).
+    """
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, client_api: int = 0,
+                 api: int = 0, min_client_api: int = 0, firmware_version: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.client_api = client_api
+        self.api = api
+        self.min_client_api = min_client_api
+        self.firmware_version = firmware_version
+
+
 class PermissionDeniedError(FirmwareError, TransportError):
     """The caller is not allowed to do this: the pod's ``forbidden: <cmd> needs an organization
     owner or admin`` on a cloud tunnel, or an HTTP 403 from the server (the API key lacks a
@@ -289,34 +328,56 @@ class PermissionDeniedError(FirmwareError, TransportError):
         self.status = status
 
 
+# -- text fallbacks ----------------------------------------------------------------------------
+#
+# Firmware with error codes (3.10.8+) sends a code with every refusal that has one, and
+# firmware_error() classifies by that code (_BY_CODE below). The texts here classify a refusal that
+# comes without a code the SDK knows: older firmware, and refusals that have no code yet. Each says
+# what replaces it: a code, or "no code yet" (firmware PR 2 of the codes plan gives them codes).
+
+#: No code yet: firmware PR 2 of the codes plan.
 _PIN_CONFLICT = re.compile(r"pin conflict: LA(\d+) is in use by ([\w:]+)")
+#: No code yet: firmware PR 2 of the codes plan.
 _PULL_CONFLICT = re.compile(r"pull conflict: LA(\d+)")
+#: No code yet: firmware PR 2 of the codes plan.
 _DIRECTION_CONFLICT = re.compile(r"direction conflict: LA(\d+)")
-#: "the I2C master needs gateware v55+", "SPI modes 1 and 2 need gateware v55+".
+#: "the I2C master needs gateware v55+", "SPI modes 1 and 2 need gateware v55+". BP0017 for the
+#: UART options; no code yet for the others: firmware PR 2 of the codes plan.
 _NEEDS_GATEWARE = re.compile(r"needs? gateware v\d+")
+#: No code yet: firmware PR 2 of the codes plan.
 _TRIGGER_TIMEOUT = re.compile(r"trigger timeout: no (\w+) \w+ on LA(\d+)")
 #: "busy: a cloud job holds this pod (<holder>, <n> s left)" (command_handler.c dispatch_line).
+#: Replaced by BP0025.
 _LEASED = re.compile(r"busy: a cloud job holds this pod \((.*), (\d+) s left\)")
-#: Policy changes the LAN may not make (pod_policy.c).
+#: Policy changes the LAN may not make (pod_policy.c), and "locked: ...". No code yet: firmware
+#: PR 2 of the codes plan.
 _POLICY_ELSEWHERE = ("change it from the cloud or the USB console",
                      "change it over TLS (port 8443), over USB or from the cloud",
                      "change it from the cloud or over USB",
                      "change it on the device",
                      "only the USB console can loosen")
-#: Older firmware's answer to a command it does not have (command_handler.c).
+#: Older firmware's answer to a command it does not have (command_handler.c). Replaced by BP0002.
 _UNKNOWN_CMD = "unknown cmd"
-#: The digital-only board refusing an analog command (cmd_gate.c cmd_gate_check).
+#: The digital-only board refusing an analog command (cmd_gate.c cmd_gate_check). No code yet:
+#: firmware PR 2 of the codes plan.
 _NO_ANALOG = "this BenchPod has no analog front end"
+#: "busy: ..." without a lease. BP0016 for the storage; no code yet for the others (a capture or
+#: upload running): firmware PR 2 of the codes plan.
+_BUSY = "busy:"
+#: "forbidden: <cmd> needs an organization owner or admin". No code yet: firmware PR 2.
+_FORBIDDEN = "forbidden:"
 
 
 #: The firmware's "la voltage not set; set la_mv ... in the active wiring profile, or call
 #: la_voltage ..." (older firmware: "...; set it with la_voltage (mv 1800 or 3300) first")
-#: (command_handler.c require_la_voltage). Matched on the leading words only.
+#: (command_handler.c require_la_voltage). Matched on the leading words only. Replaced by BP0001,
+#: which gets the same SDK text (_SDK_TEXT).
 _LA_VOLTAGE_UNSET = "la voltage not set"
 
 #: Firmware 3.10.4 and older could answer ``status`` over the cloud with more than the cloud
 #: channel takes ("reply too large for the cloud channel (1838 bytes, limit 1791)"). From this
-#: version a cloud ``status`` is a short form that always fits.
+#: version a cloud ``status`` is a short form that always fits. No code yet ("reply too large"):
+#: firmware PR 2 of the codes plan.
 STATUS_FITS_FIRMWARE = "3.10.5"
 _STATUS_TOO_LARGE = "too large for the cloud channel"
 
@@ -329,8 +390,10 @@ def status_too_large(message: str, cmd: Optional[str] = "status") -> bool:
 def la_pins_too_large(message: str, cmd: Optional[str] = "la_pins") -> bool:
     """Whether a pod refusal is a full ``la_pins`` listing too large for one reply (LAN
     ``reply too large``, cloud ``... for the cloud channel``). Only older firmware leaves it there:
-    newer firmware takes ``la`` and the SDK reads the list in parts."""
+    newer firmware takes ``la`` and the SDK reads the list in parts. No code yet: firmware PR 2."""
     return cmd == "la_pins" and "reply too large" in message
+
+
 _LA_VOLTAGE_SDK = ("la voltage not set; the wiring profile sets no I/O voltage: set la_mv in it "
                    "(bp.save_wiring(bp.wiring.with_changes(la_mv=3300)), 1800 for a 1.8 V board), "
                    "or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)")
@@ -390,9 +453,18 @@ def _sdk_refusal_text(message: str) -> str:
 
 
 def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
-    """The specific :class:`FirmwareError` subclass for a pod refusal, or ``exc`` itself."""
-    if type(exc) is not FirmwareError:
+    """The specific :class:`FirmwareError` subclass for a pod refusal, or ``exc`` itself.
+
+    A refusal with a code the SDK knows was classified by :func:`firmware_error` from that code
+    and comes back unchanged; only one without (older firmware, or a code newer than this SDK) is
+    classified from its text."""
+    if type(exc) is not FirmwareError or exc.code in _BY_CODE:
         return exc
+    return _classify_text(exc)
+
+
+def _classify_text(exc: FirmwareError) -> FirmwareError:
+    """The text fallback: the class a refusal's text names (see the patterns above)."""
     msg = exc.firmware_message
     m = _PIN_CONFLICT.search(msg)
     if m:
@@ -413,9 +485,9 @@ def classify_firmware_error(exc: FirmwareError) -> FirmwareError:
     m = _LEASED.search(msg)
     if m:
         return PodLeasedError(msg, cmd=exc.cmd, holder=m.group(1), left_s=int(m.group(2)))
-    if msg.startswith("busy:"):
+    if msg.startswith(_BUSY):
         return PodBusyError(msg, cmd=exc.cmd)
-    if msg.startswith("forbidden:"):
+    if msg.startswith(_FORBIDDEN):
         return PermissionDeniedError(msg, cmd=exc.cmd)
     if msg.strip() == _UNKNOWN_CMD:
         return UnsupportedFeatureError(msg, cmd=exc.cmd, feature=exc.cmd or "")
@@ -472,7 +544,10 @@ def _attach_code(exc: FirmwareError, code: str, values: Optional[Mapping[str, An
     exc.values = dict(values or {})
     exc.docs_url = error_docs_url(code) if code else ""
     entry = error_catalog().get("codes", {}).get(code) if code else None
-    if entry:
+    if code in _SDK_TEXT:
+        text = f"{code}: {_SDK_TEXT[code]} ({exc.docs_url})"
+        exc.args = (f"{exc.cmd}: {text}" if exc.cmd else text,)
+    elif entry:
         text = f"{code}: {_fill(entry['message'], exc.values)}; {_fill(entry['fix']['sdk'], exc.values)} ({exc.docs_url})"
         exc.args = (f"{exc.cmd}: {text}" if exc.cmd else text,)
     elif code:
@@ -480,24 +555,89 @@ def _attach_code(exc: FirmwareError, code: str, values: Optional[Mapping[str, An
     return exc
 
 
+def _int(v: Any) -> int:
+    """An int arg, 0 when it is missing or not a number."""
+    if isinstance(v, bool):
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    return int(v) if isinstance(v, str) and v.strip().isdigit() else 0
+
+
+def _str(v: Any) -> str:
+    return "" if v is None else str(v)
+
+
+def _leased(v: Mapping[str, Any], cmd: Optional[str]) -> Dict[str, Any]:
+    left = v.get("left_s")
+    return {"holder": _str(v.get("holder")), "purpose": _str(v.get("purpose")),
+            "left_s": int(left) if isinstance(left, (int, float)) and not isinstance(left, bool) else None}
+
+
+_NO_FIELDS: Callable[[Mapping[str, Any], Optional[str]], Dict[str, Any]] = lambda v, cmd: {}  # noqa: E731
+_WIRING = (lambda v, cmd: {"name": _str(v.get("name"))})
+_FieldsFn = Callable[[Mapping[str, Any], Optional[str]], Dict[str, Any]]
+
+#: Every code in the catalog: the exception class it raises and how its args fill that class's
+#: fields (``values`` keeps them all). A code missing here (newer than this SDK) is a plain
+#: :class:`FirmwareError`, classified by its text like a refusal without a code.
+_BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
+    "BP0001": (FirmwareError, _NO_FIELDS),                       # la_voltage_not_set
+    "BP0002": (UnsupportedFeatureError,                          # unknown_command
+               lambda v, cmd: {"feature": _str(v.get("cmd")) or cmd or ""}),
+    "BP0003": (PodBusyError, _NO_FIELDS),                        # i2c_session_open
+    "BP0004": (PodBusyError, _NO_FIELDS),                        # spi_session_open
+    "BP0005": (PodBusyError, _NO_FIELDS),                        # bus_engine_busy {want}
+    "BP0006": (FirmwareError, _NO_FIELDS),                       # missing_argument {arg}
+    "BP0007": (WiringError, _WIRING),                            # wiring_profile_not_found
+    "BP0008": (WiringError, _WIRING),                            # wiring_bad_name
+    "BP0009": (WiringError, _WIRING),                            # wiring_revision_conflict {rev}
+    "BP0010": (WiringError, _WIRING),                            # wiring_store_full {max}
+    "BP0011": (WiringError, _WIRING),                            # wiring_profile_too_large
+    "BP0012": (WiringError, _WIRING),                            # wiring_not_json_object
+    "BP0013": (WiringError, _WIRING),                            # wiring_delete_default
+    "BP0014": (WiringError, _WIRING),                            # wiring_upload_out_of_order
+    "BP0015": (WiringError, _WIRING),                            # wiring_storage_failed
+    "BP0016": (PodBusyError, _NO_FIELDS),                        # storage_busy
+    "BP0017": (UnsupportedFeatureError,                          # gateware_too_old {feature, min}
+               lambda v, cmd: {"feature": _str(v.get("feature")) or cmd or ""}),
+    "BP0018": (FirmwareError, _NO_FIELDS),                       # uart_same_pin {la}
+    "BP0019": (FirmwareError, _NO_FIELDS),                       # uart_half_duplex_two_pins
+    "BP0020": (FirmwareError, _NO_FIELDS),                       # uart_entry_no_reset_pin
+    "BP0021": (FirmwareError, _NO_FIELDS),                       # uart_entry_invalid {arg, max}
+    "BP0022": (FirmwareError, _NO_FIELDS),                       # uart_de_pin {la}
+    "BP0023": (PullDirectionError,                               # la_no_pull {la}
+               lambda v, cmd: {"la": _int(v.get("la")), "want": _str(v.get("want")),
+                               "have": _str(v.get("have"))}),
+    "BP0024": (PullDirectionError,                               # la_pull_direction {la, want, have}
+               lambda v, cmd: {"la": _int(v.get("la")), "want": _str(v.get("want")),
+                               "have": _str(v.get("have"))}),
+    "BP0025": (PodLeasedError, _leased),                         # lease_busy
+    "BP0026": (PodLeaseLostError, lambda v, cmd: {"by": _str(v.get("by"))}),   # lease_lost
+    "BP0027": (FirmwareError, _NO_FIELDS),                       # lease_not_held {id}
+    "BP0028": (FirmwareError, _NO_FIELDS),                       # vref_5v_missing {mv}
+    "BP0029": (FirmwareError, _NO_FIELDS),                       # pull_rail_down {mv}
+    "BP0030": (ClientTooOldError,                                # client_too_old
+               lambda v, cmd: {"client_api": _int(v.get("client_api")), "api": _int(v.get("api")),
+                               "min_client_api": _int(v.get("min_client_api"))}),
+}
+
+#: Codes whose message is the SDK's own text rather than the catalog's message and fix.
+_SDK_TEXT = {"BP0001": _LA_VOLTAGE_SDK}
+
+
 def firmware_error(message: str, *, cmd: Optional[str] = None, code: str = "",
                    values: Optional[Mapping[str, Any]] = None) -> FirmwareError:
     """The :class:`FirmwareError` (its specific subclass when there is one) for a pod refusal.
-    ``code`` / ``values``: the pod's stable error code and its args, when the firmware sends them."""
-    exc = FirmwareError(message, cmd=cmd)
+    ``code`` / ``values``: the pod's stable error code and its args, when the firmware sends them.
+
+    A code in the SDK's table decides the class (:data:`_BY_CODE`); the text only decides it for a
+    refusal without one (older firmware) or with a code newer than this SDK."""
     v = dict(values or {})
-    if code == "BP0025":   # the pod's lease: someone else holds it
-        left = v.get("left_s")
-        exc = PodLeasedError(message, cmd=cmd, holder=str(v.get("holder") or ""),
-                             purpose=str(v.get("purpose") or ""),
-                             left_s=int(left) if isinstance(left, (int, float)) and not isinstance(left, bool) else None)
-    elif code == "BP0026":   # the lease was stopped from the web app or the cloud
-        exc = PodLeaseLostError(message, cmd=cmd, by=str(v.get("by") or ""))
-    elif code == "BP0002":   # unknown command: the firmware lacks the feature
-        exc = UnsupportedFeatureError(message, cmd=cmd, feature=cmd or "")
-    elif code in ("BP0023", "BP0024"):   # no pull resistor / the other direction only
-        la = v.get("la", 0)
-        exc = PullDirectionError(message, cmd=cmd, la=int(la) if str(la).isdigit() else 0,
-                                 want=str(v.get("want", "")), have=str(v.get("have", "")))
-    exc = classify_firmware_error(exc)
+    known = _BY_CODE.get(code) if code else None
+    if known is not None:
+        cls, fields = known
+        exc: FirmwareError = cls(message, cmd=cmd, **fields(v, cmd))
+    else:
+        exc = _classify_text(FirmwareError(message, cmd=cmd))
     return _attach_code(exc, code or "", values)

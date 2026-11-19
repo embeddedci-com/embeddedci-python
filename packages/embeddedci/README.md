@@ -2478,11 +2478,13 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
 | `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or the USB console | `firmware_message`, `cmd` |
-| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running | `firmware_message`, `cmd` |
+| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running; an I2C or SPI session is already open (`BP0003`, `BP0004`), the engine that runs SWD, SPI and I2C is in use (`BP0005`), the storage cannot save while the DAC or a capture runs (`BP0016`) | `firmware_message`, `cmd` |
 | `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | someone else holds the pod's lease (`BP0025`), a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409), or the lease did not free within `lease_wait` | `holder`, `purpose`, `left_s`, `expires_at`, `status` |
 | `PodLeaseLostError` (a `FirmwareError`) | the pod's lease this session held was stopped from the web app or the cloud (`BP0026`); the command did not run | `by` |
 | `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
-| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd`, or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
+| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd` (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
+| `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
+| `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
 | `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |

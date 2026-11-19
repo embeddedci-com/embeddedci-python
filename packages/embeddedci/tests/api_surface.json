@@ -401,6 +401,9 @@
     "rms_ac": "(self) -> 'float'",
     "times": "(self) -> 'List[float]'"
   },
+  "ClientTooOldError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, client_api: 'int' = 0, api: 'int' = 0, min_client_api: 'int' = 0, firmware_version: 'str' = '') -> 'None'"
+  },
   "CloudAuthError": {},
   "ConnSpec": {
     "__fields__": [
@@ -1329,6 +1332,9 @@
     "warnings": "(self) -> 'List[str]'",
     "with_changes": "(self, **changes: 'Any') -> \"'Wiring'\""
   },
+  "WiringError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, name: 'str' = '') -> 'None'"
+  },
   "__all__": [
     "AdcCompensation",
     "AdcGainSource",
@@ -1356,6 +1362,7 @@
     "CanTimeout",
     "Capabilities",
     "Capture",
+    "ClientTooOldError",
     "CloudAuthError",
     "ConnSpec",
     "ConnectionClosedError",
@@ -1486,6 +1493,7 @@
     "WaveformLibrary",
     "Waveshape",
     "Wiring",
+    "WiringError",
     "build_constant_curve",
     "build_linear_curve",
     "build_panel_curve",

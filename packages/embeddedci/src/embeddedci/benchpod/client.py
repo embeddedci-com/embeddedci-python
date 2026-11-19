@@ -2057,6 +2057,7 @@ class BenchPod:
         except UnsupportedFeatureError:
             header = None
         except BenchPodError as e:
+            # No code yet ("no module link"): firmware PR 2 of the codes plan.
             header = "j1" if "no module link" in str(e).lower() else None
         if header is None:
             try:
@@ -2514,7 +2515,8 @@ class BenchPod:
             with _classified_errors():
                 info = _dict(self.command(req))
         except FirmwareError as exc:
-            if exc.firmware_message.startswith("i2c busy"):
+            # BP0003; the text for firmware without codes.
+            if exc.code == "BP0003" or (not exc.code and exc.firmware_message.startswith("i2c busy")):
                 exc.args = (self._i2c_busy_text(exc),)
             raise
         return _i2c_master.I2CMaster(self._classified_command, info)
@@ -3521,6 +3523,7 @@ class BenchPod:
         try:
             return self._la_pins_query(None)
         except FirmwareError as e:
+            # No code yet ("reply too large"): firmware PR 2 of the codes plan.
             if "reply too large" not in str(getattr(e, "firmware_message", "") or e):
                 raise
             first = self._la_pins_query(list(range(1, 8)))
