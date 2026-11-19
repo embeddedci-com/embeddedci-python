@@ -170,6 +170,23 @@ the wiring profile sets no I/O voltage: set la_mv in it (bp.save_wiring(bp.wirin
 1800 for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)`
 (prefixed with the command, as every `FirmwareError` is).
 
+**5 V I/O (digital board v3r4).** On a pod with the digital board v3r4 (`bp.supports("la_5v")`,
+`bp.capabilities.vref_out`), `bp.set_la_voltage(5.0)` (or `la_mv: 5000` in the profile) keeps the
+bank at 3.3 V and switches J1 pin 21, the pull-up rail, to 5 V; outputs reach 5 V through their
+pull-up (`bp.set_pull(la, "up")`). What that means for the wiring is on the
+[5 V page](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io). `FirmwareError` `BP0028`: 5 V did not come up. Other pods raise
+`ValueError` before anything is sent. On v3r4, `LaVoltage.pin21` reports pin 21 (`None` elsewhere):
+
+```python
+st = bp.get_la_voltage()
+if st.pin21 and st.pin21.state == "high":
+    # a DUT signal above the I/O voltage lifts pin 21 through the pulls: select 5 V or remove it
+    print(f"pin 21 at {st.pin21.measured} V, set to {st.pin21.setting} V")
+```
+
+`Pin21` has `source` (`"bank"` or `"5v"`), `setting` and `measured` (volts), `state` (`"ok"`,
+`"high"`, `"low"`, `"short"` or `"unknown"`), `up` (high enough for the pulls) and `ok`.
+
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
 `cloud_token`, `cloud_audience`, `cloud_user_token`, `lease`, `lease_wait`, `lease_ttl` (see [Cloud](#cloud-embeddedcidevice-name)),
 `wiring` and `wiring_source` (see [Wiring profile](#wiring-profile)) and `transport` (inject a
@@ -1126,9 +1143,9 @@ firmware the call raises `UnsupportedFeatureError` before anything is sent. The 
 stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
 `bp.status()["uart_rx_parity_error"]` turns true for the session.
 
-The LA pins are 1.8 V or 3.3 V only: the pod has no 5 V I/O and no RS-485 port. A 5 V UART needs a
-level shifter, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a 5 V
-transceiver behind a level shifter), between the pod and the device.
+No pod has an RS-485 port, and boards before the digital v3r4 have no 5 V I/O: a 5 V UART needs a
+level shifter there, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a
+5 V transceiver behind a level shifter). The digital v3r4 has [5 V I/O](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io).
 
 **One wire (half duplex).** Some parts talk UART on a single pin, for example a boot ROM's
 programming pin. `half_duplex=True` runs the session on `rx` alone (`tx` defaults to the same
@@ -1193,6 +1210,17 @@ value. Which channels have one and which way each can pull depends on the board,
 
 The resistors are referenced to 3V3, so the pod won't engage one while the LA bank is at 1.8 V
 (`PullState.available` is false).
+
+**Digital board v3r4** (`bp.supports("la_pull_strength")`): every channel, LA1–LA14, pulls up or
+down with a 10k, a 2.2k or both (about 1.8k). You still name only the direction: the pod picks the
+strength from the pin's function (2.2k for I2C, one-wire UART, open drain, and pod outputs in 5 V
+mode; 10k otherwise), and `PullState.strength` says which (`"10k"`, `"2.2k"`, `"both"`, `"none"`
+when off). The pull-ups go to J1 pin 21, so they work at 1.8, 3.3 and 5 V. While pin 21 is down
+(shorted or held down) the pod turns every pull off and refuses new ones with `BP0029`; when the
+pod switches the DUT's power off, the pull-ups stay off until a rail is on again or you set a pull.
+While the pod holds a pull off like this, `PullState.enabled` and `state` say what is on the wire
+and `PullState.held` says why (`"pin21_down"`, `"dut_off"` or `"fault"`; `None` otherwise). The pod
+puts the pull back by itself (firmware after 3.10.12).
 
 ```python
 from embeddedci.benchpod import PIN1, PIN2, PIN7
@@ -1262,7 +1290,9 @@ The other owners point to `bp.sensors.stop("<instance>")`, closing the session f
 `bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train to finish. The pod's own
 text, with its raw protocol command, stays in `exc.firmware_message`.
 
-`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`, `pull_dirs`),
+`bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`, `pull_dirs`);
+`bp.la_pins(la=[3, 4])` only those channels. A listing too large for one cloud reply (a long
+sensor instance name on every channel) is read in two parts by itself (firmware after 3.10.12),
 and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()` returning those states.
 Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
 disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),
@@ -2497,7 +2527,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 | GPIO expanders | `expansion(chip="", *, addr=None, sda=None, scl=None, spi=None, load=None, count=None, hz=None, pullups=None, names=None)` (see [GPIO expanders](#gpio-expanders)) |
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` |
 | Bias resistors | `enable_pullup(*las)`, `disable_pullup(*las)`, `enable_pulldown(*las)`, `disable_pulldown(*las)` (LA7/LA8), `set_pull(la, enabled)`, `pull_state(la)`, `enabled_pulls()` |
-| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)` (`level` may be a list, one per channel), `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins()`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `pin_directions_status`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
+| GPIO and pins | `gpio(la, mode="output", *, level=None)`, `gpio_pins(las, mode="output", *, level=None)`, `configure_gpio(las, mode="output", *, level=None)`, `set_gpio(la, level)` (`level` may be a list, one per channel), `read_gpio(la)`, `wait_for_level(la, level, *, timeout, poll=0.005)` (`False` when `timeout` passes first), `pin_levels()`, `la_pins(la=None)`, `la_dir(la=None, dir=None)`, `pin_directions(wiring=None)`, `apply_pin_directions(wiring=None)`, `pin_directions_status`, `release_gpio(*las)`, `la_step(la, *, steps, delay, dir_la=None, direction=0)` |
 | Emulated sensors | `sensors` (a `SensorEmulation`: `start(definition, *, instance=None, pins=None, address=None, baud=None, values=None)`, `define()`, `validate()`, `set()`, `fault()`, `clear_fault()`, `load_stimulus()`, `start_stimulus()`, `stop_stimulus()`, `stop()`, `status()`, `regs()`, `capture()`, `i2c_transactions()`, `library()`); see [Emulated sensors](#emulated-sensors) |
 | Analog | `analog_path(path, *, range=None)`, `adc_read(source="ext", *, range=None)`, `adc_range(range=None)`, `adc_range_test()`, `dac_output(path, *, volts=None)`, `current_out(current)`, `current_out_range()`, `calibrate(source="current_in")`, `calibration()`, `clear_calibration(part=None)`, `calibrate_dac(path, points)`, `calibrate_adc_gain(source, *, range="normal")`, `DMM_SET_POINTS` |
 | Captures | `capture_adc(...)`, `capture_la(..., send=None)`, `capture_correlated(...)`, `decode(source, protocol="i2c", ...)` |
@@ -2514,7 +2544,8 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 
 | Type | Returned by / used for | Fields and members |
 |---|---|---|
-| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set` |
+| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set`, `pin21` (a `Pin21`, digital v3r4 only) |
+| `Pin21` | `LaVoltage.pin21` | `source`, `setting`, `measured` (V), `state`, `up`, `ok` |
 | `TargetStatus` | `target_status` | `internal`, `external` (each an `EfuseState`), `supported`, `efuse(n)` |
 | `EfuseState` | `TargetStatus.efuse` | `enabled`, `fault`, `valid` |
 | `PowerStatus` | `power_status` | `internal`, `external` (each a `RailPower`), `pod`, `total_current`, `rail(n)` |
@@ -2525,7 +2556,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `MacAddresses` | `mac_addresses` | `eth_mac`, `wifi_mac` (None while not known), `has_wifi`, `source` (`pod`, `server` or empty) |
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
-| `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available` |
+| `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available`, `supported`, `strength` (digital v3r4) |
 | `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `pull_dirs`, `dir`, `warn`, `warnings`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
 | `ExtPin` (class) | `gpio`, `gpio_pins`, `signal` on an EXT pin | a `GpioPin` with `ext`, `pin`; `la` is `None`; `pulse()` raises `ExpansionError` |
@@ -2599,10 +2630,10 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 
 | Group | Fields |
 |---|---|
-| Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"unknown"`, or `""`), `la_vccio_mv` (the LA bank voltage the pod reports) |
+| Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"v3r2"`, `"v3r4"` (digital v3r4), `"unknown"`, or `""`), `la_vccio_mv` (the LA I/O voltage the pod reports, 5000 in 5 V mode) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `vref_out` (digital v3r4: pin 21 switched and measured, 5 V I/O, pulls with a strength on every channel), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |

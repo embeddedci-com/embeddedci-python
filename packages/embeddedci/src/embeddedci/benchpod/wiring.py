@@ -425,8 +425,9 @@ class Wiring:
         errs: List[str] = []
         if self.version != WIRING_VERSION:
             errs.append(f"version must be {WIRING_VERSION}, got {self.version!r}")
-        if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300)):
-            errs.append(f"la_mv must be 1800 or 3300 (or None: not set), got {self.la_mv!r}")
+        if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300, 5000)):
+            errs.append(f"la_mv must be 1800, 3300 or 5000 (5 V: digital board v3r4; or None: not set), "
+                        f"got {self.la_mv!r}")
         if self.efuse is not None and (not _is_int(self.efuse) or self.efuse not in (1, 2)):
             errs.append(f"efuse must be 1 (internal) or 2 (external) (or None: not set), got {self.efuse!r}")
         if not _is_int(self.uart_baud) or not 300 <= self.uart_baud <= 4_000_000:

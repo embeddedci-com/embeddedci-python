@@ -61,6 +61,15 @@ def test_status_too_large_for_the_cloud_names_the_fix():
     assert "3.10.5" not in str(other)
 
 
+def test_la_pins_too_large_names_the_update():
+    for msg in ("reply too large", "reply too large for the cloud channel (2288 bytes, limit 1791)"):
+        err = firmware_error(msg, cmd="la_pins")
+        assert err.firmware_message == msg
+        assert "firmware after 3.10.12 reads this list in parts" in str(err)
+        assert "benchpod flash-self" in str(err) and "la_pins(la=" in str(err)
+    assert "3.10.12" not in str(firmware_error("reply too large", cmd="gpio"))
+
+
 def test_busy_without_a_lease():
     err = firmware_error("busy: a capture or upload is running")
     assert type(err) is PodBusyError

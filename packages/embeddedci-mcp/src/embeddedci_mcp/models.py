@@ -49,7 +49,7 @@ class InputMapSpec(BaseModel):
 
 class CapabilitiesInfo(BaseModel):
     board: str = ""
-    board_rev: str = Field("", description="PCB revision: v2, v3 or unknown.")
+    board_rev: str = Field("", description="PCB revision: v2, v3, v3r2, v3r4 (digital board v3r4) or unknown.")
     firmware_version: str = ""
     adc_bits: int = 0
     scope: bool = False
@@ -67,6 +67,9 @@ class CapabilitiesInfo(BaseModel):
     power_profile: bool = Field(False, description="Power profiles (measure_power, power_profile_start).")
     nrst_pin: bool = Field(False, description="Dedicated target-reset pin (reset_target, flash nreset).")
     usb_cc: bool = Field(False, description='USB-C CC monitoring (command {"cmd": "usb_cc"}).')
+    vref_out: bool = Field(False, description=(
+        "Digital board v3r4: J1 pin 21 is switched and measured, 5 V I/O (set_la_voltage 5.0), and every "
+        "channel's pull goes up or down with a strength the pod picks."))
     calibrate: bool = Field(False, description="The pod calibrates its own ADC offset on the 4-20 mA input (calibrate, calibration).")
     current_out: bool = Field(False, description=(
         "4-20 mA output on terminal J9 (current_out, and dac_path current_out on generate and replay)."))
@@ -139,9 +142,23 @@ class StatusResult(BaseModel):
         "web UI's Wiring tab shows it), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))
 
 
+class Pin21Result(BaseModel):
+    """J1 pin 21 on digital v3r4: the rail the pull-ups pull to."""
+
+    source: str = Field(description="bank (follows the I/O bank, 1.8 or 3.3 V) or 5v.")
+    setting: float = Field(description="What pin 21 should be, volts.")
+    measured: Optional[float] = Field(None, description="What the pod measures, volts.")
+    state: str = Field(description=(
+        "ok; high: more than 0.2 V above its setting, a DUT signal above the I/O voltage lifts it "
+        "through the pulls (tell the user to select 5 V or remove the signal); low: overloaded, or 5 V "
+        "did not come up; short: shorted or held down, the pulls are off; unknown: no reading yet."))
+    up: bool = Field(description="High enough for the pull resistors to work.")
+
+
 class LaVoltageResult(BaseModel):
     voltage: Optional[float]
     readback: Optional[float] = None
+    pin21: Optional[Pin21Result] = Field(None, description="Digital v3r4 only: J1 pin 21.")
 
 
 # -- wiring profile ----------------------------------------------------------------
@@ -549,6 +566,11 @@ class PullChannel(BaseModel):
     direction: Optional[str]
     ohms: str
     available: bool
+    #: Digital v3r4: 10k, 2.2k or both (about 1.8k), none when off; picked from the pin's function.
+    strength: Optional[str] = None
+    #: Digital v3r4: why a pull that was set is off right now (pin21_down, dut_off, fault); the pod
+    #: puts it back by itself. None when everything set is on.
+    held: Optional[str] = None
 
 
 class PullStatusResult(BaseModel):

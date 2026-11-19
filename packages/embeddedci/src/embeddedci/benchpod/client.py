@@ -72,6 +72,7 @@ from .constants import (
     LA_STEP_MAX_STEPS,
     LA_STEP_MIN_DELAY_US,
     LA_VOLTAGES,
+    LA_VOLTAGE_5V,
     PULL_DIRECTIONS,
     PULL_TABLE,
     REPLAY_MAPPINGS,
@@ -1102,7 +1103,13 @@ class BenchPod:
     # -- LA I/O-bank voltage ------------------------------------------------
 
     def set_la_voltage(self, voltage: float) -> LaVoltage:
-        """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod).
+        """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod), or
+        ``5.0`` on a pod with the digital board v3r4 (feature ``la_5v``).
+
+        At 5.0 the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V, and outputs
+        reach 5 V through their pull-ups: https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io
+        Raises :class:`~embeddedci.benchpod.errors.FirmwareError` ``BP0028`` when 5 V did not come
+        up. :attr:`LaVoltage.pin21` reports pin 21.
 
         Match it to the DUT's I/O voltage. It must be set before any LA-bank operation (flashing,
         the UART proxy, LA capture, pull resistors, sensor emulation), or the pod refuses them with
@@ -1111,10 +1118,24 @@ class BenchPod:
         profile, and firmware 3.10.10+ takes it from the profile on the first LA operation.
         """
         v = float(voltage)
+        if abs(v - LA_VOLTAGE_5V) < 0.05:
+            # 5 V I/O (digital v3r4): the pod keeps the bank at 3.3 V and moves pin 21 to 5 V.
+            if not self.supports("la_5v"):
+                raise ValueError("5 V I/O needs a BenchPod with the digital board v3r4 or later and "
+                                 "firmware that has it (feature la_5v): use 1.8 or 3.3")
+            with _classified_errors():
+                return LaVoltage.from_reply(self.command({"cmd": "la_voltage", "mv": 5000}))
         match = next((ok for ok in LA_VOLTAGES if abs(v - ok) < 0.05), None)
         if match is None:
-            raise ValueError(f"la voltage must be 1.8 or 3.3 (volts), got {voltage!r}")
+            five = " or 5.0 (this pod has 5 V I/O)" if self._has_5v() else ""
+            raise ValueError(f"la voltage must be 1.8 or 3.3{five} (volts), got {voltage!r}")
         return LaVoltage.from_reply(self.command({"cmd": "la_voltage", "mv": int(round(match * 1000))}))
+
+    def _has_5v(self) -> bool:
+        try:
+            return self.supports("la_5v")
+        except BenchPodError:
+            return False
 
     def get_la_voltage(self) -> LaVoltage:
         """The current LA I/O-bank voltage (``voltage`` is ``None`` until one is selected)."""
@@ -3482,13 +3503,50 @@ class BenchPod:
     # -- LA pin modes + GPIO --------------------------------------------------
     # The LA pins on the iCE40 (not STM32 GPIOs). Each has one function at a time; see gpio.py.
 
-    def la_pins(self) -> List[LaPinState]:
+    def la_pins(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]], None] = None
+                ) -> List[LaPinState]:
         """Every LA channel's function (``none``, ``gpio``, ``uart_rx``, …), GPIO mode and level, and
-        bias resistor. A channel that is in use refuses other functions."""
+        bias resistor. A channel that is in use refuses other functions.
+
+        ``la``: only these channels (a channel, a wiring name, or a list), in pin order. Firmware
+        after 3.10.12 sends only those; older firmware sends all 14 and the SDK keeps the ones asked
+        for. A full listing too large for one cloud reply (a long sensor instance name on every
+        pin) is read in two parts by itself."""
         self._require_capability("la_pins", "LA pin modes and GPIO")
+        if la == "all":
+            la = None
+        if la is not None:
+            want = sorted(set(self._resolve_las(la, why="la_pins lists LA channels")))
+            return [p for p in self._la_pins_query(want) if p.la in want]
+        try:
+            return self._la_pins_query(None)
+        except FirmwareError as e:
+            if "reply too large" not in str(getattr(e, "firmware_message", "") or e):
+                raise
+            first = self._la_pins_query(list(range(1, 8)))
+            if len(first) > 7:   # firmware without the subset: it listed everything again
+                raise
+            return first + [p for p in self._la_pins_query(list(range(8, 15))) if p.la >= 8]
+
+    def _la_pins_query(self, las: Optional[List[int]]) -> List[LaPinState]:
+        req: Dict[str, Any] = {"cmd": "la_pins"}
+        if las is not None:
+            req["la"] = las
         with _classified_errors():
-            data = _dict(self.command({"cmd": "la_pins"}))
-        return [LaPinState.from_reply(e) for e in data.get("pins") or []]
+            data = _dict(self.command(req))
+        # Digital v3r4 says the directions once for every channel ("pull_dirs").
+        dirs = data.get("pull_dirs")
+        return [LaPinState.from_reply(e, pull_dirs=dirs if isinstance(dirs, list) else None)
+                for e in data.get("pins") or []]
+
+    def _entry_pull_dirs(self, entries: Any) -> Optional[Tuple[str, ...]]:
+        """The pull directions for listing replies that do not say them (la_dir, gpio): on digital
+        v3r4 every channel pulls both ways, said only once in the la_pins reply."""
+        if not isinstance(entries, list):
+            return None
+        bare = any(isinstance(e, dict) and isinstance(e.get("pull"), dict) and "dirs" not in e["pull"]
+                   for e in entries)
+        return ("up", "down") if bare and self.supports("la_pull_strength") else None
 
     def la_dir(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]], None] = None,
                dir: Optional[str] = None) -> List[LaPinState]:
@@ -3513,7 +3571,9 @@ class BenchPod:
         with _classified_errors():
             data = self.command(req)
         entries = data.get("pins") if isinstance(data, dict) else data
-        return [LaPinState.from_reply(e) for e in entries or []] if isinstance(entries, list) else []
+        dirs = self._entry_pull_dirs(entries)
+        return ([LaPinState.from_reply(e, pull_dirs=dirs) for e in entries or []]
+                if isinstance(entries, list) else [])
 
     def pin_directions(self, wiring: Optional[Wiring] = None) -> Dict[int, str]:
         """The DUT direction of every pin the wiring profile names, as :meth:`la_dir` takes it:
@@ -3750,7 +3810,9 @@ class BenchPod:
         self._require_capability("la_pins", "GPIO")
         with _classified_errors():
             data = _dict(self.command(req))
-        pins = [LaPinState.from_reply(e) for e in data.get("pins") or []]
+        entries = data.get("pins") or []
+        dirs = self._entry_pull_dirs(entries)
+        pins = [LaPinState.from_reply(e, pull_dirs=dirs) for e in entries]
         return pins or [LaPinState(la=la, function="gpio", gpio=mode, level=level) for la in las]
 
     def _resolve_las(self, la: Any, why: str = "") -> List[int]:

@@ -267,9 +267,12 @@ def test_rev3_tools(connected):
     if not connected["firmware"].get("nrst_pin"):
         pytest.skip("not a rev3 pod")
     caps = connected["capabilities"]
-    assert caps["board_rev"] in ("v3", "v3r2") and caps["nrst_pin"] and caps["usb_cc"], caps
+    assert caps["board_rev"] in ("v3", "v3r2", "v3r4") and caps["nrst_pin"] and caps["usb_cc"], caps
     try:
-        assert call("set_la_voltage", voltage=1.8) == {"voltage": 1.8, "readback": 1.8}
+        r = call("set_la_voltage", voltage=1.8)
+        assert (r["voltage"], r["readback"]) == (1.8, 1.8), r
+        # pin 21 only on digital v3r4, where it follows the bank to 1.8 V
+        assert (r.get("pin21") is None) == (not caps.get("vref_out")), r
     finally:
         assert call("set_la_voltage", voltage=3.3)["readback"] == 3.3
     try:

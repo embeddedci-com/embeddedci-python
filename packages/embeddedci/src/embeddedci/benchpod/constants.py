@@ -157,6 +157,9 @@ ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "c
 
 #: LA I/O-bank voltages the pod supports (volts). 1.8 V needs a rev3 pod.
 LA_VOLTAGES: Tuple[float, ...] = (1.8, 3.3)
+#: 5 V I/O: digital board v3r4 and later (feature ``la_5v``). The bank stays at 3.3 V and pin 21,
+#: the rail the pull-ups pull to, goes to 5 V.
+LA_VOLTAGE_5V: float = 5.0
 
 #: Pull directions a host asks for (``BenchPod.set_pull``). The pod picks the resistor value.
 PullDirection = Literal["up", "down", "off"]
