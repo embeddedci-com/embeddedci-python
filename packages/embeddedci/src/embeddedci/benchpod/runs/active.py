@@ -102,8 +102,16 @@ def default_run_dir(started: float, suite: str = "", base: Union[str, "os.PathLi
     return Path(base) / "embeddedci-runs" / f"{folder_stamp(started)}-{case_slug_simple(suite or 'pytest')}"
 
 
+_SIMPLE_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
 def case_slug_simple(text: str) -> str:
-    return "".join(c if c.isalnum() or c in "._-" else "_" for c in text)[:80] or "pytest"
+    """``text`` as a short file name part: ASCII ``[A-Za-z0-9._-]`` only (the server's file name
+    rule), every other character ``_``, no leading dot, at most 80 characters."""
+    out = "".join(c if c in _SIMPLE_OK else "_" for c in text)[:80]
+    if out.startswith("."):
+        out = "_" + out[1:]
+    return out or "pytest"
 
 
 @dataclass
