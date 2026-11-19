@@ -292,6 +292,22 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
 `set_lan_tls_cert` needs a network connection (it uploads the bundle); after it and after
 `regenerate_lan_tls()` the SDK pins the new certificate for the address it used.
 
+### Console log level
+
+How much the pod prints on its USB console (firmware newer than 3.10.12, feature `log_level`).
+`info` is the default; `debug` adds the per-command trace (`[cmd] <- ...`, `[cmd] -> ok ...`) and
+the retry detail of the cloud, Wi-Fi and DHCP loops, `warn` and `error` print less. Errors always
+print. The pod stores the level, so it survives a reboot and a firmware update; any connection may
+read or set it.
+
+```python
+bp.log_level()              # "info"
+bp.set_log_level("debug")   # one of LOG_LEVELS: "error", "warn", "info", "debug"
+```
+
+Another name raises `ValueError` without asking the pod; older firmware raises
+`UnsupportedFeatureError` (it has no levels and prints everything).
+
 ### MAC addresses (managed networks)
 
 A lab network that hands out addresses only to registered devices needs the pod's MACs first.

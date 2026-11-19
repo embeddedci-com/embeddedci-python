@@ -218,6 +218,17 @@ def _seconds_to_ms(value: Optional[float], name: str) -> int:
     return int(round(value * 1000))
 
 
+#: The pod's console log levels, quietest first (:meth:`BenchPod.set_log_level`).
+LOG_LEVELS = ("error", "warn", "info", "debug")
+
+
+def _log_level_from_reply(data: Any) -> str:
+    level = _dict(data).get("level")
+    if level not in LOG_LEVELS:
+        raise BenchPodError(f"log_level: unexpected reply {data!r}")
+    return str(level)
+
+
 def _check_level(level: Any) -> int:
     if level not in (0, 1):
         raise ValueError(f"level must be 0 or 1, got {level!r}")
@@ -1227,6 +1238,26 @@ class BenchPod:
             req["set"] = "on" if on else "off"
         data = self.command(req)
         return isinstance(data, dict) and data.get("setting") == "on"
+
+    # -- console log level --------------------------------------------------
+
+    def log_level(self) -> str:
+        """How much the pod prints on its USB console: ``"error"``, ``"warn"``, ``"info"`` (the
+        default) or ``"debug"`` (adds the per-command trace and the retry detail of the cloud,
+        Wi-Fi and DHCP loops). Firmware newer than 3.10.12 (feature ``log_level``); raises
+        :class:`UnsupportedFeatureError` on older firmware, which prints everything."""
+        self._require_capability("log_level", "Console log levels")
+        return _log_level_from_reply(self.command({"cmd": "log_level"}))
+
+    def set_log_level(self, level: str) -> str:
+        """Set the console log level (one of :data:`LOG_LEVELS`) and return it. The pod stores it:
+        it survives a reboot and a firmware update. It changes only console output, so any
+        connection may set it."""
+        name = str(level).strip().lower()
+        if name not in LOG_LEVELS:
+            raise ValueError(f"level must be one of {', '.join(LOG_LEVELS)}, got {level!r}")
+        self._require_capability("log_level", "Console log levels")
+        return _log_level_from_reply(self.command({"cmd": "log_level", "set": name}))
 
     # -- LAN TLS ------------------------------------------------------------
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Console log level:** `bp.log_level()` reads how much the pod prints on its USB console and
+  `bp.set_log_level(level)` sets it (`LOG_LEVELS`: `error`, `warn`, `info`, `debug`; default
+  `info`, stored on the pod). Firmware newer than 3.10.12 (feature `log_level`); older firmware
+  raises `UnsupportedFeatureError`.
 - Test run recording: a failed case's `message` starts with the crash line (`ValueError: bad CRC:
   6f72`), then a blank line and pytest's full report, still capped at 16 KB.
 - **Pod lease on the LAN and the USB network:** on a pod with the `lease` feature (features table

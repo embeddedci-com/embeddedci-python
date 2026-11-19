@@ -3278,6 +3278,40 @@
       "type": "object"
     }
   },
+  "log_level": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Console log level"
+    },
+    "input": {
+      "properties": {
+        "level": {
+          "anyOf": [
+            {
+              "enum": [
+                "error",
+                "warn",
+                "info",
+                "debug"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omit to read the level. Set one to change it; the pod stores it across reboots and firmware updates.",
+          "title": "Level"
+        }
+      },
+      "title": "log_levelArguments",
+      "type": "object"
+    }
+  },
   "loop_input": {
     "annotations": {
       "destructiveHint": true,

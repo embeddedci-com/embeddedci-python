@@ -28,7 +28,7 @@ from . import sensors
 from .can import CanBus, CanFrame, CanReadResult
 from .capabilities import Capabilities
 from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
-from .client import BenchPod
+from .client import LOG_LEVELS, BenchPod
 from .sensors import (
     SENSOR_LIBRARY_VERSION,
     DefinitionError,
@@ -174,6 +174,8 @@ from .header import header_map
 
 __all__ = [
     "BenchPod",
+    # console log level
+    "LOG_LEVELS",
     # wiring profile
     "Wiring",
     "header_map",

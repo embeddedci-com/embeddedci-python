@@ -30,7 +30,7 @@ EXPECTED_TOOLS = {
     "sensor_set", "sensor_stimulus_load", "sensor_stimulus_start", "sensor_stimulus_stop",
     "sensor_fault", "sensor_fault_clear", "sensor_stop", "sensor_status", "sensor_regs",
     "sensor_capture",
-    "set_pull", "pull_status", "usb_network", "lan_tls",
+    "set_pull", "pull_status", "usb_network", "log_level", "lan_tls",
     "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
@@ -906,3 +906,27 @@ def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch)
     assert call("usb_network")["setting"] == "on"
     res = call("usb_network", set="off")
     assert res["setting"] == "off" and "usb-network on" in res["note"] and seen == [None, False]
+
+
+def test_log_level_reads_and_sets(fake_open, fake_transport, monkeypatch):
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+    seen = []
+    monkeypatch.setattr(pod, "log_level", lambda: seen.append("read") or "info", raising=False)
+    monkeypatch.setattr(pod, "set_log_level", lambda lv: seen.append(lv) or lv, raising=False)
+    assert call("log_level") == {"level": "info"}
+    assert call("log_level", level="debug") == {"level": "debug"}
+    assert seen == ["read", "debug"]
+
+
+def test_log_level_on_old_firmware_is_a_clean_error(fake_open, fake_transport, monkeypatch):
+    from embeddedci.benchpod import UnsupportedFeatureError
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+
+    def old():
+        raise UnsupportedFeatureError("Console log levels need newer pod firmware", feature="log_level")
+
+    monkeypatch.setattr(pod, "log_level", old, raising=False)
+    with pytest.raises(ToolError, match="newer pod firmware"):
+        call("log_level")
