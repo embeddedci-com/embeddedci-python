@@ -122,7 +122,10 @@ stored wiring profile. `BENCHPOD_API_KEY` wins when set, and
 inside GitHub Actions the SDK uses OIDC instead.
 
 `cloud_list_devices` lists the pods on your account and which are online, without connecting to
-one; pass a result's `connection` to `connect`. The session token behind a cloud connection is
+one; pass a result's `connection` to `connect`. `cloud_runs_list`, `cloud_run_get`,
+`cloud_run_compare` and `cloud_run_trace` read the test runs uploaded to embeddedci.com, so an agent
+can see why a run failed (the failed cases, the measurements outside their limits, the pod calls of
+a failed test) and what changed since an earlier run, without the bench. The session token behind a cloud connection is
 renewed before it expires, so a long session keeps working.
 
 A pod is shared, so `connect` takes an exclusive lease, waiting up to `--lease-wait` seconds if
@@ -192,6 +195,10 @@ description, ranges and enums, so an agent sees more than this table.
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `cloud_list_devices` | The pods on your embeddedci.com organization and whether each is online, without connecting. | none |
+| `cloud_runs_list` | Test runs uploaded to embeddedci.com (`benchpod ci`, `pytest --embeddedci-upload`, `build_report`), newest first, with outcome and counts; `before` is the previous page's `next_before`. | `suite`, `dut`, `build`, `pod`, `ref`, `limit=20`, `before` |
+| `cloud_run_get` | One test run: outcome, counts, health, pod and tests, the failed cases with the first line of their message, the measurements outside their limits and the uploaded files; `full=true` adds the whole `run.json`. | **`run_id`**, `full=false` |
+| `cloud_run_compare` | What changed between an earlier run and this one: newly failing and fixed cases, measurements, slower tests and pod calls, and the inputs that differ (pod firmware, wiring, DUT firmware). `compare_with`: `previous`, a run id, or `baseline:<branch>`. | **`run_id`**, `compare_with="previous"` |
+| `cloud_run_trace` | The pod calls of one test case from its uploaded trace (only failed and error cases have one): what was sent, how long it took, the answer or error; long requests and replies are shortened. `case_id` may be a unique end of the id. | **`run_id`**, **`case_id`**, `errors_only=false`, `limit=200` |
 
 ### Wiring profile
 

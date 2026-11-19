@@ -801,6 +801,50 @@ class CloudDeviceList(BaseModel):
     devices: List[CloudDevice]
 
 
+class CloudRunList(BaseModel):
+    auth: Literal["api_key", "benchpod_login"]
+    runs: List[Dict[str, Any]] = Field(description=(
+        "Newest first: id, url, suite, dut, outcome, valid, counts, started, duration_ms, build_id, "
+        "device_name, tests_ref, tests_sha, firmware, github_run_url."))
+    next_before: Optional[str] = Field(None, description=(
+        "More runs exist: pass this as `before` for the next page."))
+    org_pods: Optional[int] = Field(None, description="How many pods the organization has.")
+
+
+class CloudRun(BaseModel):
+    auth: Literal["api_key", "benchpod_login"]
+    summary: Dict[str, Any] = Field(description=(
+        "id, url, suite, dut, outcome, counts, valid, health_reasons, pod, tests, build_id, "
+        "failed_cases (id, outcome, the message's first line, whether a trace was uploaded) and "
+        "measurements_out_of_limits."))
+    files: List[Dict[str, Any]] = Field(default_factory=list, description=(
+        "The uploaded files (name, size_bytes, expired): junit.xml, the traces of failed cases."))
+    run: Optional[Dict[str, Any]] = Field(None, description="The full run.json, with full=true.")
+
+
+class CloudRunCompare(BaseModel):
+    auth: Literal["api_key", "benchpod_login"]
+    found: bool = Field(description="False when there is no earlier run to compare with.")
+    message: Optional[str] = None
+    diff: Dict[str, Any] = Field(default_factory=dict, description=(
+        "a (the earlier run), b (this one), comparable, reasons, flags, inputs_changed, cases "
+        "(newly_failing, fixed, still_failing, new, removed, newly_skipped), measurements, slower, "
+        "calls_slower, a_run (the earlier run's summary)."))
+
+
+class CloudRunTrace(BaseModel):
+    auth: Literal["api_key", "benchpod_login"]
+    case: str
+    trace: str = Field(description="The trace file's name in the run.")
+    lines: List[Dict[str, Any]] = Field(description=(
+        "One object per pod call: t (s since the run started), op, cmd, req, ms, ok, resp or "
+        "error; long req/resp are shortened."))
+    total: int
+    errors: int = Field(description="Calls that failed (ok false).")
+    shown: int
+    truncated: bool = Field(description="More lines exist than `limit` returned.")
+
+
 class RecordingResult(BaseModel):
     id: str
     name: str

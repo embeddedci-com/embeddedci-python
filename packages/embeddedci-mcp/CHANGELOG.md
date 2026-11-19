@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- New tools `cloud_runs_list`, `cloud_run_get`, `cloud_run_compare` and `cloud_run_trace`: list
+  the test runs on embeddedci.com, read one (the failed cases with their message's first line, the
+  measurements outside their limits), see what changed since an earlier run, and read a failed
+  case's pod calls. They need an SDK with `embeddedci.benchpod.runs.api` (newer than 3.0.3).
 - New tool `log_level`: read the pod's console log level, or set it with `level` (`error`,
   `warn`, `info`, `debug`; `info` is the default, `debug` prints every command trace on the pod's
   console). Firmware newer than 3.10.12; older firmware gets a clean unsupported-feature error.
