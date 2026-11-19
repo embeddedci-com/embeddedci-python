@@ -508,6 +508,7 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--embeddedci-suite` | — | `pytest` | suite name recorded in `run.json` |
 | `--embeddedci-dut` | — | `""` | name of the board under test recorded in `run.json` |
 | `--embeddedci-keep-traces` | `EMBEDDEDCI_KEEP_TRACES` | `all` | which pod-call traces to keep: `all`, `failed` or `none` |
+| `--embeddedci-upload` | `EMBEDDEDCI_UPLOAD` | off | upload the recorded run to embeddedci.com at the end (also the `embeddedci_upload` ini option), see [Uploading a run](#uploading-a-run) |
 
 Connection resolution order: `--benchpod-connection` → `benchpod_connection` ini option →
 `BENCHPOD_CONNECTION` → `--benchpod-discover`.
@@ -623,6 +624,25 @@ every failed limit; the limits are checked also when no run is being recorded. `
 test passes to pytest's `record_property` are recorded too (with source `record_property`; other
 values are left out). A test keeps at most 200 measurements; the rest are dropped and counted in
 `health.measurements_dropped`.
+
+**Uploading a run.** `--embeddedci-upload` (or `embeddedci_upload = true` in the ini file, or
+`EMBEDDEDCI_UPLOAD=1`) uploads the run to embeddedci.com when the session ends, where it shows
+next to the build it tested and can be compared with earlier runs. Without `--embeddedci-run-dir` it
+records into `./embeddedci-runs/<started UTC>-<suite>/` first. What goes up: `run.json`,
+`junit.xml`, and the traces (with their attachments) of the failed and error tests only; the
+folder on disk keeps what `--embeddedci-keep-traces` says. Credentials: `BENCHPOD_API_KEY`, else
+the `benchpod login` session, else the workflow's OIDC token in GitHub Actions (`id-token: write`);
+`--benchpod-api-base` / `BENCHPOD_API_BASE` picks the server. The run's URL is printed at the end.
+A failed upload is a warning: it never changes the test result. Under `benchpod ci` the plugin does
+not upload; the runner uploads the whole run.
+
+The upload can be done later, or from another machine, with the same code:
+
+```python
+from embeddedci.benchpod.runs.upload import upload_run
+
+print(upload_run("embeddedci-runs/20261118T140211Z-hil")["url"])
+```
 
 **Inside `benchpod ci`.** The `benchpod ci` runner hands its run folder to the `pytest` steps it
 starts through the environment; the plugin then writes `parts/<step>.json` (the cases, health
@@ -2334,7 +2354,18 @@ def test_boots(benchpod, firmware, build_report):
 
 Reporting is active only inside GitHub Actions with a mintable session token (`id-token: write`,
 repo trusted in the web app). Everywhere else the fixture yields an inert reporter
-(`build_report.active` is false), so the same test runs unchanged. `--benchpod-build-target` /
+(`build_report.active` is false), so the same test runs unchanged.
+
+**Test results on the build.** When `build_report` reports, the session's tests are also recorded
+as a [test run](#test-run-recording) and uploaded at the end, linked to the build the fixture
+created (`inputs.dut_firmware.build_id`): every test's outcome, duration, measurements and pod-call
+timings, and the traces of the failed tests. The build page shows them under Tests. The fixture
+still sends the pass/fail with the build, so older servers keep showing it; current servers keep
+the build's own status for the build and show the tests from the run, so a failed test no longer
+turns the build red. With several tests using the fixture, the run is linked to the first build. The run is uploaded
+with the reporter's own credentials (`build_report.api_base`, `build_report.session_token`).
+Recording starts by itself in GitHub Actions when a collected test uses `build_report`; pass
+`--embeddedci-run-dir` to choose the folder. `--benchpod-build-target` /
 `BENCHPOD_BUILD_TARGET` records a platform id. Outside pytest, `make_build_reporter()` returns the
 same `BuildReporter` / `NoopBuildReporter`.
 

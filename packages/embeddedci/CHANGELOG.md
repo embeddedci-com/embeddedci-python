@@ -6,6 +6,19 @@
   `bp.set_log_level(level)` sets it (`LOG_LEVELS`: `error`, `warn`, `info`, `debug`; default
   `info`, stored on the pod). Firmware newer than 3.10.12 (feature `log_level`); older firmware
   raises `UnsupportedFeatureError`.
+- **Upload test runs:** `--embeddedci-upload` (also the `embeddedci_upload` ini option and
+  `EMBEDDEDCI_UPLOAD=1`) uploads the recorded run to embeddedci.com when the session ends:
+  `run.json`, `junit.xml` and the traces of the failed and error tests. Credentials:
+  `BENCHPOD_API_KEY`, else the `benchpod login` session, else GitHub Actions OIDC. A failed upload
+  is a warning. Not under `benchpod ci`, which uploads the run itself.
+  `embeddedci.benchpod.runs.upload.upload_run(folder)` uploads a folder later.
+- **`build_report` on test runs:** in GitHub Actions a session whose tests use `build_report`
+  records its run and uploads it linked to the build the fixture created, so the build shows every
+  test's result. The fixture still sends the pass/fail to the build for older servers.
+  `BuildReporter.api_base` and `BuildReporter.session_token` are new.
+- Run folder file names always pass the server's rule (`[A-Za-z0-9._-]`, no leading dot): a case
+  id starting with `.` gets a trace name without it, and attachment names keep ASCII letters only.
+- `tests/benchpod-ci.yaml` runs this repository's hardware tests with `benchpod ci`.
 - Test run recording: a failed case's `message` starts with the crash line (`ValueError: bad CRC:
   6f72`), then a blank line and pytest's full report, still capped at 16 KB.
 - **Pod lease on the LAN and the USB network:** on a pod with the `lease` feature (features table
