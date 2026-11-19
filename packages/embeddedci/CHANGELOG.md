@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Test run recording:** `pytest --embeddedci-run-dir DIR` (or `EMBEDDEDCI_RUN_DIR`) writes a run
+  folder: `run.json` (schema version 1: outcome, counts, every test case with its measurements and
+  per-command call timings, and the firmware, tests, pod, wiring and tool versions it ran with),
+  `junit.xml`, and a trace of every pod call per test (`trace/`, large payloads in `att/`, secrets
+  redacted, 50 MB per run). `--embeddedci-suite`, `--embeddedci-dut` and `--embeddedci-keep-traces`
+  (`all`, `failed`, `none`) set the rest. Off by default. Under `benchpod ci` (`EMBEDDEDCI_RUN_DIR`
+  with `EMBEDDEDCI_RUN_STEP`) the plugin writes `parts/<step>.json` for the runner to merge.
+- **`measure` fixture:** `measure(name, value, unit="", min=None, max=None, drift=None)` records a
+  number for the test; a value outside `min`/`max` fails it. Numeric `record_property` values are
+  recorded as measurements too.
 - USB console: a firmware log line printed right after the prompt (`[sig] SPI1 link at ... for
   gateware 58`, on every `status` up to firmware 3.10.12) no longer makes the serial transport
   time out waiting for the prompt. A prompt followed only by complete `[tag] ...` lines ends the

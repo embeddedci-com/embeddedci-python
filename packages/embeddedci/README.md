@@ -32,7 +32,7 @@ No pin numbers: the SWD channels, the UART pair, the baud and the power rail com
 [wiring profile](#wiring-profile). Pass them explicitly when you want to override it.
 
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
-[API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) ·
+[API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) · [Test runs](#test-run-recording) ·
 [Power and reset](#power-reset-and-power-monitoring) · [Flashing](#flashing) · [UART](#uart) ·
 [Pull resistors](#la-pull-resistors) · [Emulated sensors](#emulated-sensors) ·
 [Analog paths](#analog-paths-dc-output-and-single-readings) · [Captures](#captures) ·
@@ -487,6 +487,10 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-no-lease` | — | off | don't lock the cloud device (only when nothing else can use it) |
 | `--benchpod-build-target` | `BENCHPOD_BUILD_TARGET` | — | platform id recorded by `build_report` (e.g. `stm32f4`) |
 | `--benchpod-sensor-library` | `BENCHPOD_SENSOR_LIBRARY` | the pinned version | sensor library version for `benchpod_sensors` (`latest` or a release) |
+| `--embeddedci-run-dir` | `EMBEDDEDCI_RUN_DIR` | off | record the run into this folder (`auto`: `./embeddedci-runs/<started UTC>-<suite>/`), see [Test run recording](#test-run-recording) |
+| `--embeddedci-suite` | — | `pytest` | suite name recorded in `run.json` |
+| `--embeddedci-dut` | — | `""` | name of the board under test recorded in `run.json` |
+| `--embeddedci-keep-traces` | `EMBEDDEDCI_KEEP_TRACES` | `all` | which pod-call traces to keep: `all`, `failed` or `none` |
 
 Connection resolution order: `--benchpod-connection` → `benchpod_connection` ini option →
 `BENCHPOD_CONNECTION` → `--benchpod-discover`.
@@ -518,6 +522,7 @@ benchpod_connection = 192.168.1.213
 | `benchpod_pins` / `pins` | session | `pin_1` … `pin_14`, `efuse`, and `has_pullup()`, `has_pulldown()`, `pull_ohms()`, `pullup_ohms()`, `pull_direction()` |
 | `firmware` | function | the `--benchpod-firmware` path (skips when unset) |
 | `build_report` | function | a build reporter — see [Build reporting](#build-reporting) |
+| `measure` | function | `measure(name, value, unit="", min=None, max=None, drift=None)`: records a number for the test; a value outside `min`/`max` fails it, see [Test run recording](#test-run-recording) |
 
 `benchpod` is shared by the whole session, so state a test leaves behind (a running DAC, engaged
 pull-ups, a running sensor) carries into the next one — use the teardown fixtures.
@@ -541,6 +546,79 @@ nothing changes.
   `benchpod_capability("analog")` skips only on the digital-only board (no DAC, ADC or 4-20 mA);
   firmware that does not announce the flag ran on analog boards only and counts as analog, like
   `BenchPod.can_analog`.
+
+### Test run recording
+
+With `--embeddedci-run-dir DIR` the plugin records the whole run into one folder: the outcome of
+every test, the numbers tests measured, and every call each test made to a pod, with the
+provenance needed to compare two runs (the firmware file's hash, the tests' git commit, the pod's
+firmware, gateware and calibration, the wiring profile, tool versions). It needs no account and
+writes nothing anywhere else. Recording is off unless the option or `EMBEDDEDCI_RUN_DIR` is set, so
+an existing suite writes nothing new.
+
+```bash
+pytest --embeddedci-run-dir=auto --embeddedci-suite=process-node-hil --embeddedci-dut=process-node \
+       --embeddedci-keep-traces=failed
+```
+
+```
+<run folder>/
+  run.json                  the record (schema_version 1), written last
+  junit.xml                 the same tests as JUnit XML, for CI test reporters
+  trace/<test>.ndjson       the pod calls of one test, one JSON object per line
+  att/<n>-<command>.json    large requests and replies a trace line points to (.json.zst with zstandard)
+```
+
+`run.json` holds `key` (suite, dut), `inputs` (`dut_firmware` from `--benchpod-firmware`, `tests`
+from git, `pod`, `wiring`, `tools`, `github`), `health`, and `results`: the run's `outcome`
+(`passed`, `failed`, `error`, `invalid`), `counts` and one entry per test in `cases`. A case has its
+`id` (the pytest node id), `outcome` (`passed`, `failed`, `error` for a failure in setup or
+teardown, `skipped`, `xfailed`, `xpassed`), `duration_ms`, `message` (up to 16 KB), `skip_reason`,
+`log` (captured output of failed tests, up to 64 KB), `trace` (the trace file, `""` when not kept),
+`measurements`, and `calls`: per pod command the number of calls, the 50th and 95th percentile and
+maximum time in ms, and the errors. `calls` is filled even when the trace file is not kept.
+
+A trace line looks like
+`{"t": 12.304, "op": "command", "cmd": "can_write", "req": {...}, "ms": 3.1, "ok": true, "resp": {...}}`:
+`t` is seconds since the run started, `op` one of `command`, `sequence`, `samples`, `stream`,
+`raw` (a CMSIS-DAP or UART proxy session, logged when it closes, with its byte counts), `status`,
+`power`. Requests and replies over 4 KB move to `att/`. Passwords, tokens, keys and other secrets
+are replaced by `"<redacted>"` before anything is written. A run keeps at most 50 MB of traces and
+attachments; past that, lines keep only `t`, `op`, `cmd`, `ms` and `ok`, and `health` says so.
+Every `BenchPod` opened while the run records is traced, also one a test opens itself.
+
+`--embeddedci-keep-traces` picks which traces stay: `all` (default), `failed` (failed and error
+tests only) or `none`.
+
+**Measurements.** The `measure` fixture records named numbers with optional limits:
+
+```python
+def test_heater_response(benchpod, measure):
+    ...
+    measure("settle_ms", 840, unit="ms", max=1000)          # fails the test above 1000
+    measure("overshoot_c", 0.6, unit="C", drift="15%")     # recorded, compared later
+```
+
+`value`, `min` and `max` must be finite numbers (`bool`, NaN and infinity raise an error), and a
+name is used once per test. A value outside `min`/`max` fails the test after its body ran, listing
+every failed limit; the limits are checked also when no run is being recorded. `drift` (`"20%"` or
+`0.2`) is a tolerance for comparisons with a baseline and never fails the test. Numeric values a
+test passes to pytest's `record_property` are recorded too (with source `record_property`; other
+values are left out). A test keeps at most 200 measurements; the rest are dropped and counted in
+`health.measurements_dropped`.
+
+**Inside `benchpod ci`.** The `benchpod ci` runner hands its run folder to the `pytest` steps it
+starts through the environment; the plugin then writes `parts/<step>.json` (the cases, health
+counters, tool versions and pod) and its traces into that folder, and the runner merges them into
+one `run.json`:
+
+| Variable | Value |
+|---|---|
+| `EMBEDDEDCI_RUN_DIR` | the run folder (alone, without `EMBEDDEDCI_RUN_STEP`: same as `--embeddedci-run-dir`) |
+| `EMBEDDEDCI_RUN_STEP` | the step id: write `parts/<step>.json` instead of `run.json` and `junit.xml` |
+| `EMBEDDEDCI_RUN_ID` | the run id recorded in `run.json` |
+| `EMBEDDEDCI_RUN_T0` | the run's start in unix seconds, so every step's trace shares one timeline |
+| `EMBEDDEDCI_KEEP_TRACES` | `all`, `failed` or `none` (`--embeddedci-keep-traces` wins) |
 
 ## Wiring profile
 
