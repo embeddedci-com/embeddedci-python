@@ -10,7 +10,8 @@ def test_encode_request_is_one_json_line():
     raw = protocol.encode_request({"cmd": "ping"})
     assert raw.endswith(b"\n")
     assert raw.count(b"\n") == 1
-    assert json.loads(raw) == {"cmd": "ping"}
+    req = json.loads(raw)
+    assert req["cmd"] == "ping" and set(req) == {"cmd", "client_api", "client"}
 
 
 def test_parse_ok_reply():

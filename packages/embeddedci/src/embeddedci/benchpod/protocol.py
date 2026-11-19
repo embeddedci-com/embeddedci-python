@@ -28,9 +28,50 @@ class Reply:
     args: Any = None
 
 
+#: The pod takes a ``client`` of at most this many printable characters (and drops a longer one).
+CLIENT_NAME_MAX = 32
+_client_name: Optional[str] = None
+
+
+def client_name() -> str:
+    """The ``client`` every request carries: ``"sdk <version>"`` unless :func:`set_client_name`
+    set another (the MCP server sends ``"mcp <version>"``)."""
+    global _client_name
+    if _client_name is None:
+        try:
+            from importlib.metadata import version
+            _client_name = f"sdk {version('embeddedci')}"
+        except Exception:   # a source tree without install
+            _client_name = "sdk"
+    return _client_name
+
+
+def set_client_name(name: str) -> None:
+    """Name this process's requests (``"mcp 3.0.6"``): the pod puts it in a refusal's text. A name
+    longer than :data:`CLIENT_NAME_MAX` or with other than printable ASCII is not sent."""
+    global _client_name
+    _client_name = str(name)
+
+
+def stamp_request(req: dict) -> dict:
+    """``req`` with this client's ``client_api`` (:data:`~embeddedci.benchpod.feature_map.CLIENT_API`)
+    and ``client`` name, the two fields every JSON command carries. Firmware 3.10.13 and older
+    ignores them; later firmware refuses a ``client_api`` below its ``min_client_api`` (BP0030).
+    A request that already has them keeps its own."""
+    from .feature_map import CLIENT_API
+
+    out = dict(req)
+    out.setdefault("client_api", CLIENT_API)
+    name = client_name()
+    if name and len(name) <= CLIENT_NAME_MAX and all(" " <= c <= "~" for c in name):
+        out.setdefault("client", name)
+    return out
+
+
 def encode_request(req: dict) -> bytes:
-    """Encode a request dict as a single newline-terminated JSON line."""
-    return (json.dumps(req, separators=(",", ":")) + "\n").encode("utf-8")
+    """Encode a request dict as a single newline-terminated JSON line, with this client's
+    ``client_api`` and ``client`` (:func:`stamp_request`)."""
+    return (json.dumps(stamp_request(req), separators=(",", ":")) + "\n").encode("utf-8")
 
 
 def parse_reply(line: bytes) -> Reply:

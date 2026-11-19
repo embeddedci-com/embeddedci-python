@@ -20,6 +20,16 @@ from importlib import resources
 from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 
+#: The client API level this SDK is built for: the highest pod ``api`` it handles. The pod
+#: announces its level as ``api`` (``status`` with ``"caps":false``, the cloud capabilities frame;
+#: a pod that does not counts as 1), every request carries this one as ``client_api``, and a pod
+#: whose ``api`` is higher has changed a reply or a message in a way this SDK would misread
+#: (:class:`~embeddedci.benchpod.errors.ClientTooOldError`). Raised by hand, together with the
+#: code that handles the new level, when a synced table raises its ``api``: a test checks that it
+#: equals the bundled table's.
+CLIENT_API = 1
+
+
 @lru_cache(maxsize=1)
 def feature_map() -> Dict[str, Any]:
     """The bundled table (``schema``, ``revision``, ``facts``, ``releases``, ``features``)."""
@@ -31,6 +41,11 @@ def feature_map() -> Dict[str, Any]:
     if not isinstance(data, dict) or data.get("schema") != 1:
         return {"schema": 1, "revision": 0, "facts": {}, "releases": [], "features": {}}
     return data
+
+
+def table_api() -> int:
+    """The client API level of the bundled table (its ``api``; 1 for a table without one)."""
+    return int(feature_map().get("api", 1) or 1)
 
 
 def revision() -> int:

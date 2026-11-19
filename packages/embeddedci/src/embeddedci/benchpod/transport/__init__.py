@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional
 
 from ..connection import DEFAULT_PORT, ConnSpec
 from ..errors import ConnectionConfigError
+from ..protocol import encode_request
 from .base import RawLink, Transport
 
 __all__ = [
@@ -120,7 +121,7 @@ def _api_answers(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT) -
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             s.settimeout(timeout)
-            s.sendall(b'{"cmd":"ping"}\n')
+            s.sendall(encode_request({"cmd": "ping"}))
             buf = b""
             while b"\n" not in buf:
                 chunk = s.recv(256)

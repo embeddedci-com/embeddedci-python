@@ -17,6 +17,8 @@ from embeddedci.benchpod.client import BenchPod
 from embeddedci.benchpod.errors import CanTimeout, FirmwareError
 from embeddedci.benchpod.transport.tcp import TcpTransport
 
+import wire
+
 
 class FakeCanPod:
     """Minimal CAN pod: one connection per command (matches the firmware)."""
@@ -138,7 +140,7 @@ class FakeCanPod:
                     buf += c
                 if not buf:
                     continue
-                req = json.loads(buf.split(b"\n", 1)[0])
+                req = wire.request(buf.split(b"\n", 1)[0])
                 self.requests.append(req)
                 conn.sendall(json.dumps(self._reply(req)).encode() + b"\n")
 

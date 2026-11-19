@@ -13,6 +13,8 @@ from embeddedci.benchpod.transport import open_transport
 from embeddedci.benchpod.transport.cloud import CloudTransport, _WsTunnelSocket
 from embeddedci import _http
 
+import wire
+
 
 # -- connection parsing -----------------------------------------------------
 
@@ -456,7 +458,7 @@ def test_cloud_load_replay_skips_the_tunnel_ack_lines(monkeypatch):
     frames = sock._ws.frames
     import json
     assert json.loads(frames[0])["cmd"] == "load_bin"
-    assert json.loads(frames[-1]) == {"cmd": "replay"}
+    assert wire.request(frames[-1]) == {"cmd": "replay"}
     assert b"".join(frames[1:-1]) == b"\x00" * 20000
 
 

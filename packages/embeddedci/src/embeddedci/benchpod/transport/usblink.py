@@ -17,6 +17,8 @@ import socket
 import sys
 from typing import List, Optional, Tuple
 
+from ..protocol import encode_request
+
 _USB_NET = ipaddress.ip_network("10.237.0.0/16")
 _MASK_30 = ipaddress.ip_address("255.255.255.252")
 
@@ -81,7 +83,7 @@ def _short_id(host: str, port: int, timeout: float) -> str:
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             s.settimeout(timeout)
-            s.sendall(b'{"cmd":"identity_public"}\n')
+            s.sendall(encode_request({"cmd": "identity_public"}))
             buf = b""
             while b"\n" not in buf:
                 chunk = s.recv(1024)

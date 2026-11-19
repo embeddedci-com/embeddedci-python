@@ -34,6 +34,7 @@ from ..errors import (
     TransportTimeout,
     firmware_error,
 )
+from ..protocol import stamp_request
 from .base import request_timeout
 from .tcp import DEFAULT_DIAL_TIMEOUT, TcpTransport
 
@@ -423,7 +424,7 @@ class CloudTransport(TcpTransport):
                f"?device={quote(self.device_name, safe='')}")
         timeout = min(request_timeout(req, self.timeout), _SERVER_COMMAND_MAX_TIMEOUT)
         body = json.dumps(
-            {"command": req, "timeout_ms": int(timeout * 1000)}
+            {"command": stamp_request(req), "timeout_ms": int(timeout * 1000)}
         ).encode("utf-8")
         cmd = req.get("cmd")
         busy_until = time.monotonic() + _BUSY_RETRY_BUDGET
