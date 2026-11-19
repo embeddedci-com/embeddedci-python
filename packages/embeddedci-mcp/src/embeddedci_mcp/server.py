@@ -2122,13 +2122,14 @@ async def adc_read(source: AdcSource = "ext", range: AdcRangeArg = None) -> m.Ad
     """One calibrated voltage: ext = front SMA (true volts), cal1/cal2 = DAC loopbacks, current_in = 4-20 mA input (J8).
 
     current_in also returns current, the loop current in amps. range low reads small signals (up to ±5.46 V)
-    at 6x the resolution on analog module v3r4+; overrange says the input clipped.
+    at 6x the resolution on analog module v3r4+; overrange says the input clipped. From analog module v3r5
+    current_in reads in the low range unless range is given (the next other route gives normal back).
 
     Refused while the input is still moving (e.g. a DAC output left running).
     """
     r = await _call(lambda: SESSION.require().adc_read(source, range=range))
     return m.AdcReadResult(source=r.source, voltage=r.voltage, count=r.count, span=r.span,
-                           offset=r.offset, current=r.current, range=r.range or None,
+                           offset=r.offset, current=r.current, sense_ohms=r.sense_ohms, range=r.range or None,
                            fullscale=r.fullscale, overrange=r.overrange)
 
 

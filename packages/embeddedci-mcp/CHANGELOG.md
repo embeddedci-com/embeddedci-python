@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-mcp`
 
+## 3.0.5
+
+- `adc_read` on `current_in` returns `sense_ohms`, the resistance the loop current was computed
+  with: 249 ohm up to analog module v3r4, about 100 ohm from v3r5 (firmware 3.10.13+), which also
+  reads `current_in` in the low range by default. The guide explains the 30 mA limiter.
+
 ## 3.0.4
 
 - Needs embeddedci 3.0.4.

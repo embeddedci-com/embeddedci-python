@@ -301,7 +301,8 @@ def current_in_phase(plug: type, *, current_range: _Range = None,
             raise RuntimeError("this pod's firmware does not report the loop current on current_in; "
                                "update the firmware")
         test.measurements["current_in_a"] = r.current
-        test.logger.info("4-20 mA input = %.3f mA (%.4f V across 249 ohm)", r.current * 1000.0, r.voltage)
+        ohms = r.sense_ohms or 249.0   # 100 ohm from analog module v3r5
+        test.logger.info("4-20 mA input = %.3f mA (%.4f V across %.0f ohm)", r.current * 1000.0, r.voltage, ohms)
 
     return _rd
 

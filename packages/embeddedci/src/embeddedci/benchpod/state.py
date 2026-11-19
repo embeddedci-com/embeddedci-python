@@ -26,6 +26,12 @@ def _opt_int(d: Mapping[str, Any], key: str) -> Optional[int]:
         return None
 
 
+def _opt_ohms(d: Mapping[str, Any]) -> Optional[float]:
+    """``sense_mohm`` (the 4-20 mA input's sense resistance, milliohms) in ohms, or ``None``."""
+    mohm = _opt_int(d, "sense_mohm")
+    return None if mohm is None or mohm <= 0 else mohm / 1000.0
+
+
 def _raw() -> Any:
     return field(default_factory=dict, repr=False, compare=False)
 
@@ -394,7 +400,8 @@ class AdcReading:
     #: ``current_in``, and older firmware.
     offset: Optional[float] = None
     #: Loop current in amps on ``current_in``, the 4-20 mA input: ``voltage`` across the pod's
-    #: 249 Ω sense resistor. ``None`` on every other source and on older firmware.
+    #: sense resistor (249 Ω, or 100 Ω from analog module v3r5). ``None`` on every other source and
+    #: on older firmware.
     current: Optional[float] = None
     #: The ADC input range the reading was taken in (``"normal"`` / ``"low"``) and its full scale
     #: in volts (±). ``""`` / ``None`` on firmware before 3.9.5.
@@ -403,6 +410,11 @@ class AdcReading:
     #: A sample sat on an ADC rail: the input is past ``fullscale`` and ``voltage`` is only a
     #: bound. Use the normal range. ``False`` on firmware before 3.9.5.
     overrange: bool = False
+    #: On ``current_in``: the resistance ``current`` was computed with, in ohms (firmware 3.10.13+).
+    #: 249.0 on analog modules up to v3r4; from v3r5 the 100 Ω sense resistor in parallel with the
+    #: ADC input divider, 99.990 in the normal range and 99.995 in the low range. ``None`` on other
+    #: sources and older firmware (which is always 249 Ω).
+    sense_ohms: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -418,7 +430,7 @@ class AdcReading:
                    offset=None if offset_mv is None else offset_mv / 1000.0,
                    current=None if ua is None else ua / 1e6, range=str(d.get("range", "") or ""),
                    fullscale=None if fs is None else fs / 1000.0, overrange=d.get("overrange") is True,
-                   raw=d)
+                   sense_ohms=_opt_ohms(d), raw=d)
 
 
 @dataclass(frozen=True)
@@ -508,6 +520,10 @@ class Calibration:
     #: module's EEPROM, digital v3r3: it moves with the module), ``"pod"`` (only the pod's flash) or
     #: ``"none"``. ``None`` on older firmware.
     stored: Optional[str] = None
+    #: The resistance a ``current_in`` voltage is turned into the loop current with, in ohms, for
+    #: the range in use (firmware 3.10.13+): 249.0 on analog modules up to v3r4, from v3r5 99.990
+    #: (normal range) or 99.995 (low range). ``None`` on older firmware, which is always 249 Ω.
+    sense_ohms: Optional[float] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -529,7 +545,7 @@ class Calibration:
                    measured=None if meas is None else {
                        k[:-3]: (_opt_int(meas, k) or 0) / 1e6 for k in meas if k.endswith("_uv")},
                    stored=d.get("stored") if isinstance(d.get("stored"), str) else None,
-                   raw=d)
+                   sense_ohms=_opt_ohms(d), raw=d)
 
 
 @dataclass(frozen=True)

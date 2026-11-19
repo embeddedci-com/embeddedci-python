@@ -48,6 +48,7 @@
       "range",
       "fullscale",
       "overrange",
+      "sense_ohms",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'AdcReading'\""
@@ -233,6 +234,7 @@
       "zero_count",
       "measured",
       "stored",
+      "sense_ohms",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'Calibration'\""

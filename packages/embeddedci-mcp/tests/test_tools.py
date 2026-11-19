@@ -705,7 +705,9 @@ def test_calibrate_tools(connected):
     reading = call("adc_read", source="current_in")
     assert reading["offset"] == pytest.approx(0.004)
     assert reading["current"] == pytest.approx(3.301 / 249, abs=1e-6)
+    assert reading["sense_ohms"] == pytest.approx(249.0)
     assert call("adc_read", source="ext")["current"] is None
+    assert call("adc_read", source="ext")["sense_ohms"] is None
     stored = call("calibration")
     assert stored["calibrated"] is True and stored["count"] is None
     cleared = call("calibrate", clear=True)

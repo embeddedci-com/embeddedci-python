@@ -481,6 +481,7 @@ class FakeTransport(Transport):
         if reply["source"] == "current_in":
             reply["offset_mv"] = round(self.current_in_offset_uv / 1000)
             reply["ua"] = round(reply["mv"] * 1000 / 249)
+            reply["sense_mohm"] = 249000
         return reply
 
     def _cmd_calibrate(self, req):
