@@ -191,6 +191,9 @@ class Capabilities:
     nrst_pin: bool = False
     #: USB-C CC-line monitoring (rev3 pods): :meth:`BenchPod.usb_cc`.
     usb_cc: bool = False
+    #: J1 pin 21 is switched and measured, and the pod has 5 V I/O (digital board v3r4+): the
+    #: hardware fact ``vref_out``. :attr:`LaVoltage.pin21` reports pin 21.
+    vref_out: bool = False
     #: SPI master on four LA pins and SPI NOR flash programming (gateware >= v45):
     #: :meth:`BenchPod.open_spi`, :meth:`BenchPod.spi_flash`.
     spi_master: bool = False
@@ -423,7 +426,7 @@ class Capabilities:
             attr = _TABLE_ALIASES.get(name, name)
             if attr in _BOOL_FIELDS:
                 setattr(self, attr, True)
-        for fact in ("usb_cc", "pod_current", "nrst_pin"):
+        for fact in ("usb_cc", "pod_current", "nrst_pin", "vref_out"):
             if facts.get(fact) is True:
                 setattr(self, fact, True)
 

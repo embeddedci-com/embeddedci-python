@@ -72,6 +72,7 @@ from .constants import (
     LA_STEP_MAX_STEPS,
     LA_STEP_MIN_DELAY_US,
     LA_VOLTAGES,
+    LA_VOLTAGE_5V,
     PULL_DIRECTIONS,
     PULL_TABLE,
     REPLAY_MAPPINGS,
@@ -1102,7 +1103,14 @@ class BenchPod:
     # -- LA I/O-bank voltage ------------------------------------------------
 
     def set_la_voltage(self, voltage: float) -> LaVoltage:
-        """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod).
+        """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod), or
+        ``5.0`` on a pod with the digital board v3r4 (feature ``la_5v``).
+
+        At 5.0 the pod keeps the bank at 3.3 V and switches J1 pin 21, the rail the pull-ups pull
+        to, to 5 V: it reads 5 V signals at full speed, and its outputs reach 5 V through their
+        pull-ups (switch them on for outputs into 5 V CMOS-level inputs). It checks pin 21 and
+        raises :class:`~embeddedci.benchpod.errors.FirmwareError` ``BP0025`` when 5 V did not
+        come up. :attr:`LaVoltage.pin21` reports pin 21.
 
         Match it to the DUT's I/O voltage. It must be set before any LA-bank operation (flashing,
         the UART proxy, LA capture, pull resistors, sensor emulation), or the pod refuses them with
@@ -1111,10 +1119,24 @@ class BenchPod:
         profile, and firmware 3.10.10+ takes it from the profile on the first LA operation.
         """
         v = float(voltage)
+        if abs(v - LA_VOLTAGE_5V) < 0.05:
+            # 5 V I/O (digital v3r4): the pod keeps the bank at 3.3 V and moves pin 21 to 5 V.
+            if not self.supports("la_5v"):
+                raise ValueError("5 V I/O needs a BenchPod with the digital board v3r4 or later and "
+                                 "firmware that has it (feature la_5v): use 1.8 or 3.3")
+            with _classified_errors():
+                return LaVoltage.from_reply(self.command({"cmd": "la_voltage", "mv": 5000}))
         match = next((ok for ok in LA_VOLTAGES if abs(v - ok) < 0.05), None)
         if match is None:
-            raise ValueError(f"la voltage must be 1.8 or 3.3 (volts), got {voltage!r}")
+            five = " or 5.0 (this pod has 5 V I/O)" if self._has_5v() else ""
+            raise ValueError(f"la voltage must be 1.8 or 3.3{five} (volts), got {voltage!r}")
         return LaVoltage.from_reply(self.command({"cmd": "la_voltage", "mv": int(round(match * 1000))}))
+
+    def _has_5v(self) -> bool:
+        try:
+            return self.supports("la_5v")
+        except BenchPodError:
+            return False
 
     def get_la_voltage(self) -> LaVoltage:
         """The current LA I/O-bank voltage (``voltage`` is ``None`` until one is selected)."""
@@ -3488,7 +3510,10 @@ class BenchPod:
         self._require_capability("la_pins", "LA pin modes and GPIO")
         with _classified_errors():
             data = _dict(self.command({"cmd": "la_pins"}))
-        return [LaPinState.from_reply(e) for e in data.get("pins") or []]
+        # Digital v3r4 says the directions once for every channel ("pull_dirs").
+        dirs = data.get("pull_dirs")
+        return [LaPinState.from_reply(e, pull_dirs=dirs if isinstance(dirs, list) else None)
+                for e in data.get("pins") or []]
 
     def la_dir(self, la: Union[Pin, int, str, Sequence[Union[Pin, int, str]], None] = None,
                dir: Optional[str] = None) -> List[LaPinState]:

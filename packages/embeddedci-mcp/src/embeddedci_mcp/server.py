@@ -478,8 +478,9 @@ async def connect(
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
         "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
         "set-connection`), else to find the one pod on the LAN over mDNS."))] = None,
-    la_voltage: Annotated[Optional[Literal[1.8, 3.3]], Field(description=(
-        "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage)."))] = None,
+    la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
+        "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the "
+        "digital board v3r4)."))] = None,
     lease_wait: Annotated[float, Field(ge=0, le=3600, description=(
         "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the "
         "pod's own on the LAN and USB network)."))] = 30.0,
@@ -519,16 +520,35 @@ async def status() -> m.StatusResult:
     return await _call(_status)
 
 
+def _pin21(state: Any) -> Optional[m.Pin21Result]:
+    p = getattr(state, "pin21", None)   # embeddedci before digital v3r4 support has none
+    if p is None:
+        return None
+    return m.Pin21Result(source=p.source, setting=p.setting, measured=p.measured, state=p.state, up=p.up)
+
+
 @mcp.tool(annotations=_ann("Set LA I/O voltage", idempotent=True))
-async def set_la_voltage(voltage: Literal[1.8, 3.3]) -> m.LaVoltageResult:
-    """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod).
+async def set_la_voltage(voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
+        "The DUT's I/O voltage. 5.0 needs a pod with the digital board v3r4 (status capabilities "
+        "vref_out). Omit it to read the current voltage and pin 21 without changing anything."))] = None,
+) -> m.LaVoltageResult:
+    """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod, 5.0 a digital
+    v3r4 board).
 
     Usually not needed: connect sets it from the wiring profile's la_mv, and firmware 3.10.10+
     takes it from the profile on the first LA operation. Call it when the profile sets none (ask
     the user), or to override the profile for this session.
+
+    At 5.0 the pod reads 5 V signals at full speed, and its outputs reach 5 V only through their
+    pull-ups: switch on the pull-up (set_pull up) on outputs into 5 V CMOS-level inputs. On digital
+    v3r4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
+    voltage (select 5.0 or remove the signal).
     """
-    state = await _call(lambda: SESSION.require().set_la_voltage(voltage))
-    return m.LaVoltageResult(voltage=state.voltage, readback=state.readback)
+    if voltage is None:
+        state = await _call(lambda: SESSION.require().get_la_voltage())
+    else:
+        state = await _call(lambda: SESSION.require().set_la_voltage(voltage))
+    return m.LaVoltageResult(voltage=state.voltage, readback=state.readback, pin21=_pin21(state))
 
 
 # -- wiring profile -------------------------------------------------------------------
@@ -1644,7 +1664,8 @@ def _pull(state: Any) -> m.PullChannel:
         supported = (direction,) if direction in ("up", "down") else ()
     return m.PullChannel(la=state.la, state=getattr(state, "state", direction if state.enabled else "off"),
                          supported=list(supported), enabled=state.enabled, direction=direction,
-                         ohms=state.ohms, available=state.available)
+                         ohms=state.ohms, available=state.available,
+                         strength=getattr(state, "strength", None))
 
 
 def _sdk_pulls_by_direction(pod: Any) -> bool:
@@ -1672,9 +1693,10 @@ def _set_pull_old_sdk(pod: Any, la: int, want: Any) -> Any:
 async def set_pull(
     las: Annotated[List[PullPin], Field(min_length=1, max_length=14, description="LA channels (1-14).")],
     pull: Annotated[Optional[Literal["up", "down", "off"]], Field(description=(
-        "The direction: up, down or off. The pod picks the resistor (ohms in the result). A channel "
-        "pulls only the ways its resistor allows (pull_status: supported); today LA1-LA6 pull up, "
-        "LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))] = None,
+        "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and "
+        "strength in the result). A channel pulls only the ways its resistor allows (pull_status: "
+        "supported): on the digital board v3r4 every channel pulls up or down; on older boards LA1-LA6 "
+        "pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))] = None,
     enabled: Annotated[Optional[bool], Field(description=(
         "Older form, use pull: true engages each channel's own direction, false is off."))] = None,
 ) -> m.PullStatusResult:

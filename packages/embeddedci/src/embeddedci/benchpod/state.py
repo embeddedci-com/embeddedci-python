@@ -37,14 +37,50 @@ def _raw() -> Any:
 
 
 @dataclass(frozen=True)
+class Pin21:
+    """J1 pin 21 on digital v3r4 (:attr:`LaVoltage.pin21`): the rail every pull-up pulls to, and a
+    reference the DUT can use. It follows the I/O voltage, or is 5 V in 5 V mode."""
+
+    #: ``"bank"`` (follows the I/O bank, 1.8 or 3.3 V) or ``"5v"``.
+    source: str
+    #: What pin 21 should be, in volts.
+    setting: float
+    #: What the pod measures, in volts (``None`` without a reading).
+    measured: Optional[float]
+    #: ``"ok"``; ``"high"``: more than 0.2 V above its setting, a DUT signal above the I/O voltage
+    #: lifts it through the pulls (select 5 V or remove the signal); ``"low"``: overloaded, or
+    #: 5 V that did not come up; ``"short"``: shorted or held down (the pulls are off);
+    #: ``"unknown"``: no reading yet.
+    state: str
+    #: Pin 21 is high enough for the pull resistors to work.
+    up: bool
+
+    @property
+    def ok(self) -> bool:
+        return self.state == "ok"
+
+    @classmethod
+    def from_reply(cls, d: Any) -> Optional["Pin21"]:
+        if not isinstance(d, dict):
+            return None
+        mv = _opt_int(d, "mv")
+        return cls(source=str(d.get("source") or "bank"), setting=(_opt_int(d, "set_mv") or 0) / 1000.0,
+                   measured=mv / 1000.0 if mv is not None and mv >= 0 else None,
+                   state=str(d.get("state") or "unknown"), up=d.get("up") is True)
+
+
+@dataclass(frozen=True)
 class LaVoltage:
     """The LA I/O-bank voltage (``BenchPod.set_la_voltage`` / ``get_la_voltage``)."""
 
     #: Selected bank voltage in volts (1.8 or 3.3), or ``None`` when none has been chosen yet —
     #: the pod refuses every LA-bank operation until one is.
     voltage: Optional[float]
-    #: The measured bank voltage in volts, or ``None`` when the board cannot measure it.
+    #: The measured bank voltage in volts, or ``None`` when the board cannot measure it. In 5 V
+    #: mode the bank is at 3.3 V while :attr:`voltage` is 5.0.
     readback: Optional[float] = None
+    #: J1 pin 21 on digital v3r4 (``None`` on other boards).
+    pin21: Optional["Pin21"] = None
     raw: Dict[str, Any] = _raw()
 
     @property
@@ -59,7 +95,8 @@ class LaVoltage:
         # Boards without a readback divider report 0 (or a negative sentinel): that is "unknown",
         # not a bank sitting at 0 V.
         return cls(voltage=mv / 1000.0 if mv else None,
-                   readback=rb / 1000.0 if rb is not None and rb > 0 else None, raw=d)
+                   readback=rb / 1000.0 if rb is not None and rb > 0 else None,
+                   pin21=Pin21.from_reply(d.get("vref_out")), raw=d)
 
 
 @dataclass(frozen=True)
@@ -203,6 +240,9 @@ class PullState:
     available: bool = True
     #: Every direction the channel can pull: ``("up",)``, ``("down",)``, ``("up", "down")`` or ``()``.
     supported: Tuple[str, ...] = ()
+    #: Digital v3r4: the resistors engaged, ``"10k"``, ``"2.2k"`` or ``"both"`` (about 1.8k;
+    #: ``"none"`` when off). The pod picks them from the pin's function. ``None`` on other boards.
+    strength: Optional[str] = None
     raw: Dict[str, Any] = _raw()
 
     @property
@@ -236,7 +276,8 @@ class PullState:
             direction = state
         return cls(la=la, enabled=enabled, direction=direction,
                    ohms=str(d.get("ohms", hw.ohms if hw else "") or ""),
-                   available=bool(d.get("pullups_available", 1)), supported=supported, raw=d)
+                   available=bool(d.get("pullups_available", 1)), supported=supported,
+                   strength=str(d["strength"]) if isinstance(d.get("strength"), str) else None, raw=d)
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,15 @@
 
 ## 3.0.5
 
+- **Digital board v3r4:** `set_la_voltage(5.0)` (and `la_mv: 5000` in a wiring profile) on a pod
+  with the `la_5v` feature: the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V; other
+  pods raise `ValueError` before anything is sent. `LaVoltage.pin21` (new `Pin21`: `source`,
+  `setting`, `measured`, `state`, `up`, `ok`) reports pin 21 there, `None` elsewhere.
+  `Capabilities.vref_out` is the hardware fact. `PullState.strength` reports the resistors the pod
+  picked (`10k`, `2.2k`, `both`, `none`); every channel pulls up or down there, and `la_pins()` takes
+  the reply's `pull_dirs`. No new parameters: the pod picks the strength from the pin's function.
+  Error catalog `BP0028` (5 V did not come up) and `BP0029` (pin 21 is down); features table
+  revision 7 (`la_5v`, `la_pull_strength`).
 - **4-20 mA input on analog module v3r5** (firmware 3.10.13+): the sense resistor is 100 Ω (249 Ω up
   to v3r4). `AdcReading.sense_ohms` and `Calibration.sense_ohms` give the resistance the pod
   converts with, and `capture_adc(source="current_in")` uses it for `currents` (249 Ω when the

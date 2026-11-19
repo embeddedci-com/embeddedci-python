@@ -86,7 +86,8 @@ def test_enums_reach_the_schema():
 
     tools = {t.name: t for t in anyio.run(mcp.list_tools)}
     assert tools["analog_path"].inputSchema["properties"]["path"]["enum"][0] == "off"
-    assert tools["set_la_voltage"].inputSchema["properties"]["voltage"]["enum"] == [1.8, 3.3]
+    # optional since digital v3r4 (omitted = read); 5.0 is the v3r4 5 V mode
+    assert tools["set_la_voltage"].inputSchema["properties"]["voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
 
 
 # -- errors + connection ---------------------------------------------------------------
@@ -598,7 +599,7 @@ def test_pulls(connected):
         return
     assert [c["la"] for c in status["channels"]] == list(range(1, 15))
     assert status["channels"][8] == {"la": 9, "state": "off", "supported": [], "enabled": False,
-                                     "direction": None, "ohms": "", "available": True}
+                                     "direction": None, "ohms": "", "available": True, "strength": None}
     with pytest.raises(ToolError, match="BP0023"):
         call("set_pull", las=[9], pull="up")
     with pytest.raises(ToolError, match="LA7 supports pull-down only on this board"):

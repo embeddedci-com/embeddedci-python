@@ -18,7 +18,7 @@ These are the pod's LA pins on the iCE40, driven at the LA I/O voltage through 3
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover
     from .client import BenchPod
@@ -83,9 +83,13 @@ class LaPinState:
         return self.function != "none"
 
     @classmethod
-    def from_reply(cls, entry: Any) -> "LaPinState":
+    def from_reply(cls, entry: Any, pull_dirs: Optional[Sequence[Any]] = None) -> "LaPinState":
+        """``pull_dirs``: the la_pins reply's directions for every channel (digital v3r4, whose
+        entries leave ``dirs`` out)."""
         e = entry if isinstance(entry, dict) else {}
         pull = e.get("pull") if isinstance(e.get("pull"), dict) else {}
+        if pull and "dirs" not in pull and pull_dirs is not None:
+            pull = dict(pull, dirs=list(pull_dirs))
         level = e.get("level")
         return cls(la=int(e.get("la", 0) or 0), function=str(e.get("function") or "none"),
                    gpio=e.get("gpio") or None, level=None if level is None else int(level),

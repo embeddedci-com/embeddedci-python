@@ -2,6 +2,11 @@
 
 ## 3.0.5
 
+- **Digital board v3r4:** `set_la_voltage` takes `5.0` (and `connect` `la_voltage=5.0`, the
+  `--la-voltage` flag too) on a pod with 5 V I/O, and `voltage` may be omitted to read the voltage
+  without changing it. The result has `pin21` (source, setting, measured, state, up) there; the
+  tool tells the agent what `high` means. `capabilities` has `vref_out`; `pull_status` and
+  `set_pull` channels have `strength`.
 - `adc_read` on `current_in` returns `sense_ohms`, the resistance the loop current was computed
   with: 249 ohm up to analog module v3r4, about 100 ohm from v3r5 (firmware 3.10.13+), which also
   reads `current_in` in the low range by default. The guide explains the 30 mA limiter.
