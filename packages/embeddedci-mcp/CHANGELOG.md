@@ -4,9 +4,12 @@
 
 - `set_pull`, `power_on`, `i2c_open`, `expansion` and the guide no longer say the pull resistors
   are 3.3 V only: they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12.
+- With an SDK that takes the pod's own lease, `connect` holds it on the LAN and USB network for as
+  long as the session is connected, so other tools and CI runs wait for it (`lease_wait` applies
+  there too). After the idle timeout (`--idle-timeout`, default 10 minutes without a tool call) the session disconnects,
+  which releases the lease, and the next call reconnects, as over the cloud.
 - `status` has `local_lease` (held, holder, purpose, left_s, mine) on a pod with the `lease`
-  feature, and warns when someone else holds it; `leased` also covers the pod's own lease, which
-  `connect` takes on the LAN and USB network with that SDK (`lease_wait` applies there too).
+  feature, and warns when someone else holds it; `leased` also covers the pod's own lease.
 
 ## 3.0.3
 

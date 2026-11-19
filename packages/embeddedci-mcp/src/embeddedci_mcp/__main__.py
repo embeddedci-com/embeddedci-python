@@ -47,10 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "the power rail or the SWD target. Falls back to BENCHPOD_WIRING_AUTOSAVE. Default: off "
                              "(the agent calls save_wiring).")
     parser.add_argument("--lease-wait", type=float, default=30.0,
-                        help="Cloud: seconds connect waits for a busy shared device (default 30).")
+                        help="Seconds connect waits for a busy pod: its lease, or the cloud device's (default 30).")
     parser.add_argument("--idle-timeout", type=float, default=600.0,
-                        help="Cloud: release the device lease after this many idle seconds; the next "
-                             "tool call reconnects (default 600, 0 = never).")
+                        help="Release the lease (the cloud device's, or the pod's own on the LAN and USB "
+                             "network) after this many idle seconds; the next tool call reconnects "
+                             "(default 600, 0 = never).")
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="Per-command device timeout in seconds (default 30).")
     http = parser.add_argument_group("http transport")

@@ -125,10 +125,12 @@ inside GitHub Actions the SDK uses OIDC instead.
 one; pass a result's `connection` to `connect`. The session token behind a cloud connection is
 renewed before it expires, so a long session keeps working.
 
-A cloud pod is shared, so `connect` takes an exclusive lease (waiting up to `--lease-wait`
-seconds if another run holds it). The lease is released by `disconnect`, or after
-`--idle-timeout` seconds without a tool call — the next call reconnects transparently, so an idle
-chat never blocks CI on that pod.
+A pod is shared, so `connect` takes an exclusive lease, waiting up to `--lease-wait` seconds if
+someone else holds it: the server's lease for a cloud pod, and the pod's own lease on the LAN and
+the USB network when the pod's firmware has the `lease` feature. The lease is released by
+`disconnect`, or after `--idle-timeout` seconds without a tool call. The next call reconnects
+transparently, so an idle chat never blocks CI on that pod. `status` shows the pod's lease
+(`local_lease`) and warns when someone else holds it.
 
 ## Options
 
@@ -141,8 +143,8 @@ chat never blocks CI on that pod.
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
 | — | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`) that wins over the stored profile |
 | — | `BENCHPOD_WIRING_SOURCE` | `auto` | `local` never asks embeddedci.com for the pod's stored wiring profile |
-| `--lease-wait` | — | `30` | cloud: seconds to wait for a busy pod |
-| `--idle-timeout` | — | `600` | cloud: release the lease after this many idle seconds (0 = never) |
+| `--lease-wait` | — | `30` | seconds to wait for a busy pod (its lease, or the cloud device's) |
+| `--idle-timeout` | — | `600` | release the lease after this many idle seconds (0 = never) |
 | `--timeout` | — | `30` | per-command device timeout |
 | `--transport` | — | `stdio` | `stdio` or `http` |
 | `--host` / `--port` | — | `127.0.0.1` / `8000` | HTTP bind address |

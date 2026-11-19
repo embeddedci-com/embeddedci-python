@@ -82,7 +82,26 @@ def test_idle_cloud_connection_releases_and_reconnects(monkeypatch):
     assert opened[1].closed and not s.reconnectable
 
 
-def test_local_connections_never_idle_release(monkeypatch):
+def test_idle_local_connection_with_a_pod_lease_releases(monkeypatch):
+    opened = []
+
+    def factory(connection, **kwargs):
+        pod = _LeasedPod()          # leased: holds the pod's own lease on the LAN
+        opened.append(pod)
+        return pod
+
+    monkeypatch.setattr(session_mod, "BenchPod", factory)
+    s = Session()
+    s.idle_timeout = 0.1
+    s.connect("192.168.1.2")
+    assert s.info().idle_disconnect_after == 0.1
+    time.sleep(0.4)
+    assert opened[0].closed and not s.connected and s.reconnectable
+    assert s.require() is opened[1]
+    s.disconnect()
+
+
+def test_local_connections_without_a_lease_never_idle_release(monkeypatch):
     class Local(_LeasedPod):
         leased = False
 
