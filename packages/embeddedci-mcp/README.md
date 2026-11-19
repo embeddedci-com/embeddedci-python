@@ -456,6 +456,17 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   then save_wiring) or call set_la_voltage` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
   by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
   `sensor_stop`; a pull conflict to `set_pull(las=[7], pull="off")`.
+- **Error codes.** Firmware 3.10.8 and later sends a stable code with a refusal (`BP0009` ...): the
+  error then reads `<Kind>: <cmd>: BP0009: <what went wrong>; <the fix, as tool calls> (docs:
+  https://embeddedci.com/docs/errors#BP0009)`. The code is the stable part to act on, and it also
+  picks the kind (`PodBusyError` for an open I2C or SPI session, `WiringError` for the wiring
+  profiles, ...); the text may change between releases.
+- **Client too old.** Every command carries the server's client API level (`client_api`) and
+  `"client": "mcp <version>"`. When the pod's firmware is newer than this server can talk to (it
+  announces a higher client API level on `connect`, or refuses a command with `BP0030`), the tool
+  fails with `ClientTooOldError` and says to update the server: `uvx embeddedci-mcp@latest`, or
+  `pip install -U embeddedci-mcp`, or update the benchpod plugin, then reconnect. Retrying does
+  not help. Firmware 3.10.13 and older does not announce a level and works as before.
 - **Capabilities.** `connect` and `status` report what the pod can do as flags, so an agent can
   check before it calls a tool: for example `la_pins`, `capture_trigger`, `power_profile`,
   `nrst_pin`, `can`, `calibrate`, `cal_dmm`, `current_out`, `pod_current`, `sensors` and `analog` (false on the

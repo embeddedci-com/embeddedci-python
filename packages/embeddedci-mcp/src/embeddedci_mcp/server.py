@@ -71,6 +71,7 @@ from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
 from embeddedci.benchpod import errors as _errors
+from embeddedci.benchpod import protocol as _protocol
 from embeddedci.benchpod.errors import STATUS_FITS_FIRMWARE, FirmwareError, status_too_large
 from embeddedci.benchpod.errors import BenchPodError
 from embeddedci.benchpod.server_api import ServerApi
@@ -224,6 +225,49 @@ def _error_text(exc: BenchPodError) -> str:
     return f"{cmd}: {text}" if cmd else text
 
 
+#: How to update this server, for a pod whose firmware is newer than it handles.
+_MCP_UPDATE = ("update embeddedci-mcp: uvx embeddedci-mcp@latest or pip install -U embeddedci-mcp, "
+               "or update the benchpod plugin; then reconnect")
+
+
+def _mcp_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("embeddedci-mcp")
+    except Exception:   # a source tree without install
+        return "unknown"
+
+
+def _name_this_client() -> None:
+    """Requests from this server carry ``"client": "mcp <version>"`` (embeddedci after 3.0.5)."""
+    set_name = getattr(_protocol, "set_client_name", None)
+    if callable(set_name):
+        set_name(f"mcp {_mcp_version()}")
+
+
+_name_this_client()
+
+
+def _client_too_old_text(exc: BenchPodError) -> Optional[str]:
+    """The ClientTooOldError of embeddedci after 3.0.5 (a pod above this server's client API
+    level on connect, or the pod's BP0030), told as what to update: this server, not the SDK."""
+    cls = getattr(_errors, "ClientTooOldError", None)
+    if cls is None or not isinstance(exc, cls):
+        return None
+    fw = getattr(exc, "firmware_version", "") or ""
+    pod = f"the pod's firmware {fw}" if fw else "the pod's firmware"
+    have, api, need = (getattr(exc, "client_api", 0), getattr(exc, "api", 0),
+                       getattr(exc, "min_client_api", 0))
+    if getattr(exc, "code", "") == "BP0030":
+        why = f"{pod} needs client API {need or '?'} or newer, this server sent {have}"
+    else:
+        why = f"{pod} speaks client API {api or '?'}, this server handles {have}"
+    cmd = getattr(exc, "cmd", None)
+    text = (f"this BenchPod MCP server (embeddedci-mcp {_mcp_version()}) is too old for this pod: "
+            f"{why}. Tell the user to {_MCP_UPDATE}")
+    return f"{cmd}: {text}" if cmd else text
+
+
 def _coded_text(exc: BenchPodError) -> Optional[str]:
     """A refusal with a stable error code, rendered with the catalog's fix for an agent."""
     from embeddedci.benchpod.errors import error_catalog
@@ -234,11 +278,17 @@ def _coded_text(exc: BenchPodError) -> Optional[str]:
     values = getattr(exc, "values", {}) or {}
     fill = lambda t: re.sub(r"\{([a-z0-9_]+)\}", lambda m: str(values.get(m.group(1), "?")), t)  # noqa: E731
     cmd = getattr(exc, "cmd", None)
+    if code == "BP0001":   # this server's own text, as for firmware without codes
+        text = f"{code}: {_LA_VOLTAGE_MCP} (docs: {exc.docs_url})"
+        return f"{cmd}: {text}" if cmd else text
     text = f"{code}: {fill(entry['message'])}; {fill(entry['fix']['mcp'])} (docs: {exc.docs_url})"
     return f"{cmd}: {text}" if cmd else text
 
 
 def _tool_error(exc: BenchPodError) -> ToolError:
+    too_old = _client_too_old_text(exc)
+    if too_old:
+        return ToolError(f"{type(exc).__name__}: {too_old}")
     coded = _coded_text(exc)
     if coded:
         return ToolError(f"{type(exc).__name__}: {coded}")

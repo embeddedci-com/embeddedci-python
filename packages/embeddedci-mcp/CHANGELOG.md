@@ -1,5 +1,18 @@
 # Changelog — `embeddedci-mcp`
 
+## 3.0.6
+
+- Every command carries `"client": "mcp <version>"` and the client API level (with embeddedci
+  after 3.0.5).
+- **Client too old:** a pod whose firmware is newer than this server handles (it announces a
+  higher client API level, or refuses with `BP0030`) fails `connect` and every tool with
+  `ClientTooOldError`, saying to update the server (`uvx embeddedci-mcp@latest`,
+  `pip install -U embeddedci-mcp`, or the benchpod plugin) and reconnect. Needs embeddedci after
+  3.0.5; with 3.0.5 nothing changes.
+- Refusals take their kind from the error code (embeddedci after 3.0.5): `PodBusyError` for an
+  open I2C or SPI session, `WiringError` for the wiring profiles, and so on. `BP0001` (I/O voltage
+  not set) keeps this server's text, which names `set_wiring` and `set_la_voltage`.
+
 ## 3.0.5
 
 - Needs embeddedci 3.0.5.
