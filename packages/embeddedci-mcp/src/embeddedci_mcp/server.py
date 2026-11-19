@@ -2129,7 +2129,7 @@ async def adc_read(source: AdcSource = "ext", range: AdcRangeArg = None) -> m.Ad
     """
     r = await _call(lambda: SESSION.require().adc_read(source, range=range))
     return m.AdcReadResult(source=r.source, voltage=r.voltage, count=r.count, span=r.span,
-                           offset=r.offset, current=r.current, sense_ohms=r.sense_ohms, range=r.range or None,
+                           offset=r.offset, current=r.current, sense_ohms=getattr(r, "sense_ohms", None), range=r.range or None,
                            fullscale=r.fullscale, overrange=r.overrange)
 
 
