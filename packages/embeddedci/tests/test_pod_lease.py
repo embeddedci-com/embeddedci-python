@@ -26,7 +26,7 @@ LIGHT = {"status", "ping", "la_voltage"}
 class LeasePod:
     """A JSON/TCP pod with one RAM lease. Every connection reads lines until the client closes."""
 
-    def __init__(self, features_rev: int = 4, knows_lease: bool = True) -> None:
+    def __init__(self, features_rev: int = 5, knows_lease: bool = True) -> None:
         self.features_rev = features_rev
         self.knows_lease = knows_lease
         self.lease: Optional[Dict[str, Any]] = None   # id, holder, purpose, deadline
@@ -332,7 +332,7 @@ def test_a_stopped_runner_lease_fails_the_join(pod, monkeypatch):
 
 
 def test_no_lease_feature_takes_none():
-    p = LeasePod(features_rev=3)
+    p = LeasePod(features_rev=4)
     try:
         bp = _open(p)
         bp.command({"cmd": "gpio"})
@@ -346,7 +346,7 @@ def test_no_lease_feature_takes_none():
 
 def test_no_lease_feature_warns_when_a_runner_lease_was_expected(monkeypatch, caplog):
     monkeypatch.setenv("BENCHPOD_LEASE", "L-runner")
-    p = LeasePod(features_rev=3)
+    p = LeasePod(features_rev=4)
     try:
         with caplog.at_level(logging.WARNING, logger="embeddedci.benchpod"):
             bp = _open(p)
