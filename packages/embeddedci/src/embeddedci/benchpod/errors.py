@@ -313,6 +313,22 @@ class ClientTooOldError(FirmwareError):
         self.firmware_version = firmware_version
 
 
+class FirmwareTooOldError(UnsupportedFeatureError):
+    """The pod runs firmware this SDK does not drive: firmware 3.x, which speaks client API 1.
+    This SDK (4.x) needs firmware 4.0.0 or later (client API 2).
+
+    Raised on connect. :attr:`api` is the pod's client API level (1 for firmware that does not
+    announce one), :attr:`firmware_version` its firmware. Update the pod with the BenchPod CLI
+    (``benchpod flash-self``) or the firmware update in the web app; or keep firmware 3.x and
+    use embeddedci 3.x (``pip install 'embeddedci<4'``). An :class:`UnsupportedFeatureError`
+    (feature ``"client_api"``)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, api: int = 0,
+                 firmware_version: str = "") -> None:
+        super().__init__(message, cmd=cmd, feature="client_api", firmware_version=firmware_version)
+        self.api = api
+
+
 class PermissionDeniedError(FirmwareError, TransportError):
     """The caller is not allowed to do this: the pod's ``forbidden: <cmd> needs an organization
     owner or admin`` on a cloud tunnel, or an HTTP 403 from the server (the API key lacks a

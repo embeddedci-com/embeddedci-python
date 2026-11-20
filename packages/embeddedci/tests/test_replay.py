@@ -20,7 +20,7 @@ class FakeTransport:
         self.uploads: List[dict] = []
 
     def status(self):
-        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096}
+        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096, "fpga_image": "deep"}
 
     def command(self, req: dict) -> Any:
         self.commands.append(req)

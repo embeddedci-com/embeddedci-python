@@ -34,9 +34,8 @@ def test_from_parameters_full_set():
     params = {
         "cap.board": "stm32h563", "cap.adc_bits": "16", "cap.adc_fullscale_mv": "4096",
         "cap.adc_cal_a": "65.7889", "cap.adc_cal_b": "-0.001003762", "cap.adc_cal_unwrap": "true",
-        "cap.dac_replay": "true", "cap.dac_deep_replay": "true",
+        "cap.features_rev": "10", "cap.gateware": "59", "cap.fpga_image": "deep",
         "cap.dac_replay_bits": "16", "cap.dac_replay_max_samples": "2097152",
-        "cap.scope": "true", "cap.analyzer": "true",
     }
     caps = Capabilities.from_parameters(params)
     assert caps.dac_replay and caps.dac_deep_replay
@@ -58,7 +57,8 @@ def test_from_parameters_integer_uv_nv_cal():
 def test_merge_prefers_server_params():
     status = Capabilities.from_status({"board": "stm32h563", "adc_bits": 16})
     server = Capabilities.from_parameters({"cap.dac_replay_max_samples": "2097152",
-                                           "cap.dac_replay_bits": "16", "cap.dac_deep_replay": "true"})
+                                           "cap.dac_replay_bits": "16", "cap.features_rev": "10",
+                                           "cap.gateware": "59", "cap.fpga_image": "deep"})
     merged = status.merge(server)
     assert merged.dac_replay_max_samples == 2097152
     assert merged.dac_deep_replay is True
@@ -67,10 +67,10 @@ def test_merge_prefers_server_params():
 
 def test_rev3_board_features_from_status():
     v3 = Capabilities.from_status({"board": "stm32h563", "board_rev": "v3", "nrst_pin": True,
-                                   "caps": ["la", "nrst_pin", "usb_cc"]})
+                                   "features_rev": 10, "hw": ["usb_cc"]})
     assert v3.board_rev == "v3" and v3.nrst_pin and v3.usb_cc
     v2 = Capabilities.from_status({"board": "stm32h563", "board_rev": "v2", "nrst_pin": False,
-                                   "caps": ["la"]})
+                                   "features_rev": 10, "hw": []})
     assert v2.board_rev == "v2" and not v2.nrst_pin and not v2.usb_cc
 
 
@@ -103,45 +103,42 @@ def test_boot_health_from_parameters():
         "the pod is in safe mode. Some features are off")
 
 
-# -- the policy / update / hardening flags (firmware 3.6 status, server cap.*) ------------------
+# -- the policy / update / hardening flags (firmware 4.0 status, server cap.*) ------------------
 
-_STATUS_3_6 = {
-    "version": "3.6.0", "board": "stm32h563", "flash_kb": 2048,
-    "ota_sig": True, "sig_policy": "audit", "sig_keys": 2, "sig_policy_cmd": True,
-    "lan_policy": "locked", "lan_policy_cmd": True, "tunnel_max_tier": True, "lease_state": True,
-    "cloud_ca": True, "cloud_proxy": True,
+_STATUS_4_0 = {
+    "version": "4.0.0", "board": "stm32h563", "flash_kb": 2048, "api": 2, "min_client_api": 2,
+    "features_rev": 10, "gateware": 59, "fpga_image": "loop", "hw": [],
+    "sig_policy": "required", "sig_keys": 2, "lan_policy": "locked",
     "lease": {"held": False, "holder": "", "left_s": 0},
     "analog": True,
-    "caps": ["signal", "la", "analog", "scope", "dac_limits", "calibrate", "current_out"],
 }
 
 
 def test_status_policy_and_update_flags():
-    c = Capabilities.from_status(_STATUS_3_6)
-    assert c.flash_kb == 2048 and c.ota_sig and c.sig_policy == "audit" and c.sig_keys == 2
+    c = Capabilities.from_status(_STATUS_4_0)
+    assert c.flash_kb == 2048 and c.ota_sig and c.sig_policy == "required" and c.sig_keys == 2
     assert c.sig_policy_cmd and c.lan_policy == "locked" and c.lan_policy_cmd
     assert c.tunnel_max_tier and c.lease_state and c.cloud_ca and c.cloud_proxy
-    assert c.analog is True and c.dac_limits
+    assert c.analog is True and c.dac_limits and c.api == 2 and c.min_client_api == 2
 
 
 def test_status_of_a_digital_only_board():
-    c = Capabilities.from_status({"analog": False, "caps": ["la"]})
+    c = Capabilities.from_status({**_STATUS_4_0, "analog": False})
     assert c.analog is False and not c.dac_limits
 
 
-def test_older_firmware_leaves_the_new_flags_unknown():
+def test_a_status_without_the_table_has_no_features():
+    """Firmware 3.x without features_rev: nothing is decided from it (the SDK refuses the pod)."""
     c = Capabilities.from_status({"version": "3.1.1", "caps": ["la", "scope"]})
     assert c.analog is None and not c.ota_sig and c.sig_policy == "" and c.flash_kb == 0
-    assert not c.lease_state and not c.tunnel_max_tier
+    assert not c.lease_state and not c.tunnel_max_tier and not c.scope
 
 
 def test_server_parameters_policy_and_update_flags():
     c = Capabilities.from_parameters({
-        "cap.analog": "true", "cap.dac_limits": "true", "cap.flash_kb": "1024",
-        "cap.blob_slots": "true", "cap.ota_sig": "true", "cap.sig_policy": "required",
-        "cap.sig_policy_cmd": "true", "cap.lan_policy": "open", "cap.lan_policy_cmd": "true",
-        "cap.tunnel_max_tier": "true", "cap.ws_auth_v2": "true", "cap.lease_state": "true",
-        "cap.cloud_ca": "true", "cap.cloud_proxy": "true", "cap.pod_current": "true",
+        "cap.analog": "true", "cap.flash_kb": "1024", "cap.features_rev": "10",
+        "cap.gateware": "59", "cap.fpga_image": "loop", "cap.sig_policy": "required",
+        "cap.lan_policy": "open", "cap.ws_auth_v2": "true", "cap.pod_current": "true",
     })
     assert c.analog is True and c.dac_limits and c.flash_kb == 1024 and c.blob_slots
     assert c.ota_sig and c.sig_policy == "required" and c.sig_policy_cmd

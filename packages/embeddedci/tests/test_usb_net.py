@@ -32,12 +32,12 @@ STATUS = (
 
 def test_parse_usb_line_net_on():
     s = parse_text_status("status\r\n" + STATUS + f"  usb    : {USB_ON}\r\n> ")
-    assert s["usb"] == {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
+    assert s["usb"] == {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
 
 
 def test_parse_usb_line_wifi_configured():
     assert parse_usb_status_line(USB_WIFI) == {
-        "net": "off", "link": False, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
+        "net": False, "link": False, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
 
 
 def test_parse_usb_line_from_older_firmware_is_left_alone():
@@ -48,11 +48,11 @@ def test_parse_usb_line_from_older_firmware_is_left_alone():
 
 
 @pytest.mark.parametrize("status, want", [
-    ({"usb": {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}, "10.237.8.85"),
-    ({"usb": {"net": "off", "link": False, "ip": "10.237.8.85"}}, None),
-    ({"usb": {"net": "on", "link": False, "ip": "10.237.8.85"}}, None),
-    ({"usb": {"net": "on", "link": True, "ip": "0.0.0.0"}}, None),
-    ({"usb": {"net": "on", "link": True, "ip": "garbage"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}, "10.237.8.85"),
+    ({"usb": {"net": False, "link": False, "ip": "10.237.8.85"}}, None),
+    ({"usb": {"net": True, "link": False, "ip": "10.237.8.85"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "0.0.0.0"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "garbage"}}, None),
     ({"usb": "cdc acm"}, None),
     ({"device": "benchpod"}, None),
     ("not a dict", None),
@@ -141,7 +141,7 @@ def test_usb_name_selects_the_pod_and_upgrades(usb):
 
 def test_serial_keyword_also_upgrades(usb):
     usb["status"] = {"device": "benchpod",
-                     "usb": {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}
+                     "usb": {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}
     assert isinstance(open_transport(parse_connection("serial")), TcpTransport)
 
 

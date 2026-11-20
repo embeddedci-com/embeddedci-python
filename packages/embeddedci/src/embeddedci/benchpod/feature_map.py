@@ -4,11 +4,11 @@
 ``features/features.toml``; ``scripts/sync-feature-map.sh`` copies it here). It ships with the
 SDK, so deciding what a pod can do needs no network connection.
 
-A pod with firmware after 3.10.10 answers ``{"cmd":"status","caps":false}`` with
-``features_rev`` (the table revision it is built from), ``fpga_image`` and the ``hw`` facts
-instead of the ``caps`` list. :func:`resolve` turns those into the set of features the pod has:
-every entry with ``rev <= features_rev`` whose gateware, board and ``requires`` facts match.
-Older firmware sends the ``caps`` list as before (:meth:`Capabilities.from_status` reads it).
+A pod's ``status`` (and its cloud capabilities frame) carries ``features_rev`` (the table
+revision its firmware is built from), ``fpga_image`` and the ``hw`` facts. :func:`resolve` turns
+those into the set of features the pod has: every entry with ``rev <= features_rev`` whose
+gateware, board and ``requires`` facts match. Firmware 4.0 (client API 2) is the first this SDK
+drives; it always sends them.
 """
 
 from __future__ import annotations
@@ -21,13 +21,20 @@ from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 
 #: The client API level this SDK is built for: the highest pod ``api`` it handles. The pod
-#: announces its level as ``api`` (``status`` with ``"caps":false``, the cloud capabilities frame;
-#: a pod that does not counts as 1), every request carries this one as ``client_api``, and a pod
-#: whose ``api`` is higher has changed a reply or a message in a way this SDK would misread
+#: announces its level as ``api`` (``status``, the cloud capabilities frame; a pod that does not
+#: counts as 1), every request carries this one as ``client_api``, and a pod whose ``api`` is
+#: higher has changed a reply or a message in a way this SDK would misread
 #: (:class:`~embeddedci.benchpod.errors.ClientTooOldError`). Raised by hand, together with the
 #: code that handles the new level, when a synced table raises its ``api``: a test checks that it
 #: equals the bundled table's.
-CLIENT_API = 1
+CLIENT_API = 2
+
+#: The lowest pod ``api`` this SDK drives: firmware 4.0.0. A pod below it (firmware 3.x) is
+#: refused on connect with :class:`~embeddedci.benchpod.errors.FirmwareTooOldError`.
+MIN_POD_API = 2
+
+#: The first firmware with :data:`MIN_POD_API`.
+MIN_FIRMWARE = "4.0.0"
 
 
 @lru_cache(maxsize=1)
@@ -70,8 +77,6 @@ def facts_from_status(status: Mapping[str, Any]) -> Dict[str, Any]:
             out[name] = v if name == "fpga_image" else v is True
         elif "hw" in f:
             out[name] = f["hw"] in hw_names
-    if "analog" not in out:
-        out["analog"] = True   # firmware before the analog flag: every pod was an analog board
     return out
 
 
@@ -85,7 +90,6 @@ def facts_from_frame(params: Mapping[str, Any], prefix: str = "") -> Dict[str, A
             continue
         v = params[key]
         out[name] = str(v) if name == "fpga_image" else str(v).strip().lower() in ("true", "1")
-    out.setdefault("analog", True)
     return out
 
 

@@ -71,8 +71,10 @@ class EmuPod:
 
     PROGRAMN, DONE = 9, 10
 
-    def __init__(self, *, boards: Optional[Dict[int, Board]] = None, caps: Optional[List[str]] = None) -> None:
+    def __init__(self, *, boards: Optional[Dict[int, Board]] = None, caps: Optional[List[str]] = None,
+                 gateware: int = 59) -> None:
         self.caps = ["la", "la_pins", "gpio_read", "spi_master", "spi_stream"] if caps is None else caps
+        self.gateware = gateware
         self.boards = {0: Board()} if boards is None else boards
         self.commands: List[dict] = []
         self.armed: Optional[dict] = None
@@ -87,7 +89,8 @@ class EmuPod:
 
     # -- transport surface
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "3.4.0", "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "version": "3.4.0", "caps": self.caps,
+                "gateware": self.gateware}
 
     def ping(self) -> Any:
         return "pong"
@@ -403,7 +406,7 @@ def test_open_motor_emulator_checks(pod):
     bp, fake = pod
     with pytest.raises(ValueError):
         bp.open_motor_emulator(hz=8_000_000)
-    bp2 = BenchPod(transport=EmuPod(caps=["la", "la_pins"]), wiring=WIRING)
+    bp2 = BenchPod(transport=EmuPod(caps=["la", "la_pins"], gateware=44), wiring=WIRING)
     with pytest.raises(BenchPodError):
         bp2.open_motor_emulator()
 
@@ -432,8 +435,9 @@ def test_spi_stream_session():
 
 
 def test_capability():
-    assert Capabilities.from_status({"caps": ["spi_master", "spi_stream"]}).spi_stream
-    assert Capabilities.from_parameters({"cap.spi_stream": "true"}).spi_stream
+    assert Capabilities.from_status({"features_rev": 10, "gateware": 45}).spi_stream
+    assert not Capabilities.from_status({"features_rev": 10, "gateware": 44}).spi_stream
+    assert Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59"}).spi_stream
 
 
 def test_configure_from_a_file_and_input_checks(pod, tmp_path):

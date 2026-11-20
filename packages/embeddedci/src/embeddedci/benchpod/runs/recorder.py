@@ -2,7 +2,7 @@
 
 :class:`Recorder` wraps one transport *instance*: it binds wrappers as instance attributes for
 ``command``, ``command_sequence``, ``samples``, ``stream_chunks``, ``status``,
-``status_without_caps``, ``target_power``, ``dap_start`` and ``uart_proxy_start``, so the
+``target_power``, ``dap_start`` and ``uart_proxy_start``, so the
 transport's class (and ``isinstance``) is unchanged and no transport class needs to know about it.
 A call made from inside another recorded call (``status`` sending ``command``) is recorded once,
 as the outer call.
@@ -27,7 +27,6 @@ WRAPPED = {
     "samples": "samples",
     "stream_chunks": "stream",
     "status": "status",
-    "status_without_caps": "status",
     "target_power": "power",
     "dap_start": "raw",
     "uart_proxy_start": "raw",
@@ -190,8 +189,6 @@ class Recorder:
             return list(args[0] if args else kwargs.get("reqs") or [])
         if name == "status":
             return {"cmd": "status"}
-        if name == "status_without_caps":
-            return {"cmd": "status", "caps": False}
         if name == "target_power":
             keys = ("efuse", "on", "delay_ms")
             req = dict(zip(keys, args))

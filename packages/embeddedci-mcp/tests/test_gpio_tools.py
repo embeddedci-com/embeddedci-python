@@ -21,7 +21,7 @@ def test_la_pins_reports_every_channel_with_levels(connected):
     assert [p["la"] for p in result["pins"]] == list(range(1, 15))
     assert _pin(result, 1) == {"la": 1, "function": "none", "gpio": None, "level": None,
                                "pull": "up", "pull_dirs": ["up"], "pull_ohms": "4.7k", "pull_on": False, "in_use": False,
-                               "dir": None, "warnings": None}
+                               "dir": "bidir", "warnings": None}
     assert _pin(result, 7)["pull"] == "down" and _pin(result, 12)["pull"] is None
     assert _pin(result, 14)["pull"] is None
     assert {lv["la"]: lv["level"] for lv in result["levels"]}[11] == 1
@@ -39,12 +39,6 @@ def test_la_pins_shows_who_owns_a_channel(connected):
     result = call("la_pins")
     assert _pin(result, 5)["function"] == "uart_rx" and _pin(result, 5)["in_use"] is True
     assert _pin(result, 4)["function"] == "uart_tx"
-
-
-def test_la_pins_needs_the_firmware_capability(connected):
-    without_caps(connected, "la_pins")
-    with pytest.raises(ToolError, match="la_pins"):
-        call("la_pins")
 
 
 # -- configuring and driving -------------------------------------------------------------
@@ -105,7 +99,7 @@ def test_gpio_wait_times_out_without_failing(connected):
 
 def test_gpio_pulse_runs_a_step_train(connected):
     assert call("gpio_pulse", la=3, width=0.001, count=5) == {"la": 3, "count": 5, "width": 0.001}
-    assert connected.requests[-1] == {"cmd": "la", "la": 3, "steps": 5, "delay_us": 1000}
+    assert connected.requests[-1] == {"cmd": "la_step", "la": 3, "steps": 5, "delay_us": 1000}
 
 
 # -- ownership conflicts reach the agent ------------------------------------------------------
@@ -133,9 +127,3 @@ def test_pull_conflict_reaches_the_agent(connected):
         call("gpio_mode", la=[7], mode="open_drain")
 
 
-def test_gpio_needs_the_firmware_capability(connected):
-    without_caps(connected, "la_pins")
-    with pytest.raises(ToolError, match="la_pins"):
-        call("gpio_mode", la=[3])
-    with pytest.raises(ToolError, match="la_pins"):
-        call("gpio_release")

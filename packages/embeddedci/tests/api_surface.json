@@ -342,7 +342,6 @@
       "analog",
       "dac_limits",
       "sensors",
-      "sensors_format",
       "sensors_digital",
       "sensor_la_trigger",
       "flash_kb",
@@ -581,6 +580,9 @@
   "FaultType": "Literal['flatline', 'spike', 'stuck']",
   "FirmwareError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None) -> 'None'"
+  },
+  "FirmwareTooOldError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, api: 'int' = 0, firmware_version: 'str' = '') -> 'None'"
   },
   "FlashError": {},
   "FlashResult": {
@@ -1398,6 +1400,7 @@
     "Fault",
     "FaultType",
     "FirmwareError",
+    "FirmwareTooOldError",
     "FlashError",
     "FlashResult",
     "FpgaImage",

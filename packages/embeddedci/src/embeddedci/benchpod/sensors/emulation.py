@@ -532,9 +532,7 @@ class SensorEmulation:
         and starts the capture on its START, with 1/8 of the samples from before it, so a DUT
         that reads its sensor now and then is caught. No bus traffic in time raises
         :class:`~embeddedci.benchpod.errors.TriggerTimeout`. ``wait_for_traffic=False`` captures
-        at once. Firmware without the ``sensor_la_trigger`` capability (3.10.3 and earlier)
-        always captures at once: call it right after the DUT starts talking, or lower the rate
-        for a longer window. SPI and UART instances are refused by the pod: capture their pins
+        at once. SPI and UART instances are refused by the pod: capture their pins
         with :meth:`~embeddedci.benchpod.BenchPod.la_capture`."""
         self._require()
         n = int(samples)
@@ -547,13 +545,12 @@ class SensorEmulation:
         if wait_for_traffic and not 1 <= timeout_ms <= MAX_CAPTURE_TIMEOUT_MS:
             raise ValueError(f"timeout_s is 0.001..{MAX_CAPTURE_TIMEOUT_MS // 1000} s, got {timeout_s!r}")
         req: Dict[str, Any] = {"cmd": "sensor_la", "instance": _instance_name(instance),
-                               "samples": n, "sample_rate_mhz": rate / 1e6}
-        if self._pod.supports("sensor_la_trigger"):
-            if wait_for_traffic:
-                req["trigger"] = "start"
-                req["timeout_ms"] = timeout_ms
-            else:
-                req["trigger"] = "none"
+                               "samples": n, "sample_rate_hz": int(rate) if rate.is_integer() else rate}
+        if wait_for_traffic:
+            req["trigger"] = "start"
+            req["timeout_ms"] = timeout_ms
+        else:
+            req["trigger"] = "none"
         return self._samples(req)
 
     def running_digital(self) -> List[str]:

@@ -37,40 +37,27 @@ class Pod:
     def command(self, req: dict) -> Any:
         if req.get("cmd") == "status":
             return self.status()
-        assert req["cmd"] == "la", req
+        assert req["cmd"] == "la_pull", req
         self.sent.append(req)
         if "la" not in req:
             mask = sum(1 << (la - 1) for la, on in self.on.items() if on)
-            return {"la_pullup_mask": mask, "pullups_available": 1}
+            return {"la_pullup_mask": mask, "pullups_available": True}
         la = req["la"]
         hw = PULL_TABLE.get(la)
-        if self.features_rev < 3:
-            if "pull" in req:
-                raise AssertionError("old firmware got pull")
-            if not hw:
-                raise firmware_error("no pull-up on this la", cmd="la")
-            if "pullup" in req:
-                self.on[la] = req["pullup"] == "on"
-            return {"la": la, "pullup": int(self.on.get(la, False)), "ohms": hw.ohms, "pull": hw.default,
-                    "pullups_available": 1}
         want = req.get("pull")
-        if want is None and "pullup" in req:
-            want = (hw.default if hw else "none") if req["pullup"] == "on" else "off"
-        if want in ("up", "down", "none") and not hw:
-            raise firmware_error(f"LA{la} has no pull resistor on this board", cmd="la", code="BP0023",
-                                 values={"la": la})
+        if want in ("up", "down") and not hw:
+            raise firmware_error("", cmd="la_pull", code="BP0023", values={"la": la})
         if want in ("up", "down") and want not in hw.dirs:
-            raise firmware_error(f"LA{la} supports pull-{hw.default} only on this board", cmd="la",
-                                 code="BP0024", values={"la": la, "want": want, "have": hw.default})
+            raise firmware_error("", cmd="la_pull", code="BP0024",
+                                 values={"la": la, "want": want, "have": hw.default})
         if want is not None and hw:
             self.on[la] = want != "off"
         on = self.on.get(la, False)
-        return {"la": la, "pullup": int(on), "ohms": hw.ohms if hw else "",
-                "pull": hw.default if hw else "none", "state": (hw.default if on else "off") if hw else "off",
-                "dirs": list(hw.dirs) if hw else [], "pullups_available": 1}
+        return {"la": la, "state": (hw.default if on else "off") if hw else "off",
+                "dirs": list(hw.dirs) if hw else [], "pullups_available": True}
 
 
-def _bp(features_rev: int = 3) -> "tuple[BenchPod, Pod]":
+def _bp(features_rev: int = 10) -> "tuple[BenchPod, Pod]":
     pod = Pod(features_rev)
     return BenchPod(transport=pod, lease=False, wiring={"version": 2}), pod
 
@@ -79,15 +66,15 @@ def test_new_firmware_gets_the_direction():
     bp, pod = _bp(3)
     assert bp.supports("la_pull_dir")
     st = bp.set_pull(1, "up")
-    assert pod.sent[-1] == {"cmd": "la", "la": 1, "pull": "up"}
+    assert pod.sent[-1] == {"cmd": "la_pull", "la": 1, "pull": "up"}
     assert isinstance(st, PullState)
     assert st.enabled and st.state == "up" and st.direction == "up" and st.supported == ("up",)
     assert st.ohms == "4.7k"
     st = bp.set_pull(7, "down")
-    assert pod.sent[-1] == {"cmd": "la", "la": 7, "pull": "down"} and st.state == "down"
+    assert pod.sent[-1] == {"cmd": "la_pull", "la": 7, "pull": "down"} and st.state == "down"
     for off in ("off", None, False):
         st = bp.set_pull(7, off)
-        assert pod.sent[-1] == {"cmd": "la", "la": 7, "pull": "off"} and st.state == "off"
+        assert pod.sent[-1] == {"cmd": "la_pull", "la": 7, "pull": "off"} and st.state == "off"
         assert not st.enabled and st.direction == "down"
     assert bp.enabled_pulls() == [1]
 
@@ -111,7 +98,7 @@ def test_new_firmware_refusals_carry_the_code():
 def test_true_false_and_enabled_still_work():
     bp, pod = _bp(3)
     assert bp.set_pull(8, True).state == "down"          # True = the channel's own direction
-    assert pod.sent[-1] == {"cmd": "la", "la": 8, "pull": "down"}
+    assert pod.sent[-1] == {"cmd": "la_pull", "la": 8, "pull": "down"}
     assert bp.set_pull(2, enabled=True).state == "up"
     assert bp.set_pull(2, enabled=False).state == "off"
     with pytest.raises(TypeError, match="needs pull"):
@@ -130,33 +117,9 @@ def test_shortcuts():
     with pytest.raises(PullDirectionError, match="LA3 supports pull-up only"):
         bp.disable_pulldown(3)
     bp.disable_pulldown(8)
-    assert pod.sent[-1] == {"cmd": "la", "la": 8, "pull": "off"}
+    assert pod.sent[-1] == {"cmd": "la_pull", "la": 8, "pull": "off"}
     with pytest.raises(PullDirectionError, match="LA7 supports pull-down only"):
         bp.enable_pullup(7)
-
-
-def test_old_firmware_falls_back_to_pullup():
-    bp, pod = _bp(2)
-    assert not bp.supports("la_pull_dir")
-    st = bp.set_pull(3, "up")
-    assert pod.sent[-1] == {"cmd": "la", "la": 3, "pullup": "on"}
-    assert st.state == "up" and st.supported == ("up",) and st.ohms == "2.2k"
-    st = bp.set_pull(3, "off")
-    assert pod.sent[-1] == {"cmd": "la", "la": 3, "pullup": "off"} and st.state == "off"
-    bp.set_pull(7, "down")
-    assert pod.sent[-1] == {"cmd": "la", "la": 7, "pullup": "on"}
-    n = len(pod.sent)
-    # the SDK refuses what the old firmware would do wrong (pullup:on on LA7 pulls DOWN)
-    with pytest.raises(PullDirectionError) as e:
-        bp.set_pull(7, "up")
-    assert e.value.code == "BP0024" and e.value.have == "down"
-    with pytest.raises(PullDirectionError) as e:
-        bp.set_pull(10, "up")
-    assert e.value.code == "BP0023"
-    # LA9-LA14: answered here, old firmware refuses the query
-    assert bp.set_pull(10, "off").supported == ()
-    assert bp.pull_state(10).state == "off"
-    assert len(pod.sent) == n
 
 
 def test_wiring_pulls_map_and_list():

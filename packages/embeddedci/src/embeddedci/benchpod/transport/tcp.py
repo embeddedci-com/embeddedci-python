@@ -307,7 +307,11 @@ class TcpTransport(Transport):
                 pass
 
     def samples(self, req: dict) -> List[int]:
-        """Send a command whose reply is a chunked sample array."""
+        """Send a command whose reply is a chunked sample array, flattened from its decimal
+        ``data`` lists (asks for ``"enc":"dec"`` unless ``req`` names an encoding; captures come
+        as base64 otherwise, which :meth:`stream_chunks` yields)."""
+        req = {**req}
+        req.setdefault("enc", "dec")
         timeout = request_timeout(req, self.timeout)
         sock = self._dial(timeout, kind="capture")
         buf = bytearray()
@@ -433,9 +437,6 @@ class TcpTransport(Transport):
 
     def status(self) -> Any:
         return self.command({"cmd": "status"})
-
-    def status_without_caps(self) -> Any:
-        return self.command({"cmd": "status", "caps": False})
 
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})

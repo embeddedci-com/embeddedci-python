@@ -1,21 +1,22 @@
-"""Capabilities.scope from a pod's status: the digital-only board has no scope."""
+"""Capabilities.scope from a firmware 4.0 status: the features table decides, so the digital-only
+board has no scope and the analog one has it."""
 
 from embeddedci.benchpod.capabilities import Capabilities
 
+_FW4 = {"board": "stm32h563", "adc_bits": 16, "version": "4.0.0", "api": 2, "min_client_api": 2,
+        "features_rev": 10, "gateware": 59, "fpga_image": "loop"}
+
 
 def test_digital_board_has_no_scope():
-    # Firmware 3.6+ lists "signal" on every board and names "scope" itself on the analog one.
-    status = {"board": "stm32h563", "adc_bits": 16, "analog": False,
-              "caps": ["signal", "gpio", "power", "la", "analyzer", "command"]}
-    assert Capabilities.from_status(status).scope is False
+    c = Capabilities.from_status({**_FW4, "analog": False})
+    assert c.scope is False and c.dac is False and c.analyzer is True
 
 
 def test_analog_board_has_the_scope():
-    status = {"board": "stm32h563", "adc_bits": 16, "analog": True,
-              "caps": ["signal", "la", "analog", "scope", "dac"]}
-    assert Capabilities.from_status(status).scope is True
+    assert Capabilities.from_status({**_FW4, "analog": True}).scope is True
 
 
-def test_firmware_without_the_analog_flag_keeps_signal_as_scope():
-    status = {"board": "stm32h563", "adc_bits": 16, "caps": ["signal", "la"]}
-    assert Capabilities.from_status(status).scope is True
+def test_a_caps_list_is_ignored():
+    """Firmware 4.0 sends no caps list; one in a status decides nothing."""
+    c = Capabilities.from_status({"board": "stm32h563", "caps": ["signal", "la", "scope", "dac"]})
+    assert not c.scope and not c.dac and not c.analyzer

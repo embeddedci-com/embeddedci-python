@@ -31,6 +31,11 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:        # or "usb", or "emb
 No pin numbers: the SWD channels, the UART pair, the baud and the power rail come from the bench's
 [wiring profile](#wiring-profile). Pass them explicitly when you want to override it.
 
+**Pod firmware 4.0 or later.** embeddedci 4.x drives pods with firmware 4.0.0 and later (client
+API 2). Connecting to a pod with firmware 3.x raises `FirmwareTooOldError`, which says to update
+the pod with the BenchPod CLI (`benchpod flash-self`) or the firmware update in the web app; to
+keep firmware 3.x, stay on embeddedci 3.x (`pip install 'embeddedci<4'`).
+
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
 [API conventions](#api-conventions-and-stability) · [pytest plugin](#pytest-plugin) · [Test runs](#test-run-recording) ·
 [Power and reset](#power-reset-and-power-monitoring) · [Flashing](#flashing) · [UART](#uart) ·
@@ -248,13 +253,11 @@ Wi-Fi or the cloud the pod refuses the change (`PodLockedError`). Turning it bac
 console: `benchpod usb-network on`. Status reports it as `usb.setting` and, when the adapter is
 off, `usb.off_reason` (`"setting"` or `"wifi"`).
 
-**Compatibility.** The SDK decides per pod, from what the pod reports (the `usb` line of its
-console `status`), never from its own version:
-
-| | Pod firmware before 3.9.0 | Pod firmware 3.9.0 and later |
-|---|---|---|
-| **This SDK (2.12.0+)** | As before: `usb` is the console (status, ping, LA voltage, target power); the rest needs the network or the cloud. Console auto-detect still finds `0483:5740` and `2E8A`. | `usb` is the full API over the USB network adapter when it is up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why); else the console. |
-| **An older SDK (2.11.x)** | Unchanged. | `usb` is the console: its auto-detect probes every USB serial port, so it finds a 3.9.0 pod (same USB id `0483:5740`; tested). Status and ping work; LA voltage and target power, which 3.9.0 moved to the JSON API, fail with the pod's "moved to the network API ... update" line. A network address or `embeddedci:<name>` works fully. |
+**When the USB network is off.** `usb` is the full API over the USB network adapter when it is
+up. When USB networking is off (Wi-Fi configured) or down, it is the full API over the pod's
+Ethernet or Wi-Fi address from its console status, when this computer reaches it (logged as a
+warning; the pod's external LAN policy applies there; `transport.usb_lan_fallback` says why);
+else the console, which answers `status` and `ping` only.
 
 **Several pods on USB.** Auto-detect reads each pod's name (its identity short id, `baea06` for
 `benchpod-baea06`) from the console's `identity` command. Connection `usb:<name>` opens the pod
@@ -267,15 +270,15 @@ on an open console.
 
 **Otherwise use the network (or the cloud) for testing.** The STM32 pod's USB console is a text
 shell for setup and diagnostics with no JSON mode, so over the console the SDK can only read
-`status()`, `ping()`, select the LA voltage and switch target power (without `delay`). Everything
-else (flashing, UART, analog, captures, sensor emulation, CAN) raises a `TransportError` right
-away that points at the network connection. (On firmware 3.9.0 and later the LA voltage and target
-power moved to the network too; see the compatibility table above.)
+`status()` and `ping()`. Everything else (the LA voltage, target power, flashing, UART, analog,
+captures, sensor emulation, CAN) raises a `TransportError` right away that points at the network
+connection or `usb` (the USB network adapter). Over the console the firmware version decides the
+client API check: firmware 3.x raises `FirmwareTooOldError` there too.
 
-| | TCP | USB network (`usb`, firmware 3.9.0+) | USB console (STM32 pod) | Cloud |
+| | TCP | USB network (`usb`) | USB console (STM32 pod) | Cloud |
 |---|---|---|---|---|
-| `status`, `ping`, LA voltage, target power on/off | yes | yes | yes | yes |
-| Scheduled power changes (`delay=`), flashing, UART, analog, captures, sensor emulation, CAN, control loop | yes | yes | no | yes |
+| `status`, `ping` | yes | yes | yes | yes |
+| LA voltage, target power, flashing, UART, analog, captures, sensor emulation, CAN, control loop | yes | yes | no | yes |
 | `replay()` / client-side `replay_waveform()` (streams the waveform to the pod) | yes | yes | no | yes |
 | Device lease | the pod's lease (feature `lease`) | the pod's lease (feature `lease`) | no | the server's lease |
 
@@ -428,28 +431,34 @@ properties `can_gpio`, `can_trigger`, `can_spi`, `can_profile_power`, `can_calib
 `UnsupportedFeatureError` (see [Errors](#errors)), before anything is sent when the capabilities
 already say so.
 
-Where those come from: firmware after 3.10.10 no longer lists its features. The SDK asks for its
-`status` without the list (`"caps":false`) and gets `capabilities.features_rev`, the revision of
-the features table the firmware is built from, plus the running image (`capabilities.fpga_image`)
-and a few hardware facts. The SDK ships that table (`embeddedci.benchpod.feature_map`, a copy of
-benchpod-firmware's `features/features.json`), so this needs no network: `capabilities.features`
-is every feature the table gives the pod, and `bp.supports()` also takes table names without a
-flag of their own (`"la_dir"`, `"i2c_master"`, `"diag"`, `"wiring_store"`, ...). Older firmware
-sends its list as before and gets the same answers. A pod with a higher `features_rev` than the
-SDK knows logs a warning once: update the SDK (`pip install -U embeddedci`) to use those features.
+Where those come from: the pod's `status` (and its cloud capabilities frame) carries
+`capabilities.features_rev`, the revision of the features table its firmware is built from, plus
+the running image (`capabilities.fpga_image`), the gateware and a few hardware facts. The SDK
+ships that table (`embeddedci.benchpod.feature_map`, a copy of benchpod-firmware's
+`features/features.json`), so this needs no network: `capabilities.features` is every feature the
+table gives the pod, and `bp.supports()` also takes table names without a flag of their own
+(`"la_dir"`, `"i2c_master"`, `"diag"`, `"wiring_store"`, ...). A pod with a higher `features_rev`
+than the SDK knows logs a warning once: update the SDK (`pip install -U embeddedci`) to use those
+features.
 
 **Client API level.** A new feature is additive, so an older SDK just misses it. The other kind of
 change, one an older SDK would misread (a reply that changes shape, a field that changes meaning,
 a refusal text replaced), raises the firmware's client API level. The SDK is built for
-`embeddedci.benchpod.feature_map.CLIENT_API` (1) and sends it with every JSON command as
-`"client_api"`, with `"client": "sdk <version>"` (the MCP server sends `"mcp <version>"`); older
-firmware ignores both. Firmware after 3.10.13 announces its level (`capabilities.api`, with
-`capabilities.min_client_api`; `capabilities.client_api_level` counts a pod that does not say as
-1). When the pod's level is above the SDK's, connecting raises `ClientTooOldError`, which says
-the pod's firmware version and both levels; the pod raises the same error (`BP0030`) for a client
-below its `min_client_api`. Either way the fix is `pip install -U embeddedci`. `status`, `diag`,
-`ping` and `lease_release` are never refused, so a too-old client can still see what the pod
-runs.
+`embeddedci.benchpod.feature_map.CLIENT_API` (2) and sends it with every JSON command as
+`"client_api"`, with `"client": "sdk <version>"` (the MCP server sends `"mcp <version>"`). The pod
+announces its level (`capabilities.api`, with `capabilities.min_client_api`;
+`capabilities.client_api_level` counts a pod that does not say as 1).
+
+- A pod below `feature_map.MIN_POD_API` (2, firmware 3.x) raises `FirmwareTooOldError` on connect:
+  update the pod (`benchpod flash-self`, or the firmware update in the web app), or use
+  embeddedci 3.x with it.
+- A pod above the SDK's level, or one whose `min_client_api` is above it, raises
+  `ClientTooOldError`, which says the pod's firmware version and both levels; the pod raises the
+  same error (`BP0030`) for a client below its `min_client_api`. The fix is
+  `pip install -U embeddedci`.
+
+`status`, `diag`, `ping` and `lease_release` are never refused, so a mismatched client can still
+see what the pod runs.
 
 
 ```python
@@ -1351,11 +1360,10 @@ bp.apply_pin_directions()                     # send them again (raises on a con
 print(bp.la_dir())                            # every pin's LaPinState, dir included
 ```
 
-**The wiring profile's directions are on by default.** On a pod with firmware 3.10.4 or later (`bp.capabilities.la_dir`)
-the SDK sends them with `la_dir` when it connects and whenever `bp.wiring` changes, and marks the pins
-the profile doesn't name `unknown`. On older firmware it skips this quietly.
-`bp.pin_directions_status` says how it went: `"sent"`, or `"not sent: <why>"` (older firmware, or
-a pin the profile calls a DUT output that is driven right now; the other directions still go out).
+**The wiring profile's directions are on by default.** The SDK sends them with `la_dir` when it
+connects and whenever `bp.wiring` changes, and marks the pins the profile doesn't name `unknown`.
+`bp.pin_directions_status` says how it went: `"sent"`, or `"not sent: <why>"` (for example a pin
+the profile calls a DUT output that is driven right now; the other directions still go out).
 The connection never fails over it. The pod forgets the directions on a reboot; the next connect
 sends them again.
 
@@ -1418,8 +1426,7 @@ arguments it returns the `ExpansionStatus`, and `expansion(None)` detaches.
   on the DUT's I2C bus.
 - `pullups`: `"pod"` switches on the pod's pull-ups (LA1-LA6 only; they pull to the LA voltage)
   and `"external"` relies on the breakout's. By default `"pod"` when both pins are on LA1-LA6 and
-  the pod has pull-ups at this LA voltage, else `"external"`. At 1.8 V that needs firmware newer
-  than 3.10.12; with older firmware the breakout needs its own pull-ups to 1.8 V.
+  the pod has pull-ups at this LA voltage (1.8 V and 3.3 V), else `"external"`.
 - `hz` defaults to 400 kHz for I2C chips (100 kHz for the PCF8574) and 1 MHz for SPI chips.
 - SPI chips take `spi=(sck, mosi, miso, cs)` (or a dict with those keys) instead of `sda`/`scl`;
   omitted, the wiring profile's `spi_sclk`, `spi_mosi`, `spi_miso` and `spi_cs`. The pod's SPI
@@ -1505,9 +1512,8 @@ compiles and plays it. So firmware that probes a sensor can be tested with it pr
 reporting chosen values, following a curve over time, or failing in a chosen way. Up to 4 I2C
 sensors (on one bus or several), 1 SPI sensor, 1 UART sensor and 2 analog sensors (one per analog
 output) run at once; each is an **instance** with a name you pick (1 to 16 characters of `a-z`,
-`0-9` and `_`; the definition's `name` by default, so a longer definition name needs `instance=`). Needs pod firmware with the `sensors` capability (`Capabilities.sensors`,
-`Capabilities.sensors_format`); older firmware raises `UnsupportedFeatureError`: "this pod's
-firmware is too old for sensor emulation; update the firmware".
+`0-9` and `_`; the definition's `name` by default, so a longer definition name needs `instance=`). Every
+pod with firmware 4.0 has it (`Capabilities.sensors`).
 
 ```python
 from embeddedci.benchpod import PIN1, PIN2, i2c
@@ -1861,8 +1867,7 @@ print(max(loop.currents))                  # a capture of J8 carries the loop cu
 bp.replay(loop, dac_path="current_out")    # play the captured loop back on J9
 ```
 
-- `generate` steps are about 0.25 µA on firmware 3.9.1+ (`capabilities.generate16`, 16-bit) and
-  63 µA on older firmware (8-bit levels). `replay` is 16-bit.
+- `generate` steps are about 0.25 µA (16-bit). `replay` is 16-bit too.
 - Stopping the returned handle returns the loop to 4 mA. A bare `dac_stop()` does not.
 - A capture or recording of a voltage has no current to reproduce: on `current_out` it needs
   `mapping="fit"`, which stretches its shape over the output's range. The same holds for a
@@ -2061,11 +2066,10 @@ from embeddedci.benchpod import Fault
 bp.generate("square", freq_hz=10, amplitude=1.65, offset=1.65, dac_path="3v3", duration=5.0)
 ```
 
-On firmware 3.9.1+ (`capabilities.generate16`) the pod takes the volts, applies its own per-path
-calibration and plays the waveform at the DAC's full 16 bits (about 50 µV a step on `3v3`); both
-peaks must be on the path (0 to 3.3 V works: the pod clamps a peak just past an end it cannot quite
-reach). Older firmware builds it from 8-bit levels: 256 steps
-over the path (about 13 mV on `3v3`).
+The pod takes the volts (`amplitude_v`, `offset_v` on the wire, or microamps on `current_out`),
+applies its own per-path calibration, routes the path (unless `route=False`) and plays the waveform
+at the DAC's full 16 bits (about 50 µV a step on `3v3`); both peaks must be on the path (0 to 3.3 V
+works: the pod clamps a peak just past an end it cannot quite reach).
 
 ```python
 golden = bp.capture_adc(16_384, sample_rate_hz=100_000, source="ext")
@@ -2518,6 +2522,7 @@ Match a pod refusal on its code or class, not its text: see [Error codes](#error
 | `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd` (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
 | `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
 | `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |
+| `FirmwareTooOldError` (an `UnsupportedFeatureError`) | the pod runs firmware 3.x (client API below 2), which this SDK does not drive (raised on connect). Update the pod: `benchpod flash-self`, or the firmware update in the web app; or use embeddedci 3.x with it | `api`, `firmware_version`, `feature` (`"client_api"`) |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
 | `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |
@@ -2554,7 +2559,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command on firmware 3.10.9+, else the full `status`), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
+| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
@@ -2667,8 +2672,8 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 |---|---|
 | Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"v3r2"`, `"v3r4"` (digital v3r4), `"unknown"`, or `""`), `la_vccio_mv` (the LA I/O voltage the pod reports, 5000 in 5 V mode) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
-| DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (firmware 3.9.1+: `generate` in calibrated 16-bit volts), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `vref_out` (digital v3r4: pin 21 switched and measured, 5 V I/O, pulls with a strength on every channel), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions, with `sensors_format` the format the pod reads), `analog` (`False` on the digital-only board, `None` when not announced) |
+| DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (`generate` in calibrated 16-bit volts: every analog pod), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `vref_out` (digital v3r4: pin 21 switched and measured, 5 V I/O, pulls with a strength on every channel), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |

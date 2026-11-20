@@ -1,7 +1,9 @@
-"""generate() on firmware 3.9.1+ (Capabilities.generate16): the calibrated 16-bit form.
+"""generate(): the calibrated 16-bit form, the only one firmware 4.0 takes.
 
 The pod gets volts (or microamps on the 4-20 mA output) and converts them with its own per-path
-calibration, so the SDK sends the values, not 8-bit levels, and lets the pod route the output.
+calibration, so the SDK sends the values (``amplitude_v``/``offset_v`` with ``path``, or
+``amplitude_ua``/``offset_ua``), ``freq_hz`` and ``sample_rate_hz`` in hertz, and lets the pod
+route the output.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ class _Fake:
         if req.get("cmd") == "current_out":
             return {"min_ua": 4055, "max_ua": 20094}
         if req.get("cmd") == "generate":
-            return {"bits": 16} if "generate16" in self.caps else None
+            return {"cotrig": True} if req.get("on_capture") else None
         return {}
 
     def close(self):
@@ -42,16 +44,27 @@ def test_volts_are_sent_and_the_pod_routes(monkeypatch):
     bp, t = _pod(monkeypatch, ["analog", "dac", "generate16"])
     assert bp.capabilities.generate16
     h = bp.generate("sine", freq_hz=1000, amplitude=0.004, offset=1.65, dac_path="3v3")
-    assert t.commands == [{"cmd": "generate", "waveform": "sine", "freq": 1000.0, "path": "3v3",
+    assert t.commands == [{"cmd": "generate", "waveform": "sine", "freq_hz": 1000, "path": "3v3",
                            "amplitude_v": 0.004, "offset_v": 1.65}]
-    assert h.data == {"bits": 16}
+    assert h.data == {} and not h.cotrig
+
+
+def test_sample_rate_goes_in_hertz(monkeypatch):
+    bp, t = _pod(monkeypatch, ["generate16"])
+    bp.generate("sine", freq_hz=100000, amplitude=1, offset=1.65, dac_path="3v3",
+                sample_rate_hz=1e6)
+    assert t.commands[-1] == {"cmd": "generate", "waveform": "sine", "freq_hz": 100000,
+                              "path": "3v3", "amplitude_v": 1.0, "offset_v": 1.65,
+                              "sample_rate_hz": 1000000}
+    bp.generate("sine", freq_hz=12.5, amplitude=1, offset=1.65, dac_path="3v3")
+    assert t.commands[-1]["freq_hz"] == 12.5
 
 
 def test_route_false_and_on_capture(monkeypatch):
     bp, t = _pod(monkeypatch, ["generate16"])
     bp.generate("sawtooth", freq_hz=100, amplitude=0.05, offset=2.5, dac_path="5v", route=False,
                 on_capture=True, duration=0.5)
-    assert t.commands[-1] == {"cmd": "generate", "waveform": "sawtooth", "freq": 100.0, "path": "5v",
+    assert t.commands[-1] == {"cmd": "generate", "waveform": "sawtooth", "freq_hz": 100, "path": "5v",
                               "amplitude_v": 0.05, "offset_v": 2.5, "duration_ms": 500,
                               "on_capture": True, "route": False}
 
@@ -72,15 +85,7 @@ def test_peaks_past_the_path_are_refused_not_clipped(monkeypatch):
     assert not [c for c in t.commands if c["cmd"] == "generate"]
 
 
-def test_older_firmware_keeps_the_8bit_levels(monkeypatch):
-    bp, t = _pod(monkeypatch, ["analog", "dac"])
-    assert not bp.capabilities.generate16
-    bp.generate("sine", freq_hz=10, amplitude=1.0, offset=2.5, dac_path="5v")
-    gen = t.commands[-1]
-    assert gen["amplitude"] == 51 and gen["offset"] == 128 and "amplitude_v" not in gen
-
-
-def test_cloud_parameters():
-    assert Capabilities.from_parameters({"cap.generate_bits": "16"}).generate16
-    assert not Capabilities.from_parameters({"cap.generate_bits": "8"}).generate16
+def test_every_analog_pod_has_it():
+    assert Capabilities.from_parameters({"cap.features_rev": "10"}).generate16
+    assert not Capabilities.from_parameters({"cap.features_rev": "10", "cap.analog": "false"}).generate16
     assert not Capabilities.from_parameters({}).generate16

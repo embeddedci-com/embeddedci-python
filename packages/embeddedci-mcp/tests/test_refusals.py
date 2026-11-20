@@ -27,23 +27,23 @@ def _refuse(transport, cmd, message):
 
 
 def test_leased_names_the_holder_and_the_time_left(connected):
-    _refuse(connected, "la", "busy: a cloud job holds this pod (octo/ci run 9, 12 s left)")
+    _refuse(connected, "la_step", "busy: a cloud job holds this pod (octo/ci run 9, 12 s left)")
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     msg = str(info.value)
-    assert "PodLeasedError: la: busy: a cloud job holds this pod (octo/ci run 9, 12 s left)" in msg
+    assert "PodLeasedError: la_step: busy: a cloud job holds this pod (octo/ci run 9, 12 s left)" in msg
     assert msg.endswith("Wait for that job to finish and retry; reads such as status still work "
                         "meanwhile.")
 
 
 def test_locked_says_to_use_the_cloud_or_usb(connected):
-    _refuse(connected, "la", "locked: la needs the cloud or the USB console")
+    _refuse(connected, "la_step", "locked: la needs the cloud or the USB console")
     with pytest.raises(ToolError, match=r"PodLockedError: .*connect with 'embeddedci:<device>'"):
         call("gpio_pulse", la=3, width=0.001, count=5)
 
 
 def test_forbidden_says_who_may(connected):
-    _refuse(connected, "la", "forbidden: la needs an organization owner or admin")
+    _refuse(connected, "la_step", "forbidden: la needs an organization owner or admin")
     with pytest.raises(ToolError, match=r"PermissionDeniedError: .*benchpod:admin scope"):
         call("gpio_pulse", la=3, width=0.001, count=5)
 
@@ -54,18 +54,18 @@ needs_unsupported = pytest.mark.skipif(not hasattr(errors, "UnsupportedFeatureEr
 
 @needs_unsupported
 def test_unknown_command_says_the_firmware_lacks_it(connected):
-    _refuse(connected, "la", "unknown cmd")
+    _refuse(connected, "la_step", "unknown cmd")
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     msg = str(info.value)
-    assert "UnsupportedFeatureError: la: unknown cmd" in msg
+    assert "UnsupportedFeatureError: la_step: unknown cmd" in msg
     assert "firmware or gateware lacks the feature" in msg and "retrying will not help" in msg
 
 
 @needs_unsupported
 def test_digital_board_says_it_has_no_analog(connected):
     # The hint goes by the refusal's text, whichever command drew it.
-    _refuse(connected, "la", "this BenchPod has no analog front end (digital board): no DAC, ADC or "
+    _refuse(connected, "la_step", "this BenchPod has no analog front end (digital board): no DAC, ADC or "
             "analog outputs. Restart the pod after fitting an analog add-on")
     with pytest.raises(ToolError, match=r"UnsupportedFeatureError: .*digital-only board"):
         call("gpio_pulse", la=3, width=0.001, count=5)
@@ -78,17 +78,17 @@ def test_other_firmware_errors_have_no_hint(connected):
     connected.command = command
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith("FirmwareError: la: unknown target")
+    assert str(info.value).endswith("FirmwareError: la_step: unknown target")
 
 
 # -- the firmware's protocol-level fixes, named as tools ---------------------------------------
 # Texts: benchpod-firmware stm32h563/src/command_handler.c (require_la_voltage) and la_pins.c.
 
 def test_la_voltage_not_set_names_set_la_voltage(connected):
-    _refuse(connected, "la", "la voltage not set; set it with la_voltage (mv 1800 or 3300) first")
+    _refuse(connected, "la_step", "la voltage not set; set it with la_voltage (mv 1800 or 3300) first")
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith("FirmwareError: la: la voltage not set; the wiring profile sets no "
+    assert str(info.value).endswith("FirmwareError: la_step: la voltage not set; the wiring profile sets no "
                                     "I/O voltage: ask the user for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in "
                                     "the profile (set_wiring with la_mv 1800 or 3300, then save_wiring) "
                                     "or call set_la_voltage")
@@ -108,20 +108,20 @@ def test_la_voltage_not_set_names_set_la_voltage(connected):
     ("can_rx", 'stop it with {"cmd":"can_stop"}', 'stop it with {"cmd":"can_stop"}'),  # unknown: as is
 ])
 def test_pin_conflict_names_the_tool(connected, function, hint, fix):
-    _refuse(connected, "la", f"pin conflict: LA3 is in use by {function}; {hint}")
+    _refuse(connected, "la_step", f"pin conflict: LA3 is in use by {function}; {hint}")
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     assert str(info.value).endswith(
-        f"PinConflictError: la: pin conflict: LA3 is in use by {function}; {fix}")
+        f"PinConflictError: la_step: pin conflict: LA3 is in use by {function}; {fix}")
 
 
 def test_pull_conflict_names_set_pull(connected):
-    _refuse(connected, "la", "pull conflict: LA7 has its 10k pull-down engaged, which gpio open_drain "
+    _refuse(connected, "la_step", "pull conflict: LA7 has its 10k pull-down engaged, which gpio open_drain "
             "can't work with (a released line would read low); disable it with "
             '{"cmd":"la","la":7,"pullup":"off"} or use another channel')
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
-    assert "PullConflictError: la: pull conflict: LA7" in str(info.value)
+    assert "PullConflictError: la_step: pull conflict: LA7" in str(info.value)
     assert str(info.value).endswith('disable it with set_pull(las=[7], pull="off") or use another channel')
 
 
@@ -190,14 +190,25 @@ def test_requests_name_this_server():
 @needs_client_api
 def test_a_pod_above_this_servers_level_fails_the_connect(fake_open, fake_transport):
     real = fake_transport.status
-    fake_transport.status = lambda: {**real(), "version": "3.11.0", "api": 2, "min_client_api": 1}
+    fake_transport.status = lambda: {**real(), "version": "5.0.0", "api": 3, "min_client_api": 2}
     with pytest.raises(ToolError) as info:
         call("connect", connection="192.168.1.50", la_voltage=3.3)
     msg = str(info.value)
     assert "ClientTooOldError: this BenchPod MCP server (embeddedci-mcp " in msg
-    assert "the pod's firmware 3.11.0 speaks client API 2, this server handles 1" in msg
+    assert "the pod's firmware 5.0.0 speaks client API 3, this server handles 2" in msg
     assert "uvx embeddedci-mcp@latest" in msg and "pip install -U embeddedci-mcp" in msg
     assert "benchpod plugin" in msg and "pip install -U embeddedci " not in msg
+
+
+def test_firmware_3_fails_the_connect_with_the_update(fake_open, fake_transport):
+    real = fake_transport.status
+    fake_transport.status = lambda: {k: v for k, v in {**real(), "version": "3.10.13"}.items()
+                                     if k not in ("api", "min_client_api")}
+    with pytest.raises(ToolError) as info:
+        call("connect", connection="192.168.1.50", la_voltage=3.3)
+    msg = str(info.value)
+    assert "FirmwareTooOldError: the pod runs firmware 3.10.13 (client API 1)" in msg
+    assert "needs firmware 4.0.0 or later" in msg and "benchpod flash-self" in msg
 
 
 @needs_client_api
@@ -210,7 +221,7 @@ def test_bp0030_on_a_tool_says_to_update_this_server(connected):
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     msg = str(info.value)
-    assert "ClientTooOldError: la: this BenchPod MCP server" in msg
+    assert "ClientTooOldError: la_step: this BenchPod MCP server" in msg
     assert "needs client API 2 or newer, this server sent 1" in msg
     assert "uvx embeddedci-mcp@latest" in msg
 
@@ -223,5 +234,5 @@ def test_coded_la_voltage_keeps_this_servers_text(connected):
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
     msg = str(info.value)
-    assert "la: BP0001: la voltage not set; the wiring profile sets no I/O voltage" in msg
+    assert "la_step: BP0001: la voltage not set; the wiring profile sets no I/O voltage" in msg
     assert "call set_la_voltage" in msg

@@ -11,17 +11,6 @@ from embeddedci.benchpod.wiring import Signal
 from test_i2c_master import BusPod
 
 
-class OldPod(BusPod):
-    def __init__(self, version: str) -> None:
-        super().__init__()
-        self.version = version
-
-    def status(self):
-        st = super().status()
-        st["version"] = self.version
-        return st
-
-
 def _sent(fake):
     return [c for c in fake.commands if c["cmd"] == "la_dir"]
 
@@ -81,15 +70,6 @@ def test_connect_sends_the_wiring_directions():
         bp.gpio(5, "output")
     with pytest.raises(DirectionConflictError):
         bp.signal("READY").configure("output")
-
-
-@pytest.mark.parametrize("version", ["3.10.3", "3.9.6", ""])
-def test_older_firmware_is_skipped_quietly(version):
-    fake = OldPod(version)
-    bp = BenchPod(transport=fake, wiring=Wiring.preset())
-    assert _sent(fake) == []
-    assert bp.pin_directions_status.startswith("not sent: this pod's firmware")
-    assert "la_dir (3.10.4+)" in bp.pin_directions_status
 
 
 def test_a_new_profile_is_sent_and_moves_marks():

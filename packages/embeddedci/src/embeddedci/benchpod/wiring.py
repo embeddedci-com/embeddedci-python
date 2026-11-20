@@ -380,9 +380,6 @@ class Wiring:
         if _is_int(self.uart_rx) and self._pull_may_be(self.uart_rx, "down"):
             out.append(f"uart_rx is on LA{self.uart_rx}, which has a pull-down; the UART idles high, "
                        "so keep the pull disabled")
-        if self.la_mv == 1800 and self.pulls:
-            out.append("pulls: at 1.8 V the pull resistors need firmware newer than 3.10.12; older "
-                       "firmware leaves them off")
         return out
 
     def pull_directions(self) -> Dict[int, str]:

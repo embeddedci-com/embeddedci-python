@@ -1,6 +1,37 @@
 # Changelog — `embeddedci`
 
+## 4.0.0
+
+Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
+
+- **Firmware 4.0 or later only.** `CLIENT_API` is 2 and every request says so. Connecting to a
+  pod with firmware 3.x (client API 1, or no `api` in its status) raises the new
+  `FirmwareTooOldError` (an `UnsupportedFeatureError`, `feature="client_api"`), which says to
+  update the pod with `benchpod flash-self` or the web app, or to stay on embeddedci 3.x. Over the
+  USB console, which announces no level, the firmware version decides. A pod whose
+  `min_client_api` is above 2 raises `ClientTooOldError`.
+- **Features come from the table only.** The `caps` list and every version fallback are gone:
+  `Capabilities` reads `features_rev`, the gateware, the image and the facts from `status` (and
+  the cloud `cap.features_rev`, `cap.gateware`, `cap.fpga_image`), never `status` with
+  `"caps":false`. `Capabilities.sensors_format` and the `signal` alias for the scope are gone;
+  `Transport.status_without_caps()` is gone. `diag()` sends `diag` only.
+- **USB console:** firmware 4.0's console answers `status`, `ping` and `identity` only, so the
+  serial transport no longer sends `la-voltage`, `power`, `dap-start` or `uart-proxy`; they raise
+  a `TransportError` that points at `usb` (the USB network adapter) or a network address. The
+  parsed `usb` status line reports `net` as a boolean, as the JSON status does.
+- **`generate` sends volts only**: `path` with `amplitude_v`/`offset_v`, or `amplitude_ua`/
+  `offset_ua` on `current_out`, `freq_hz` and `sample_rate_hz` in hertz; the pod routes the path.
+  The 8-bit form is gone. The MCP `generate` result has no `bits`.
+- **Captures take base64 by default:** the SDK no longer asks for `"enc":"b64"`; a transport
+  without chunked streaming asks for `"enc":"dec"`.
+- Pull resistors use `la_pull` and step trains `la_step` (firmware 4.0 split the `la` command).
+  `PullState` reads the 4.0 reply (`state`, `dirs`, `pullups_available` as a boolean); the
+  resistor value comes from the board table, `la_pins` reports it on every board.
+- Features table revision 11.
+
 ## 3.0.6
+
+Never released: its changes ship in 4.0.0.
 
 - **Error codes decide the exception class.** Every code in the error catalog (`BP0001` to
   `BP0030`) maps to one class, and the code's values fill its fields; the text decides only for a

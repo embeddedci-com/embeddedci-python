@@ -1,5 +1,6 @@
 """The STM32 pod's USB console is a text shell with no JSON mode: the serial transport answers
-status / ping / LA voltage / power through text commands and fails fast on everything else."""
+status and ping through text commands (firmware 4.0 keeps only those, and identity, on the
+console) and fails fast on everything else."""
 
 from __future__ import annotations
 
@@ -8,14 +9,14 @@ import time
 import pytest
 
 from embeddedci.benchpod.client import BenchPod
-from embeddedci.benchpod.errors import FirmwareError, TransportError
+from embeddedci.benchpod.errors import TransportError
 from embeddedci.benchpod.transport.serial import SerialTransport, parse_text_status
 
 STATUS = (
     "  device : benchpod\r\n"
     "  mac    : 02:00:00:42:00:01\r\n"
     "  ip     : 192.168.1.215\r\n"
-    "  board  : stm32h563  fw v0.3.0-dev  rev v2  nrst_pin=no  usb_cc=no\r\n"
+    "  board  : stm32h563  fw v4.0.0-dev  rev v2  nrst_pin=no  usb_cc=no\r\n"
     "  fpga   : gateware v31 (reachable)  status_reg=0x04\r\n"
     "  adc    : 16-bit x1, 4096 mV full-scale\r\n"
 )
@@ -93,7 +94,7 @@ def _transport(**kw) -> SerialTransport:
 def test_parse_text_status():
     s = parse_text_status("status\r\n" + STATUS + "> ")
     assert s["device"] == "benchpod" and s["board"] == "stm32h563"
-    assert s["version"] == "0.3.0-dev" and s["board_rev"] == "v2" and s["nrst_pin"] is False
+    assert s["version"] == "4.0.0-dev" and s["board_rev"] == "v2" and s["nrst_pin"] is False
     assert s["adc_bits"] == 16 and s["adc_fullscale_mv"] == 4096 and s["gateware"] == 31
 
 
@@ -111,28 +112,23 @@ def test_parse_text_status_boot_health():
     assert clean["safe_mode"] is False and clean["safe_reason"] == ""
 
 
-def test_status_ping_and_la_voltage_over_the_text_console():
+def test_status_and_ping_over_the_text_console():
     t = _transport()
     assert t.status()["board"] == "stm32h563"
     assert t.json_supported is False
     assert t.ping() == "pong"
-    bp = BenchPod(transport=t, la_voltage=3.3)
-    assert bp.get_la_voltage().voltage == 3.3
+    bp = BenchPod(transport=t, la_voltage=None)
     assert bp.capabilities.adc_bits == 16
 
 
-def test_la_voltage_refusal_is_a_firmware_error():
-    bp = BenchPod(transport=_transport(), la_voltage=None)
-    with pytest.raises(FirmwareError, match="v3 pod"):
-        bp.set_la_voltage(1.8)
-
-
-def test_power_uses_the_power_verb():
+def test_la_voltage_and_power_need_the_network():
     t = _transport()
-    t.target_power(1, True)
-    assert t._port.lines[-1] == "power 1 on"
-    with pytest.raises(TransportError, match="delayed"):
-        t.target_power(1, True, delay_ms=500)
+    bp = BenchPod(transport=t, la_voltage=None)
+    with pytest.raises(TransportError, match="'usb'"):
+        bp.set_la_voltage(3.3)
+    with pytest.raises(TransportError, match="USB network"):
+        t.target_power(1, True)
+    assert not [ln for ln in t._port.lines if ln.startswith(("la-voltage", "power"))]
 
 
 def test_json_only_features_fail_fast_with_a_hint():
@@ -153,15 +149,6 @@ def test_flash_and_uart_proxy_fail_fast_with_a_hint():
     with pytest.raises(TransportError, match="network"):
         t.uart_proxy_start(5, 4, 115200)
     assert time.monotonic() - start < 3
-
-
-def test_trimmed_console_points_at_the_usb_network():
-    """Firmware 3.9.0 moved la-voltage and power off the console to the JSON API."""
-    bp = BenchPod(transport=_transport(trimmed=True), la_voltage=None)
-    with pytest.raises(TransportError, match="'usb'"):
-        bp.get_la_voltage()
-    with pytest.raises(TransportError, match="USB network"):
-        bp.transport.target_power(1, True)
 
 
 def test_no_json_mode_probe():

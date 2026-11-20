@@ -26,9 +26,10 @@ class StreamPod:
         self.requests: List[dict] = []
         self.chunks: Dict[str, List[dict]] = {}
         self.error: Optional[str] = None
+        self.gateware = 59
 
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "caps": self.caps, "gateware": self.gateware}
 
     def ping(self) -> Any:
         return "pong"
@@ -104,8 +105,10 @@ def test_trigger_timeout_and_bounds():
         bp.capture_la(8, trigger=Trigger(9), trigger_timeout=0)
 
 
-def test_triggers_need_firmware_that_has_them():
-    bp, pod = _bp(StreamPod(caps=["la"]))
+def test_triggers_need_gateware_that_has_them():
+    pod = StreamPod(caps=["la"])
+    pod.gateware = 34                                  # capture triggers: gateware v35
+    bp, pod = _bp(pod)
     with pytest.raises(BenchPodError, match="capture_trigger"):
         bp.capture_la(8, trigger=Trigger(9))
     assert pod.requests == []

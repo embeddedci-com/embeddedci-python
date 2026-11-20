@@ -7,7 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from embeddedci_mcp.session import SESSION
 
-from conftest import call, without_caps
+from conftest import call
 
 
 # -- triggers -----------------------------------------------------------------------------
@@ -47,8 +47,9 @@ def test_a_trigger_that_never_fires_is_a_tool_error(connected):
         call("capture_la", samples=100, sample_rate_hz=1e6, trigger_la=9)
 
 
-def test_triggers_need_the_firmware_capability(connected):
-    without_caps(connected, "capture_trigger")
+def test_triggers_need_the_gateware(connected):
+    connected.gateware = 34                          # capture triggers: gateware v35
+    SESSION.require().refresh_capabilities()
     with pytest.raises(ToolError, match="capture_trigger"):
         call("capture_la", samples=100, trigger_la=9)
 
@@ -121,14 +122,6 @@ def test_disconnect_forgets_the_running_profile(connected):
     call("power_profile_start")
     call("disconnect")
     assert SESSION.power_profile is None
-
-
-def test_power_profiles_need_the_firmware_capability(connected):
-    without_caps(connected, "power_profile")
-    with pytest.raises(ToolError, match="power_profile"):
-        call("measure_power", duration=1.0)
-    with pytest.raises(ToolError, match="power_profile"):
-        call("power_profile_start")
 
 
 def test_the_schema_bounds_the_power_arguments(connected):

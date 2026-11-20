@@ -178,15 +178,15 @@ def test_generate_on_capture_sets_flag():
     assert "on_capture" not in t.commands[-1]
 
 
-def test_generate_maps_volts_to_generator_codes_and_routes_the_path():
+def test_generate_sends_volts_and_the_pod_routes_the_path():
     bp, t = _bp()
     h = bp.generate("square", freq_hz=50, amplitude=1.0, dac_path="5v", duration=0.25,
                     sample_rate_hz=100_000)
-    route, gen = t.commands[-2], t.commands[-1]
-    assert route == {"cmd": "dac_out", "path": "5v"}
-    # 5 V over 255 levels: 1.0 V peak -> 51, default offset = mid-range 2.5 V -> 128.
-    assert gen == {"cmd": "generate", "waveform": "square", "freq": 50.0, "amplitude": 51,
-                   "offset": 128, "duration_ms": 250, "sample_rate_mhz": 0.1}
+    gen = t.commands[-1]
+    # The default offset is mid-range: 2.5 V on the 5 V path.
+    assert gen == {"cmd": "generate", "waveform": "square", "freq_hz": 50, "path": "5v",
+                   "amplitude_v": 1.0, "offset_v": 2.5, "duration_ms": 250,
+                   "sample_rate_hz": 100000}
     h.stop()
     assert t.commands[-1] == {"cmd": "dac_stop"}
 
@@ -194,8 +194,8 @@ def test_generate_maps_volts_to_generator_codes_and_routes_the_path():
 def test_generate_rejects_values_outside_the_path():
     bp, t = _bp()
     with pytest.raises(ValueError, match="amplitude"):
-        bp.generate("sine", freq_hz=10, amplitude=0.001, dac_path="3v3")
-    with pytest.raises(ValueError, match="offset"):
+        bp.generate("sine", freq_hz=10, amplitude=0.00001, dac_path="3v3")
+    with pytest.raises(ValueError, match="must stay within"):
         bp.generate("sine", freq_hz=10, amplitude=1.0, offset=6.0, dac_path="5v")
     with pytest.raises(ValueError, match="waveform"):
         bp.generate("triangle", freq_hz=10, amplitude=1.0)  # type: ignore[arg-type]
@@ -244,8 +244,12 @@ def test_capture_stop_dac_absent_when_unset():
 # -- capabilities flags ------------------------------------------------------
 
 def test_capabilities_parse_new_flags():
-    c = Capabilities.from_parameters({"cap.dac_control_loop": "true", "cap.dac_cotrig": "true"})
+    c = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59",
+                                      "cap.fpga_image": "loop"})
     assert c.dac_control_loop is True and c.dac_cotrig is True
+    deep = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59",
+                                         "cap.fpga_image": "deep"})
+    assert deep.dac_control_loop is False and deep.dac_deep_replay is True
     c2 = Capabilities.from_parameters({})
     assert c2.dac_control_loop is False and c2.dac_cotrig is False
 
@@ -387,8 +391,10 @@ def test_constant_and_linear_curves():
 
 
 def test_capabilities_parse_loop_sources():
-    c = Capabilities.from_parameters({"cap.dac_control_loop": "true",
-                                      "cap.dac_loop_sources": "true"})
+    c = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "29",
+                                      "cap.fpga_image": "loop"})
     assert c.dac_loop_sources is True
-    # Absent on a pre-v29 pod -> False, so a caller offers/uses the ADC source only.
-    assert Capabilities.from_parameters({"cap.dac_control_loop": "true"}).dac_loop_sources is False
+    # Absent on pre-v29 gateware -> False, so a caller offers/uses the ADC source only.
+    old = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "28",
+                                        "cap.fpga_image": "loop"})
+    assert old.dac_control_loop is True and old.dac_loop_sources is False

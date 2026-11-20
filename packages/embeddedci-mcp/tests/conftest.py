@@ -13,7 +13,7 @@ import anyio
 import pytest
 
 from embeddedci.benchpod import Wiring, BenchPod
-from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
+from embeddedci.benchpod.constants import PULL_TABLE
 from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.transport.base import Transport
 
@@ -117,11 +117,21 @@ class FakeTransport(Transport):
 
     # -- Transport ABC --
     def status(self) -> Any:
-        caps = list(self.caps)
-        if self.image is not None:
-            caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
-        return {"version": getattr(self, "version", "2.0.0"), "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
-                "caps": caps, "gateware": 55}
+        """A firmware 4.0 status: the features table decides from ``gateware``, ``fpga_image``
+        and the facts. :attr:`caps` names the gateware-gated features the test wants (the
+        gateware follows them) and the facts (``nrst_pin``)."""
+        caps = set(self.caps)
+        gw = 55
+        for name, need in (("uart_frame", 56), ("uart_hd", 57), ("uart_de", 58)):
+            if name in caps:
+                gw = need
+        if "gpio_read" not in caps:
+            gw = 34
+        image = {0: "loop", 1: "deep"}.get(self.image, "unknown") if self.image is not None else "unknown"
+        return {"version": getattr(self, "version", "4.0.0"), "board": "stm32h563", "adc_bits": 16,
+                "adc_fullscale_mv": 4096, "api": 2, "min_client_api": 2, "features_rev": 10,
+                "gateware": getattr(self, "gateware", None) or gw, "fpga_image": image,
+                "nrst_pin": "nrst_pin" in caps, "hw": [], "analog": getattr(self, "analog", True)}
 
     def ping(self) -> Any:
         return "pong"
@@ -282,18 +292,25 @@ class FakeTransport(Transport):
         return {"instance": req["instance"], "start": req["start"], "len": n,
                 "data_b64": base64.b64encode(bytes(range(n))).decode()}
 
-    def _cmd_la(self, req):
-        if "steps" in req:
-            return {"la": req["la"], "steps": req["steps"], "delay_us": req["delay_us"],
-                    "status": "started"}
+    def _cmd_la_step(self, req):
+        return {"la": req["la"], "steps": req["steps"], "delay_us": req["delay_us"],
+                "status": "started"}
+
+    def _cmd_la_pull(self, req):
         if "la" not in req:
-            return {"la_pullup_mask": 3, "pullups_available": 1}
+            return {"la_pullup_mask": 3, "pullups_available": True}
         la = req["la"]
-        if "pullup" in req:
-            self.pull_on[la] = req["pullup"] == "on"
-        return {"la": la, "pullup": int(self.pull_on.get(la, False)),
-                "ohms": PULL_OHMS.get(la, ""), "pull": "down" if la in PULLDOWN_CHANNELS else "up",
-                "pullups_available": 1}
+        hw = PULL_TABLE.get(la)
+        want = req.get("pull")
+        if want in ("up", "down") and (not hw or want not in hw.dirs):
+            from embeddedci.benchpod.errors import firmware_error
+            raise firmware_error("", cmd="la_pull", code="BP0024" if hw else "BP0023",
+                                 values={"la": la, "want": want, "have": hw.default if hw else ""})
+        if want is not None:
+            self.pull_on[la] = want != "off"
+        on = self.pull_on.get(la, False)
+        return {"la": la, "state": (hw.default if on else "off") if hw else "off",
+                "dirs": list(hw.dirs) if hw else [], "pullups_available": True}
 
     # -- LA pin ownership + GPIO (the firmware's la_pins / gpio contract) --
     def _conflict(self, la: int) -> str:
@@ -304,8 +321,8 @@ class FakeTransport(Transport):
 
     def _pin(self, la: int) -> Dict[str, Any]:
         pull = None
-        if la in PULL_OHMS:
-            pull = {"dir": "down" if la in PULLDOWN_CHANNELS else "up", "ohms": PULL_OHMS[la],
+        if la in PULL_TABLE:
+            pull = {"dir": PULL_TABLE[la].default, "ohms": PULL_TABLE[la].ohms,
                     "on": self.pull_on[la]}
         e = {"la": la, "function": self.function[la], "gpio": self.mode[la],
              "level": self.level[la], "pull": pull}

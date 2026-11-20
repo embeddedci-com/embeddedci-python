@@ -21,9 +21,8 @@ voltage. This keeps client-side capture volts consistent with what the server st
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional
 
 from . import feature_map as _feature_map
 
@@ -84,23 +83,8 @@ def _as_bool(m: Mapping[str, Any], *keys: str) -> Optional[bool]:
     return None
 
 
-#: Boolean capabilities the firmware's ``status`` reports as top-level ``true`` fields (and the
-#: server as ``cap.<name>``), command_handler.c handle_status / cloud_client.c.
 #: The first gateware with the I2C master, SPI modes 1 and 2 and send-and-capture.
 BUS_MASTER_GATEWARE = 55
-#: The first firmware with UART parity and stop bits (gateware v56, capability ``uart_frame``).
-UART_FRAME_FIRMWARE = "3.10.8"
-#: The first firmware with ``la_dir`` (pin directions).
-LA_DIR_FIRMWARE = (3, 10, 4)
-
-
-def _version_tuple(version: str) -> Optional[Tuple[int, int, int]]:
-    """``"3.10.4"`` / ``"v3.10.4-dev"`` as ``(3, 10, 4)``; None when it is not a version."""
-    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", (version or "").strip())
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
-
-_STATUS_FLAGS = ("ota_sig", "sig_policy_cmd", "lan_policy_cmd", "tunnel_max_tier", "lease_state",
-                 "cloud_ca", "cloud_proxy", "blob_slots", "can_fd")
 
 
 def _crash_text(v: Any) -> str:
@@ -254,8 +238,6 @@ class Capabilities:
     dac_limits: bool = False
     #: User-defined sensor emulation from a definition (:attr:`BenchPod.sensors`).
     sensors: bool = False
-    #: The sensor definition format the pod reads (``1``); 0 when not reported.
-    sensors_format: int = 0
     #: The emulation gateware image (I2C, SPI and UART sensors) is installed or running; analog
     #: sensors work without it.
     sensors_digital: bool = False
@@ -339,79 +321,19 @@ class Capabilities:
             c.adc_channels = v
         if (v := _as_int(status, "la_vccio_mv")) is not None:
             c.la_vccio_mv = v
-        # Top-level fields of newer firmware (not in caps[]).
-        for attr in _STATUS_FLAGS:
-            if status.get(attr) is True:
-                setattr(c, attr, True)
         if (v := _as_bool(status, "analog")) is not None:
             c.analog = v
         if (v := _as_int(status, "flash_kb")) is not None and v > 0:
             c.flash_kb = v
         if (v := _as_int(status, "gateware")) is not None and v > 0:
             c.gateware = v
-        if (v := _as_int(status, "sensors_format")) is not None and v > 0:
-            c.sensors_format = v
         if status.get("sensors_digital") is True:
             c.sensors_digital = True
         if (v := _as_int(status, "sig_keys")) is not None and v > 0:
             c.sig_keys = v
         c.sig_policy = str(status.get("sig_policy", "") or "")
         c.lan_policy = str(status.get("lan_policy", "") or "")
-        caps = status.get("caps")
-        if isinstance(caps, (list, tuple)):
-            names = {str(x).lower() for x in caps}
-            # "signal" stood for the scope on firmware that predates the analog flag. Current
-            # firmware lists it on every board, the digital-only one included, and names "scope"
-            # itself, so it only counts when the status has no analog flag.
-            legacy = _as_bool(status, "analog") is None
-            c.scope = c.scope or "scope" in names or (legacy and "signal" in names)
-            c.analyzer = c.analyzer or ("la" in names or "analyzer" in names)
-            c.serial = c.serial or ("uart" in names or "serial" in names)
-            # The DAC/gateware features. Firmware advertises these in status.caps[] built from
-            # signal_engine_caps() — the same source as the cloud `capabilities` announce — so a
-            # DIRECT (LAN/serial) client now sees the same feature set a cloud client does.
-            # Older firmware simply omits them and every flag stays False, as before.
-            for name, attr in (
-                ("dac", "dac"),
-                ("dac_dc", "dac_dc"),
-                ("dac_replay", "dac_replay"),
-                ("dac_deep_replay", "dac_deep_replay"),
-                ("dac_control_loop", "dac_control_loop"),
-                ("dac_cotrig", "dac_cotrig"),
-                ("generate16", "generate16"),
-                ("dac_loop_sources", "dac_loop_sources"),
-                ("dac_loop_input_map", "dac_loop_input_map"),
-                ("ota", "ota"),
-                ("tunnel", "tunnel"),
-                ("command", "command"),
-                ("la_pins", "la_pins"),
-                ("gpio_read", "gpio_read"),
-                ("capture_trigger", "capture_trigger"),
-                ("power_profile", "power_profile"),
-                ("capture_b64", "capture_b64"),
-                ("nrst_pin", "nrst_pin"),
-                ("usb_cc", "usb_cc"),
-                ("spi_master", "spi_master"),
-                ("spi_stream", "spi_stream"),
-                ("uart_frame", "uart_frame"),
-                ("uart_hd", "uart_hd"),
-                ("uart_de", "uart_de"),
-                ("calibrate", "calibrate"),
-                ("cal_dmm", "cal_dmm"),
-                ("current_out", "current_out"),
-                ("can", "can"),
-                ("pod_current", "pod_current"),
-                ("adc_low_range", "adc_low_range"),
-                ("dac_limits", "dac_limits"),
-                ("sensors", "sensors"),
-                ("sensor_la_trigger", "sensor_la_trigger"),
-                *((f, f) for f in _STATUS_FLAGS),
-            ):
-                if name in names and hasattr(c, attr):
-                    setattr(c, attr, True)
-            if "analog" in names:
-                c.analog = True
-        # Firmware after 3.10.10, asked with "caps":false: no list, the features table instead.
+        # Firmware 4.0 (client API 2): the features table decides every feature flag.
         if (rev := _as_int(status, "features_rev")) is not None and rev > 0:
             c.features_rev = rev
             c.fpga_image = str(status.get("fpga_image", "") or "")
@@ -442,14 +364,11 @@ class Capabilities:
                 setattr(self, fact, True)
 
     def has(self, feature: str) -> bool:
-        """Whether the pod has ``feature``: a table name (``"la_dir"``, ``"i2c_master"``, ...)
-        when the pod announced :attr:`features_rev`, else the flag of that name (older firmware)."""
-        if self.features_rev and feature in _feature_map.feature_map().get("features", {}):
+        """Whether the pod has ``feature``: a name in the features table (``"la_dir"``,
+        ``"i2c_master"``, ...), else the flag of that name (``"serial"``, ``"analyzer"``)."""
+        entry = _feature_map.feature_map().get("features", {}).get(feature)
+        if entry is not None and entry.get("status") != "retired":
             return feature in self.features
-        if feature == "la_dir":
-            return self.la_dir
-        if feature in ("i2c_master", "spi_modes_1_2"):
-            return self.bus_master
         return bool(getattr(self, _TABLE_ALIASES.get(feature, feature), False))
 
     def _apply_range(self, src: Mapping[str, Any], prefix: str = "") -> None:
@@ -488,42 +407,13 @@ class Capabilities:
             c.dac_fullscale_mv = v
         if (v := _as_int(params, "cap.dac_channels")) is not None and v > 0:
             c.dac_channels = v
-        c.generate16 = _as_int(params, "cap.generate_bits") == 16
-        for attr, key in (
-            ("dac", "cap.dac"), ("dac_dc", "cap.dac_dc"), ("dac_replay", "cap.dac_replay"),
-            ("dac_deep_replay", "cap.dac_deep_replay"),
-            ("dac_control_loop", "cap.dac_control_loop"),
-            ("dac_loop_sources", "cap.dac_loop_sources"),
-            ("dac_loop_input_map", "cap.dac_loop_input_map"), ("dac_cotrig", "cap.dac_cotrig"),
-            ("scope", "cap.scope"),
-            ("analyzer", "cap.analyzer"), ("serial", "cap.serial"), ("tunnel", "cap.tunnel"),
-            ("command", "cap.command"), ("ota", "cap.ota"),
-            ("la_pins", "cap.la_pins"), ("gpio_read", "cap.gpio_read"),
-            ("capture_trigger", "cap.capture_trigger"), ("power_profile", "cap.power_profile"),
-            ("capture_b64", "cap.capture_b64"),
-            ("nrst_pin", "cap.nrst_pin"), ("usb_cc", "cap.usb_cc"),
-            ("spi_master", "cap.spi_master"), ("spi_stream", "cap.spi_stream"),
-            ("uart_frame", "cap.uart_frame"),
-            ("calibrate", "cap.calibrate"), ("cal_dmm", "cap.cal_dmm"), ("current_out", "cap.current_out"),
-            ("can", "cap.can"), ("pod_current", "cap.pod_current"),
-            ("adc_low_range", "cap.adc_low_range"),
-            ("sensors", "cap.sensors"),
-            ("sensors_digital", "cap.sensors_digital"),
-            ("dac_limits", "cap.dac_limits"),
-            ("ws_auth_v2", "cap.ws_auth_v2"),
-            *((f, f"cap.{f}") for f in _STATUS_FLAGS),
-        ):
-            b = _as_bool(params, key)
-            if b is not None:
-                setattr(c, attr, b)
+        c.ws_auth_v2 = _as_bool(params, "cap.ws_auth_v2") is True
         # Tri-state: "" (not announced) stays None.
         c.analog = _as_bool(params, "cap.analog")
         if (v := _as_int(params, "cap.flash_kb")) is not None and v > 0:
             c.flash_kb = v
         if (v := _as_int(params, "cap.gateware")) is not None and v > 0:
             c.gateware = v
-        if (v := _as_int(params, "cap.sensors_format")) is not None and v > 0:
-            c.sensors_format = v
         if (v := _as_int(params, "cap.api")) is not None and v > 0:
             c.api = v
         if (v := _as_int(params, "cap.min_client_api")) is not None and v > 0:
@@ -532,6 +422,14 @@ class Capabilities:
             c.sig_keys = v
         c.sig_policy = str(params.get("cap.sig_policy", "") or "")
         c.lan_policy = str(params.get("cap.lan_policy", "") or "")
+        # The features from the table, as for status (the server writes the frame's
+        # features_rev, gateware and facts as cap.*).
+        if (rev := _as_int(params, "cap.features_rev")) is not None and rev > 0:
+            c.features_rev = rev
+            c.fpga_image = str(params.get("cap.fpga_image", "") or "")
+            facts = _feature_map.facts_from_frame(params, prefix="cap.")
+            c.features = _feature_map.resolve(rev, c.gateware, facts)
+            c._apply_features(facts)
         c.safe_mode = _as_bool(params, "cap.safe_mode") is True
         c.safe_reason = str(params.get("cap.safe_reason", "") or "") if c.safe_mode else ""
         c.last_crash = _crash_text(params.get("cap.last_crash"))
@@ -587,19 +485,13 @@ class Capabilities:
 
     @property
     def la_dir(self) -> bool:
-        """The pod takes pin directions (``la_dir``, firmware 3.10.4+). False when the firmware
-        version is unknown."""
-        if self.features_rev:
-            return "la_dir" in self.features
-        v = _version_tuple(self.firmware_version)
-        return v is not None and v >= LA_DIR_FIRMWARE
+        """The pod takes pin directions (feature ``la_dir``)."""
+        return "la_dir" in self.features
 
     @property
     def bus_master(self) -> bool:
         """The I2C master, SPI modes 1 and 2 and send-and-capture (gateware v55+)."""
-        if self.features_rev:
-            return "i2c_master" in self.features
-        return self.gateware >= BUS_MASTER_GATEWARE
+        return "i2c_master" in self.features
 
     @property
     def adc_max_count(self) -> int:
@@ -627,7 +519,7 @@ class Capabilities:
     @property
     def client_api_level(self) -> int:
         """The pod's client API level: :attr:`api`, or 1 for firmware that does not announce one
-        (3.10.13 and older)."""
+        (3.10.13 and older, which this SDK does not drive)."""
         return self.api or 1
 
     def merge(self, other: "Capabilities") -> "Capabilities":

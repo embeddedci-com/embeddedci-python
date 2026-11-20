@@ -14,7 +14,7 @@ from embeddedci_mcp.guide import INSTRUCTIONS
 from embeddedci_mcp.server import mcp
 from embeddedci_mcp.session import SESSION
 
-from conftest import call, without_caps
+from conftest import call
 
 EXPECTED_TOOLS = {
     "connect", "disconnect", "status", "set_la_voltage",
@@ -293,7 +293,7 @@ def test_schema_rejects_bad_arguments(connected):
 
 def test_sdk_value_errors_become_tool_errors(connected):
     with pytest.raises(ToolError, match="invalid argument"):
-        call("generate", waveform="sine", freq_hz=10, amplitude=0.0001, dac_path="3v3")
+        call("generate", waveform="sine", freq_hz=10, amplitude=0.00001, dac_path="3v3")
 
 
 def test_disconnect(connected):
@@ -434,7 +434,7 @@ def test_uart_session_read_write(connected):
 def test_uart_frame_format(connected):
     # 8N1 by default; parity / stop bits need the pod's uart_frame capability
     assert call("uart_open", rx=5, tx=4)["parity"] == "none"
-    with pytest.raises(ToolError, match="firmware 3.10.8"):
+    with pytest.raises(ToolError, match="gateware v56"):
         call("uart_open", rx=5, tx=4, parity="even")
     connected.caps.append("uart_frame")
     SESSION.require().refresh_capabilities()
@@ -577,12 +577,6 @@ def test_sensor_stimulus_tools(connected):
         call("sensor_stimulus_load", stimulus=INLINE)
 
 
-def test_sensor_tools_refuse_old_firmware(connected):
-    without_caps(connected, "sensors")
-    with pytest.raises(ToolError, match="too old for sensor emulation; update the firmware"):
-        call("sensor_start", definition="bmp280", pins={"sda": 2, "scl": 1})
-
-
 def test_pulls(connected):
     res = call("set_pull", las=[7], enabled=True)            # the older form still works
     assert res["channels"][0]["direction"] == "down" and res["channels"][0]["state"] == "down"
@@ -664,14 +658,13 @@ def test_waveforms_on_the_current_output_are_in_amps(connected):
     out = call("generate", waveform="sine", freq_hz=2, amplitude=0.006, offset=0.012, dac_path="current_out")
     assert out["dac_path"] == "current_out"
     gen = connected.requests[-1]
-    assert gen["cmd"] == "generate" and (gen["amplitude"], gen["offset"]) == (96, 127)
-    # The voltage outputs are switched off first; no voltage path is routed.
-    assert {"cmd": "analog_path", "path": "current_out"} in connected.requests
+    assert gen["cmd"] == "generate" and (gen["amplitude_ua"], gen["offset_ua"]) == (6000, 12000)
+    # The pod switches the voltage outputs off itself; no voltage path is routed.
     assert not any(r.get("cmd") == "dac_out" for r in connected.requests)
 
     played = call("replay", volts=[0.004, 0.012, 0.020], dac_path="current_out", sample_rate_hz=1000)
     assert played["dac_path"] == "current_out" and played["samples"] == 3
-    with pytest.raises(Exception, match="at most"):
+    with pytest.raises(Exception, match="must stay within"):
         call("generate", waveform="sine", freq_hz=2, amplitude=12, dac_path="current_out")   # mA by mistake
 
 
@@ -691,9 +684,10 @@ def test_correlated_capture_of_the_current_input_is_in_amps(connected):
     assert call("capture_correlated", adc_samples=64, la_samples=64)["adc"]["unit"] == "V"
 
 
-def test_current_out_needs_newer_firmware(connected):
-    without_caps(connected, "current_out")
-    with pytest.raises(Exception, match="current_out"):
+def test_current_out_needs_the_analog_board(connected):
+    connected.analog = False
+    SESSION.require().refresh_capabilities()
+    with pytest.raises(Exception, match="analog front end"):
         call("current_out", current=0.012)
 
 
@@ -734,12 +728,6 @@ def test_dmm_calibration_tools(connected):
     assert cleared["dac"]["5v"] is None and cleared["adc_gain_ppm"]["cal1"] == 1850
 
 
-def test_dmm_calibration_needs_newer_firmware(connected):
-    without_caps(connected, "cal_dmm")
-    with pytest.raises(Exception, match="cal_dmm"):
-        call("calibrate_adc_gain", source="cal1")
-
-
 def test_calibrate_refusal_is_a_tool_error(connected):
     connected.error = "calibrate: current_in reads 996 mV, it must be within +/-50 mV of zero. Something is driving J8. Disconnect it and try again"
     with pytest.raises(Exception, match="996 mV"):
@@ -747,9 +735,10 @@ def test_calibrate_refusal_is_a_tool_error(connected):
     assert call("calibration")["calibrated"] is False
 
 
-def test_calibrate_needs_newer_firmware(connected):
-    without_caps(connected, "calibrate")
-    with pytest.raises(Exception, match="calibrate"):
+def test_calibrate_needs_the_analog_board(connected):
+    connected.analog = False
+    SESSION.require().refresh_capabilities()
+    with pytest.raises(Exception, match="analog front end"):
         call("calibration")
 
 
@@ -789,18 +778,20 @@ def test_capture_correlated(connected):
 def test_generate_and_stop(connected):
     result = call("generate", waveform="sine", freq_hz=1000, amplitude=1.0, on_capture=True)
     # No dac_path: the 3.3 V output, the lowest voltage one.
-    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "3v3", "cotrig": True, "bits": 8}
-    assert connected.requests[-2] == {"cmd": "dac_out", "path": "3v3"}
-    assert connected.requests[-1]["amplitude"] == 77
+    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "3v3", "cotrig": True}
+    assert connected.requests[-1] == {"cmd": "generate", "waveform": "sine", "freq_hz": 1000,
+                                      "path": "3v3", "amplitude_v": 1.0, "offset_v": 1.65,
+                                      "on_capture": True}
     assert call("dac_stop") == {"stopped": True}
     # route=false keeps a loopback set up with analog_path: no dac_out before the generator, and
     # the volts scale for the routed DAC (cal1 is the 5 V one).
     call("analog_path", path="cal1")
     res = call("generate", waveform="square", freq_hz=100, amplitude=1.0, route=False)
     assert [r["cmd"] for r in connected.requests[-2:]] == ["analog_path", "generate"]
-    assert res["dac_path"] == "5v" and connected.requests[-1]["amplitude"] == 51
+    assert res["dac_path"] == "5v" and connected.requests[-1]["route"] is False
+    assert connected.requests[-1]["offset_v"] == 2.5
     res = call("generate", waveform="sine", freq_hz=100, amplitude=1.0, dac_path="12v")
-    assert res["dac_path"] == "12v" and connected.requests[-2] == {"cmd": "dac_out", "path": "12v"}
+    assert res["dac_path"] == "12v" and connected.requests[-1]["path"] == "12v"
 
 
 def test_replay_sources(connected):

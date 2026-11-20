@@ -92,11 +92,12 @@ class FakeTransport(Transport):
                                               "bus_mv": [5010, 5000]}
 
     def status(self):
-        status = {"status": "ok", "fake": True, "caps": list(self.caps)}
-        if self.image is not None:
-            status["caps"] += ["dac", "dac_replay",
-                               "dac_control_loop" if self.image == 0 else "dac_deep_replay"]
-        return status
+        """A firmware 4.0 status. ``image`` None is a pod without the DAC images (and so, here,
+        without the analog front end)."""
+        return {"status": "ok", "fake": True, "version": "4.0.0", "api": 2, "min_client_api": 2,
+                "features_rev": 10, "gateware": 59,
+                "fpga_image": {0: "loop", 1: "deep"}.get(self.image, "unknown"),
+                "analog": self.image is not None or "current_out" in self.caps, "hw": []}
 
     def ping(self):
         return {"status": "ok", "data": "pong"}
@@ -112,8 +113,10 @@ class FakeTransport(Transport):
 
     # JSON commands. Returns the reply *data* (what the real transport.command yields).
     def command(self, req: dict):
-        self.commands.append(req)
         cmd = req.get("cmd")
+        if cmd in ("wiring_list", "la_dir"):    # the connect's own: no stored profile
+            return {}
+        self.commands.append(req)
         if cmd == "la_voltage":
             return {"mv": req.get("mv", 0)}
         if cmd == "analog_path":

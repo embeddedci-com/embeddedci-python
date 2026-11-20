@@ -329,9 +329,9 @@ def test_assert_periodic_flags_too_few(bp, pod):
 def test_can_capability_flag_from_status_and_cloud_parameters():
     from embeddedci.benchpod.capabilities import Capabilities
 
-    assert Capabilities.from_status({"caps": ["la", "can"]}).can
-    assert not Capabilities.from_status({"caps": ["la"]}).can  # older firmware: not announced
-    assert Capabilities.from_parameters({"cap.can": "true"}).can
+    fw4 = Capabilities.from_status({"features_rev": 10, "gateware": 59})
+    assert fw4.can and fw4.can_fd
+    assert Capabilities.from_parameters({"cap.features_rev": "10"}).can
     assert not Capabilities.from_parameters({}).can
 
 
@@ -352,15 +352,6 @@ def test_can_config_fd_flag_is_fd_without_switching(bp, pod):
 def test_can_config_data_bitrate_below_bitrate_rejected(bp):
     with pytest.raises(ValueError):
         bp.can_config(bitrate=1_000_000, data_bitrate=500_000)
-
-
-def test_can_fd_needs_capability(bp, pod):
-    from embeddedci.benchpod.errors import UnsupportedFeatureError
-    pod.caps = ["can"]
-    with pytest.raises(UnsupportedFeatureError):
-        bp.can_config(data_bitrate=2_000_000)
-    with pytest.raises(UnsupportedFeatureError):
-        bp.can_write(0x1, bytes(12))
 
 
 def test_can_write_rejects_more_than_64(bp):

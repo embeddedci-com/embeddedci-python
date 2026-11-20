@@ -58,7 +58,7 @@ class Pod:
             if self.v3r4:
                 out["vref_out"] = self._vref()
             return out
-        if req["cmd"] == "la":
+        if req["cmd"] == "la_pull":
             la = req["la"]
             want = req.get("pull")   # None: a query
             if want is None:
@@ -69,9 +69,8 @@ class Pod:
                 self.pulls.pop(la, None)
             d, s = self.pulls.get(la, ("off", "none"))
             ohms = {"2.2k": "2.2k", "10k": "10k", "none": "10k"}[s]
-            out = {"la": la, "pullup": int(d != "off"), "ohms": ohms, "pull": d if d != "off" else "up",
-                   "state": d, "dirs": ["up", "down"], "strength": s,
-                   "strengths": ["10k", "2.2k", "both"], "pullups_available": 1}
+            out = {"la": la, "ohms": ohms, "state": d, "dirs": ["up", "down"], "strength": s,
+                   "strengths": ["10k", "2.2k", "both"], "pullups_available": True}
             if self.held and d != "off":
                 out.update(pullup=0, state="off", held=self.held)
             return out

@@ -26,11 +26,13 @@ class _Pod:
 
     def __init__(self) -> None:
         self.commands: List[dict] = []
+        self.digital = False
         self.data = b""
         self.counts = [64543, 62560, 60577]      # 4, 12 and 20 mA with the _CAL fit
 
     def status(self) -> Any:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "3.5.0", "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "version": "3.5.0", "caps": self.caps,
+                **({"analog": False} if self.digital else {})}
 
     def command(self, req: dict) -> Any:
         self.commands.append(req)
@@ -70,12 +72,12 @@ def _cmds(t: _Pod) -> List[str]:
 def test_generate_takes_amps_and_switches_the_voltage_outputs_off():
     bp, t = _bp()
     handle = bp.generate("sine", freq_hz=2, amplitude=0.006, offset=0.012, dac_path="current_out")
-    # The range comes from the pod, then the route (voltage outputs off), then the generator.
-    assert _cmds(t) == ["current_out", "analog_path", "generate"]
+    # The range comes from the pod, then the generator in microamps (the pod switches the
+    # voltage outputs off itself).
+    assert _cmds(t) == ["current_out", "generate"]
     assert t.commands[0] == {"cmd": "current_out"}
-    assert t.commands[1] == {"cmd": "analog_path", "path": "current_out"}
-    # 8-bit levels on 4.016..20.016 mA (level 255 is the high byte of the top code).
-    assert (t.commands[2]["amplitude"], t.commands[2]["offset"]) == (96, 127)
+    assert t.commands[1] == {"cmd": "generate", "waveform": "sine", "freq_hz": 2,
+                             "amplitude_ua": 6000, "offset_ua": 12000}
     assert handle.dac_path == "current_out"
 
     # Stop returns the loop to its live zero: dac_stop alone would leave it where it stopped.
@@ -87,10 +89,10 @@ def test_generate_takes_amps_and_switches_the_voltage_outputs_off():
 def test_generate_defaults_to_mid_range_and_refuses_what_does_not_fit():
     bp, t = _bp()
     bp.generate("square", freq_hz=1, amplitude=0.004, dac_path="current_out")
-    assert t.commands[-1]["offset"] in (127, 128)                 # the middle of the range
-    with pytest.raises(ValueError, match="0.004016..0.02002 A"):
+    assert t.commands[-1]["offset_ua"] == 12047                   # the middle of the range
+    with pytest.raises(ValueError, match="0.004016..0.02008 A"):
         bp.generate("sine", freq_hz=1, amplitude=0.004, offset=0.002, dac_path="current_out")
-    with pytest.raises(ValueError, match="at most 0.016 A"):
+    with pytest.raises(ValueError, match="must stay within"):
         bp.generate("sine", freq_hz=1, amplitude=12, dac_path="current_out")   # mA by mistake
 
 
@@ -153,12 +155,12 @@ def test_a_captured_loop_replays_as_the_same_current():
     assert list(memoryview(t.data).cast("H")) == [0, 65535]
 
 
-def test_the_current_path_needs_the_capability():
+def test_the_current_path_needs_the_analog_board():
     bp, t = _bp()
-    t.caps = ["dac", "dac_replay"]                 # older firmware
-    with pytest.raises(BenchPodError, match="current_out"):
+    t.digital = True
+    with pytest.raises(BenchPodError, match="analog front end"):
         bp.generate("sine", freq_hz=1, amplitude=0.004, dac_path="current_out")
-    with pytest.raises(BenchPodError, match="current_out"):
+    with pytest.raises(BenchPodError, match="analog front end"):
         bp.replay([0.012], dac_path="current_out")
     assert t.commands == []
 

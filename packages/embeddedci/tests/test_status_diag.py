@@ -91,16 +91,6 @@ def test_diag_reads_the_diag_command():
         pod.close()
 
 
-def test_diag_on_older_firmware_reads_status():
-    old = dict(FULL, version="3.10.8", stacks={"hw": 7000}, lwip_mem_max=100)
-    pod = FakePod([old], has_diag=False)
-    try:
-        d = _bp(pod).diag()
-        assert d["stacks"] == {"hw": 7000} and d["lwip_mem_max"] == 100 and "version" not in d
-    finally:
-        pod.close()
-
-
 def test_short_status_once_is_read_again(caplog):
     """A busy send buffer can make one status the short form: the second read is whole, so the
     calibration is the pod's and nothing is logged."""
@@ -119,6 +109,6 @@ def test_short_status_over_lan_warns(caplog):
     try:
         with caplog.at_level(logging.WARNING):
             _bp(pod).capabilities
-        assert "short status over the network" in caplog.text and "3.10.9" in caplog.text
+        assert "short status over the network" in caplog.text
     finally:
         pod.close()

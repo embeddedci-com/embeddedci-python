@@ -47,9 +47,8 @@ def test_generate_without_a_path_routes_3v3(pod):
     bp, t = pod
     h = bp.generate("sine", freq_hz=100, amplitude=1.0)
     assert h.dac_path == "3v3"
-    assert t.commands[-2] == {"cmd": "dac_out", "path": "3v3"}
-    # 1 V over 3.3 V / 255 levels; offset at mid-range 1.65 V.
-    assert t.commands[-1]["amplitude"] == 77 and t.commands[-1]["offset"] == 127
+    # The pod routes the path itself; the offset is mid-range, 1.65 V.
+    assert t.commands[-1]["path"] == "3v3" and t.commands[-1]["offset_v"] == 1.65
 
 
 def test_replay_without_a_path_routes_3v3(pod):
@@ -62,7 +61,7 @@ def test_replay_without_a_path_routes_3v3(pod):
 def test_an_explicit_path_is_kept(pod):
     bp, t = pod
     assert bp.generate("sine", freq_hz=100, amplitude=1.0, dac_path="5v").dac_path == "5v"
-    assert t.commands[-2] == {"cmd": "dac_out", "path": "5v"}
+    assert t.commands[-1]["path"] == "5v"
 
 
 @pytest.mark.parametrize(("setup", "expected"), [

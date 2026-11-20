@@ -68,20 +68,30 @@ def _b64(words):
     return base64.urlsafe_b64encode(struct.pack(f"<{len(words)}H", *words)).rstrip(b"=").decode()
 
 
-B64_CAPS = Capabilities.from_status({"adc_bits": 8, "adc_fullscale_mv": 2550,
-                                     "caps": ["signal", "capture_b64"]})
+B64_CAPS = NAIVE
 
 
-def test_capture_b64_is_requested_only_when_the_pod_offers_it():
-    assert B64_CAPS.capture_b64 and not NAIVE.capture_b64
+def test_captures_take_the_default_base64():
+    """Firmware 4.0 sends base64 by default: a streamed capture names no encoding."""
     t = FakeCaptureTransport({})
     cap_mod.capture_adc(t, NAIVE, samples=4)
-    assert "enc" not in t.sent[0]  # an older pod never sees the key
-    cap_mod.capture_adc(t, B64_CAPS, samples=4)
-    assert t.sent[1]["enc"] == "b64"
-    # An LA-only capture has no dense ADC region to encode.
-    cap_mod.capture_correlated(t, B64_CAPS, adc_samples=0, la_samples=8)
-    assert "enc" not in t.sent[2]
+    assert "enc" not in t.sent[0]
+    cap_mod.capture_correlated(t, NAIVE, adc_samples=4, la_samples=8)
+    assert "enc" not in t.sent[1]
+
+
+def test_a_transport_without_chunks_asks_for_decimal():
+    class _Flat:
+        def __init__(self):
+            self.sent = []
+
+        def samples(self, req):
+            self.sent.append(req)
+            return [1, 2, 3]
+
+    t = _Flat()
+    assert cap_mod.capture_adc(t, NAIVE, samples=3).counts == [1, 2, 3]
+    assert t.sent == [{"cmd": "capture", "samples": 3, "enc": "dec"}]
 
 
 def test_capture_adc_decodes_b64_chunks():
@@ -104,7 +114,7 @@ def test_capture_correlated_decodes_b64_adc_alongside_rle_la():
         {"status": "chunk", "la": True, "la_edges": [[0, 5], [2, 6]], "la_upto": 4, "more": False},
     ]})
     cc = cap_mod.capture_correlated(t, B64_CAPS, adc_samples=3, la_samples=4)
-    assert t.sent[0]["enc"] == "b64"
+    assert "enc" not in t.sent[0]
     assert cc.adc.counts == [10, 20, 30]
     assert cc.la.words == [5, 5, 6, 6]
 

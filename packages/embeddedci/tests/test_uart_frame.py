@@ -26,8 +26,10 @@ class UartPod:
         self.starts: List[Dict[str, Any]] = []
 
     def status(self) -> Dict[str, Any]:
+        gw = 57 if "uart_hd" in self.caps else 56 if "uart_frame" in self.caps else 55
         return {"board": "stm32h563", "adc_bits": 16, "version": self.version, "caps": self.caps,
-                "la_voltage": 3.3, "gateware": 56 if "uart_frame" in self.caps else 55}
+                "la_voltage": 3.3, "gateware": gw,
+                **({"nrst_pin": True} if "nrst_pin" in self.caps else {})}
 
     def ping(self) -> Any:
         return "pong"
@@ -82,12 +84,12 @@ def test_parity_and_stop_bits_reach_the_transport():
     ]
 
 
-def test_old_firmware_is_refused_before_anything_is_sent():
-    bp, pod = _bp(["la_pins"], "3.10.7")
+def test_old_gateware_is_refused_before_anything_is_sent():
+    bp, pod = _bp(["la_pins"], "4.0.0")
     with pytest.raises(UnsupportedFeatureError) as info:
         bp.open_uart(rx=5, tx=4, baud=19200, parity="even")
     msg = str(info.value)
-    assert "UART parity and stop bits need firmware 3.10.8+" in msg and "3.10.7" in msg
+    assert "UART parity and stop bits need gateware v56" in msg and "4.0.0" in msg
     assert info.value.feature == "uart_frame"
     with pytest.raises(UnsupportedFeatureError):
         bp.capture_uart(rx=5, tx=4, baud=19200, duration=0.1, stop_bits=2)

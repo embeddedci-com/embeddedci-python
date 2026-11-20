@@ -74,14 +74,6 @@ def test_set_wiring_sends_the_directions(connected):
     assert pins[3]["dut_dir"] is None
 
 
-def test_older_firmware_skips_the_directions(connected):
-    r = call("set_wiring", profile={"uart_rx": 7, "uart_tx": 8})
-    assert r["directions"] == "not sent: this pod's firmware (2.0.0) has no la_dir (3.10.4+)"
-    assert 7 not in connected.dirs
-    # Older firmware is not a problem to warn about.
-    assert not any("pin directions" in w for w in call("status")["warnings"])
-
-
 def test_spi_modes_1_and_2(connected):
     connected.caps.append("spi_master")
     from embeddedci_mcp.session import SESSION

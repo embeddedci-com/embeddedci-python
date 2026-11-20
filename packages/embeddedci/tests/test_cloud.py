@@ -549,7 +549,7 @@ def test_cloud_command_retries_other_instance(monkeypatch):
 @pytest.mark.parametrize("req", [
     {"cmd": "can_write", "id": 1, "data": "00"},
     {"cmd": "nrst", "pulse_ms": 10},
-    {"cmd": "la", "la": 1, "steps": 5, "delay_us": 100},
+    {"cmd": "la_step", "la": 1, "steps": 5, "delay_us": 100},
     {"cmd": "spi_xfer", "tx": "9f"},
     {"cmd": "generate", "waveform": "sine"},
     {"cmd": "target_power", "efuse": 1, "state": 1, "delay_ms": 500},

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from embeddedci.benchpod import BenchPod, Wiring
-from embeddedci.benchpod.errors import FirmwareError, UnsupportedFeatureError, WiringError, firmware_error
+from embeddedci.benchpod.errors import FirmwareError, WiringError, firmware_error
 
 
 class ProfilePod:
@@ -81,6 +81,11 @@ class ProfilePod:
                 self._fail("BP0013", "cannot delete the default profile", verb, name=name)
             del self.profiles[name]
             return {"name": name, "deleted": True}
+        if verb == "la_pull" and "la" in req:
+            on = req.get("pull", "off") != "off"
+            d = "down" if req["la"] in (7, 8) else "up"
+            return {"la": req["la"], "ohms": "4.7k", "state": d if on else "off", "dirs": [d],
+                    "pullups_available": True}
         if verb == "la_voltage":
             if "mv" in req:
                 self.la_mv = req["mv"]
@@ -194,65 +199,30 @@ def test_power_on_with_nothing_wired_needs_a_rail():
         BenchPod(transport=ProfilePod(), lease=False).power_on()
 
 
-def test_firmware_without_profile_storage():
-    class OldPod(ProfilePod):
-        def command(self, req: dict) -> Any:
-            if req["cmd"].startswith("wiring_"):
-                raise firmware_error("unknown cmd", cmd=req["cmd"], code="BP0002", values={"cmd": req["cmd"]})
-            return super().command(req)
-    bp = BenchPod(transport=OldPod(), lease=False, wiring_source="local")
-    assert bp.wiring == Wiring()
-    with pytest.raises(UnsupportedFeatureError):
-        bp.wiring_profiles()
-    with pytest.raises(UnsupportedFeatureError, match="newer firmware"):
-        bp.save_wiring()
-
-
 def test_power_on_sets_the_profiles_pull_resistors():
     pod = ProfilePod({"nrf": {**NRF, "pulls": [2, 1]}}, default="nrf")
     bp = BenchPod(transport=pod, lease=False)
     assert bp.wiring.pulls == (1, 2)
     bp.power_on()
-    sets = {c["la"]: c["pullup"] for c in pod.sent("la")}
-    assert sets == {1: "on", 2: "on", 3: "off", 4: "off", 5: "off", 6: "off", 7: "off", 8: "off"}
+    sets = {c["la"]: c["pull"] for c in pod.sent("la_pull")}
+    assert sets == {1: "up", 2: "up", 3: "off", 4: "off", 5: "off", 6: "off", 7: "off", 8: "off"}
     # Sent before the rail goes on.
     order = [c["cmd"] for c in pod.commands]
-    assert order.index("target_power") > max(i for i, c in enumerate(order) if c == "la")
+    assert order.index("target_power") > max(i for i, c in enumerate(order) if c == "la_pull")
 
 
-def test_power_on_leaves_the_pulls_without_the_key_or_at_1v8():
-    pod = ProfilePod({"nrf": NRF, "k66": {**K66, "pulls": [1]}}, default="nrf")
+def test_power_on_leaves_the_pulls_without_the_key():
+    pod = ProfilePod({"nrf": NRF}, default="nrf")
     bp = BenchPod(transport=pod, lease=False)
     bp.power_on()
-    bp.power_off()
-    bp.power_off(efuse=2)
-    pod.rails[1] = False
-    bp.power_on(wiring_profile="k66")
-    assert pod.sent("la") == []
+    assert pod.sent("la_pull") == []
 
 
-class PullsAt1v8Pod(ProfilePod):
-    """Firmware with la_pull_1v8 (features revision 4): pulls work with the bank at 1.8 V."""
-
-    def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "3.10.13", "features_rev": 4,
-                "gateware": 58, "fpga_image": "deep", "hw": ["nrst_pin"]}
-
-    def command(self, req: dict) -> Any:
-        if req["cmd"] == "la" and "la" in req:
-            self.commands.append(req)
-            on = req.get("pull", "off") != "off"
-            d = "down" if req["la"] in (7, 8) else "up"
-            return {"la": req["la"], "pullup": int(on), "ohms": "4.7k", "pull": d,
-                    "state": d if on else "off", "dirs": [d], "pullups_available": 1}
-        return super().command(req)
-
-
-def test_power_on_applies_the_pulls_at_1v8_on_firmware_that_has_them():
-    pod = PullsAt1v8Pod({"k66": {**K66, "pulls": [1]}}, default="k66")
+def test_power_on_applies_the_pulls_at_1v8():
+    pod = ProfilePod({"k66": {**K66, "pulls": [1]}}, default="k66")
     bp = BenchPod(transport=pod, lease=False)
     bp.power_on()
-    sets = {c["la"]: c["pull"] for c in pod.sent("la")}
+    sets = {c["la"]: c["pull"] for c in pod.sent("la_pull")}
     assert sets == {1: "up", 2: "off", 3: "off", 4: "off", 5: "off", 6: "off", 7: "off", 8: "off"}
 
 
@@ -264,7 +234,7 @@ def test_pulls_key():
         Wiring(pulls=[9])
     assert not Wiring(i2c_sda=7, pulls=[]).warnings()
     assert Wiring(i2c_sda=7, pulls=[7]).warnings()
-    assert any("newer than 3.10.12" in x for x in Wiring(la_mv=1800, pulls=[1]).warnings())
+    assert not Wiring(la_mv=1800, pulls=[1]).warnings()
 
 
 def test_connect_sets_the_io_voltage_from_the_pods_profile():

@@ -17,7 +17,7 @@ import logging
 import math
 import sys
 from array import array
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from .capabilities import ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, Capabilities
 from .errors import BenchPodError
@@ -63,6 +63,17 @@ def rate_mhz(rate_hz: Optional[float]) -> Optional[float]:
     return float(rate_hz) / 1e6
 
 
+def rate_hz(rate_hz: Optional[float]) -> Optional[Union[int, float]]:
+    """A sample rate in hertz for the firmware's ``sample_rate_hz`` (``None`` stays ``None`` =
+    device default); an int when it is whole."""
+    if rate_hz is None:
+        return None
+    if rate_hz <= 0:
+        raise ValueError(f"sample rate must be > 0 Hz, got {rate_hz!r}")
+    f = float(rate_hz)
+    return int(f) if f.is_integer() else f
+
+
 def _us(seconds: Optional[float], name: str) -> int:
     if seconds is None:
         return 0
@@ -89,17 +100,8 @@ def _stream_or_samples(transport: Any, req: dict):
     fn = getattr(transport, "samples", None)
     if fn is None:
         raise BenchPodError("this transport does not support captures")
-    yield {"status": "ok", "data": fn(req), "more": False}
-
-
-def _want_b64(transport: Any, caps: Capabilities, req: dict) -> None:
-    """Ask for base64 ADC chunks when the pod offers them and the transport yields whole chunks.
-
-    A pod without ``capture_b64`` never sees the key, and the ``samples`` fallback flattens only
-    ``data``, so it is left out there too.
-    """
-    if caps.capture_b64 and getattr(transport, "stream_chunks", None) is not None:
-        req["enc"] = "b64"
+    # samples() flattens only the decimal "data" lists: ask for those, not the default base64.
+    yield {"status": "ok", "data": fn({**req, "enc": "dec"}), "more": False}
 
 
 def _dense(chunk: dict) -> List[int]:
@@ -151,7 +153,6 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
     mhz = rate_mhz(sample_rate_hz)
     if mhz is not None:
         req["sample_rate_mhz"] = mhz
-    _want_b64(transport, caps, req)
     counts: List[int] = []
     rate = 0.0
     for chunk in _stream_or_samples(transport, req):
@@ -328,9 +329,6 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
     _apply_trigger(req, trigger, trigger_timeout)
-    if adc_samples:
-        _want_b64(transport, caps, req)
-
     adc_counts: List[int] = []
     la_edges: List[List[int]] = []
     la_upto = 0

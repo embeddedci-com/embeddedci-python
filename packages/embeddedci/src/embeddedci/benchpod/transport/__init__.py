@@ -84,7 +84,7 @@ def usb_net_address(status: Any) -> Optional[str]:
     console's text status parsed by :func:`~.serial.parse_text_status`), or None when USB
     networking is off, its link is down, or the firmware has no USB network (before 3.9.0)."""
     usb = status.get("usb") if isinstance(status, dict) else None
-    if not isinstance(usb, dict) or usb.get("net") != "on" or usb.get("link") is not True:
+    if not isinstance(usb, dict) or usb.get("net") is not True or usb.get("link") is not True:
         return None
     try:
         ip = ipaddress.IPv4Address(str(usb.get("ip", "")))

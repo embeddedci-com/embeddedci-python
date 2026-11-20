@@ -36,7 +36,8 @@ class PinPod:
 
     # -- transport surface --
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "0.4.0", "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "version": "0.4.0", "caps": self.caps,
+                "gateware": 59 if "gpio_read" in self.caps else 34}
 
     def ping(self) -> Any:
         return "pong"
@@ -58,7 +59,7 @@ class PinPod:
             return {"pins": [self._entry(la) for la in range(1, 15)], "levels": self._levels()}
         if cmd == "gpio":
             return self._gpio(req)
-        if cmd == "la":
+        if cmd == "la_step":
             return {"la": req["la"], "steps": req.get("steps"), "status": "started"}
         return {}
 
@@ -205,7 +206,7 @@ def test_signals_by_name_with_active_low():
     pod.inputs = 1 << 9
     assert ready.read() == 1 and bp.wait_for_level("READY", 1, timeout=0)
     reset.pulse(0.002, count=3)
-    assert pod.commands[-1] == {"cmd": "la", "la": 9, "steps": 3, "delay_us": 2000}
+    assert pod.commands[-1] == {"cmd": "la_step", "la": 9, "steps": 3, "delay_us": 2000}
 
 
 def test_wait_for_level_times_out():
@@ -221,13 +222,6 @@ def test_pin_levels_fall_back_to_a_capture_without_gpio_read():
     bp, _ = _bp(pod)
     levels = bp.pin_levels()
     assert levels[9] == 1 and levels[1] == 0 and not any(c["cmd"] == "gpio" for c in pod.commands)
-
-
-def test_gpio_needs_firmware_that_has_it():
-    bp, pod = _bp(PinPod(caps=["la"]))
-    with pytest.raises(BenchPodError, match="la_pins.*firmware 0.4.0"):
-        bp.gpio(9)
-    assert pod.commands == []
 
 
 def test_error_classification():

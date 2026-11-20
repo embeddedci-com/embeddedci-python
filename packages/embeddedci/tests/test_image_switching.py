@@ -281,7 +281,7 @@ def test_runs_on_the_loop_image(benchpod):
     assert benchpod.capabilities.dac_control_loop
 
 
-@pytest.mark.benchpod_capability("dac_cotrig")
+@pytest.mark.benchpod_capability("adc_low_range")
 def test_a_missing_feature_still_skips(benchpod):
     pass
 """)

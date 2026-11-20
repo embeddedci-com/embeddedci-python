@@ -263,26 +263,26 @@ class PullState:
 
     @classmethod
     def from_reply(cls, reply: Any, la: int) -> "PullState":
-        """From the pod's ``la`` reply. Firmware before ``la_pull_dir`` sends no ``state`` or
-        ``dirs``; the board table (:data:`~embeddedci.benchpod.constants.PULL_TABLE`) fills them."""
+        """From the pod's ``la_pull`` reply (``state``, ``dirs``, ``pullups_available``). The
+        reply has no resistor value: on boards with one resistor per channel it comes from the
+        board table (:data:`~embeddedci.benchpod.constants.PULL_TABLE`), ``la_pins`` reports it
+        on every board."""
         from .constants import PULL_TABLE
 
         d = _d(reply)
         la = int(d.get("la", la))
         hw = PULL_TABLE.get(la)
         dirs = d.get("dirs")
-        supported = (tuple(str(x) for x in dirs) if isinstance(dirs, list)
-                     else (hw.dirs if hw else ()))
-        pull = d.get("pull")
-        direction: Optional[str] = (str(pull) if pull in ("up", "down")
-                                    else (hw.default if hw and pull is None else None))
+        supported = tuple(str(x) for x in dirs) if isinstance(dirs, list) else ()
         state = d.get("state")
-        enabled = (state in ("up", "down")) if isinstance(state, str) else bool(d.get("pullup", 0))
-        if isinstance(state, str) and state in ("up", "down"):
-            direction = state
-        return cls(la=la, enabled=enabled, direction=direction,
-                   ohms=str(d.get("ohms", hw.ohms if hw else "") or ""),
-                   available=bool(d.get("pullups_available", 1)), supported=supported,
+        enabled = state in ("up", "down")
+        direction: Optional[str] = (str(state) if enabled
+                                    else (supported[0] if len(supported) == 1 else None))
+        ohms = d.get("ohms")
+        if not isinstance(ohms, str):
+            ohms = hw.ohms if hw and supported == hw.dirs else ""
+        return cls(la=la, enabled=enabled, direction=direction, ohms=ohms,
+                   available=d.get("pullups_available") is not False, supported=supported,
                    strength=str(d["strength"]) if isinstance(d.get("strength"), str) else None,
                    held=str(d["held"]) if isinstance(d.get("held"), str) else None, raw=d)
 

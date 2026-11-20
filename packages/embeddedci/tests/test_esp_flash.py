@@ -64,7 +64,7 @@ class FakeTransport(Transport):
         pass
 
     def status(self) -> Any:
-        return {}
+        return {"fpga_image": "deep"}   # ESP32 flashing runs on the deep replay image
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         pass

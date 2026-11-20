@@ -1,6 +1,18 @@
 # Changelog — `embeddedci-mcp`
 
+## 4.0.0
+
+Pairs with BenchPod firmware 4.0.0 and embeddedci 4.0. Breaking changes:
+
+- **Firmware 4.0 or later only.** `connect` to a pod with firmware 3.x fails with
+  `FirmwareTooOldError`, which tells the agent to have the user update the pod's firmware
+  (`benchpod flash-self` or the web app). The instructions say so too.
+- `generate` returns no `bits` (the pod always plays 16 bits).
+- A serial device path (the USB console) supports `status` only.
+
 ## 3.0.6
+
+Never released: its changes ship in 4.0.0.
 
 - Every command carries `"client": "mcp <version>"` and the client API level (with embeddedci
   after 3.0.5).

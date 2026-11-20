@@ -61,13 +61,6 @@ class Transport(ABC):
     def status(self) -> Any:
         """Return the pod's status report (a dict)."""
 
-    def status_without_caps(self) -> Any:
-        """The status report a client with the features table asks for: ``"caps":false``, so
-        firmware after 3.10.10 sends ``features_rev`` instead of the ``caps`` list (older firmware
-        ignores the argument and sends the list). A transport that cannot send it returns
-        :meth:`status`."""
-        return self.status()
-
     @abstractmethod
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         """Enable (``on=True``) or disable a target-power eFuse (1 or 2).

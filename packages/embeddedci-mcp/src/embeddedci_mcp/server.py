@@ -285,7 +285,21 @@ def _coded_text(exc: BenchPodError) -> Optional[str]:
     return f"{cmd}: {text}" if cmd else text
 
 
+def _firmware_too_old_text(exc: BenchPodError) -> Optional[str]:
+    """The SDK's FirmwareTooOldError: the pod runs firmware 3.x, which this server does not drive."""
+    if not isinstance(exc, _errors.FirmwareTooOldError):
+        return None
+    fw = getattr(exc, "firmware_version", "") or "3.x"
+    return (f"the pod runs firmware {fw} (client API {getattr(exc, 'api', 1)}); this BenchPod MCP "
+            f"server (embeddedci-mcp {_mcp_version()}) needs firmware 4.0.0 or later. Tell the user "
+            "to update the pod's firmware with the BenchPod CLI (benchpod flash-self) or the "
+            "firmware update in the web app, then reconnect; retrying will not help")
+
+
 def _tool_error(exc: BenchPodError) -> ToolError:
+    fw_old = _firmware_too_old_text(exc)
+    if fw_old:
+        return ToolError(f"{type(exc).__name__}: {fw_old}")
     too_old = _client_too_old_text(exc)
     if too_old:
         return ToolError(f"{type(exc).__name__}: {too_old}")
@@ -2560,20 +2574,18 @@ async def generate(
 ) -> m.GenerateResult:
     """Drive a sine, square or sawtooth on a DAC output.
 
-    On firmware 3.9.1+ the pod takes the volts, calibrates them for dac_path and plays the waveform
-    at the DAC's full 16 bits (bits=16 in the result); both peaks must then be on the path. Older firmware builds it from 8-bit levels (bits=8): 256 steps over the path.
+    The pod takes the volts, calibrates them for dac_path and plays the waveform at the DAC's full
+    16 bits; both peaks must be on the path.
 
     dac_path current_out plays it as a current on the 4-20 mA output (J9), with amplitude and offset
-    in amps and steps of about 0.25 uA (63 uA on older firmware). See current_out for the wiring it needs. The DAC voltage
+    in amps and steps of about 0.25 uA. See current_out for the wiring it needs. The DAC voltage
     outputs are switched off for it. dac_stop then leaves the loop where the waveform stopped: call
     current_out(0.004) to go back to 4 mA.
     """
     handle = await _call(lambda: SESSION.require().generate(
         waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, **_dac_path_arg(dac_path, route),
         duration=duration, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
-    bits = 16 if (handle.data or {}).get("bits") == 16 else 8
-    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=handle.dac_path, cotrig=handle.cotrig,
-                            bits=bits)
+    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=handle.dac_path, cotrig=handle.cotrig)
 
 
 @mcp.tool(annotations=_ann("Stop the DAC", idempotent=True))
