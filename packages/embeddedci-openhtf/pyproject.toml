@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "embeddedci>=4.0.0,<5",
+    "embeddedci>=4.0.0.dev0,<5",
     "openhtf>=1.6",
 ]
 
