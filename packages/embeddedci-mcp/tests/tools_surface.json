@@ -1900,6 +1900,38 @@
           "default": null,
           "title": "Cs"
         },
+        "dm": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "usb: the channel on D-.",
+          "title": "Dm"
+        },
+        "dp": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "usb: the channel on D+.",
+          "title": "Dp"
+        },
         "max_items": {
           "default": 200,
           "maximum": 5000,
@@ -1952,7 +1984,8 @@
           "enum": [
             "i2c",
             "uart",
-            "spi"
+            "spi",
+            "usb"
           ],
           "title": "Protocol",
           "type": "string"
@@ -2030,6 +2063,17 @@
           ],
           "default": null,
           "title": "Sda"
+        },
+        "speed": {
+          "default": "auto",
+          "description": "usb: full (12 Mbit/s), low (1.5 Mbit/s) or auto (from the idle state).",
+          "enum": [
+            "auto",
+            "full",
+            "low"
+          ],
+          "title": "Speed",
+          "type": "string"
         }
       },
       "required": [

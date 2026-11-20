@@ -66,6 +66,7 @@ except ImportError:  # pragma: no cover - older SDK: wiring leaves board_header/
     header_map = None  # type: ignore[assignment]
 
 from embeddedci.benchpod import decode as sdk_decode
+from embeddedci.benchpod import usb_decode
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
@@ -2367,15 +2368,23 @@ async def decode_la(
     miso: Optional[LaPin] = None,
     cs: Optional[LaPin] = None,
     mode: Literal[0, 1, 2, 3] = 0,
+    dp: Annotated[Optional[LaPin], Field(description="usb: the channel on D+.")] = None,
+    dm: Annotated[Optional[LaPin], Field(description="usb: the channel on D-.")] = None,
+    speed: Annotated[Literal["auto", "full", "low"], Field(description=(
+        "usb: full (12 Mbit/s), low (1.5 Mbit/s) or auto (from the idle state)."))] = "auto",
     capture: Annotated[Literal["last", "new"], Field(description=(
         "last = decode the previous capture_la; new = capture first (needs samples/sample_rate_hz)."))] = "last",
     samples: Samples = 16384,
     sample_rate_hz: Annotated[float, Field(gt=0, le=50_000_000)] = 1_000_000,
     max_items: Annotated[int, Field(ge=1, le=5000)] = 200,
 ) -> m.DecodeResult:
-    """Decode I2C (sda, scl), UART (rx, baud) or SPI (sclk + mosi/miso/cs, mode) from LA data.
+    """Decode I2C (sda, scl), UART (rx, baud), SPI (sclk + mosi/miso/cs, mode) or USB (dp, dm,
+    speed) from LA data.
 
-    Sample at least ~10x the bit rate. Decoding the last capture again with other channels is free.
+    Sample at least ~10x the bit rate; USB full speed needs a 48 MS/s capture, low speed 6 MS/s.
+    USB items are transactions (token, data, handshake; repeated NAKs merged), transfers the
+    control transfers with the SETUP request and descriptors decoded (an enumeration).
+    Decoding the last capture again with other channels is free.
     """
     def op() -> m.DecodeResult:
         pod = SESSION.require()
@@ -2385,21 +2394,33 @@ async def decode_la(
             raise ValueError("uart needs rx and baud")
         if protocol == "spi" and sclk is None:
             raise ValueError("spi needs sclk")
+        if protocol == "usb" and (dp is None or dm is None):
+            raise ValueError("usb needs dp and dm")
         la = SESSION.last_la
         if capture == "new" or la is None:
             la = pod.capture_la(samples, sample_rate_hz=sample_rate_hz)
             SESSION.last_la = la
         channels = {k: v for k, v in (("sda", sda), ("scl", scl), ("rx", rx), ("baud", baud),
-                                      ("sclk", sclk), ("mosi", mosi), ("miso", miso), ("cs", cs))
+                                      ("sclk", sclk), ("mosi", mosi), ("miso", miso), ("cs", cs),
+                                      ("dp", dp), ("dm", dm))
                     if v is not None}
         if protocol == "spi":
             channels["mode"] = mode
+        if protocol == "usb":
+            channels["speed"] = speed
         frames = pod.decode(la, protocol, **channels)
         try:
             SESSION.last_decode = _decode_view(la, protocol, channels, frames)
         except Exception:  # the capture view's copy never fails the decode itself
             SESSION.last_decode = None
         text = None
+        if protocol == "usb":
+            items = usb_decode.format_transactions(frames)
+            transfers = usb_decode.format_transfers(frames)
+            return m.DecodeResult(protocol=protocol, count=len(items), items=items[:max_items],
+                                  truncated=len(items) > max_items, speed=frames.speed,
+                                  transfers=transfers[:max_items], errors=frames.error_count,
+                                  sof_count=frames.sof_count)
         if protocol == "i2c":
             items = i2c.format_transactions(frames).splitlines()
         elif protocol == "uart":
@@ -3006,7 +3027,9 @@ def _decode_view(la: Any, protocol: str, channels: Dict[str, Any], frames: Any) 
     frames (the EmbeddedCI web app's decode result)."""
     view: Dict[str, Any] = {"seq": SESSION.la_seq, "protocol": protocol,
                             "channels": {k: v for k, v in channels.items()}}
-    if protocol == "i2c":
+    if protocol == "usb":
+        view.update({k: v for k, v in frames.as_dict().items() if k != "protocol"})
+    elif protocol == "i2c":
         view["transactions"] = i2c.timed_transactions(la.words, channels["sda"], channels["scl"],
                                                       la.sample_rate_hz)
     else:
@@ -3063,8 +3086,9 @@ def capture_adc_resource() -> str:
 
 @mcp.resource("benchpod://capture/decode", name="capture_decode_data", mime_type="application/json",
               title="Last decode, with timing",
-              description=("The last decode_la in full: I2C transactions with timed segments, or UART / "
-                           "SPI frames, for drawing on the capture. seq is the capture it decoded."))
+              description=("The last decode_la in full: I2C transactions with timed segments, UART / "
+                           "SPI frames, or USB packets, transactions and transfers, for drawing on the "
+                           "capture. seq is the capture it decoded."))
 def capture_decode_resource() -> str:
     return json.dumps(SESSION.last_decode or {"seq": 0}, separators=(",", ":"))
 

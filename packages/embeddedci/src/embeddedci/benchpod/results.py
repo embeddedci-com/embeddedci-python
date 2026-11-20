@@ -350,7 +350,8 @@ class LaCapture:
 
         Examples: ``cap.decode("i2c", sda=2, scl=1)``,
         ``cap.decode("uart", rx=5, baud=115200)``,
-        ``cap.decode("spi", sclk=1, mosi=2, miso=3, cs=4)``.
+        ``cap.decode("spi", sclk=1, mosi=2, miso=3, cs=4)``,
+        ``cap.decode("usb", dp=5, dm=6)`` (capture at 48 MS/s for full speed).
         """
         from .decode import decode as _decode
 

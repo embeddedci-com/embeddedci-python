@@ -94,6 +94,7 @@ from .control_loop import (
     input_percent_to_code,
 )
 from .decode import SpiFrame, UartFrame
+from .usb_decode import UsbDecode
 from .errors import (
     BenchPodError,
     CanTimeout,
@@ -269,6 +270,7 @@ __all__ = [
     "Trigger",
     "UartFrame",
     "SpiFrame",
+    "UsbDecode",
     # DAC output, replay + waveform library
     "DacHandle",
     "ReplayHandle",

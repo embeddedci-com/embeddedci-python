@@ -2,8 +2,8 @@
 
 The FPGA captures raw logic only; protocol interpretation runs on the host over the sampled
 ``words`` plus a channel assignment — the same model the server uses (``POST /analyzer/decode``).
-This module is the Python mirror of the server's decoders (``benchpod_uart_decode.go`` /
-``benchpod_spi_decode.go``) and reuses :mod:`embeddedci.benchpod.i2c` for I2C, so a test can
+This module is the Python mirror of the server's decoders (``decode/uart.go``, ``decode/spi.go``,
+``decode/usb.go``) and reuses :mod:`embeddedci.benchpod.i2c` for I2C, so a test can
 decode the same capture identically whether it goes through the server or stays client-side.
 
 ``words[i]`` packs all channels for sample ``i`` (bit ``n`` = channel ``LA{n+1}``); channel
@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import List, Sequence
 
 from . import i2c as _i2c
+from .usb_decode import UsbDecode, decode_usb  # noqa: F401  (re-exported)
 
 
 def _channel_bits(words: Sequence[int], ch: int) -> List[int]:
@@ -240,13 +241,15 @@ def decode_spi(words: Sequence[int], *, sclk: int, mosi: int = 0, miso: int = 0,
 
 def decode(words: Sequence[int], protocol: str = "i2c", *, sample_rate_hz: float = 0.0,
            **channels):
-    """Decode ``protocol`` (``i2c``/``uart``/``spi``) from raw LA ``words``.
+    """Decode ``protocol`` (``i2c``/``uart``/``spi``/``usb``) from raw LA ``words``.
 
     Channel/param names match the protocol:
 
     * i2c:  ``sda``, ``scl`` → list of :class:`~embeddedci.benchpod.i2c.I2CTransaction`
     * uart: ``rx``, ``baud`` (+ ``data_bits``, ``parity``, ``stop_bits``) → list of :class:`UartFrame`
     * spi:  ``sclk`` (+ ``mosi``, ``miso``, ``cs``, ``mode``, ``bits``, ``msb_first``) → list of :class:`SpiFrame`
+    * usb:  ``dp``, ``dm`` (+ ``speed`` ``full``/``low``/``auto``) → :class:`UsbDecode` (packets,
+      transactions, control transfers)
     """
     proto = (protocol or "").lower()
     if proto == "i2c":
@@ -255,4 +258,6 @@ def decode(words: Sequence[int], protocol: str = "i2c", *, sample_rate_hz: float
         return decode_uart(words, sample_rate_hz=sample_rate_hz, **channels)
     if proto == "spi":
         return decode_spi(words, sample_rate_hz=sample_rate_hz, **channels)
-    raise ValueError(f"unsupported protocol {protocol!r} (supported: i2c, uart, spi)")
+    if proto == "usb":
+        return decode_usb(words, sample_rate_hz=sample_rate_hz, **channels)
+    raise ValueError(f"unsupported protocol {protocol!r} (supported: i2c, uart, spi, usb)")

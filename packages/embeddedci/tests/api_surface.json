@@ -122,7 +122,7 @@
     "current_out_range": "(self) -> 'CurrentOutput'",
     "dac_output": "(self, path: 'DacOutputPath', *, volts: 'Optional[float]' = None) -> 'DacOutput'",
     "dac_stop": "(self) -> 'None'",
-    "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'list'",
+    "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'Any'",
     "delete_wiring": "(self, name: 'str') -> 'None'",
     "diag": "(self) -> 'Dict[str, Any]'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
@@ -472,7 +472,7 @@
   "DacPinoutMismatchError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, digital: 'str' = '', module: 'str' = '') -> 'None'"
   },
-  "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
+  "DecodeProtocol": "Literal['i2c', 'uart', 'spi', 'usb']",
   "DefinitionError": {
     "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
   },
@@ -1259,6 +1259,19 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'UsbCcStatus'\""
   },
+  "UsbDecode": {
+    "__fields__": [
+      "speed",
+      "packets",
+      "transactions",
+      "transfers",
+      "sof_count",
+      "keep_alive_count",
+      "error_count",
+      "protocol"
+    ],
+    "as_dict": "(self) -> 'dict'"
+  },
   "Waveform": {
     "__fields__": [
       "id",
@@ -1501,6 +1514,7 @@
     "UartTimeout",
     "UnsupportedFeatureError",
     "UsbCcStatus",
+    "UsbDecode",
     "Waveform",
     "WaveformLibrary",
     "Waveshape",

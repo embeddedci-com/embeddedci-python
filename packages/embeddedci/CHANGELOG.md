@@ -4,6 +4,13 @@
 
 Not released yet.
 
+- **USB decoding from the logic analyzer.** `bp.decode(la, "usb", dp=, dm=)` (and
+  `LaCapture.decode`, `decode.decode_usb`) decodes full speed (12 Mbit/s, capture at 48 MS/s) and
+  low speed (1.5 Mbit/s, 6 MS/s and more) from a passive D+/D- tap: packets with CRC5/CRC16,
+  bit stuffing and PID checks flagged per packet, transactions (token, data, handshake, repeated
+  NAKs merged) and control transfers with the SETUP request and the descriptors read back
+  decoded. Returns a `UsbDecode`; locked to the server's decoder by shared vectors.
+
 - **`la_pins` reads a long listing in pages.** On firmware with the `la_pins_paged` feature
   (features table revision 12), a reply that cannot carry every pin says `next`; the SDK asks
   again with `"from": next` (and the same `la`) and joins the pins, so `bp.la_pins()` and the MCP

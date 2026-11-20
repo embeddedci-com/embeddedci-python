@@ -3,6 +3,7 @@
 import json
 
 import anyio
+import pytest
 
 from embeddedci.benchpod.results import LaCapture
 from embeddedci_mcp.server import (capture_adc_resource, capture_decode_resource, capture_la_resource,
@@ -60,3 +61,35 @@ def test_i2c_decode_has_timed_segments(connected):
     t = json.loads(capture_decode_resource())["transactions"][0]
     assert t["address"] == "0x50" and t["ok"] and t["direction"] == "write"
     assert [s["type"] for s in t["segments"]][:3] == ["start", "address-write", "ack"]
+
+
+def _usb_vector_words():
+    """The SDK's shared full-speed enumeration vector (48 MS/s, D+ LA1, D- LA2) as dense words."""
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "embeddedci" / "tests" / "testdata" / "usb_decode_vectors.json"
+    case = json.loads(path.read_text())["cases"][0]
+    words, edges = [0] * case["count"], case["edges"]
+    for k, (at, w) in enumerate(edges):
+        end = edges[k + 1][0] if k + 1 < len(edges) else case["count"]
+        words[at:end] = [w] * (end - at)
+    return words, case["sample_rate_hz"]
+
+
+def test_usb_decode_lists_the_enumeration(connected):
+    words, rate = _usb_vector_words()
+    SESSION.last_la = LaCapture(words=words, sample_rate_hz=rate)
+    r = call("decode_la", protocol="usb", dp=1, dm=2)
+    assert r["speed"] == "full" and r["errors"] == 0 and r["sof_count"] == 2
+    assert any("SET_ADDRESS 5: OK" in t for t in r["transfers"])
+    assert any("NAK x2" in t for t in r["items"])
+    d = json.loads(capture_decode_resource())
+    assert d["protocol"] == "usb" and d["channels"] == {"dp": 1, "dm": 2, "speed": "auto"}
+    assert {"packets", "transactions", "transfers"} <= set(d)
+    assert d["transfers"][0]["request"] == "GET_DESCRIPTOR DEVICE length 64"
+
+
+def test_usb_decode_needs_both_lines(connected):
+    SESSION.last_la = LaCapture(words=[1] * 100, sample_rate_hz=48e6)
+    with pytest.raises(Exception, match="usb needs dp and dm"):
+        call("decode_la", protocol="usb", dp=1)
