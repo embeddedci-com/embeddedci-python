@@ -455,7 +455,7 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   the user for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in the profile (set_wiring with la_mv 1800 or 3300,
   then save_wiring) or call set_la_voltage` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
   by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
-  `sensor_stop`; a pull conflict to `set_pull(las=[7], pull="off")`.
+  `sensor_stop`; a pull conflict to `set_pull(la=[7], pull="off")`.
 - **Error codes.** Firmware 3.10.8 and later sends a stable code with a refusal (`BP0009` ...): the
   error then reads `<Kind>: <cmd>: BP0009: <what went wrong>; <the fix, as tool calls> (docs:
   https://embeddedci.com/docs/errors#BP0009)`. The code is the stable part to act on, and it also

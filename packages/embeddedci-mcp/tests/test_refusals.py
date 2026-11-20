@@ -86,7 +86,7 @@ def test_pull_conflict_names_set_pull(connected):
             reason="a released line would read low")
     msg = _pulse_error()
     assert "PullConflictError: la_step: BP0032: LA7 has its 10k pull-down on" in msg
-    assert 'set_pull(las=[7], pull="off")' in msg
+    assert 'set_pull(la=[7], pull="off")' in msg
 
 
 def test_dac_pinout_mismatch(connected):
