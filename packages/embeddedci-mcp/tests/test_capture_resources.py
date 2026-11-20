@@ -63,6 +63,14 @@ def test_i2c_decode_has_timed_segments(connected):
     assert [s["type"] for s in t["segments"]][:3] == ["start", "address-write", "ack"]
 
 
+try:  # the min-SDK CI job runs these tests against embeddedci 4.0.0, which has no USB decoder
+    import embeddedci.benchpod.usb_decode  # noqa: F401
+    _no_usb = False
+except ImportError:
+    _no_usb = True
+needs_usb_sdk = pytest.mark.skipif(_no_usb, reason="needs embeddedci 4.0.1 (USB decode)")
+
+
 def _usb_vector_words():
     """The SDK's shared full-speed enumeration vector (48 MS/s, D+ LA1, D- LA2) as dense words."""
     from pathlib import Path
@@ -76,6 +84,7 @@ def _usb_vector_words():
     return words, case["sample_rate_hz"]
 
 
+@needs_usb_sdk
 def test_usb_decode_lists_the_enumeration(connected):
     words, rate = _usb_vector_words()
     SESSION.last_la = LaCapture(words=words, sample_rate_hz=rate)
@@ -89,6 +98,7 @@ def test_usb_decode_lists_the_enumeration(connected):
     assert d["transfers"][0]["request"] == "GET_DESCRIPTOR DEVICE length 64"
 
 
+@needs_usb_sdk
 def test_usb_decode_needs_both_lines(connected):
     SESSION.last_la = LaCapture(words=[1] * 100, sample_rate_hz=48e6)
     with pytest.raises(Exception, match="usb needs dp and dm"):
