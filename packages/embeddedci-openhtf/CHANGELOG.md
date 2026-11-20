@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-openhtf`
 
-## Unreleased
+## 3.0.0
 
 - Needs embeddedci 4.0 (`embeddedci>=4.0.0,<5`), so BenchPod firmware 4.0: a pod with firmware 3.x
   fails the plug's setup with `FirmwareTooOldError`. The examples connect without `:8080` (TLS on
