@@ -101,8 +101,9 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, FirmwareError, PullDirectionError, UnsupportedFeatureError,
-                     classify_firmware_error, firmware_error, status_too_large)
+from .errors import (BenchPodError, ClientTooOldError, FirmwareError, PullDirectionError,
+                     UnsupportedFeatureError, classify_firmware_error, firmware_error,
+                     status_too_large)
 from .flash import FlashResult
 from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -207,6 +208,14 @@ def _maybe_on_emulation(caps: Capabilities) -> bool:
 def _mac_text(v: Any) -> Optional[str]:
     """A MAC from a status field or a stored parameter: lowercase text, None when empty."""
     return v.strip().lower() if isinstance(v, str) and v.strip() else None
+
+
+def _sdk_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("embeddedci")
+    except Exception:   # a source tree without install
+        return "unknown"
 
 
 def _dict(data: Any) -> Dict[str, Any]:
@@ -639,9 +648,25 @@ class BenchPod:
                 except BenchPodError:
                     pass
             if not status_ok:
+                self._check_client_api(caps)
                 return caps
             self._caps = caps
+        self._check_client_api(self._caps)
         return self._caps
+
+    def _check_client_api(self, caps: Capabilities) -> None:
+        """Raise :class:`ClientTooOldError` when the pod speaks a client API level above
+        :data:`~embeddedci.benchpod.feature_map.CLIENT_API`: its firmware changed a reply or a
+        message in a way this SDK would misread. A pod without ``api`` counts as 1."""
+        if caps.client_api_level <= _feature_map.CLIENT_API:
+            return
+        fw = caps.firmware_version or "unknown"
+        raise ClientTooOldError(
+            f"this SDK is too old for the pod's firmware {fw}: the pod speaks client API "
+            f"{caps.client_api_level}, this SDK (embeddedci {_sdk_version()}) handles client API "
+            f"{_feature_map.CLIENT_API}; update the SDK (pip install -U embeddedci)",
+            client_api=_feature_map.CLIENT_API, api=caps.client_api_level,
+            min_client_api=caps.min_client_api, firmware_version=caps.firmware_version)
 
     def _direct_network(self) -> bool:
         """A LAN or USB network connection: one that should get the pod's full status."""
@@ -2057,6 +2082,7 @@ class BenchPod:
         except UnsupportedFeatureError:
             header = None
         except BenchPodError as e:
+            # No code yet ("no module link"): firmware PR 2 of the codes plan.
             header = "j1" if "no module link" in str(e).lower() else None
         if header is None:
             try:
@@ -2514,7 +2540,8 @@ class BenchPod:
             with _classified_errors():
                 info = _dict(self.command(req))
         except FirmwareError as exc:
-            if exc.firmware_message.startswith("i2c busy"):
+            # BP0003; the text for firmware without codes.
+            if exc.code == "BP0003" or (not exc.code and exc.firmware_message.startswith("i2c busy")):
                 exc.args = (self._i2c_busy_text(exc),)
             raise
         return _i2c_master.I2CMaster(self._classified_command, info)
@@ -3521,6 +3548,7 @@ class BenchPod:
         try:
             return self._la_pins_query(None)
         except FirmwareError as e:
+            # No code yet ("reply too large"): firmware PR 2 of the codes plan.
             if "reply too large" not in str(getattr(e, "firmware_message", "") or e):
                 raise
             first = self._la_pins_query(list(range(1, 8)))
@@ -3612,7 +3640,8 @@ class BenchPod:
 
     def _auto_pin_directions(self) -> None:
         """Send the wiring's pin directions on connect and on a new profile, when the firmware
-        has ``la_dir``. Never raises: the outcome goes to :attr:`pin_directions_status`."""
+        has ``la_dir``. Raises only :class:`ClientTooOldError` (the pod's client API level is above
+        this SDK's); anything else goes to :attr:`pin_directions_status`."""
         if getattr(self, "_transport", None) is None:
             return
         try:
@@ -3620,9 +3649,13 @@ class BenchPod:
                 self.pin_directions_status = "not sent: the USB console has no la_dir"
                 return
             # The cached capabilities when there are some; else one status read that is not cached
-            # (the first real use of capabilities reads and caches them as before).
-            caps = self._caps if self._caps is not None else Capabilities.from_status(
-                _dict(self.status()))
+            # (the first real use of capabilities reads and caches them as before). It is also
+            # connect's client API check: the one error raised from here.
+            if self._caps is not None:
+                caps = self.capabilities
+            else:
+                caps = Capabilities.from_status(_dict(self._caps_status()))
+                self._check_client_api(caps)
             if not caps.la_dir:
                 fw = caps.firmware_version or "unknown"
                 self.pin_directions_status = (f"not sent: this pod's firmware ({fw}) has no "
@@ -3630,6 +3663,9 @@ class BenchPod:
                 return
             self.apply_pin_directions()
             self.pin_directions_status = "sent"
+        except ClientTooOldError:
+            self.pin_directions_status = "not sent: this SDK is too old for the pod's firmware"
+            raise
         except Exception as exc:  # a convenience on connect: report it, never fail the caller
             self.pin_directions_status = f"not sent: {exc}"
             _log.warning("pin directions from the wiring were not sent to the pod: %s", exc)

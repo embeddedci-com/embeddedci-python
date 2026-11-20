@@ -8,6 +8,8 @@ from embeddedci import benchpod as bp
 from embeddedci.benchpod.client import BenchPod
 from embeddedci.benchpod.transport.tcp import TcpTransport
 
+import wire
+
 
 class FakePod:
     def __init__(self):
@@ -34,7 +36,7 @@ class FakePod:
                         break
                     buf += c
                 if buf:
-                    self.requests.append(json.loads(buf.split(b"\n", 1)[0]))
+                    self.requests.append(wire.request(buf.split(b"\n", 1)[0]))
                     conn.sendall(b'{"status":"ok","data":{"efuse":1,"enabled":1,"delay_ms":0}}\n')
 
     def close(self):

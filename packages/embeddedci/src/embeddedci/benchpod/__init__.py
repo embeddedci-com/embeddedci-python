@@ -97,6 +97,7 @@ from .decode import SpiFrame, UartFrame
 from .errors import (
     BenchPodError,
     CanTimeout,
+    ClientTooOldError,
     CloudAuthError,
     ConnectionClosedError,
     ConnectionConfigError,
@@ -120,6 +121,7 @@ from .errors import (
     UartLinkError,
     UartTimeout,
     UnsupportedFeatureError,
+    WiringError,
 )
 from .flash import FlashResult
 from .expansion import (
@@ -357,6 +359,8 @@ __all__ = [
     "PodBusyError",
     "PodLeasedError",
     "PodLeaseLostError",
+    "WiringError",
+    "ClientTooOldError",
     "PermissionDeniedError",
     "UartTimeout",
     "UartLinkError",

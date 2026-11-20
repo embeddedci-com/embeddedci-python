@@ -14,6 +14,8 @@ import pytest
 from embeddedci.benchpod import BenchPod, UnsupportedFeatureError
 from embeddedci.benchpod.transport.tcp import TcpTransport
 
+import wire
+
 
 class UartPod:
     """Answers status with the given caps and records uart_proxy_start calls."""
@@ -128,7 +130,7 @@ def _serve_once(seen: List[dict]):
                     if not chunk:
                         break
                     buf += chunk
-                seen.append(json.loads(buf.partition(b"\n")[0]))
+                seen.append(wire.request(buf.partition(b"\n")[0]))
                 conn.sendall(b'{"status":"ok","data":"uart ready"}\n')
 
     threading.Thread(target=run, daemon=True).start()

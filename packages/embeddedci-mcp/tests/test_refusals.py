@@ -172,3 +172,56 @@ def test_status_reports_the_macs(connected):
     connected.status = lambda: dict(real(), eth_mac="02:35:c7:76:b7:9b", wifi_mac="7c:e8:b1:c5:ca:6c")
     result = call("status")
     assert result["eth_mac"] == "02:35:c7:76:b7:9b" and result["wifi_mac"] == "7c:e8:b1:c5:ca:6c"
+
+
+# -- the client API level (embeddedci after 3.0.5) ---------------------------------------------
+
+needs_client_api = pytest.mark.skipif(not hasattr(errors, "ClientTooOldError"),
+                                      reason="needs ClientTooOldError (embeddedci after 3.0.5)")
+
+
+@needs_client_api
+def test_requests_name_this_server():
+    from embeddedci.benchpod import protocol
+
+    assert protocol.client_name().startswith("mcp ")
+
+
+@needs_client_api
+def test_a_pod_above_this_servers_level_fails_the_connect(fake_open, fake_transport):
+    real = fake_transport.status
+    fake_transport.status = lambda: {**real(), "version": "3.11.0", "api": 2, "min_client_api": 1}
+    with pytest.raises(ToolError) as info:
+        call("connect", connection="192.168.1.50", la_voltage=3.3)
+    msg = str(info.value)
+    assert "ClientTooOldError: this BenchPod MCP server (embeddedci-mcp " in msg
+    assert "the pod's firmware 3.11.0 speaks client API 2, this server handles 1" in msg
+    assert "uvx embeddedci-mcp@latest" in msg and "pip install -U embeddedci-mcp" in msg
+    assert "benchpod plugin" in msg and "pip install -U embeddedci " not in msg
+
+
+@needs_client_api
+def test_bp0030_on_a_tool_says_to_update_this_server(connected):
+    def command(req):
+        raise firmware_error("update the BenchPod SDK, MCP or CLI", cmd=req["cmd"], code="BP0030",
+                             values={"client_api": 1, "min_client_api": 2, "api": 2})
+
+    connected.command = command
+    with pytest.raises(ToolError) as info:
+        call("gpio_pulse", la=3, width=0.001, count=5)
+    msg = str(info.value)
+    assert "ClientTooOldError: la: this BenchPod MCP server" in msg
+    assert "needs client API 2 or newer, this server sent 1" in msg
+    assert "uvx embeddedci-mcp@latest" in msg
+
+
+def test_coded_la_voltage_keeps_this_servers_text(connected):
+    def command(req):
+        raise firmware_error("la voltage not set; set la_mv ...", cmd=req["cmd"], code="BP0001")
+
+    connected.command = command
+    with pytest.raises(ToolError) as info:
+        call("gpio_pulse", la=3, width=0.001, count=5)
+    msg = str(info.value)
+    assert "la: BP0001: la voltage not set; the wiring profile sets no I/O voltage" in msg
+    assert "call set_la_voltage" in msg

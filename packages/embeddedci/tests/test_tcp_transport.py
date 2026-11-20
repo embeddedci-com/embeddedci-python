@@ -8,6 +8,8 @@ import pytest
 from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.transport.tcp import TcpTransport
 
+import wire
+
 
 class FakePod:
     """A minimal JSON/TCP server that mimics the pod, one connection at a time."""
@@ -67,7 +69,7 @@ def test_target_power_request_shape():
     def handler(conn, line):
         import json
 
-        seen.update(json.loads(line))
+        seen.update(wire.request(line))
         conn.sendall(b'{"status":"ok","data":null}\n')
 
     pod = FakePod(handler)
@@ -148,7 +150,7 @@ def test_stage_psram_uploads_raw_bytes_on_one_connection():
     got = {}
 
     def handler(conn, line):
-        got["begin"] = json.loads(line)
+        got["begin"] = wire.request(line)
         conn.sendall(b'{"status":"ok","data":{"ready":%d}}\n' % len(payload))
         data = b""
         while len(data) < len(payload):

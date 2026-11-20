@@ -16,11 +16,13 @@ from embeddedci.benchpod import (
     I2CNackError,
     I2CSend,
     PinConflictError,
+    PodBusyError,
     SpiSend,
     Trigger,
     UnsupportedFeatureError,
     Wiring,
 )
+from embeddedci.benchpod.errors import firmware_error
 from embeddedci.benchpod.wiring import Signal
 
 
@@ -38,8 +40,10 @@ class BusPod:
 
     TARGET = 0x42
 
-    def __init__(self, *, gateware: Optional[int] = 55) -> None:
+    def __init__(self, *, gateware: Optional[int] = 55, coded: bool = False) -> None:
         self.gateware = gateware
+        #: Answer like firmware with error codes (BP0003), else like older firmware (text only).
+        self.coded = coded
         self.commands: List[dict] = []
         self.session: Optional[dict] = None
         self.mem = bytearray(range(256))
@@ -89,6 +93,8 @@ class BusPod:
             if req["pullups"] == "pod" and req["sda"] > 6:
                 raise FirmwareError(f"LA{req['sda']} has no pod pull-up (only LA1..LA6 do)", cmd=cmd)
             if self.session:
+                if self.coded:
+                    raise firmware_error("i2c busy: send i2c_stop first", cmd=cmd, code="BP0003")
                 raise FirmwareError("i2c busy: send i2c_stop first", cmd=cmd)
             self.session = req
             self.driven[req["sda"]] = "i2cm_sda"
@@ -192,22 +198,27 @@ def test_open_i2c_accepts_wiring_names_and_validates():
         bp.open_i2c(1, 1)
 
 
-def test_busy_names_another_connection_as_the_holder():
+@pytest.mark.parametrize("coded", [True, False])
+def test_busy_names_another_connection_as_the_holder(coded):
     """Another client (the desktop app, the web app) holds the pod's I2C master: the refusal says
     so and where, instead of pointing at an open_i2c() this script never called."""
-    bp, fake = pod()
+    bp, fake = pod(coded=coded)
     fake.session = {"sda": 1, "scl": 2, "hz": 100_000, "pullups": "pod"}
     with pytest.raises(FirmwareError) as e:
         bp.open_i2c()
     msg = str(e.value)
     assert "another connection to this pod holds its I2C master (LA1 SDA, LA2 SCL, 100000 Hz)" in msg
     assert "desktop app" in msg and "bp.open_i2c() first" not in msg
-    assert e.value.firmware_message == "i2c busy: send i2c_stop first"
+    if coded:
+        assert e.value.code == "BP0003" and isinstance(e.value, PodBusyError)
+    else:   # firmware without codes: the text decides
+        assert e.value.firmware_message == "i2c busy: send i2c_stop first"
     assert fake.session["hz"] == 100_000          # nothing was stopped
 
 
-def test_busy_names_this_benchpods_own_open_session():
-    bp, fake = pod()
+@pytest.mark.parametrize("coded", [True, False])
+def test_busy_names_this_benchpods_own_open_session(coded):
+    bp, fake = pod(coded=coded)
     i2c = bp.open_i2c()
     with pytest.raises(FirmwareError, match="this BenchPod already has an I2C session open .LA1 SDA, LA2 SCL.: close it first"):
         bp.open_i2c()

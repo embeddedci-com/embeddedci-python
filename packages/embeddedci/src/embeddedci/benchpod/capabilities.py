@@ -217,6 +217,13 @@ class Capabilities:
     #: ``"caps":false``, firmware after 3.10.10); 0 for older firmware, which sends a ``caps``
     #: list instead.
     features_rev: int = 0
+    #: The client API level the pod's firmware speaks (``status`` with ``"caps":false``, the
+    #: cloud capabilities frame; firmware after 3.10.13); 0 when it does not say, which counts as
+    #: 1 (:attr:`client_api_level`). Above :data:`~embeddedci.benchpod.feature_map.CLIENT_API`
+    #: this SDK is too old for the pod (:class:`~embeddedci.benchpod.errors.ClientTooOldError`).
+    api: int = 0
+    #: The lowest ``client_api`` the pod's firmware takes; 0 when it does not say.
+    min_client_api: int = 0
     #: With :attr:`features_rev`: every feature the table gives this pod
     #: (:mod:`~embeddedci.benchpod.feature_map`), including ones with no flag here (``la_dir``,
     #: ``i2c_master``, ``diag``, ...). Empty for older firmware.
@@ -411,6 +418,10 @@ class Capabilities:
             facts = _feature_map.facts_from_status(status)
             c.features = _feature_map.resolve(rev, c.gateware, facts)
             c._apply_features(facts)
+        if (v := _as_int(status, "api")) is not None and v > 0:
+            c.api = v
+        if (v := _as_int(status, "min_client_api")) is not None and v > 0:
+            c.min_client_api = v
         c.safe_mode = _as_bool(status, "safe_mode") is True
         c.safe_reason = str(status.get("safe_reason", "") or "") if c.safe_mode else ""
         c.last_crash = _crash_text(status.get("last_crash", status.get("crash")))
@@ -513,6 +524,10 @@ class Capabilities:
             c.gateware = v
         if (v := _as_int(params, "cap.sensors_format")) is not None and v > 0:
             c.sensors_format = v
+        if (v := _as_int(params, "cap.api")) is not None and v > 0:
+            c.api = v
+        if (v := _as_int(params, "cap.min_client_api")) is not None and v > 0:
+            c.min_client_api = v
         if (v := _as_int(params, "cap.sig_keys")) is not None and v > 0:
             c.sig_keys = v
         c.sig_policy = str(params.get("cap.sig_policy", "") or "")
@@ -608,6 +623,12 @@ class Capabilities:
         mc = self.adc_max_count or 255
         fs = (self.adc_fullscale_mv / 1000.0) if self.adc_fullscale_mv > 0 else 3.3
         return (float(count) - self.adc_offset_counts) * (fs / mc)
+
+    @property
+    def client_api_level(self) -> int:
+        """The pod's client API level: :attr:`api`, or 1 for firmware that does not announce one
+        (3.10.13 and older)."""
+        return self.api or 1
 
     def merge(self, other: "Capabilities") -> "Capabilities":
         """Overlay the non-default fields of ``other`` onto a copy of ``self`` (other wins).

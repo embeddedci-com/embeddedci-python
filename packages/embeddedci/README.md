@@ -371,10 +371,28 @@ load it again (bp.load_wiring("k66")), redo your change and save, or save under 
 (https://embeddedci.com/docs/errors#BP0009)
 ```
 
-A code never changes meaning and is never reused, so match on `exc.code` in tests and scripts, not
-on the text. `embeddedci.benchpod.errors.explain("BP0009")` prints a code's entry offline.
-[embeddedci.com/docs/errors](https://embeddedci.com/docs/errors) lists every code. Older firmware
-sends no code (`.code == ""`).
+A code never changes meaning and is never reused, so match on `exc.code` (or the exception
+class) in tests and scripts, not on the text: the text may change between releases.
+`embeddedci.benchpod.errors.explain("BP0009")` prints a code's entry offline.
+[embeddedci.com/docs/errors](https://embeddedci.com/docs/errors) lists every code.
+
+The code also picks the exception class, and the code's values fill its fields:
+
+| Codes | Class | Fields |
+|---|---|---|
+| `BP0002` unknown command, `BP0017` gateware too old | `UnsupportedFeatureError` | `feature` (the command, or the feature the gateware lacks) |
+| `BP0003`, `BP0004` I2C / SPI session open, `BP0005` SWD/SPI/I2C engine busy, `BP0016` storage busy | `PodBusyError` | |
+| `BP0007` to `BP0015` wiring profiles | `WiringError` | `name` |
+| `BP0023`, `BP0024` pull resistors | `PullDirectionError` | `la`, `want`, `have` |
+| `BP0025` lease held by someone else | `PodLeasedError` | `holder`, `purpose`, `left_s` |
+| `BP0026` lease stopped | `PodLeaseLostError` | `by` |
+| `BP0030` client too old | `ClientTooOldError` | `client_api`, `min_client_api`, `api` |
+| every other code (`BP0001` I/O voltage not set, `BP0006` missing argument, `BP0018` to `BP0022` UART options, `BP0027` lease not held, `BP0028`, `BP0029` pin 21) | `FirmwareError` | |
+
+Older firmware sends no code (`.code == ""`): the SDK then classifies the refusal from its text into
+the same classes. Refusals that have no code yet (pin, pull and direction conflicts, a LAN policy
+lock, `forbidden`, a trigger timeout, a reply too large) are classified from their text on every
+firmware. A code newer than this SDK is kept on `.code`, and its class comes from the text.
 
 ## API conventions and stability
 
@@ -419,6 +437,19 @@ is every feature the table gives the pod, and `bp.supports()` also takes table n
 flag of their own (`"la_dir"`, `"i2c_master"`, `"diag"`, `"wiring_store"`, ...). Older firmware
 sends its list as before and gets the same answers. A pod with a higher `features_rev` than the
 SDK knows logs a warning once: update the SDK (`pip install -U embeddedci`) to use those features.
+
+**Client API level.** A new feature is additive, so an older SDK just misses it. The other kind of
+change, one an older SDK would misread (a reply that changes shape, a field that changes meaning,
+a refusal text replaced), raises the firmware's client API level. The SDK is built for
+`embeddedci.benchpod.feature_map.CLIENT_API` (1) and sends it with every JSON command as
+`"client_api"`, with `"client": "sdk <version>"` (the MCP server sends `"mcp <version>"`); older
+firmware ignores both. Firmware after 3.10.13 announces its level (`capabilities.api`, with
+`capabilities.min_client_api`; `capabilities.client_api_level` counts a pod that does not say as
+1). When the pod's level is above the SDK's, connecting raises `ClientTooOldError`, which says
+the pod's firmware version and both levels; the pod raises the same error (`BP0030`) for a client
+below its `min_client_api`. Either way the fix is `pip install -U embeddedci`. `status`, `diag`,
+`ping` and `lease_release` are never refused, so a too-old client can still see what the pod
+runs.
 
 
 ```python
@@ -2461,7 +2492,9 @@ without a session unless `--allow-missing-token` is passed.
 ## Errors
 
 Invalid arguments raise `ValueError` before anything is sent. Everything else raises a
-`BenchPodError` subclass, all importable from `embeddedci.benchpod`:
+`BenchPodError` subclass, all importable from `embeddedci.benchpod`.
+
+Match a pod refusal on its code or class, not its text: see [Error codes](#error-codes).
 
 | Exception | Raised when | Extra attributes |
 |---|---|---|
@@ -2478,11 +2511,13 @@ Invalid arguments raise `ValueError` before anything is sent. Everything else ra
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
 | `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or the USB console | `firmware_message`, `cmd` |
-| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running | `firmware_message`, `cmd` |
+| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running; an I2C or SPI session is already open (`BP0003`, `BP0004`), the engine that runs SWD, SPI and I2C is in use (`BP0005`), the storage cannot save while the DAC or a capture runs (`BP0016`) | `firmware_message`, `cmd` |
 | `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | someone else holds the pod's lease (`BP0025`), a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409), or the lease did not free within `lease_wait` | `holder`, `purpose`, `left_s`, `expires_at`, `status` |
 | `PodLeaseLostError` (a `FirmwareError`) | the pod's lease this session held was stopped from the web app or the cloud (`BP0026`); the command did not run | `by` |
 | `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
-| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd`, or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
+| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd` (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
+| `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
+| `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |
 | `UartTimeout` | `UartSession.expect` timed out | `text` |
 | `UartLinkError` (a `UartTimeout` and `ConnectionClosedError`) | the UART link died with an error while `UartSession` waited | `text`, `cause` |
 | `PinConflictError` | an LA channel is already used by another function (a `FirmwareError`) | `la`, `function` |

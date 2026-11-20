@@ -1,5 +1,23 @@
 # Changelog — `embeddedci`
 
+## 3.0.6
+
+- **Error codes decide the exception class.** Every code in the error catalog (`BP0001` to
+  `BP0030`) maps to one class, and the code's values fill its fields; the text decides only for a
+  refusal without a code (older firmware) or with a code newer than this SDK. New `WiringError`
+  (`BP0007` to `BP0015`, with `name`). `BP0003` and `BP0004` (an I2C or SPI session is open),
+  `BP0005` (the SWD/SPI/I2C engine is busy) and `BP0016` (storage busy) raise `PodBusyError`;
+  `BP0017` (gateware too old) raises `UnsupportedFeatureError` with the feature from the code.
+  Match on `exc.code` or the class, not the text. README: [Error codes](README.md#error-codes).
+- **Client API level.** Every JSON command carries `"client_api": 1` and `"client": "sdk
+  <version>"` (firmware 3.10.13 and older ignores them). `feature_map.CLIENT_API` is the level this
+  SDK handles; `Capabilities.api`, `min_client_api` and `client_api_level` are the pod's (firmware
+  after 3.10.13; a pod that does not say counts as 1). Connecting to a pod above the SDK's level,
+  or the pod's refusal `BP0030`, raises the new `ClientTooOldError`: update the SDK with
+  `pip install -U embeddedci`.
+- Error catalog: `BP0030` (client too old). Features table revision 8, with `api` and
+  `min_client_api`.
+
 ## 3.0.5
 
 - `la_pins(la=...)` lists only those channels (firmware after 3.10.12 sends only them; older
