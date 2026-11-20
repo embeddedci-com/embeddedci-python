@@ -110,7 +110,7 @@ from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, normalize_fault
-from .results import Capture, CorrelatedCapture, LaCapture, LanTls, MacAddresses, Trigger
+from .results import Capture, CorrelatedCapture, LaCapture, LanClient, LanClients, LanTls, MacAddresses, Trigger
 from .wiring import Signal, Wiring
 from .state import (
     AdcRangeState,
@@ -134,6 +134,8 @@ from .state import (
 from .transport import Transport, open_transport
 from .transport.cloud import CloudTransport
 from .transport.tcp import TcpTransport
+from .transport import client_identity
+from .transport import tls as _tls
 from . import pod_lease as _pod_lease
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1328,6 +1330,78 @@ class BenchPod:
         certificate in use (its SHA-256 is what clients pin). Raises
         :class:`UnsupportedFeatureError` on older firmware."""
         return LanTls.from_reply(self.command({"cmd": "lan_tls"}))
+
+    # -- LAN pairing ----------------------------------------------------------
+
+    def lan_clients(self, *, add: Optional[str] = None, spki_sha256: Optional[str] = None,
+                    remove: Optional[str] = None, clear: bool = False) -> "LanClients":
+        """The computers paired with the pod for use over Ethernet and Wi-Fi (firmware 4.0.1+).
+
+        Over the LAN the pod answers only status to a computer that is not paired
+        (:class:`PodNotPairedError`). ``add`` (a name) with ``spki_sha256`` pairs a key,
+        ``remove`` unpairs the computers with that name or the one key starting with those hex
+        digits (8 or more), ``clear`` unpairs all; each change needs USB (the console or the USB
+        network) or the cloud (an organization owner or admin), never the LAN. Returns the list;
+        :attr:`LanClient.this` marks this computer. To pair this computer, :meth:`pair`."""
+        req: Dict[str, Any] = {"cmd": "lan_clients"}
+        if add is not None:
+            if not spki_sha256:
+                raise ValueError("lan_clients(add=...) needs spki_sha256")
+            req.update(add=client_identity.sanitize_name(add), spki_sha256=spki_sha256.lower())
+        elif remove is not None:
+            req["remove"] = str(remove)
+        elif clear:
+            req["clear"] = True
+        data = self.command(req)
+        mine = self._client_key_hash()
+        clients = list((data or {}).get("clients") or [])
+        total = int((data or {}).get("count") or 0)
+        while 0 < len(clients) < total:   # the pod sends 12 a reply
+            more = self.command({"cmd": "lan_clients", "offset": len(clients)})
+            page = list((more or {}).get("clients") or [])
+            if not page:
+                break
+            clients.extend(page)
+        if isinstance(data, dict):
+            data = dict(data, clients=clients)
+        return LanClients.from_reply(data, mine)
+
+    def pair(self, name: Optional[str] = None) -> "LanClients":
+        """Pair this computer with the pod (firmware 4.0.1+), so it may drive the pod over Ethernet
+        and Wi-Fi, not only read its status. Run it once over USB (``BenchPod("usb")``: the USB
+        network adapter or the console) or the cloud (``"embeddedci:<device>"``, as an
+        organization owner or admin); ``benchpod setup`` does the same. ``name`` defaults to this
+        computer's host name. Over USB it also pins the pod's LAN certificate for its LAN address,
+        so later LAN connections check they reach this very pod. Returns the list."""
+        key = client_identity.client_key_hash()
+        out = self.lan_clients(add=name or client_identity.pairing_name(), spki_sha256=key)
+        self._pin_lan_certificate()
+        return out
+
+    def set_lan_pairing(self, on: bool) -> bool:
+        """Turn LAN pairing on (the default) or off (every computer on the network may use the pod,
+        as before firmware 4.0.1). Over USB or the cloud only. Returns the new setting."""
+        data = self.command({"cmd": "lan_policy", "pairing": bool(on)})
+        return bool((data or {}).get("pairing"))
+
+    def _client_key_hash(self) -> str:
+        try:
+            return client_identity.client_key_hash()
+        except Exception:
+            return ""
+
+    def _pin_lan_certificate(self) -> None:
+        """After pairing over USB: pin the pod's certificate for its LAN address (best effort)."""
+        try:
+            sha = str((self.command({"cmd": "lan_tls"}) or {}).get("sha256") or "")
+            ip = str((self._transport.status() or {}).get("ip") or "")
+        except Exception:
+            return
+        if len(sha) == 64 and ip and not _tls.is_usb_link(ip):
+            try:
+                _tls.set_pin(ip, sha)
+            except (OSError, ValueError):
+                pass
 
     def set_lan_tls_https_only(self, on: bool) -> "LanTls":
         """Turn HTTPS-only on (plaintext 8080 refused on Ethernet and Wi-Fi; the USB link keeps it)

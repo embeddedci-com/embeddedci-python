@@ -27,6 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "pyserial>=3.5",
+    "cryptography>=41",
 ]
 
 [project.optional-dependencies]
