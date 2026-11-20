@@ -1,5 +1,17 @@
 # Changelog — `embeddedci`
 
+## 4.0.1
+
+Not released yet.
+
+- **`la_pins` reads a long listing in pages.** On firmware with the `la_pins_paged` feature
+  (features table revision 12), a reply that cannot carry every pin says `next`; the SDK asks
+  again with `"from": next` (and the same `la`) and joins the pins, so `bp.la_pins()` and the MCP
+  `la_pins` tool get all 14 pins over the cloud even with a long sensor name on every pin. It
+  stops after 16 replies, or when `next` does not move forward. Older firmware is read in two
+  halves after `BP0053`/`BP0054`, as before.
+- Features table revision 12.
+
 ## 4.0.0
 
 Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:

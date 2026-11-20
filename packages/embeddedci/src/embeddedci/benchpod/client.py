@@ -188,6 +188,8 @@ _IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02, FpgaImage.E
 _SEND_PRE_SAMPLES = 64
 
 #: Seconds to wait for the server's cached capabilities to follow an image switch.
+#: la_pins pages a listing too large for one reply; a full one takes at most 14.
+_LA_PINS_MAX_PAGES = 16
 _SERVER_CAPS_WAIT = 15.0
 
 
@@ -3459,9 +3461,10 @@ class BenchPod:
         """Every LA channel's function (``none``, ``gpio``, ``uart_rx``, …), GPIO mode and level, and
         bias resistor. A channel that is in use refuses other functions.
 
-        ``la``: only these channels (a channel, a wiring name, or a list), in pin order. A full
-        listing too large for one cloud reply (a long sensor instance name on every pin) is read
-        in two parts by itself."""
+        ``la``: only these channels (a channel, a wiring name, or a list), in pin order. A listing
+        too large for one cloud reply (a long sensor instance name on every pin) is read in parts by
+        itself: in pages (``from``/``next``) on firmware with ``la_pins_paged``, else in two
+        halves."""
         self._require_capability("la_pins", "LA pin modes and GPIO")
         if la == "all":
             la = None
@@ -3477,15 +3480,37 @@ class BenchPod:
             return first + [p for p in self._la_pins_query(list(range(8, 15))) if p.la >= 8]
 
     def _la_pins_query(self, las: Optional[List[int]]) -> List[LaPinState]:
+        """One la_pins listing. On firmware with ``la_pins_paged`` a reply that could not carry
+        every pin says ``next``: ask again ``from`` there (with the same ``la``) and join the pins;
+        ``pull_dirs`` comes from the last reply. The loop stops after 16 replies, or when ``next``
+        does not move forward."""
         req: Dict[str, Any] = {"cmd": "la_pins"}
         if las is not None:
             req["la"] = las
-        with _classified_errors():
-            data = _dict(self.command(req))
+        paged = self.supports("la_pins_paged")
+        entries: List[Any] = []
+        data: Dict[str, Any] = {}
+        last = 1   # the pin the last reply started from
+        for _ in range(_LA_PINS_MAX_PAGES):
+            with _classified_errors():
+                data = _dict(self.command(req))
+            entries.extend(data.get("pins") or [])
+            nxt = data.get("next")
+            if not paged or not isinstance(nxt, int) or isinstance(nxt, bool):
+                break
+            if nxt <= last or nxt > 14:
+                _log.warning("la_pins: next %s does not follow from %s; the listing stops there",
+                             nxt, last)
+                break
+            last = nxt
+            req = dict(req, **{"from": nxt})
+        else:
+            _log.warning("la_pins: still not done after %d replies; the listing stops there",
+                         _LA_PINS_MAX_PAGES)
         # Digital v3r4 says the directions once for every channel ("pull_dirs").
         dirs = data.get("pull_dirs")
         return [LaPinState.from_reply(e, pull_dirs=dirs if isinstance(dirs, list) else None)
-                for e in data.get("pins") or []]
+                for e in entries]
 
     def _entry_pull_dirs(self, entries: Any) -> Optional[Tuple[str, ...]]:
         """The pull directions for listing replies that do not say them (la_dir, gpio): on digital
