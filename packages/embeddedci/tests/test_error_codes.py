@@ -23,6 +23,7 @@ from embeddedci.benchpod.errors import (
     PodLeasedError,
     PodLeaseLostError,
     PodLockedError,
+    PodNotPairedError,
     PullConflictError,
     PullDirectionError,
     ReplyTooLargeError,
@@ -88,6 +89,8 @@ CODED: Dict[str, Any] = {
     "BP0079": (FirmwareError, {}),
     "BP0080": (DacPinoutMismatchError, {"digital": "v_digital", "module": "v_module",
                                         "feature": "dac"}),
+    "BP0081": (PodNotPairedError, {}),
+    "BP0082": (FirmwareError, {}),
 }
 
 

@@ -382,6 +382,37 @@ class MacAddresses:
 
 
 @dataclass(frozen=True)
+class LanClient:
+    """One computer paired with the pod (:meth:`BenchPod.lan_clients`)."""
+
+    name: str
+    spki_sha256: str        # SHA-256 of its TLS client key's SubjectPublicKeyInfo
+    this: bool = False      # this computer's own key
+
+
+@dataclass(frozen=True)
+class LanClients:
+    """The computers paired with the pod for the LAN API (firmware 4.0.1+)."""
+
+    pairing: bool           # whether computers on Ethernet/Wi-Fi must be paired
+    count: int
+    max: int
+    clients: Tuple[LanClient, ...] = ()
+
+    @classmethod
+    def from_reply(cls, data: Any, mine: str = "") -> "LanClients":
+        d = data if isinstance(data, dict) else {}
+        cl = tuple(LanClient(name=str(c.get("name", "")), spki_sha256=str(c.get("spki_sha256", "")),
+                             this=bool(mine) and str(c.get("spki_sha256", "")).lower() == mine.lower())
+                   for c in (d.get("clients") or []) if isinstance(c, dict))
+        return cls(pairing=bool(d.get("pairing")), count=int(d.get("count") or len(cl)),
+                   max=int(d.get("max") or 0), clients=cl)
+
+    def has(self, spki_sha256: str) -> bool:
+        return any(c.spki_sha256.lower() == spki_sha256.lower() for c in self.clients)
+
+
+@dataclass(frozen=True)
 class LanTls:
     """The pod's LAN API over TLS (:meth:`BenchPod.lan_tls`, firmware 3.9.3+)."""
 
