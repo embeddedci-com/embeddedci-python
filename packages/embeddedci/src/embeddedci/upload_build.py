@@ -51,10 +51,8 @@ def _optional_flag(value: Optional[str]) -> Optional[bool]:
     """Parse a yes/no input. Empty means "not specified" (leave the field out),
     which is different from an explicit false.
 
-    Pods drive NRST from a dedicated pin now, so this is a flag — but the GitHub
-    action passes whatever the workflow put in the input, and old workflows put
-    an LA channel number there. A bare number still parses: any channel meant
-    "reset is wired"."""
+    Pods drive NRST from a dedicated pin, so this is a flag; an LA channel number
+    (what old workflows put there) raises ``ValueError``."""
     if value is None:
         return None
     value = value.strip().lower()
@@ -64,8 +62,7 @@ def _optional_flag(value: Optional[str]) -> Optional[bool]:
         return True
     if value in ("false", "0", "no", "n", "off"):
         return False
-    # Legacy: an LA channel number.
-    return int(value) > 0
+    raise ValueError(f"reset must be true or false, got {value!r}")
 
 
 def _optional_pin(value: Optional[str]) -> Optional[int]:

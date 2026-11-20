@@ -138,12 +138,6 @@ def test_usb_name_selects_the_pod_and_upgrades(usb):
     assert FakeConsole.instances[0].pod == "baea06"  # the console was auto-detected by name
 
 
-def test_serial_keyword_also_upgrades(usb):
-    usb["status"] = {"device": "benchpod",
-                     "usb": {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}
-    assert isinstance(open_transport(parse_connection("serial")), TcpTransport)
-
-
 @pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN])
 def test_usb_falls_back_to_the_pods_network_address(usb, line, caplog):
     """USB networking off or down: the console answers status only, so the way in is the pod's

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .constants import PULL_OHMS
+from .constants import PULL_TABLE
 from .wiring import ROLE_KEYS, Wiring
 
 HEADERS: Tuple[str, ...] = ("j1", "front")
@@ -75,7 +75,7 @@ def _uses(w: Wiring, la: int) -> List[Tuple[str, str]]:
 
 
 def _pull(w: Wiring, la: int) -> Optional[str]:
-    ohms = PULL_OHMS.get(la)
+    ohms = PULL_TABLE[la].ohms if la in PULL_TABLE else None
     d = w.pull_directions().get(la)
     if not ohms or not d:
         return None

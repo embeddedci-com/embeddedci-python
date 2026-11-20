@@ -989,6 +989,6 @@ class LogLevelResult(BaseModel):
 
 
 class UsbNetworkResult(BaseModel):
-    """The pod's USB network setting (firmware 3.9.0+)."""
-    setting: str = Field(description='"on" or "off": whether the pod\'s USB port is also a network adapter.')
+    """The pod's USB network setting."""
+    enabled: bool = Field(description="Whether the pod's USB port is also a network adapter.")
     note: str = Field("", description="What happens next, after a change.")

@@ -29,7 +29,7 @@ def _refuse(transport, verb, code, **args):
 
 def _pulse_error() -> str:
     with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
+        call("gpio_pulse", la=3, width_s=0.001, count=5)
     return str(info.value)
 
 
@@ -198,7 +198,7 @@ def test_bp0030_on_a_tool_says_to_update_this_server(connected):
 
     connected.command = command
     with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
+        call("gpio_pulse", la=3, width_s=0.001, count=5)
     msg = str(info.value)
     assert "ClientTooOldError: la_step: this BenchPod MCP server" in msg
     assert "needs client API 2 or newer, this server sent 1" in msg

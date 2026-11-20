@@ -205,7 +205,7 @@ def test_can_term_toggle(bp, pod):
 def test_open_can_loopback_roundtrip(bp):
     with bp.open_can(bitrate=500_000, mode="internal") as can:
         can.write(0x123, [0xDE, 0xAD])
-        frame = can.expect(can_id=0x123, timeout=1.0)
+        frame = can.expect(0x123, timeout=1.0)
         assert frame.data == b"\xde\xad"
         assert frame.id == 0x123
 
@@ -221,7 +221,7 @@ def test_open_can_expect_predicate(bp):
 def test_open_can_expect_times_out(bp):
     with bp.open_can(mode="internal") as can:
         with pytest.raises(CanTimeout):
-            can.expect(can_id=0x7FF, timeout=0.1)
+            can.expect(0x7FF, timeout=0.1)
 
 
 def test_open_can_disables_on_exit(bp, pod):
@@ -253,8 +253,8 @@ def test_read_until_does_not_drop_other_frames(bp):
         can.write(0x111, [1])
         can.write(0x222, [2])
         # Ask for the SECOND id first; the first must not be lost.
-        assert can.expect(can_id=0x222, timeout=1.0).id == 0x222
-        assert can.expect(can_id=0x111, timeout=1.0).id == 0x111
+        assert can.expect(0x222, timeout=1.0).id == 0x222
+        assert can.expect(0x111, timeout=1.0).id == 0x111
 
 
 # -- autonomous responder (ECU simulation) ----------------------------------
@@ -263,7 +263,7 @@ def test_responder_roundtrip(bp, pod):
     with bp.open_can(mode="internal") as can:
         can.add_responder(0x7DF, 0x7E8, [0x50, 0x03])
         can.write(0x7DF, [0x02, 0x10, 0x03])          # request
-        reply = can.expect(can_id=0x7E8, timeout=1.0)  # firmware auto-reply
+        reply = can.expect(0x7E8, timeout=1.0)  # firmware auto-reply
         assert reply.data == b"\x50\x03"
         assert pod._resp_hits == 1
         assert can.status()["responder_rules"] == 1
@@ -274,8 +274,8 @@ def test_simulate_ecu_table(bp):
         can.simulate_ecu({0x100: (0x200, [0xAB]), 0x300: [0xCD]})  # 0x300 -> 0x301
         can.write(0x100, [0])
         can.write(0x300, [0])
-        assert can.expect(can_id=0x200, timeout=1.0).data == b"\xab"
-        assert can.expect(can_id=0x301, timeout=1.0).data == b"\xcd"
+        assert can.expect(0x200, timeout=1.0).data == b"\xab"
+        assert can.expect(0x301, timeout=1.0).data == b"\xcd"
 
 
 def test_clear_responders(bp, pod):
@@ -285,7 +285,7 @@ def test_clear_responders(bp, pod):
         assert pod._rules == []
         can.write(0x1, [0])
         with pytest.raises(CanTimeout):
-            can.expect(can_id=0x2, timeout=0.1)
+            can.expect(0x2, timeout=0.1)
 
 
 # -- timing helpers ---------------------------------------------------------
@@ -373,11 +373,11 @@ def test_open_can_fd_loopback_64_bytes(bp):
     with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
         assert can.fd and can.data_bitrate == 2_000_000
         can.write(0x123, bytes(range(64)))
-        f = can.expect(can_id=0x123, timeout=1.0)
+        f = can.expect(0x123, timeout=1.0)
         assert f.fd and f.brs and f.data == bytes(range(64))
         assert "FD+BRS" in str(f)
         can.write(0x124, [1, 2], fd=False)
-        g = can.expect(can_id=0x124, timeout=1.0)
+        g = can.expect(0x124, timeout=1.0)
         assert not g.fd and g.data == b"\x01\x02"
 
 

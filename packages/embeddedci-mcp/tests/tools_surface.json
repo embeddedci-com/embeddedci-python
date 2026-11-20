@@ -381,12 +381,12 @@
           "title": "Max Frames",
           "type": "integer"
         },
-        "timeout": {
+        "timeout_s": {
           "default": 0.0,
           "description": "With can_id: wait up to this long for it. Without: collect frames for this long (0 = what is buffered).",
           "maximum": 120,
           "minimum": 0,
-          "title": "Timeout",
+          "title": "Timeout S",
           "type": "number"
         }
       },
@@ -697,12 +697,12 @@
           "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
           "title": "Trigger La"
         },
-        "trigger_timeout": {
+        "trigger_timeout_s": {
           "default": 10.0,
           "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Trigger Timeout",
+          "title": "Trigger Timeout S",
           "type": "number"
         }
       },
@@ -787,7 +787,7 @@
           "description": "Route this ADC source first for the analog half; omit to keep routing. current_in captures the 4-20 mA input (J8) and the analog stats are then amps.",
           "title": "Source"
         },
-        "stop_dac_after": {
+        "stop_dac_after_s": {
           "anyOf": [
             {
               "type": "number"
@@ -798,7 +798,7 @@
           ],
           "default": null,
           "description": "Seconds into the capture to cut a running DAC.",
-          "title": "Stop Dac After"
+          "title": "Stop Dac After S"
         },
         "trigger_edge": {
           "default": "rising",
@@ -830,12 +830,12 @@
           "description": "Wait for an edge or level on this LA channel (a number, or a wiring-profile name) before sampling, so t = 0 is that moment. Omit for a free-running capture. Needs the capture_trigger capability.",
           "title": "Trigger La"
         },
-        "trigger_timeout": {
+        "trigger_timeout_s": {
           "default": 10.0,
           "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Trigger Timeout",
+          "title": "Trigger Timeout S",
           "type": "number"
         }
       },
@@ -990,7 +990,7 @@
           "default": null,
           "description": "Run one transaction right after the capture arms (gateware v55+): i2c (the i2c_open session, else one from the wiring), spi (SPI pins from the wiring) or gpio (a GPIO output). Without trigger_la it triggers on SDA / CS falling or the gpio pin's edge."
         },
-        "stop_dac_after": {
+        "stop_dac_after_s": {
           "anyOf": [
             {
               "type": "number"
@@ -1001,7 +1001,7 @@
           ],
           "default": null,
           "description": "Seconds into the capture to cut a running DAC output (see the DUT react).",
-          "title": "Stop Dac After"
+          "title": "Stop Dac After S"
         },
         "trigger_edge": {
           "default": "rising",
@@ -1041,12 +1041,12 @@
           "title": "Trigger Pre Samples",
           "type": "integer"
         },
-        "trigger_timeout": {
+        "trigger_timeout_s": {
           "default": 10.0,
           "description": "Seconds to wait for the trigger before the capture is abandoned with a TriggerTimeout.",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Trigger Timeout",
+          "title": "Trigger Timeout S",
           "type": "number"
         }
       },
@@ -1154,11 +1154,11 @@
           "title": "De Active Low",
           "type": "boolean"
         },
-        "duration": {
+        "duration_s": {
           "description": "Capture window in seconds.",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Duration",
+          "title": "Duration S",
           "type": "number"
         },
         "entry": {
@@ -1275,7 +1275,7 @@
         }
       },
       "required": [
-        "duration"
+        "duration_s"
       ],
       "title": "capture_uartArguments",
       "type": "object"
@@ -1554,12 +1554,12 @@
           "description": "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the digital board v3r4).",
           "title": "La Voltage"
         },
-        "lease_wait": {
+        "lease_wait_s": {
           "default": 30.0,
           "description": "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the pod's own on the LAN and USB network).",
           "maximum": 3600,
           "minimum": 0,
-          "title": "Lease Wait",
+          "title": "Lease Wait S",
           "type": "number"
         },
         "wiring_profile": {
@@ -2530,11 +2530,11 @@
           "description": "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2).",
           "title": "Target Power"
         },
-        "timeout": {
+        "timeout_s": {
           "default": 300.0,
           "exclusiveMinimum": 0,
           "maximum": 3600,
-          "title": "Timeout",
+          "title": "Timeout S",
           "type": "number"
         },
         "tx": {
@@ -2633,7 +2633,7 @@
           "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
           "title": "Dac Path"
         },
-        "duration": {
+        "duration_s": {
           "anyOf": [
             {
               "type": "number"
@@ -2644,7 +2644,7 @@
           ],
           "default": null,
           "description": "Seconds; omit to run until dac_stop.",
-          "title": "Duration"
+          "title": "Duration S"
         },
         "freq_hz": {
           "exclusiveMinimum": 0,
@@ -2806,17 +2806,17 @@
           "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion).",
           "title": "La"
         },
-        "width": {
+        "width_s": {
           "description": "Seconds the pulse is high (and low between pulses), 4 us to 65.535 ms.",
           "maximum": 0.065535,
           "minimum": 4e-06,
-          "title": "Width",
+          "title": "Width S",
           "type": "number"
         }
       },
       "required": [
         "la",
-        "width"
+        "width_s"
       ],
       "title": "gpio_pulseArguments",
       "type": "object"
@@ -2938,12 +2938,12 @@
           "title": "Level",
           "type": "integer"
         },
-        "timeout": {
+        "timeout_s": {
           "default": 5.0,
           "description": "Seconds to wait.",
           "maximum": 600,
           "minimum": 0,
-          "title": "Timeout",
+          "title": "Timeout S",
           "type": "number"
         }
       },
@@ -3050,7 +3050,7 @@
         },
         "pullups": {
           "default": "pod",
-          "description": "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today; at 1.8 V firmware newer than 3.10.12); external: the board has its own.",
+          "description": "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today); external: the board has its own.",
           "enum": [
             "pod",
             "external"
@@ -3269,11 +3269,11 @@
     },
     "input": {
       "properties": {
-        "delay": {
-          "description": "HALF the step period in seconds: each pulse is high for delay, then low for delay, so pulses are 2 x delay apart. 4 us to 65.535 ms.",
+        "delay_s": {
+          "description": "HALF the step period in seconds: each pulse is high for delay_s, then low for delay_s, so pulses are 2 x delay_s apart. 4 us to 65.535 ms.",
           "maximum": 0.065535,
           "minimum": 4e-06,
-          "title": "Delay",
+          "title": "Delay S",
           "type": "number"
         },
         "dir_la": {
@@ -3318,7 +3318,7 @@
       "required": [
         "la",
         "steps",
-        "delay"
+        "delay_s"
       ],
       "title": "la_stepArguments",
       "type": "object"
@@ -3591,11 +3591,11 @@
     },
     "input": {
       "properties": {
-        "duration": {
+        "duration_s": {
           "description": "Seconds to sample (blocking).",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Duration",
+          "title": "Duration S",
           "type": "number"
         },
         "efuse": {
@@ -3633,7 +3633,7 @@
         }
       },
       "required": [
-        "duration"
+        "duration_s"
       ],
       "title": "measure_powerArguments",
       "type": "object"
@@ -3664,20 +3664,20 @@
           "description": "UART baud rate; omit for the wiring profile's uart_baud.",
           "title": "Baud"
         },
-        "delay": {
+        "delay_s": {
           "default": 1.0,
           "description": "Seconds into the capture the power comes back.",
           "maximum": 60,
           "minimum": 0,
-          "title": "Delay",
+          "title": "Delay S",
           "type": "number"
         },
-        "duration": {
+        "duration_s": {
           "default": 4.0,
-          "description": "Capture window in seconds; must exceed delay.",
+          "description": "Capture window in seconds; must exceed delay_s.",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Duration",
+          "title": "Duration S",
           "type": "number"
         },
         "efuse": {
@@ -3697,11 +3697,11 @@
           "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
-        "off_settle": {
+        "off_settle_s": {
           "default": 0.3,
           "maximum": 10,
           "minimum": 0,
-          "title": "Off Settle",
+          "title": "Off Settle S",
           "type": "number"
         },
         "parity": {
@@ -3813,7 +3813,7 @@
     },
     "input": {
       "properties": {
-        "delay": {
+        "delay_s": {
           "anyOf": [
             {
               "type": "number"
@@ -3824,7 +3824,7 @@
           ],
           "default": null,
           "description": "Seconds: schedule the power-off pod-side.",
-          "title": "Delay"
+          "title": "Delay S"
         },
         "efuse": {
           "anyOf": [
@@ -3858,7 +3858,7 @@
     },
     "input": {
       "properties": {
-        "delay": {
+        "delay_s": {
           "anyOf": [
             {
               "type": "number"
@@ -3869,7 +3869,7 @@
           ],
           "default": null,
           "description": "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture).",
-          "title": "Delay"
+          "title": "Delay S"
         },
         "efuse": {
           "anyOf": [
@@ -3933,12 +3933,12 @@
           "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
-        "max_duration": {
+        "max_duration_s": {
           "default": 60.0,
           "description": "Seconds after which the pod stops sampling by itself (the result is then truncated).",
           "exclusiveMinimum": 0,
           "maximum": 600,
-          "title": "Max Duration",
+          "title": "Max Duration S",
           "type": "number"
         },
         "rate_hz": {
@@ -4079,7 +4079,7 @@
             }
           ],
           "default": null,
-          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
+          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v; for waveform_id: the waveform's own, else 3v3). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
           "title": "Dac Path"
         },
         "fault": {
@@ -4139,6 +4139,13 @@
           "title": "Switch Image",
           "type": "boolean"
         },
+        "target_samples": {
+          "default": 0,
+          "description": "waveform_id: downsample a shallow replay to this many samples.",
+          "minimum": 0,
+          "title": "Target Samples",
+          "type": "integer"
+        },
         "volts": {
           "anyOf": [
             {
@@ -4154,165 +4161,36 @@
           "default": null,
           "description": "Waveform in volts, one value per sample. On dac_path current_out the values are AMPS (0.004 to 0.020).",
           "title": "Volts"
-        }
-      },
-      "title": "replayArguments",
-      "type": "object"
-    }
-  },
-  "replay_waveform": {
-    "annotations": {
-      "destructiveHint": true,
-      "idempotentHint": false,
-      "openWorldHint": true,
-      "readOnlyHint": false,
-      "title": "Replay a library waveform"
-    },
-    "input": {
-      "$defs": {
-        "FaultSpec": {
-          "description": "A fault spliced into a replayed waveform.",
-          "properties": {
-            "level": {
-              "anyOf": [
-                {
-                  "maximum": 65535,
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Raw DAC code to hold (default per fault type).",
-              "title": "Level"
-            },
-            "start": {
-              "default": 0,
-              "description": "First replay sample the fault covers.",
-              "minimum": 0,
-              "title": "Start",
-              "type": "integer"
-            },
-            "type": {
-              "enum": [
-                "flatline",
-                "spike",
-                "stuck"
-              ],
-              "title": "Type",
-              "type": "string"
-            },
-            "width": {
-              "default": 0,
-              "description": "Samples covered; 0 = to the end.",
-              "minimum": 0,
-              "title": "Width",
-              "type": "integer"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "FaultSpec",
-          "type": "object"
-        }
-      },
-      "properties": {
-        "dac_path": {
-          "anyOf": [
-            {
-              "enum": [
-                "3v3",
-                "5v",
-                "12v",
-                "current_out"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Output path; default the waveform's own, else 3v3.",
-          "title": "Dac Path"
-        },
-        "fault": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/FaultSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "mapping": {
-          "default": "faithful",
-          "enum": [
-            "faithful",
-            "fit"
-          ],
-          "title": "Mapping",
-          "type": "string"
-        },
-        "on_capture": {
-          "default": false,
-          "title": "On Capture",
-          "type": "boolean"
-        },
-        "sample_rate_hz": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Sample rate in Hz; omit for the device maximum.",
-          "title": "Sample Rate Hz"
-        },
-        "switch_image": {
-          "default": true,
-          "description": "If the pod is on the other gateware image, switch it first (~3 s). The switch resets the FPGA, stopping any DAC output, UART session or sensor emulation. false = fail instead.",
-          "title": "Switch Image",
-          "type": "boolean"
-        },
-        "target_samples": {
-          "default": 0,
-          "description": "Downsample a shallow replay to this many samples.",
-          "minimum": 0,
-          "title": "Target Samples",
-          "type": "integer"
         },
         "waveform_id": {
-          "title": "Waveform Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instead of volts: a waveform from the cloud library (list_waveforms; needs server access).",
+          "title": "Waveform Id"
         },
         "window_len": {
           "default": 0,
-          "description": "Samples to replay; 0 = to the end.",
+          "description": "waveform_id: samples to replay; 0 = to the end.",
           "minimum": 0,
           "title": "Window Len",
           "type": "integer"
         },
         "window_start": {
           "default": 0,
-          "description": "First recording sample to replay.",
+          "description": "waveform_id: first recording sample to replay.",
           "minimum": 0,
           "title": "Window Start",
           "type": "integer"
         }
       },
-      "required": [
-        "waveform_id"
-      ],
-      "title": "replay_waveformArguments",
+      "title": "replayArguments",
       "type": "object"
     }
   },
@@ -4338,12 +4216,12 @@
           "title": "Action",
           "type": "string"
         },
-        "pulse": {
+        "pulse_s": {
           "default": 0.1,
           "description": "Pulse length in seconds (at most 1).",
           "exclusiveMinimum": 0,
           "maximum": 1,
-          "title": "Pulse",
+          "title": "Pulse S",
           "type": "number"
         }
       },
@@ -5101,7 +4979,7 @@
     },
     "input": {
       "properties": {
-        "voltage": {
+        "la_voltage": {
           "anyOf": [
             {
               "enum": [
@@ -5117,7 +4995,7 @@
           ],
           "default": null,
           "description": "The DUT's I/O voltage. 5.0 needs a pod with the digital board v3r4 (status capabilities vref_out). Omit it to read the current voltage and pin 21 without changing anything.",
-          "title": "Voltage"
+          "title": "La Voltage"
         }
       },
       "title": "set_la_voltageArguments",
@@ -5134,20 +5012,7 @@
     },
     "input": {
       "properties": {
-        "enabled": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Older form, use pull: true engages each channel's own direction, false is off.",
-          "title": "Enabled"
-        },
-        "las": {
+        "la": {
           "description": "LA channels (1-14).",
           "items": {
             "maximum": 14,
@@ -5156,30 +5021,23 @@
           },
           "maxItems": 14,
           "minItems": 1,
-          "title": "Las",
+          "title": "La",
           "type": "array"
         },
         "pull": {
-          "anyOf": [
-            {
-              "enum": [
-                "up",
-                "down",
-                "off"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
           "description": "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and strength in the result). A channel pulls only the ways its resistor allows (pull_status: supported): on the digital board v3r4 every channel pulls up or down; on older boards LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023).",
-          "title": "Pull"
+          "enum": [
+            "up",
+            "down",
+            "off"
+          ],
+          "title": "Pull",
+          "type": "string"
         }
       },
       "required": [
-        "las"
+        "la",
+        "pull"
       ],
       "title": "set_pullArguments",
       "type": "object"
@@ -6022,12 +5880,12 @@
     },
     "input": {
       "properties": {
-        "timeout": {
+        "timeout_s": {
           "default": 2.0,
           "description": "Seconds to wait for until_regex (or, without one, for any new output).",
           "maximum": 600,
           "minimum": 0,
-          "title": "Timeout",
+          "title": "Timeout S",
           "type": "number"
         },
         "until_regex": {
@@ -6091,19 +5949,19 @@
     },
     "input": {
       "properties": {
-        "set": {
+        "enabled": {
           "anyOf": [
             {
-              "const": "off",
-              "type": "string"
+              "const": false,
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Omit to read the setting. \"off\" turns the pod's USB network adapter off (only over the pod's USB network link: connection 'usb'); the pod then re-enumerates as its USB console only and this connection ends. Turning it back on needs the USB console: the user runs `benchpod usb-network on`.",
-          "title": "Set"
+          "description": "Omit to read the setting. false turns the pod's USB network adapter off (only over the pod's USB network link: connection 'usb'); the pod then re-enumerates as its USB console only and this connection ends. Turning it back on needs the USB console: the user runs `benchpod usb-network on`.",
+          "title": "Enabled"
         }
       },
       "title": "usb_networkArguments",

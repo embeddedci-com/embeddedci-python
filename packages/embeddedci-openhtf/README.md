@@ -95,7 +95,7 @@ unset for analog-only tests that don't touch the LA bank.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, `usb`, or `serial` |
+| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, or `usb` |
 | `benchpod_timeout` | `30.0` | Transport timeout in seconds |
 | `benchpod_la_voltage` | `None` → `BENCHPOD_LA_VOLTAGE` | LA I/O-bank voltage in volts (`1.8` or `3.3`) |
 

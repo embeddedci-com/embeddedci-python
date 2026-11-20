@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci.benchpod import BenchPod, Signal, Wiring
-from embeddedci.benchpod.wiring import DEFAULT_PINS, REFERENCE_BENCH, ROLE_KEYS
+from embeddedci.benchpod.wiring import DEFAULT_PINS, ROLE_KEYS
 
 
 def test_nothing_is_wired_by_default():
@@ -25,9 +25,10 @@ def test_the_default_preset_is_the_old_default_pins():
     w = Wiring.preset("embeddedci-default")
     assert (w.uart_rx, w.uart_tx, w.uart_baud, w.i2c_sda, w.i2c_scl) == (5, 4, 115200, 1, 2)
     assert (w.swd_swclk, w.swd_swdio, w.efuse, w.la_voltage, w.i2c_address) == (11, 12, 1, 3.3, 0x76)
-    assert w.source == "preset" and w.warnings() == [] and Wiring.defaults() == w
-    assert Wiring.preset() == w and Wiring.preset("embeddedci-reference") == w  # the old name
-    assert DEFAULT_PINS is REFERENCE_BENCH
+    assert w.source == "preset" and w.warnings() == []
+    assert Wiring.preset() == w and not hasattr(Wiring, "defaults")
+    with pytest.raises(ValueError, match="no wiring preset"):
+        Wiring.preset("embeddedci-reference")             # the old name is gone in 4.0
     with pytest.raises(ValueError, match="no wiring preset"):
         Wiring.preset("nope")
 

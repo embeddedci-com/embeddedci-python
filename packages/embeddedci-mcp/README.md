@@ -186,10 +186,10 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. `wiring_profile` names a profile stored on the pod (default: the pod's default profile). | `connection`, `la_voltage`, `lease_wait=30`, `wiring_profile` |
+| `connect` | Open a connection (closing any previous one) and report status, capabilities and where the wiring profile came from. Without a `connection` or a configured default (`--connection`, `BENCHPOD_CONNECTION`, the CLI's saved connection), finds the one pod on the LAN over mDNS. `wiring_profile` names a profile stored on the pod (default: the pod's default profile). | `connection`, `la_voltage`, `lease_wait_s=30`, `wiring_profile` |
 | `disconnect` | Close UART/CAN sessions and the connection, releasing a cloud lease. | none |
 | `status` | Firmware, capabilities, LA voltage, open sessions and warnings (works when not connected); `eth_mac` and `wifi_mac`, the MACs a network admin registers before the pod gets an address (from the pod with firmware after 3.10.7, else from embeddedci.com's record; `wifi_mac` null until the pod scanned for Wi-Fi or joined). | none |
-| `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). Usually not needed: `connect` sets it from the wiring profile's `la_mv`. | **`voltage`** |
+| `set_la_voltage` | Select the LA I/O voltage to match the DUT (1.8 V needs a rev3 pod). Usually not needed: `connect` sets it from the wiring profile's `la_mv`. | `la_voltage` (omit to read) |
 
 ### Cloud (embeddedci.com)
 
@@ -216,24 +216,24 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay`, `wiring_profile` |
-| `power_off` | Switch the target's power rail off. | `efuse`, `delay` |
+| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay_s`, `wiring_profile` |
+| `power_off` | Switch the target's power rail off. | `efuse`, `delay_s` |
 | `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
-| `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse=0.1` |
+| `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse_s=0.1` |
 
 ### Power profiles
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration`**, `efuse`, `rate_hz=500`, `points=0` |
-| `power_profile_start` | Start sampling the rail in the background while other tools run. | `efuse`, `rate_hz=500`, `max_duration=60` |
+| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration_s`**, `efuse`, `rate_hz=500`, `points=0` |
+| `power_profile_start` | Start sampling the rail in the background while other tools run. | `efuse`, `rate_hz=500`, `max_duration_s=60` |
 | `power_profile_stop` | Stop the running profile and return its statistics (and a trace). | `points=0` |
 
 ### Flash
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `flash` | Program the DUT over SWD through the pod's CMSIS-DAP probe: a local `file` (OpenOCD runs next to the server), or a build uploaded to embeddedci.com (`build` id or `latest`, `repo`, `ref`; embeddedci.com runs OpenOCD on a cloud connection, LAN/USB downloads it). With `target` `esp32` (or `esp32s3`, `esp32c3`, ...) the pod flashes an ESP32-family target over its UART ROM bootloader instead: `file` is a `.bin` or an ESP-IDF `flasher_args.json`, TXD0/RXD0 on `rx`/`tx` (default: the profile's `uart_rx`/`uart_tx`), IO0 on `boot`, EN on the pod's reset pin (`nreset`), a `.bin` at `load_address`. | `swclk`, `swdio`, `target`, `file`, `nreset`, `load_address`, `target_power`, `verify=true`, `reset=true`, `connect_under_reset`, `extra_configs`, `extra_args`, `timeout=300`, `connect_attempts=5`, `build`, `repo`, `ref`, `artifact`, `server_side`, `rx`, `tx`, `boot` |
+| `flash` | Program the DUT over SWD through the pod's CMSIS-DAP probe: a local `file` (OpenOCD runs next to the server), or a build uploaded to embeddedci.com (`build` id or `latest`, `repo`, `ref`; embeddedci.com runs OpenOCD on a cloud connection, LAN/USB downloads it). With `target` `esp32` (or `esp32s3`, `esp32c3`, ...) the pod flashes an ESP32-family target over its UART ROM bootloader instead: `file` is a `.bin` or an ESP-IDF `flasher_args.json`, TXD0/RXD0 on `rx`/`tx` (default: the profile's `uart_rx`/`uart_tx`), IO0 on `boot`, EN on the pod's reset pin (`nreset`), a `.bin` at `load_address`. | `swclk`, `swdio`, `target`, `file`, `nreset`, `load_address`, `target_power`, `verify=true`, `reset=true`, `connect_under_reset`, `extra_configs`, `extra_args`, `timeout_s=300`, `connect_attempts=5`, `build`, `repo`, `ref`, `artifact`, `server_side`, `rx`, `tx`, `boot` |
 
 ### SPI flash and SPI devices
 
@@ -263,11 +263,11 @@ the board's with `pullups="external"`.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low` |
-| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay=1`, `duration=4`, `baud`, `until_regex`, `off_settle=0.3`, `parity`, `stop_bits` |
+| `capture_uart` | Record the DUT's UART for a window, or until a regex matches. | **`duration_s`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low` |
+| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay_s=1`, `duration_s=4`, `baud`, `until_regex`, `off_settle_s=0.3`, `parity`, `stop_bits` |
 | `uart_open` | Start buffering the DUT's UART in the background. The frame is the profile's (`uart_parity`, `uart_stop_bits`; 8N1 unless set) unless `parity` (`none`/`even`/`odd`) or `stop_bits` (1/2) say otherwise; anything but 8N1 needs firmware 3.10.8+. `half_duplex` runs it on one wire (`rx`; `tx` defaults to it) and `entry` (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`) runs a pod-timed boot-mode entry first: reset with TX held low, release, the first bytes (gateware v57, for boot-ROM pins such as RL78 TOOL0). | `rx`, `tx`, `baud`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low` |
 | `uart_write` | Send text to the DUT through the open UART session. | **`text`**, `line_ending=lf` |
-| `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout=2` |
+| `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout_s=2` |
 | `uart_close` | Stop the background UART session. | none |
 
 ### Emulated sensors
@@ -303,10 +303,10 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `set_pull` | Pull LA channels `up` or `down`, or switch their resistor `off`; the pod picks the value. Today LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none; another direction is refused (BP0024, BP0023). `enabled` is the older on/off form. | **`las`**, `pull`, `enabled` |
+| `set_pull` | Pull LA channels `up` or `down`, or switch their resistor `off`; the pod picks the value. Today LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none; another direction is refused (BP0024, BP0023). | **`la`**, **`pull`** |
 | `pull_status` | Every LA channel's pull resistor: state (`up`, `down` or `off`), the directions it supports and its value. | none |
 | `lan_tls` | The pod's LAN API over TLS: port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
-| `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
+| `usb_network` | Read the pod's USB network setting, or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `enabled=false` |
 | `log_level` | Read or set how much the pod prints on its USB console (firmware newer than 3.10.12): `error`, `warn`, `info` (the default) or `debug`, which adds every command trace and the reconnect retry detail. Stored on the pod. | `level` |
 
 ### GPIO on the LA pins
@@ -317,8 +317,8 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `gpio_mode` | Claim LA channels as GPIO (input, output or open drain). | **`la`**, `mode=output`, `level` |
 | `gpio_write` | Set the level of GPIO output and open-drain channels (and EXT pins); `level` is one level or a list, one per channel. | **`la`**, **`level`** |
 | `gpio_read` | The live level of LA channels and EXT pins (all of them when `la` is omitted). | `la` |
-| `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout=5` |
-| `gpio_pulse` | FPGA-timed pulses on an LA channel: `width` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width`**, `count=1` |
+| `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout_s=5` |
+| `gpio_pulse` | FPGA-timed pulses on an LA channel: `width_s` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width_s`**, `count=1` |
 | `gpio_release` | Return channels to high-Z, watched by captures (EXT pins to input). | `la` |
 | `expansion` | Attach an I2C/SPI GPIO expander board (chips: `tca9555`, `pca9555`, `mcp23017`, `pcf8574`, `pcf8574a`, `pcf8575`, `tca6416a`, `tca6424a`, `mcp23s17`, `74hc595`, `74hc165`), report it, or detach it. Its pins become `EXT1`..`EXTn`, which `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait` and `gpio_release` take next to LA channels; `gpio_pulse`, triggers and `la_dir` refuse them. | `chip` (omit for the status), `detach=false`, `addr`, `sda`, `scl`, `spi` (`[sck, mosi, miso, cs]`), `load` (74hc165), `count` (chains), `hz`, `pullups`, `names` |
 | `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `connect` and `set_wiring` already send the wiring profile's; `from_wiring` sends them again; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
@@ -341,9 +341,9 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope; `clipped_samples` counts samples past the range's full scale. `oversample` converts at 400 kS/s and averages down to `sample_rate_hz` for lower noise, about 5 s at most. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `range`, `oversample` |
-| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. Up to 48 MS/s on gateware v50+. `send` (gateware v55+) runs one transaction right after the capture arms: `{"bus":"i2c","addr":118,"write_hex":"d0","read":1}` (the `i2c_open` session, else one from the wiring), `{"bus":"spi","tx_hex":"9f00"}` (SPI pins from the wiring) or `{"bus":"gpio","la":6,"level":0}` (a GPIO output); without `trigger_la` it triggers on SDA or CS falling or the pin's edge, and the result's `send` has the reply. | `samples=4096`, `sample_rate_hz`, `stop_dac_after`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `trigger_pre_samples=0`, `send` |
-| `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout=10`, `source` |
+| `capture_adc` | Capture the ADC: calibrated statistics, dominant frequency and a min/max envelope; `clipped_samples` counts samples past the range's full scale. `oversample` converts at 400 kS/s and averages down to `sample_rate_hz` for lower noise, about 5 s at most. | `samples=4096`, `sample_rate_hz`, `source`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout_s=10`, `range`, `oversample` |
+| `capture_la` | Capture all 14 LA channels: levels, edge count, first edge and frequency per channel. Up to 48 MS/s on gateware v50+. `send` (gateware v55+) runs one transaction right after the capture arms: `{"bus":"i2c","addr":118,"write_hex":"d0","read":1}` (the `i2c_open` session, else one from the wiring), `{"bus":"spi","tx_hex":"9f00"}` (SPI pins from the wiring) or `{"bus":"gpio","la":6,"level":0}` (a GPIO output); without `trigger_la` it triggers on SDA or CS falling or the pin's edge, and the result's `send` has the reply. | `samples=4096`, `sample_rate_hz`, `stop_dac_after_s`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout_s=10`, `trigger_pre_samples=0`, `send` |
+| `capture_correlated` | ADC and LA from one hardware trigger, on one timebase. | `adc_samples=4096`, `adc_sample_rate_hz`, `la_samples=4096`, `la_sample_rate_hz`, `stop_dac_after_s`, `points=200`, `trigger_la`, `trigger_edge=rising`, `trigger_timeout_s=10`, `source` |
 | `decode_la` | Decode I2C, UART or SPI from the last LA capture (or a new one). | **`protocol`**, `sda`, `scl`, `rx`, `baud`, `sclk`, `mosi`, `miso`, `cs`, `mode=0`, `capture=last`, `samples=16384`, `sample_rate_hz=1000000`, `max_items=200` |
 | `la_timing` | Edge timestamps, pulse widths, frequency, duty cycle and channel-to-channel delay from the last capture. | **`la`**, `edge=rising`, `to_la`, `to_edge=rising`, `after=0`, `max_edges=100` |
 
@@ -351,11 +351,10 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `generate` | Drive a sine, square or sawtooth on a DAC output (volts, or amps on `current_out`). | **`waveform`**, **`freq_hz`**, **`amplitude`**, `offset`, `dac_path=3v3`, `duration`, `sample_rate_hz`, `on_capture=false`, `route=true` |
+| `generate` | Drive a sine, square or sawtooth on a DAC output (volts, or amps on `current_out`). | **`waveform`**, **`freq_hz`**, **`amplitude`**, `offset`, `dac_path=3v3`, `duration_s`, `sample_rate_hz`, `on_capture=false`, `route=true` |
 | `dac_stop` | Stop any DAC output: generator, replay or control loop. | none |
-| `replay` | Loop your own samples, or the last ADC capture, out of the DAC. | `volts`, `from_last_capture=false`, `dac_path=3v3`, `mapping=faithful`, `sample_rate_hz`, `fault`, `on_capture=false`, `route=true`, `switch_image=true` |
+| `replay` | Loop your own samples, the last ADC capture, or a cloud-library waveform out of the DAC. | `volts`, `from_last_capture=false`, `waveform_id`, `dac_path=3v3`, `mapping=faithful`, `sample_rate_hz`, `window_start=0`, `window_len=0`, `target_samples=0` (with `waveform_id`), `fault`, `on_capture=false`, `route=true`, `switch_image=true` |
 | `list_waveforms` | The organization's cloud waveform library. | none |
-| `replay_waveform` | Loop a cloud-library waveform out of the DAC. | **`waveform_id`**, `dac_path`, `mapping=faithful`, `sample_rate_hz`, `window_start=0`, `window_len=0`, `target_samples=0`, `fault`, `on_capture=false`, `switch_image=true` |
 | `save_capture_as_recording` | Save the last ADC capture to the cloud waveform library. | **`name`**, `full_scale_v` |
 
 ### Control loop
@@ -373,7 +372,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | --- | --- | --- |
 | `can_open` | Bring up the pod's CAN interface (normal, loopback or listen-only): classic CAN, or CAN FD with `data_bitrate` (firmware 3.10.2+, up to 8 Mbit/s, 64-byte frames). | `bitrate=500000`, `mode=normal`, `term=false`, `data_bitrate` |
 | `can_write` | Queue one CAN frame: up to 8 bytes, or 64 on a CAN FD bus (FD with bit-rate switching unless `fd=false` / `brs=false`). | **`can_id`**, `data`, `ext=false`, `rtr=false`, `fd`, `brs` |
-| `can_read` | Read received frames, or wait for one id. | `timeout=0`, `can_id`, `max_frames=32` |
+| `can_read` | Read received frames, or wait for one id. | `timeout_s=0`, `can_id`, `max_frames=32` |
 | `can_respond` | Answer a CAN id from the pod firmware (ECU simulation), or clear all rules. | `match_id`, `reply_id`, `reply_data`, `match_ext=false`, `reply_ext=false`, `reply_fd`, `reply_brs`, `clear=false` |
 | `can_status` | Link state: mode, bitrate, error counters, bus-off. | none |
 | `can_close` | Clear responder rules, stop CAN and switch the 120 Ω termination off. | none |
@@ -382,7 +381,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `la_step` | Step pulses for step/dir motor drivers: `delay` is half the step period (4 us to 65.535 ms), `steps` up to 65535. | **`la`**, **`steps`**, **`delay`**, `dir_la`, `direction=0` |
+| `la_step` | Step pulses for step/dir motor drivers: `delay_s` is half the step period (4 us to 65.535 ms), `steps` up to 65535. | **`la`**, **`steps`**, **`delay_s`**, `dir_la`, `direction=0` |
 | `command` | Raw firmware JSON command, for anything no tool covers. | **`request`** |
 
 ### AI Vision board
@@ -523,8 +522,8 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
 - **Sessions.** `uart_open` buffers the DUT's console in the background (open it before
   `power_on`, then `uart_read` / `uart_write`); `can_open` keeps a CAN bus open across calls.
 - **Gateware images.** The pod's FPGA runs either the `loop` image (`control_loop`) or the
-  `deep_replay` image (replays longer than 2048 samples). `control_loop`, `replay` and
-  `replay_waveform` switch automatically (~3 s) and report it as `switched_image`;
+  `deep_replay` image (replays longer than 2048 samples). `control_loop` and `replay`
+  switch automatically (~3 s) and report it as `switched_image`;
   `switch_image: false` fails instead. A switch resets the FPGA — a running DAC output, UART session
   or sensor emulation stops — and the server instructions tell the agent to start those after it.
   `fpga_image` switches explicitly. I2C, SPI and UART sensors run on a third, emulation image that

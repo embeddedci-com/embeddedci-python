@@ -71,11 +71,11 @@ def test_pod_simulates_an_ecu(benchpod: BenchPod):
         # Stand in for the DUT issuing the request (in loopback this echoes to RX,
         # which triggers the responder). On a real bus the DUT sends this.
         can.write(0x7DF, [0x03, 0x22, 0x01, 0x00])
-        reply = can.expect(can_id=0x7E8, timeout=1.0)
+        reply = can.expect(0x7E8, timeout=1.0)
         assert reply.data == b"\x62\x01\x00\x2a"
 
         can.write(0x123, [0x01])
-        assert can.expect(can_id=0x124, timeout=1.0).data == b"\xaa\xbb"
+        assert can.expect(0x124, timeout=1.0).data == b"\xaa\xbb"
 
         # The firmware counts how many auto-replies it emitted.
         assert can.status()["responder_hits"] >= 2
@@ -101,7 +101,7 @@ def test_frame_timestamps_track_elapsed_time(benchpod: BenchPod):
     with benchpod.open_can(bitrate=500_000, mode="internal") as can:
         def stamp():
             can.write(0x100, [0x01])
-            return can.expect(can_id=0x100, timeout=1.0).ts
+            return can.expect(0x100, timeout=1.0).ts
 
         a, b, c = stamp(), stamp(), stamp()   # back-to-back (overhead only)
         time.sleep(0.3)
@@ -130,7 +130,7 @@ def test_observe_real_dut(benchpod: BenchPod):
 
         # 2. Request/response: stimulate the DUT and assert its reply.
         can.write(0x7DF, [0x02, 0x10, 0x03])
-        reply = can.expect(can_id=0x7E8, timeout=0.5)
+        reply = can.expect(0x7E8, timeout=0.5)
         assert reply.data[0] == 0x50
 
         # 3. The link should be healthy (a lone/ miswired node goes bus-off).

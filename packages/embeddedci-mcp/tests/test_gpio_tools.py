@@ -88,17 +88,17 @@ def test_gpio_release_frees_channels(connected):
 
 def test_gpio_wait_returns_as_soon_as_the_level_is_there(connected):
     connected.inputs = 1 << 8  # LA9 is already high
-    result = call("gpio_wait", la=9, level=1, timeout=1.0)
+    result = call("gpio_wait", la=9, level=1, timeout_s=1.0)
     assert result["reached"] is True and result["la"] == 9 and result["waited"] < 1.0
 
 
 def test_gpio_wait_times_out_without_failing(connected):
-    result = call("gpio_wait", la=9, level=1, timeout=0.05)
+    result = call("gpio_wait", la=9, level=1, timeout_s=0.05)
     assert result["reached"] is False and result["waited"] >= 0.05
 
 
 def test_gpio_pulse_runs_a_step_train(connected):
-    assert call("gpio_pulse", la=3, width=0.001, count=5) == {"la": 3, "count": 5, "width": 0.001}
+    assert call("gpio_pulse", la=3, width_s=0.001, count=5) == {"la": 3, "count": 5, "width": 0.001}
     assert connected.requests[-1] == {"cmd": "la_step", "la": 3, "steps": 5, "delay_us": 1000}
 
 
@@ -122,7 +122,7 @@ def test_a_gpio_channel_blocks_the_uart_until_it_is_released(connected):
 
 
 def test_pull_conflict_reaches_the_agent(connected):
-    call("set_pull", las=[7], pull="down")
+    call("set_pull", la=[7], pull="down")
     with pytest.raises(ToolError, match="PullConflictError: .*BP0032: LA7 has its 10k pull-down on"):
         call("gpio_mode", la=[7], mode="open_drain")
 

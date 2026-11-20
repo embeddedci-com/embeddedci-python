@@ -24,13 +24,13 @@ from .client import BenchPod
 from .cli_config import SAVED_KEYWORD, config_path, saved_connection
 from .connection import ENV_VAR
 from .wiring import Wiring
-from .constants import PULL_OHMS as _PULL_OHMS
-from .constants import PULLDOWN_CHANNELS
+from .constants import PULL_TABLE
 from .runs import pytest_runs as _runs
 from .runs.pytest_runs import measure  # noqa: F401 -- a fixture of this plugin
 
 #: The channels whose network pulls DOWN rather than up.
-_PULLDOWN_CHANNELS = frozenset(PULLDOWN_CHANNELS)
+_PULL_OHMS = {la: hw.ohms for la, hw in PULL_TABLE.items()}
+_PULLDOWN_CHANNELS = frozenset(la for la, hw in PULL_TABLE.items() if "down" in hw.dirs)
 
 
 class BenchPodPins:

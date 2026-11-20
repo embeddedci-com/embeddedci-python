@@ -17,7 +17,6 @@ from embeddedci.benchpod.errors import BenchPodError, ConnectionConfigError
         ("[fe80::1]", "tcp", "[fe80::1]:8443", ""),
         ("/dev/ttyACM0", "serial", "", "/dev/ttyACM0"),
         ("COM3", "serial", "", "COM3"),
-        ("serial", "serial", "", ""),
         ("USB", "serial", "", ""),
     ],
 )
@@ -64,7 +63,7 @@ def test_resolve_prefers_explicit_over_env(monkeypatch):
 
 
 def test_resolve_falls_back_to_env(monkeypatch):
-    monkeypatch.setenv(ENV_VAR, "serial")
+    monkeypatch.setenv(ENV_VAR, "usb")
     spec = resolve_connection()
     assert spec.is_serial()
 
@@ -149,3 +148,8 @@ def test_constant_coercion():
     with pytest.raises(ValueError):
         constants.coerce_pin(15, "swdio")
     assert not issubclass(ValueError, BenchPodError)
+
+
+def test_the_serial_alias_is_gone():
+    """embeddedci 4.0: "usb" only; "serial" is a host name like any other."""
+    assert parse_connection("serial").kind == "tcp"

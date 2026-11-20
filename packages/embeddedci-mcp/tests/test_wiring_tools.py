@@ -112,9 +112,9 @@ def test_uart_tools_take_channels_and_baud_from_the_profile(connected):
     assert result == {"open": True, "rx": 7, "tx": 8, "baud": 9600, "parity": "none", "stop_bits": 1,
                       "half_duplex": False}
     call("uart_close")
-    call("capture_uart", duration=0.2)
+    call("capture_uart", duration_s=0.2)
     assert connected.uart_links[-1] is not None
-    call("power_cycle_and_capture", delay=0.1, duration=0.3, off_settle=0)
+    call("power_cycle_and_capture", delay_s=0.1, duration_s=0.3, off_settle_s=0)
     assert [c for c in connected.calls if c[0] == "target_power"][-2:] == [
         ("target_power", 2, False, 0), ("target_power", 2, True, 100)]  # the profile's rail
 

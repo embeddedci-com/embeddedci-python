@@ -264,16 +264,6 @@ _EXT_REFUSALS = {
 }
 
 
-class _NoPull:
-    """set_pull's "pull not given" (``enabled=`` is the older keyword); a stable repr for the docs."""
-
-    def __repr__(self) -> str:
-        return "<required>"
-
-
-_NO_PULL = _NoPull()
-
-
 def _one_or_many(las: List[int]) -> Any:
     return las[0] if len(las) == 1 else las
 
@@ -1664,13 +1654,13 @@ class BenchPod:
             return False
 
     @staticmethod
-    def _pull_want(la: int, pull: Union[str, bool, None]) -> str:
-        """``pull`` as "up" / "down" / "off". True (deprecated) is the channel's own direction."""
-        if pull is None or pull is False:
+    def _pull_want(la: int, pull: Optional[str]) -> str:
+        """``pull`` as "up" / "down" / "off" (``None`` and ``"none"`` are off)."""
+        if pull is None:
             return "off"
-        if pull is True:
-            hw = PULL_TABLE.get(la)
-            return hw.default if hw else "up"
+        if isinstance(pull, bool):
+            raise TypeError(f'set_pull() takes "up", "down" or "off", not {pull!r} (the boolean form '
+                            "is gone in embeddedci 4.0)")
         want = str(pull).strip().lower()
         if want == "none":
             want = "off"
@@ -1687,8 +1677,7 @@ class BenchPod:
         return firmware_error(f"LA{la} supports pull-{have} only on this board", cmd="la_pull",
                               code="BP0024", values={"la": la, "want": want, "have": have})  # type: ignore[return-value]
 
-    def set_pull(self, la: Union[Pin, int], pull: Union[PullDirection, bool, None, object] = _NO_PULL, *,
-                 enabled: Optional[bool] = None) -> PullState:
+    def set_pull(self, la: Union[Pin, int], pull: Optional[PullDirection]) -> PullState:
         """Pull LA ``la`` ``"up"``, ``"down"`` or ``"off"`` (``None`` is off too) and return its
         :class:`PullState`.
 
@@ -1696,15 +1685,7 @@ class BenchPod:
         resistor can't pull raises :class:`~embeddedci.benchpod.errors.PullDirectionError` (BP0024,
         "LA7 supports pull-down only on this board"), and ``"up"``/``"down"`` on a channel without
         one too (BP0023). ``"off"`` is fine on every channel.
-
-        ``set_pull(la, True)`` / ``set_pull(la, False)`` (and ``enabled=``) still work
-        (deprecated): True engages the channel's own direction (up on LA1-LA6, down on LA7/LA8),
-        False is off.
         """
-        if pull is _NO_PULL:
-            if enabled is None:
-                raise TypeError('set_pull() needs pull: "up", "down" or "off"')
-            pull = bool(enabled)
         la_i = coerce_pin(la, "la")
         want = self._pull_want(la_i, pull)  # type: ignore[arg-type]
         with _classified_errors():
@@ -2224,7 +2205,7 @@ class BenchPod:
 
             with bp.open_can(bitrate=500_000, mode="internal") as can:
                 can.write(0x123, [1, 2, 3])
-                frame = can.expect(can_id=0x123, timeout=1.0)
+                frame = can.expect(0x123, timeout=1.0)
 
         ``data_bitrate`` makes it a CAN FD bus (see :meth:`can_config`)::
 

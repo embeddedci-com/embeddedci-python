@@ -14,7 +14,7 @@ Typical use::
 
     with bp.open_can(bitrate=500_000, mode="internal") as can:
         can.write(0x123, [0xDE, 0xAD])
-        frame = can.expect(can_id=0x123, timeout=1.0)
+        frame = can.expect(0x123, timeout=1.0)
         assert frame.data == b"\\xde\\xad"
 
 CAN FD (firmware 3.10.2+): pass ``data_bitrate``. Frames then carry up to 64
@@ -22,7 +22,7 @@ bytes and switch to the data bit rate after arbitration::
 
     with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
         can.write(0x123, bytes(range(64)))
-        frame = can.expect(can_id=0x123, timeout=1.0)
+        frame = can.expect(0x123, timeout=1.0)
         assert frame.fd and frame.brs and len(frame.data) == 64
 """
 
@@ -171,18 +171,14 @@ class CanBus:
         out, self._pending = self._pending[:max_frames], self._pending[max_frames:]
         return out
 
-    def read_until(self, match: Optional[Match] = None, *,
-                   can_id: Optional[int] = None, timeout: float,
+    def read_until(self, match: Optional[Match] = None, *, timeout: float,
                    poll: float = 0.02) -> Optional[CanFrame]:
         """Poll until a frame matches ``match`` (an id or a predicate) or
         ``timeout`` elapses. Returns the matching :class:`CanFrame` or ``None``.
 
         Non-matching frames drained in the process are kept buffered, so a later
-        :meth:`read`/:meth:`read_until` still sees them. ``can_id`` is a
-        convenience alias for matching a specific identifier.
+        :meth:`read`/:meth:`read_until` still sees them.
         """
-        if can_id is not None and match is None:
-            match = can_id
         pred = _matcher(match)
         deadline = time.monotonic() + timeout
         while True:
@@ -196,13 +192,9 @@ class CanBus:
             if not self._pending:
                 time.sleep(poll)
 
-    def expect(self, match: Optional[Match] = None, *, can_id: Optional[int] = None,
-               timeout: float = 1.0) -> CanFrame:
-        """Like :meth:`read_until` but raises :class:`CanTimeout` on timeout.
-
-        ``can_id`` is a convenience alias for matching a specific identifier.
-        """
-        f = self.read_until(match, can_id=can_id, timeout=timeout)
+    def expect(self, match: Optional[Match] = None, *, timeout: float = 1.0) -> CanFrame:
+        """Like :meth:`read_until` but raises :class:`CanTimeout` on timeout."""
+        f = self.read_until(match, timeout=timeout)
         if f is None:
             raise CanTimeout(
                 f"no matching CAN frame within {timeout:g}s",

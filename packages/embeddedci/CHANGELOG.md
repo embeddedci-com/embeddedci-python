@@ -53,6 +53,14 @@ Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
   `code16` in the loop probe and input replies, `can_start`/`can_stop`, CAN `ts_ms`,
   `target_power` `enabled` (booleans in `target_status` too), `usb_network` `enabled` (a boolean
   in and out; `status.usb.enabled` and `status.usb.net` are booleans).
+- **Removed** (approved for 4.0): `set_pull(la, True|False)` and `set_pull(..., enabled=)` (pass
+  `"up"`, `"down"` or `"off"`; the four shortcuts `enable_pullup`, `disable_pullup`,
+  `enable_pulldown`, `disable_pulldown` stay); `wiring.REFERENCE_BENCH` (use `DEFAULT_PINS`),
+  `wiring.PRESET_ALIASES` and the preset name `"embeddedci-reference"`, `Wiring.defaults()` (use
+  `Wiring.preset()`); `constants.PULL_OHMS`, `PULLUP_CHANNELS`, `PULLDOWN_CHANNELS` (use
+  `PULL_TABLE`); `transport.serial.RP_VID`; the `serial` connection keyword (use `usb`); the
+  CLI config's legacy `bench_pod_addr`; an LA channel number as `upload_build`'s reset input (a
+  flag only); `CanBus.expect(can_id=)` and `read_until(can_id=)` (pass the id as `match`).
 - `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
   flat-cable DAC pinouts (the DAC is off).
 - Error catalog synced (`BP0031` to `BP0080`); features table revision 11.

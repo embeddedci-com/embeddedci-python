@@ -14,6 +14,19 @@ Pairs with BenchPod firmware 4.0.0 and embeddedci 4.0. Breaking changes:
   refusal without a code keeps the pod's text.
 - `connect` to a LAN address uses TLS on 8443 by default; mDNS discovery connects to the pod's
   TLS port and refuses a pod with firmware 3.x.
+- **Tool parameters in units.** Seconds end in `_s`: `connect` `lease_wait_s`, `power_on`/
+  `power_off` `delay_s`, `measure_power` `duration_s`, `power_profile_start` `max_duration_s`,
+  `reset_target` `pulse_s`, `flash` `timeout_s`, `capture_uart` `duration_s`,
+  `power_cycle_and_capture` `delay_s`/`duration_s`/`off_settle_s`, `uart_read` `timeout_s`,
+  `gpio_wait` `timeout_s`, `gpio_pulse` `width_s`, `capture_adc`/`capture_la`/
+  `capture_correlated` `trigger_timeout_s` and `stop_dac_after_s`, `generate` `duration_s`,
+  `can_read` `timeout_s`, `la_step` `delay_s` (as `sensor_fault` `duration_s` and the vision
+  tools already were). The I/O voltage is `la_voltage` everywhere (`set_la_voltage` took
+  `voltage`).
+- `set_pull` takes `la` (a list of channels) and a required `pull`; `las` and `enabled` are gone.
+- `replay` takes `waveform_id` (with `window_start`, `window_len`, `target_samples`) for a
+  cloud-library waveform; the `replay_waveform` tool is gone.
+- `usb_network` takes `enabled=false` (was `set="off"`) and returns `enabled` (was `setting`).
 - `status` warns when `module.dac_pinout_ok` is false: the DAC is off because the digital board
   and the analog module do not belong together (`BP0080`).
 

@@ -6,10 +6,9 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
                                       USB network adapter, 10.237.0.0/16, or when ``:8080`` is
                                       given)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
-* ``usb``                          -> USB pod, auto-detected by probing the ports
-                                      (``serial`` is accepted as a legacy spelling); on
-                                      firmware 3.9.0+ the transport is the pod's USB network
-                                      adapter when it answers, else the console (see
+* ``usb``                          -> USB pod, auto-detected by probing the ports; the
+                                      transport is the pod's USB network adapter when it
+                                      answers, else the console (see
                                       :func:`~embeddedci.benchpod.transport.open_transport`)
 * ``usb:<name>``                   -> the USB pod with that name, when several are plugged in
                                       (``usb:baea06``, ``usb:benchpod-baea06``)
@@ -120,8 +119,6 @@ def parse_connection(raw: str) -> ConnSpec:
                 "embeddedci destination requires a device name, e.g. 'embeddedci:my-bench'"
             )
         return ConnSpec(kind="embeddedci", device_name=name)
-    # "usb" is the documented spelling; "serial" is the older one, still accepted
-    # so connection strings written before the rename keep working.
     if s.lower() == SAVED_KEYWORD:
         saved = saved_connection()
         if not saved:
@@ -130,7 +127,7 @@ def parse_connection(raw: str) -> ConnSpec:
                 "holds none; save one with `benchpod set-connection <address|device|usb>`"
             )
         return parse_connection(saved)
-    if s.lower() in ("usb", "serial"):
+    if s.lower() == "usb":
         return ConnSpec(kind="serial", device="")
     if s.lower().startswith(USB_PREFIX):
         pod = normalize_pod_name(s[len(USB_PREFIX):])

@@ -33,7 +33,7 @@ EXPECTED_TOOLS = {
     "set_pull", "pull_status", "usb_network", "log_level", "lan_tls",
     "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
-    "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
+    "generate", "dac_stop", "replay", "list_waveforms",
     "save_capture_as_recording",
     "control_loop", "loop_input", "loop_probe", "fpga_image",
     "can_open", "can_write", "can_read", "can_respond", "can_status", "can_close",
@@ -87,7 +87,7 @@ def test_enums_reach_the_schema():
     tools = {t.name: t for t in anyio.run(mcp.list_tools)}
     assert tools["analog_path"].inputSchema["properties"]["path"]["enum"][0] == "off"
     # optional since digital v3r4 (omitted = read); 5.0 is the v3r4 5 V mode
-    assert tools["set_la_voltage"].inputSchema["properties"]["voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
+    assert tools["set_la_voltage"].inputSchema["properties"]["la_voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
 
 
 # -- errors + connection ---------------------------------------------------------------
@@ -286,7 +286,7 @@ def test_connect_without_mdns_support_says_what_to_pass(fake_open, monkeypatch):
 
 def test_schema_rejects_bad_arguments(connected):
     with pytest.raises(ToolError):
-        call("set_la_voltage", voltage=5.0)
+        call("set_la_voltage", la_voltage=5.0)
     with pytest.raises(ToolError):
         call("power_on", efuse=3)
 
@@ -305,7 +305,7 @@ def test_disconnect(connected):
 # -- power + flash ---------------------------------------------------------------------
 
 def test_power_tools(connected):
-    assert call("power_on", efuse=1, delay=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
+    assert call("power_on", efuse=1, delay_s=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
                                                      "profile": None, "la_voltage": 3.3}
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
@@ -402,17 +402,17 @@ def test_flash_an_esp32_target(connected, monkeypatch):
 # -- UART ------------------------------------------------------------------------------
 
 def test_capture_uart(connected):
-    result = call("capture_uart", rx=5, tx=4, duration=1.0, until_regex="APP_OK")
+    result = call("capture_uart", rx=5, tx=4, duration_s=1.0, until_regex="APP_OK")
     assert result["matched"] is True and "boot" in result["text"] and result["truncated"] is False
 
 
 def test_bad_regex_is_a_tool_error(connected):
     with pytest.raises(ToolError, match="until_regex"):
-        call("capture_uart", rx=5, tx=4, duration=1.0, until_regex="(")
+        call("capture_uart", rx=5, tx=4, duration_s=1.0, until_regex="(")
 
 
 def test_power_cycle_and_capture(connected):
-    result = call("power_cycle_and_capture", rx=5, tx=4, delay=0.2, duration=1.0, off_settle=0)
+    result = call("power_cycle_and_capture", rx=5, tx=4, delay_s=0.2, duration_s=1.0, off_settle_s=0)
     assert "APP_OK" in result["text"]
     assert [c for c in connected.calls if c[0] == "target_power"] == [
         ("target_power", 1, False, 0), ("target_power", 1, True, 200)]
@@ -440,7 +440,7 @@ def test_uart_frame_format(connected):
     SESSION.require().refresh_capabilities()
     r = call("uart_open", rx=5, tx=4, baud=19200, parity="even")
     assert (r["parity"], r["stop_bits"], r["baud"]) == ("even", 1, 19200)
-    call("capture_uart", rx=5, tx=4, duration=0.2, stop_bits=2)
+    call("capture_uart", rx=5, tx=4, duration_s=0.2, stop_bits=2)
     assert connected.uart_frames[-2:] == [("even", 1), ("none", 2)]
     with pytest.raises(ToolError):
         call("uart_open", rx=5, tx=4, parity="mark")
@@ -465,7 +465,7 @@ def test_uart_half_duplex_and_entry(connected):
          entry={"reset_ms": 5, "hold_ms": 3, "idle_ms": 2, "data_hex": "00"})
     e = connected.uart_lines[-1][3]
     assert e.to_request() == {"reset_ms": 5, "tx_low": True, "hold_ms": 3, "idle_ms": 2, "hex": "00"}
-    call("capture_uart", rx=1, tx=2, duration=0.2, entry={})
+    call("capture_uart", rx=1, tx=2, duration_s=0.2, entry={})
     assert connected.uart_lines[-1][2] is False and connected.uart_lines[-1][3] is not None
     with pytest.raises(ToolError):
         call("uart_open", rx=3, half_duplex=True, entry={"data_hex": "0"})
@@ -487,7 +487,7 @@ def test_uart_de(connected):
     SESSION.require().refresh_capabilities()
     call("uart_open", rx=5, tx=4, de=9)
     assert connected.uart_des[-1] == (9, False)
-    call("capture_uart", rx=5, tx=4, duration=0.2, de=9, de_active_low=True)
+    call("capture_uart", rx=5, tx=4, duration_s=0.2, de=9, de_active_low=True)
     assert connected.uart_des[-1] == (9, True)
     call("uart_open", rx=5, tx=4)
     assert connected.uart_des[-1] == (None, False)
@@ -527,7 +527,7 @@ registers:
 
 
 def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
-    call("set_pull", las=[1, 2], enabled=True)
+    call("set_pull", la=[1, 2], pull="up")
     started = call("sensor_start", definition="bme280", instance="env", pins={"sda": 2, "scl": 1},
                    address="0x77", values={"temperature_c": 22.5})
     assert started["instance"] == "env" and started["kind"] == "i2c" and started["name"] == "bme280"
@@ -578,29 +578,23 @@ def test_sensor_stimulus_tools(connected):
 
 
 def test_pulls(connected):
-    res = call("set_pull", las=[7], enabled=True)            # the older form still works
+    res = call("set_pull", la=[7], pull="down")
     assert res["channels"][0]["direction"] == "down" and res["channels"][0]["state"] == "down"
-    res = call("set_pull", las=[1, 2], pull="up")
+    res = call("set_pull", la=[1, 2], pull="up")
     assert [c["state"] for c in res["channels"]] == ["up", "up"]
     assert res["channels"][0]["supported"] == ["up"] and res["channels"][0]["ohms"] == "4.7k"
-    assert call("set_pull", las=[7], pull="off")["channels"][0]["state"] == "off"
+    assert call("set_pull", la=[7], pull="off")["channels"][0]["state"] == "off"
     status = call("pull_status")
-    new_sdk = "pull" in inspect.signature(BenchPod.set_pull).parameters
-    if not new_sdk:   # embeddedci before 3.0.3 (the mcp-min-sdk job): LA1-LA8, checked here
-        assert [c["la"] for c in status["channels"]] == list(range(1, 9))
-        with pytest.raises(ToolError, match="LA7 can't pull up"):
-            call("set_pull", las=[7], pull="up")
-        return
     assert [c["la"] for c in status["channels"]] == list(range(1, 15))
     assert status["channels"][8] == {"la": 9, "state": "off", "supported": [], "enabled": False,
                                      "direction": None, "ohms": "", "available": True, "strength": None,
                                      "held": None}
     with pytest.raises(ToolError, match="BP0023"):
-        call("set_pull", las=[9], pull="up")
+        call("set_pull", la=[9], pull="up")
     with pytest.raises(ToolError, match="LA7 supports pull-down only on this board"):
-        call("set_pull", las=[7], pull="up")
-    with pytest.raises(ToolError, match="needs pull"):
-        call("set_pull", las=[1])
+        call("set_pull", la=[7], pull="up")
+    with pytest.raises(ToolError, match="pull"):
+        call("set_pull", la=[1])
 
 
 # -- analog + captures -----------------------------------------------------------------
@@ -833,7 +827,7 @@ def test_can_tools(connected):
         call("can_write", can_id=0x123, data=[1])
     assert call("can_open", mode="internal")["open"] is True
     call("can_write", can_id=0x123, data=[0xDE, 0xAD])
-    frames = call("can_read", can_id=0x123, timeout=0.5)
+    frames = call("can_read", can_id=0x123, timeout_s=0.5)
     assert frames["matched"] is True and frames["frames"][0]["data"] == [0xDE, 0xAD]
     assert frames["frames"][0]["id_hex"] == "0x123"
     assert call("can_respond", match_id=0x7DF, reply_id=0x7E8, reply_data=[0x50])["rules"] == 1
@@ -857,7 +851,7 @@ def test_can_fd_tools(connected):
     call("can_write", can_id=0x123, data=list(range(64)), brs=False)
     req = [r for r in connected.requests if r["cmd"] == "can_write"][-1]
     assert len(req["data"]) == 64 and req["brs"] is False and "fd" not in req
-    frames = call("can_read", can_id=0x123, timeout=0.5)
+    frames = call("can_read", can_id=0x123, timeout_s=0.5)
     assert frames["frames"][0]["fd"] is True and len(frames["frames"][0]["data"]) == 64
     call("can_respond", match_id=0x7DF, reply_id=0x7E8, reply_data=list(range(12)), reply_fd=False)
     rr = [r for r in connected.requests if r["cmd"] == "can_respond"][-1]
@@ -870,16 +864,16 @@ def test_can_fd_tools(connected):
 # -- stepper + escape hatch --------------------------------------------------------------
 
 def test_la_step_and_command(connected):
-    assert call("la_step", la=3, steps=100, delay=0.001) == {"la": 3, "steps": 100, "delay": 0.001,
+    assert call("la_step", la=3, steps=100, delay_s=0.001) == {"la": 3, "steps": 100, "delay": 0.001,
                                                              "status": "started"}
     assert connected.requests[-1]["delay_us"] == 1000
     sent = len(connected.requests)
     with pytest.raises(ToolError):
-        call("la_step", la=3, steps=70000, delay=0.001)      # the pod counts 16 bits
+        call("la_step", la=3, steps=70000, delay_s=0.001)      # the pod counts 16 bits
     with pytest.raises(ToolError):
-        call("la_step", la=3, steps=10, delay=0.1)           # half-period above 65.535 ms
+        call("la_step", la=3, steps=10, delay_s=0.1)           # half-period above 65.535 ms
     with pytest.raises(ToolError):
-        call("gpio_pulse", la=3, width=0.001, count=70000)
+        call("gpio_pulse", la=3, width_s=0.001, count=70000)
     assert len(connected.requests) == sent
     assert call("command", request={"cmd": "adc_read", "source": "cal1"})["reply"]["source"] == "cal1"
     with pytest.raises(ToolError):
@@ -907,9 +901,9 @@ def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch)
     pod = SESSION.require()
     seen = []
     monkeypatch.setattr(pod, "usb_network", lambda on=None: seen.append(on) or (on is not False), raising=False)
-    assert call("usb_network")["setting"] == "on"
-    res = call("usb_network", set="off")
-    assert res["setting"] == "off" and "usb-network on" in res["note"] and seen == [None, False]
+    assert call("usb_network")["enabled"] is True
+    res = call("usb_network", enabled=False)
+    assert res["enabled"] is False and "usb-network on" in res["note"] and seen == [None, False]
 
 
 def test_log_level_reads_and_sets(fake_open, fake_transport, monkeypatch):

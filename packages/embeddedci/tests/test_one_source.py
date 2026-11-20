@@ -63,8 +63,8 @@ def test_saved_connection_reads_the_cli_config(tmp_path):
     _save_config(tmp_path, {"connection": " 192.168.1.220 ", "last_serial": "/dev/x"})
     assert cli_config.saved_connection() == "192.168.1.220"
     assert cli_config.config_path() == tmp_path / "xdg" / "benchpod-cli" / "config.json"
-    _save_config(tmp_path, {"bench_pod_addr": "10.0.0.5:8080"})        # the legacy field
-    assert cli_config.saved_connection() == "10.0.0.5:8080"
+    _save_config(tmp_path, {"bench_pod_addr": "10.0.0.5:8080"})        # the legacy field: gone in 4.0
+    assert cli_config.saved_connection() is None
     _save_config(tmp_path, {"connection": "usb", "bench_pod_addr": "10.0.0.5"})
     assert cli_config.saved_connection() == "usb"
 

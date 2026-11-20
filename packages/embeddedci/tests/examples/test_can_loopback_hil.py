@@ -38,9 +38,9 @@ def test_can_internal_loopback_roundtrip(benchpod: BenchPod):
         can.write(0x123, [0xDE, 0xAD, 0xBE, 0xEF])
         can.write(0x7A5, [0x01], ext=False)
 
-        f1 = can.expect(can_id=0x123, timeout=1.0)
+        f1 = can.expect(0x123, timeout=1.0)
         assert f1.data == b"\xde\xad\xbe\xef"
-        f2 = can.expect(can_id=0x7A5, timeout=1.0)
+        f2 = can.expect(0x7A5, timeout=1.0)
         assert f2.data == b"\x01"
 
         st = can.status()
@@ -53,7 +53,7 @@ def test_can_extended_id_loopback(benchpod: BenchPod):
     _requires_can(benchpod)
     with benchpod.open_can(mode="internal") as can:
         can.write(0x18FF50E5, [0x11, 0x22], ext=True)
-        f = can.expect(can_id=0x18FF50E5, timeout=1.0)
+        f = can.expect(0x18FF50E5, timeout=1.0)
         assert f.ext and f.data == b"\x11\x22"
 
 
@@ -63,7 +63,7 @@ def test_can_external_loopback_roundtrip(benchpod: BenchPod):
     _requires_can(benchpod)
     with benchpod.open_can(bitrate=500_000, mode="external", term=True) as can:
         can.write(0x2AB, [0xC0, 0xFF, 0xEE])
-        f = can.read_until(can_id=0x2AB, timeout=1.0)
+        f = can.read_until(0x2AB, timeout=1.0)
         if f is None:
             st = can.status()
             pytest.skip(f"external loopback did not echo (tec={st['tec']} "

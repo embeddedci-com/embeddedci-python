@@ -183,3 +183,13 @@ def test_main_allow_missing_token_succeeds_without_a_session(tmp_path, monkeypat
 class _NoopReporter:
     active = False
     build_id = None
+
+
+def test_reset_is_a_flag_only():
+    """embeddedci 4.0: the old LA channel number for reset is refused."""
+    import pytest
+
+    assert upload_build._optional_flag("true") is True and upload_build._optional_flag("") is None
+    assert upload_build._optional_flag("0") is False
+    with pytest.raises(ValueError, match="true or false"):
+        upload_build._optional_flag("7")

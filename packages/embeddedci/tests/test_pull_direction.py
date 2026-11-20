@@ -1,6 +1,5 @@
-"""Pull resistors by direction (``set_pull(la, "up"|"down"|"off")``, firmware feature
-``la_pull_dir``): what the SDK sends to new firmware, the ``pullup`` fallback for older firmware,
-the refusals (BP0023 / BP0024) and the wiring profile's ``pulls`` map (firmware
+"""Pull resistors by direction (``set_pull(la, "up"|"down"|"off")``, the ``la_pull`` command):
+what the SDK sends, the refusals (BP0023 / BP0024) and the wiring profile's ``pulls`` map (firmware
 command_handler_pins.c handle_la, la_pins.c s_pulls_v3)."""
 
 from __future__ import annotations
@@ -72,7 +71,7 @@ def test_new_firmware_gets_the_direction():
     assert st.ohms == "4.7k"
     st = bp.set_pull(7, "down")
     assert pod.sent[-1] == {"cmd": "la_pull", "la": 7, "pull": "down"} and st.state == "down"
-    for off in ("off", None, False):
+    for off in ("off", None):
         st = bp.set_pull(7, off)
         assert pod.sent[-1] == {"cmd": "la_pull", "la": 7, "pull": "off"} and st.state == "off"
         assert not st.enabled and st.direction == "down"
@@ -95,14 +94,17 @@ def test_new_firmware_refusals_carry_the_code():
     assert st.direction is None and st.ohms == "" and st.state == "off"
 
 
-def test_true_false_and_enabled_still_work():
+def test_the_boolean_form_is_gone():
+    """embeddedci 4.0: set_pull takes a direction only (no True/False, no enabled=)."""
     bp, pod = _bp(3)
-    assert bp.set_pull(8, True).state == "down"          # True = the channel's own direction
-    assert pod.sent[-1] == {"cmd": "la_pull", "la": 8, "pull": "down"}
-    assert bp.set_pull(2, enabled=True).state == "up"
-    assert bp.set_pull(2, enabled=False).state == "off"
-    with pytest.raises(TypeError, match="needs pull"):
-        bp.set_pull(2)
+    for bad in (True, False):
+        with pytest.raises(TypeError, match="boolean form is gone"):
+            bp.set_pull(8, bad)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        bp.set_pull(2, enabled=True)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        bp.set_pull(2)  # type: ignore[call-arg]
+    assert pod.sent == []
     with pytest.raises(ValueError, match="pull"):
         bp.set_pull(2, "sideways")  # type: ignore[arg-type]
 

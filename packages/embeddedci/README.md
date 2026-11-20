@@ -218,7 +218,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `192.168.1.213`, `benchpod-baea06.local`, `[fe80::1]` | network: JSON over TLS on port 8443 (see [TLS on the LAN](#tls-on-the-lan)); an address on the pod's USB network adapter (`10.237.x.y`) is plaintext 8080 |
 | `host:8080`, `host:8443` | network on that port: `:8080` is plaintext (refused on Ethernet and Wi-Fi unless the pod's HTTPS-only is off), `:8443` TLS |
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
-| `usb` | USB pod, auto-detected by probing the serial ports (`serial` also accepted): its USB network adapter on firmware 3.9.0 and later (full API), else its USB console |
+| `usb` | USB pod, auto-detected by probing the serial ports: its USB network adapter (full API), else its USB console (status only) |
 | `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; the `benchpod login` session or an API key anywhere, or GitHub Actions OIDC) |
@@ -783,7 +783,7 @@ not set is never driven, and a call that needs it says which one to pass: `bp.fl
 `swclk`/`swdio` in the profile raises `ValueError: swd_swclk was not given and the wiring profile has
 no swd_swclk`. The default pins, what profiles used to default to (UART RX on LA5 and TX on LA4, I2C
 SDA on LA1 and SCL on LA2, SWD on LA11/LA12, 3.3 V, internal 5 V), are a preset:
-`Wiring.preset("embeddedci-default")` (the old name `"embeddedci-reference"` still works). They are
+`Wiring.preset("embeddedci-default")`. They are
 not the wiring of any particular bench: load your board's own profile by name
 (`BenchPod(conn, wiring_profile="process-node-stm32")`, `bp.load_wiring("process-node-stm32")`), as
 the [process-node example](https://github.com/embeddedci-com/examples/tree/main/process-node-stm32)
@@ -1288,11 +1288,9 @@ bp.disable_pullup(PIN1, PIN2)      # off, on a channel that pulls up
 A direction the channel can't pull raises `PullDirectionError` (a `FirmwareError` and a
 `ValueError`) with code `BP0024`, "LA7 supports pull-down only on this board", and `"up"` or `"down"`
 on a channel without a resistor raises it with `BP0023`. `.la`, `.want` and `.have` name the channel
-and the directions. `set_pull(la, True)` / `set_pull(la, False)` (or `enabled=`) still work but are
-deprecated: True pulls the channel's own direction.
-
-Firmware before the `la_pull_dir` feature (`bp.supports("la_pull_dir")`) only takes on/off; the SDK
-then sends that and checks the direction itself, so the calls above work on every pod.
+and the directions. The boolean form (`set_pull(la, True)`, `enabled=`) is gone in 4.0: pass the
+direction. The shortcuts `enable_pullup`, `disable_pullup`, `enable_pulldown` and
+`disable_pulldown` stay.
 
 An open-drain bus such as I2C must sit on LA1–LA6.
 
@@ -2269,7 +2267,7 @@ switches the 120 Ω termination off on exit.
 ```python
 with bp.open_can(bitrate=500_000, mode="internal") as can:
     can.write(0x123, [0xDE, 0xAD])
-    frame = can.expect(can_id=0x123, timeout=1.0)          # raises CanTimeout (.frames) on timeout
+    frame = can.expect(0x123, timeout=1.0)          # raises CanTimeout (.frames) on timeout
     assert frame.data == b"\xde\xad"
 
 with bp.open_can(bitrate=500_000, term=True) as can:        # on a real bus, 120 Ω termination in
@@ -2288,7 +2286,7 @@ padded with zeros to the next one.
 ```python
 with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
     can.write(0x123, bytes(range(64)))
-    frame = can.expect(can_id=0x123, timeout=1.0)
+    frame = can.expect(0x123, timeout=1.0)
     assert frame.fd and frame.brs and frame.data == bytes(range(64))
 ```
 
@@ -2666,7 +2664,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `MotorEmulator` (class) | `open_motor_emulator` | `configure()`, `boards()`, `probe()`, `read()`, `read_signed(reg)`, `write()`, `status()`, `trips()`, `clear_trips()`, `arm()`, `set_control()`, `set_pwm()`, `set_duties(a, b, c)`, `set_shape(shape)`, `set_protection()`, `set_battery()`, `battery_state()`, `set_pv_calibration(offset, gain)`, `sample()`, `time()`, `start_log()`, `stop_log()`, `read_log()`, `eeprom_read(addr, length)`, `eeprom_write(addr, data)`, `close()` |
 | `BatteryModel` | `MotorEmulator.set_battery` | `capacity_ah`, `ocv`, `r0_ohm`, `r1_ohm`, `tau_s`, `soc`, `v_min`, `v_max`, `invert_current` |
 | `EmulatorCalibration` | `open_motor_emulator(calibration=...)` | `codes_per_amp`, `codes_per_volt`, `offsets`, `sample_rate_hz`, `amps()`, `volts()`, `current_code()`, `bus_code()`, `resistance_code()` |
-| `Wiring` | `wiring`, `save_wiring` | see [Wiring profile](#wiring-profile); also `defaults()`, `load(path)`, `coerce(value)` (a `Wiring`, dict or file path), `from_dict(data, *, strict=True)` (`strict=False` keeps unknown keys in `extra`), `to_dict()`, `with_changes(**changes)`, `assignments()`, `pins()`, `la(name)`, `signal(name)`, `dut_dir(name)`, `pin_dut_dirs()`, `describe()`, `warnings()`, `la_voltage`, `i2c_address`, `dut_dirs` |
+| `Wiring` | `wiring`, `save_wiring` | see [Wiring profile](#wiring-profile); also `load(path)`, `coerce(value)` (a `Wiring`, dict or file path), `from_dict(data, *, strict=True)` (`strict=False` keeps unknown keys in `extra`), `to_dict()`, `with_changes(**changes)`, `assignments()`, `pins()`, `la(name)`, `signal(name)`, `dut_dir(name)`, `pin_dut_dirs()`, `describe()`, `warnings()`, `la_voltage`, `i2c_address`, `dut_dirs` |
 | `Signal` | `Wiring.signals` | `name`, `la`, `direction`, `active_low`, `description`, `to_dict()` |
 | `Waveform` | `WaveformLibrary` | `id`, `name`, `kind`, `sample_count`, `sample_rate_hz`, `bits`, `full_scale_v`, `recording_size_bytes`, `created_at`, `dac_path`, `segments`, `unit`, `is_recording` |
 | `WaveformLibrary` (class) | `waveforms` | `list()`, `get()`, `find()`, `save_recording()`, `save_waveform()`, `save_segments()`, `rename()`, `delete()`, `preview()`, `download_recording()`, `samples_b64(waveform_id)` |

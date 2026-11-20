@@ -26,7 +26,7 @@ def test_attach_drive_read_and_detach(connected):
     assert levels == [{"la": "EXT1", "level": 1}, {"la": 3, "level": 0}]
     everything = call("gpio_read")["levels"]
     assert len(everything) == 14 + 16 and everything[14] == {"la": "EXT1", "level": 1}
-    assert call("gpio_wait", la="EXT1", level=1, timeout=0.1)["reached"] is True
+    assert call("gpio_wait", la="EXT1", level=1, timeout_s=0.1)["reached"] is True
     assert call("gpio_release", la=["EXT1"])["released"] == ["EXT1"]
     assert call("expansion", detach=True)["attached"] is False
     assert connected.tca[6:8] == [0xFF, 0xFF]
@@ -41,6 +41,6 @@ def test_refusals(connected):
         call("expansion", chip="tca9555", addr=0x21)
     call("expansion", chip="tca9555")
     with pytest.raises(ToolError, match="pulses are timed by the FPGA"):
-        call("gpio_pulse", la="EXT1", width=0.001)
+        call("gpio_pulse", la="EXT1", width_s=0.001)
     with pytest.raises(ToolError, match="not both"):
         call("expansion", chip="tca9555", detach=True)

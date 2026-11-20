@@ -14,7 +14,7 @@ from conftest import call
 
 def test_capture_la_sends_the_trigger_and_reports_it(connected):
     result = call("capture_la", samples=500, sample_rate_hz=1e6, trigger_la=9,
-                  trigger_edge="falling", trigger_timeout=2.5)
+                  trigger_edge="falling", trigger_timeout_s=2.5)
     req = [r for r in connected.requests if r["cmd"] == "la_capture"][-1]
     assert req["trigger"] == {"la": 9, "edge": "falling"} and req["trigger_timeout_ms"] == 2500
     assert result["trigger"] == "LA9 falling"
@@ -60,13 +60,13 @@ def test_the_schema_bounds_the_trigger_arguments(connected):
     with pytest.raises(ToolError):
         call("capture_la", samples=100, trigger_la=9, trigger_edge="sideways")
     with pytest.raises(ToolError):
-        call("capture_la", samples=100, trigger_la=9, trigger_timeout=601)
+        call("capture_la", samples=100, trigger_la=9, trigger_timeout_s=601)
 
 
 # -- power profiles -------------------------------------------------------------------------
 
 def test_measure_power_reports_statistics_in_si_units(connected):
-    result = call("measure_power", duration=1.0)
+    result = call("measure_power", duration_s=1.0)
     assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 0, "duration_ms": 1000}
     assert result["efuse"] == 1 and result["n"] == 950
@@ -83,7 +83,7 @@ def test_measure_power_reports_statistics_in_si_units(connected):
 
 
 def test_measure_power_returns_a_trace_when_points_are_asked_for(connected):
-    result = call("measure_power", duration=1.0, points=4, efuse=2, rate_hz=500)
+    result = call("measure_power", duration_s=1.0, points=4, efuse=2, rate_hz=500)
     assert connected.requests[-1]["keep_samples"] == 4 and connected.requests[-1]["efuse"] == 2
     assert connected.requests[-1]["sample_rate_hz"] == 500
     assert result["trace_current"] == [0.04, 0.18, 0.05, 0.048]
@@ -93,13 +93,13 @@ def test_measure_power_returns_a_trace_when_points_are_asked_for(connected):
 
 
 def test_measure_power_downsamples_a_long_trace(connected):
-    result = call("measure_power", duration=1.0, points=2)
+    result = call("measure_power", duration_s=1.0, points=2)
     assert result["trace_current"] == [0.11, 0.049]  # two bins, averaged
     assert result["trace_step"] == pytest.approx(0.5)
 
 
 def test_power_profile_session_brackets_other_calls(connected):
-    started = call("power_profile_start", rate_hz=500, max_duration=5)
+    started = call("power_profile_start", rate_hz=500, max_duration_s=5)
     assert started == {"running": True, "efuse": 1, "rate_hz": 500.0, "max_duration": 5.0}
     assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 4096, "max_duration_ms": 5000,
@@ -126,10 +126,10 @@ def test_disconnect_forgets_the_running_profile(connected):
 
 def test_the_schema_bounds_the_power_arguments(connected):
     with pytest.raises(ToolError):
-        call("measure_power", duration=1.0, rate_hz=5000)
+        call("measure_power", duration_s=1.0, rate_hz=5000)
     with pytest.raises(ToolError):
-        call("measure_power", duration=0)
+        call("measure_power", duration_s=0)
     with pytest.raises(ToolError):
-        call("measure_power", duration=1.0, points=501)
+        call("measure_power", duration_s=1.0, points=501)
     with pytest.raises(ToolError):
-        call("power_profile_start", max_duration=601)
+        call("power_profile_start", max_duration_s=601)
