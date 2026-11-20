@@ -15,114 +15,93 @@ if not hasattr(errors, "PodLeasedError"):  # embeddedci 2.6.0, the pinned minimu
 FirmwareError, firmware_error = errors.FirmwareError, errors.firmware_error
 
 
-def _refuse(transport, cmd, message):
+def _refuse(transport, verb, code, **args):
+    """The pod refuses ``verb`` the way firmware 4.0 does: a code and its args, no message."""
     real = transport.command
 
     def command(req):
-        if req["cmd"] == cmd:
-            raise firmware_error(message, cmd=cmd)
+        if req["cmd"] == verb:
+            raise firmware_error("", cmd=verb, code=code, values=args)
         return real(req)
 
     transport.command = command
 
 
-def test_leased_names_the_holder_and_the_time_left(connected):
-    _refuse(connected, "la_step", "busy: a cloud job holds this pod (octo/ci run 9, 12 s left)")
+def _pulse_error() -> str:
     with pytest.raises(ToolError) as info:
         call("gpio_pulse", la=3, width=0.001, count=5)
-    msg = str(info.value)
-    assert "PodLeasedError: la_step: busy: a cloud job holds this pod (octo/ci run 9, 12 s left)" in msg
-    assert msg.endswith("Wait for that job to finish and retry; reads such as status still work "
-                        "meanwhile.")
+    return str(info.value)
+
+
+def test_leased_names_the_holder_and_the_time_left(connected):
+    _refuse(connected, "la_step", "BP0025", holder="octo/ci run 9", purpose="hil", left_s=12)
+    msg = _pulse_error()
+    assert "PodLeasedError: la_step: BP0025: octo/ci run 9 holds this pod (hil, 12 s left)" in msg
 
 
 def test_locked_says_to_use_the_cloud_or_usb(connected):
-    _refuse(connected, "la_step", "locked: la needs the cloud or the USB console")
-    with pytest.raises(ToolError, match=r"PodLockedError: .*connect with 'embeddedci:<device>'"):
-        call("gpio_pulse", la=3, width=0.001, count=5)
+    _refuse(connected, "la_step", "BP0040", cmd="la_step")
+    assert "PodLockedError: la_step: BP0040: The pod's LAN is locked: la_step needs the cloud or USB" in _pulse_error()
 
 
 def test_forbidden_says_who_may(connected):
-    _refuse(connected, "la_step", "forbidden: la needs an organization owner or admin")
-    with pytest.raises(ToolError, match=r"PermissionDeniedError: .*benchpod:admin scope"):
-        call("gpio_pulse", la=3, width=0.001, count=5)
+    _refuse(connected, "la_step", "BP0045", cmd="la_step")
+    assert "PermissionDeniedError: la_step: BP0045: la_step needs an organization owner or admin" in _pulse_error()
 
 
-needs_unsupported = pytest.mark.skipif(not hasattr(errors, "UnsupportedFeatureError"),
-                                       reason="needs UnsupportedFeatureError (embeddedci after 2.7.0)")
-
-
-@needs_unsupported
 def test_unknown_command_says_the_firmware_lacks_it(connected):
-    _refuse(connected, "la_step", "unknown cmd")
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    msg = str(info.value)
-    assert "UnsupportedFeatureError: la_step: unknown cmd" in msg
-    assert "firmware or gateware lacks the feature" in msg and "retrying will not help" in msg
+    _refuse(connected, "la_step", "BP0002", cmd="la_step")
+    msg = _pulse_error()
+    assert "UnsupportedFeatureError: la_step: BP0002: " in msg and "la_step" in msg
 
 
-@needs_unsupported
 def test_digital_board_says_it_has_no_analog(connected):
-    # The hint goes by the refusal's text, whichever command drew it.
-    _refuse(connected, "la_step", "this BenchPod has no analog front end (digital board): no DAC, ADC or "
-            "analog outputs. Restart the pod after fitting an analog add-on")
-    with pytest.raises(ToolError, match=r"UnsupportedFeatureError: .*digital-only board"):
-        call("gpio_pulse", la=3, width=0.001, count=5)
+    _refuse(connected, "la_step", "BP0046", cmd="la_step")
+    assert "UnsupportedFeatureError: la_step: BP0046: This BenchPod has no analog front end" in _pulse_error()
 
 
-def test_other_firmware_errors_have_no_hint(connected):
+def test_free_text_refusals_keep_their_text(connected):
     def command(req):
-        raise FirmwareError("unknown target", cmd=req["cmd"])
+        raise FirmwareError("missing steps", cmd=req["cmd"])
 
     connected.command = command
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith("FirmwareError: la_step: unknown target")
+    assert _pulse_error().endswith("FirmwareError: la_step: missing steps")
 
-
-# -- the firmware's protocol-level fixes, named as tools ---------------------------------------
-# Texts: benchpod-firmware stm32h563/src/command_handler.c (require_la_voltage) and la_pins.c.
 
 def test_la_voltage_not_set_names_set_la_voltage(connected):
-    _refuse(connected, "la_step", "la voltage not set; set it with la_voltage (mv 1800 or 3300) first")
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith("FirmwareError: la_step: la voltage not set; the wiring profile sets no "
-                                    "I/O voltage: ask the user for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in "
-                                    "the profile (set_wiring with la_mv 1800 or 3300, then save_wiring) "
-                                    "or call set_la_voltage")
+    _refuse(connected, "la_step", "BP0001")
+    msg = _pulse_error()
+    assert "FirmwareError: la_step: BP0001: The I/O voltage is not set; " in msg
+    assert "set_la_voltage" in msg
 
 
-@pytest.mark.parametrize("function, hint, fix", [
-    ("gpio", 'release it with {"cmd":"gpio","la":3,"mode":"off"}', "release it with gpio_release(la=[3])"),
-    ("uart_rx", "stop the uart proxy first", "close the UART session first with uart_close"),
-    ("swd_dio", "end the SWD session first", "wait for the running flash (its SWD session) to finish"),
-    ("i2c_scl", 'stop the sensor emulation first ({"cmd":"sensor_stop"})',
-     "stop the sensor emulation first with sensor_stop"),
-    ("sensor:env", 'stop the sensor emulation first ({"cmd":"sensor_stop","instance":"env"})',
-     'stop the sensor emulation first (sensor_stop(instance="env"))'),
-    ("spi_cs", 'stop the SPI session first ({"cmd":"spi_stop"})',
-     'stop the SPI session first: another client holds it (the command tool can send {"cmd":"spi_stop"})'),
-    ("step", "wait for the step train to finish", "wait for the step train to finish"),
-    ("can_rx", 'stop it with {"cmd":"can_stop"}', 'stop it with {"cmd":"can_stop"}'),  # unknown: as is
-])
-def test_pin_conflict_names_the_tool(connected, function, hint, fix):
-    _refuse(connected, "la_step", f"pin conflict: LA3 is in use by {function}; {hint}")
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    assert str(info.value).endswith(
-        f"PinConflictError: la_step: pin conflict: LA3 is in use by {function}; {fix}")
+def test_pin_conflict_names_the_tool(connected):
+    _refuse(connected, "la_step", "BP0031", la=3, owner="gpio", function="gpio", instance="")
+    msg = _pulse_error()
+    assert "PinConflictError: la_step: BP0031: LA3 is in use by gpio; free LA3 first: gpio_release(la=[3])" in msg
 
 
 def test_pull_conflict_names_set_pull(connected):
-    _refuse(connected, "la_step", "pull conflict: LA7 has its 10k pull-down engaged, which gpio open_drain "
-            "can't work with (a released line would read low); disable it with "
-            '{"cmd":"la","la":7,"pullup":"off"} or use another channel')
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    assert "PullConflictError: la_step: pull conflict: LA7" in str(info.value)
-    assert str(info.value).endswith('disable it with set_pull(las=[7], pull="off") or use another channel')
+    _refuse(connected, "la_step", "BP0032", la=7, ohms="10k", function="gpio open_drain",
+            reason="a released line would read low")
+    msg = _pulse_error()
+    assert "PullConflictError: la_step: BP0032: LA7 has its 10k pull-down on" in msg
+    assert 'set_pull(las=[7], pull="off")' in msg
+
+
+def test_dac_pinout_mismatch(connected):
+    _refuse(connected, "la_step", "BP0080", cmd="dac_out", digital="v3r4+", module="3.4")
+    msg = _pulse_error()
+    assert "DacPinoutMismatchError: la_step: BP0080: dac_out refused, the DAC is off" in msg
+    assert "the digital board and the analog module do not belong together" in msg
+
+
+def test_status_warns_about_a_dac_pinout_mismatch(connected):
+    real = connected.status
+    connected.status = lambda: dict(real(), module={"present": True, "dac_pinout_ok": False})
+    assert any("flat-cable pinouts" in w and "BP0080" in w for w in call("status")["warnings"])
+    connected.status = lambda: dict(real(), module={"present": True, "dac_pinout_ok": True})
+    assert not any("flat-cable" in w for w in call("status")["warnings"])
 
 
 def test_efuse_rails_are_named_the_same_everywhere():
@@ -152,9 +131,9 @@ def test_status_warns_about_a_cloud_lease_and_a_locked_lan(connected):
 
 def test_status_warns_about_a_weak_usb_port(connected):
     real = connected.status
-    connected.status = lambda: dict(real(), usb={"net": "on", "link": True, "source": "default", "source_ma": 500})
+    connected.status = lambda: dict(real(), usb={"net": True, "link": True, "source": "default", "source_ma": 500})
     assert any("default USB power (500 mA)" in w for w in call("status")["warnings"])
-    connected.status = lambda: dict(real(), usb={"net": "on", "link": True, "source": "3.0A", "source_ma": 3000})
+    connected.status = lambda: dict(real(), usb={"net": True, "link": True, "source": "3.0A", "source_ma": 3000})
     assert not any("USB power" in w for w in call("status")["warnings"])
 
 
@@ -224,15 +203,3 @@ def test_bp0030_on_a_tool_says_to_update_this_server(connected):
     assert "ClientTooOldError: la_step: this BenchPod MCP server" in msg
     assert "needs client API 2 or newer, this server sent 1" in msg
     assert "uvx embeddedci-mcp@latest" in msg
-
-
-def test_coded_la_voltage_keeps_this_servers_text(connected):
-    def command(req):
-        raise firmware_error("la voltage not set; set la_mv ...", cmd=req["cmd"], code="BP0001")
-
-    connected.command = command
-    with pytest.raises(ToolError) as info:
-        call("gpio_pulse", la=3, width=0.001, count=5)
-    msg = str(info.value)
-    assert "la_step: BP0001: la voltage not set; the wiring profile sets no I/O voltage" in msg
-    assert "call set_la_voltage" in msg

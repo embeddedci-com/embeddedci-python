@@ -42,8 +42,8 @@ def test_captures_without_a_trigger_are_unchanged(connected):
 
 
 def test_a_trigger_that_never_fires_is_a_tool_error(connected):
-    connected.error = "trigger timeout: no rising edge on LA9 within 10000 ms"
-    with pytest.raises(ToolError, match="TriggerTimeout: .*no rising edge on LA9"):
+    connected.error = ("BP0038", {"la": 9, "edge": "rising", "timeout_ms": 10000})
+    with pytest.raises(ToolError, match="TriggerTimeout: .*BP0038: No rising edge on LA9 within 10000 ms"):
         call("capture_la", samples=100, sample_rate_hz=1e6, trigger_la=9)
 
 

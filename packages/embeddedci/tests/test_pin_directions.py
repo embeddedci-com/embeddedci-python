@@ -1,5 +1,5 @@
 """Pin directions by default: the wiring profile's DUT direction per role and signal (dut_dirs),
-sent to the pod with la_dir on connect and on a new profile (firmware 3.10.4+)."""
+sent to the pod with la_dir on connect and on a new profile."""
 
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ def test_a_driven_pin_does_not_fail_the_connect_or_the_assignment():
     bp = BenchPod(transport=fake, wiring=Wiring.preset().with_changes(uart_rx=None))
     bp.gpio(9, "output")  # LA9 unwired: a push-pull GPIO is fine
     bp.wiring = Wiring.preset().with_changes(uart_rx=9)  # now the profile says LA9 is the DUT's TX
-    assert "direction conflict: LA9" in bp.pin_directions_status
+    assert "BP0035" in bp.pin_directions_status and "LA9" in bp.pin_directions_status
     # The rest still went out, DUT outputs last.
     assert fake.dirs[4] == "dut_input" and fake.dirs[1] == "bidir"
     with pytest.raises(DirectionConflictError):

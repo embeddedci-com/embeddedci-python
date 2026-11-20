@@ -72,7 +72,7 @@ from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
 from embeddedci.benchpod import errors as _errors
 from embeddedci.benchpod import protocol as _protocol
-from embeddedci.benchpod.errors import STATUS_FITS_FIRMWARE, FirmwareError, status_too_large
+from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.errors import BenchPodError
 from embeddedci.benchpod.server_api import ServerApi
 
@@ -159,72 +159,6 @@ def _refusal_hint(exc: BenchPodError) -> str:
     return ""
 
 
-#: The firmware's "la voltage not set; ..." (any firmware version).
-_LA_VOLTAGE_UNSET = "la voltage not set"
-_LA_VOLTAGE_MCP = ("la voltage not set; the wiring profile sets no I/O voltage: ask the user "
-                   "for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in the profile (set_wiring with la_mv "
-                   "1800 or 3300, then save_wiring) or call set_la_voltage")
-
-#: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint, the pull and
-#: gpio-output checks, command_handler_dap.c, command_handler_dac.c), named as this server's
-#: tools. Whole phrases first; anything not listed passes through unchanged. Kept here rather
-#: than taken from the SDK so the text is the same with every supported embeddedci release.
-_MCP_FIXES = (
-    (re.compile(r'release it with \{"cmd":"gpio","la":(\d+),"mode":"off"\}'),
-     r"release it with gpio_release(la=[\1])"),
-    (re.compile(r"stop the uart proxy first"),
-     "close the UART session first with uart_close"),
-    (re.compile(r"end the SWD session first"),
-     "wait for the running flash (its SWD session) to finish"),
-    (re.compile(r'\{"cmd":"sensor_stop","all":true\} then \{"cmd":"fpga_image","image":"(loop|deep)"\}'),
-     lambda m: 'sensor_stop() then fpga_image(image="'
-               + ("loop" if m.group(1) == "loop" else "deep_replay") + '")'),
-    (re.compile(r'stop them first \(\{"cmd":"sensor_stop","all":true\}\)'), "stop them first with sensor_stop"),
-    (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'sensor_stop(instance="\1")'),
-    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
-     "stop the sensor emulation first with sensor_stop"),
-    (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
-     'stop the SPI session first: another client holds it (the command tool can send '
-     '{"cmd":"spi_stop"})'),
-    (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
-     '(another client holds the SPI session; the command tool can send {"cmd":"spi_stop"})'),
-    (re.compile(r'stop the I2C session first \(\{"cmd":"i2c_stop"\}\)'),
-     "close the I2C session first with i2c_close"),
-    (re.compile(r"send i2c_stop first"), "call i2c_close first"),
-    (re.compile(r"send i2c_start first"), "call i2c_open first"),
-    (re.compile(r"i2c_start again"), "call i2c_open again"),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup":"on|pull":"up)"\}'), r'set_pull(las=[\1], pull="up")'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pull":"down"\}'), r'set_pull(las=[\1], pull="down")'),
-    (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup|pull)":"off"\}'), r'set_pull(las=[\1], pull="off")'),
-    (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'gpio_mode(la=[\1], mode="output")'),
-    (re.compile(r'\{"cmd":"fpga_image","image":0\}'), 'fpga_image(image="loop")'),
-    (re.compile(r'\{"cmd":"dac_loop_input"\}'), "loop_input"),
-)
-
-
-def _mcp_refusal_text(message: str) -> str:
-    """A pod refusal with its protocol-level fix named as this server's tool, or unchanged."""
-    if message.startswith(_LA_VOLTAGE_UNSET):
-        return _LA_VOLTAGE_MCP
-    for pattern, repl in _MCP_FIXES:
-        message = pattern.sub(repl, message)
-    return message
-
-
-def _error_text(exc: BenchPodError) -> str:
-    """``str(exc)``, with a firmware refusal's fix rewritten from the pod's own text (the SDK's
-    message names SDK calls; an agent here needs the tool names)."""
-    original = getattr(exc, "firmware_message", None)
-    if not isinstance(exc, _errors.FirmwareError) or not isinstance(original, str):
-        return str(exc)
-    text = _mcp_refusal_text(original)
-    if text == original:
-        return str(exc)
-    cmd = getattr(exc, "cmd", None)
-    return f"{cmd}: {text}" if cmd else text
-
-
 #: How to update this server, for a pod whose firmware is newer than it handles.
 _MCP_UPDATE = ("update embeddedci-mcp: uvx embeddedci-mcp@latest or pip install -U embeddedci-mcp, "
                "or update the benchpod plugin; then reconnect")
@@ -269,7 +203,8 @@ def _client_too_old_text(exc: BenchPodError) -> Optional[str]:
 
 
 def _coded_text(exc: BenchPodError) -> Optional[str]:
-    """A refusal with a stable error code, rendered with the catalog's fix for an agent."""
+    """A refusal with a stable error code, rendered from the catalog with its fix for an agent
+    (``fix.mcp``, naming this server's tools). The pod sends no text with a code."""
     from embeddedci.benchpod.errors import error_catalog
     code = getattr(exc, "code", "")
     entry = error_catalog().get("codes", {}).get(code) if code else None
@@ -278,9 +213,6 @@ def _coded_text(exc: BenchPodError) -> Optional[str]:
     values = getattr(exc, "values", {}) or {}
     fill = lambda t: re.sub(r"\{([a-z0-9_]+)\}", lambda m: str(values.get(m.group(1), "?")), t)  # noqa: E731
     cmd = getattr(exc, "cmd", None)
-    if code == "BP0001":   # this server's own text, as for firmware without codes
-        text = f"{code}: {_LA_VOLTAGE_MCP} (docs: {exc.docs_url})"
-        return f"{cmd}: {text}" if cmd else text
     text = f"{code}: {fill(entry['message'])}; {fill(entry['fix']['mcp'])} (docs: {exc.docs_url})"
     return f"{cmd}: {text}" if cmd else text
 
@@ -306,7 +238,7 @@ def _tool_error(exc: BenchPodError) -> ToolError:
     coded = _coded_text(exc)
     if coded:
         return ToolError(f"{type(exc).__name__}: {coded}")
-    msg = f"{type(exc).__name__}: {_error_text(exc)}"
+    msg = f"{type(exc).__name__}: {exc}"
     hint = _refusal_hint(exc)
     return ToolError(f"{msg}. {hint}" if hint else msg)
 
@@ -443,16 +375,15 @@ def _status() -> m.StatusResult:
     try:
         firmware = pod.status()
     except FirmwareError as exc:
-        # Firmware 3.10.4's status can be too large for the cloud channel. The connection works:
-        # report the status as unknown with the fix, rather than failing the connect.
-        if not status_too_large(exc.firmware_message, exc.cmd):
+        # A status too large for the cloud channel (BP0054): the connection works, so report the
+        # status as unknown rather than failing.
+        if exc.code != "BP0054":
             raise
         firmware = {}
-        warnings.append(f"this pod's status is too large for the cloud channel (firmware "
-                        f"{pod.capabilities.firmware_version or 'older'}): update the pod to firmware "
-                        f"{STATUS_FITS_FIRMWARE} or later; the status fields are unknown until then")
+        warnings.append("this pod's status is too large for the cloud channel; the status fields "
+                        "are unknown")
     if isinstance(firmware, dict) and firmware.get("short_form") and "lan_tls" not in firmware:
-        # The cloud status is the short form (firmware 3.10.5+): lan_tls is its own command there.
+        # The cloud status is the short form: lan_tls is its own command there.
         try:
             tls = pod.lan_tls()
             firmware["lan_tls"] = {"port": tls.port, "https_only": tls.https_only, "sha256": tls.sha256}
@@ -462,6 +393,12 @@ def _status() -> m.StatusResult:
     boot = Capabilities.from_status(firmware).boot_warning()
     if boot:
         warnings.append(boot)
+    module = firmware.get("module") if isinstance(firmware, dict) else None
+    if isinstance(module, dict) and module.get("dac_pinout_ok") is False:
+        warnings.append("DAC off: the digital board and the analog module use different flat-cable "
+                        "pinouts (module.dac_pinout_ok is false), so every DAC command is refused "
+                        "(BP0080). Tell the user the two boards do not belong together: a digital "
+                        "v3r4 or later board needs an analog module 3.5 or later")
     try:
         la = pod.get_la_voltage().voltage
     except BenchPodError:

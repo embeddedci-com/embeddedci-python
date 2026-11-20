@@ -280,16 +280,14 @@ def _one_or_many(las: List[int]) -> Any:
 
 @contextmanager
 def _classified_errors() -> Iterator[None]:
-    """Re-raise a pod refusal as its specific error (PinConflictError, PullConflictError, TriggerTimeout)."""
+    """Re-raise a coded pod refusal that reached here as a plain FirmwareError as its specific
+    error (PinConflictError, PullConflictError, TriggerTimeout, ...), from its code."""
     try:
         yield
     except FirmwareError as exc:
         specific = classify_firmware_error(exc)
         if specific is exc:
             raise
-        if exc.code:   # keep the pod's code on the specific error
-            from .errors import _attach_code
-            _attach_code(specific, exc.code, exc.values)
         raise specific from None
 
 
@@ -648,7 +646,8 @@ class BenchPod:
                     self._check_client_api(caps)
                 return caps
             self._caps = caps
-        self._check_client_api(self._caps)
+        if self._caps.api or self._caps.firmware_version:   # nothing to check without a status
+            self._check_client_api(self._caps)
         return self._caps
 
     def _check_client_api(self, caps: Capabilities) -> None:
@@ -2074,11 +2073,9 @@ class BenchPod:
         try:
             self.command({"cmd": "module"})
             header = "front"
-        except UnsupportedFeatureError:
-            header = None
         except BenchPodError as e:
-            # No code yet ("no module link"): firmware PR 2 of the codes plan.
-            header = "j1" if "no module link" in str(e).lower() else None
+            # BP0056: a digital board without the module link, so its header is J1.
+            header = "j1" if getattr(e, "code", "") == "BP0056" else None
         if header is None:
             try:
                 header = header_from_status(self.status())
@@ -2535,8 +2532,7 @@ class BenchPod:
             with _classified_errors():
                 info = _dict(self.command(req))
         except FirmwareError as exc:
-            # BP0003; the text for firmware without codes.
-            if exc.code == "BP0003" or (not exc.code and exc.firmware_message.startswith("i2c busy")):
+            if exc.code == "BP0003":   # i2c_session_open
                 exc.args = (self._i2c_busy_text(exc),)
             raise
         return _i2c_master.I2CMaster(self._classified_command, info)
@@ -3494,8 +3490,7 @@ class BenchPod:
         try:
             return self._la_pins_query(None)
         except FirmwareError as e:
-            # No code yet ("reply too large"): firmware PR 2 of the codes plan.
-            if "reply too large" not in str(getattr(e, "firmware_message", "") or e):
+            if e.code not in ("BP0053", "BP0054"):   # reply_too_large, cloud_reply_too_large
                 raise
             first = self._la_pins_query(list(range(1, 8)))
             return first + [p for p in self._la_pins_query(list(range(8, 15))) if p.la >= 8]

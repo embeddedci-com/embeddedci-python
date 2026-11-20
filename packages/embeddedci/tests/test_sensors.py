@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci.benchpod import BenchPod, Sensor, load_definition, load_stimulus, sensors
-from embeddedci.benchpod.errors import FirmwareError, UnsupportedFeatureError
+from embeddedci.benchpod.errors import firmware_error, FirmwareError, UnsupportedFeatureError
 from embeddedci.benchpod.sensors import yaml12
 from embeddedci.benchpod.sensors.definition import DefinitionError
 
@@ -152,7 +152,7 @@ class FakePod:
     def _known(self, req: dict) -> str:
         name = req["instance"]
         if name not in self.instances:
-            raise FirmwareError(f"unknown sensor instance '{name}'", cmd=req["cmd"])
+            raise firmware_error("", cmd=req["cmd"], code="BP0055", values={"instance": name})
         return name
 
     def command(self, req: dict) -> Any:
@@ -294,7 +294,7 @@ def test_handle_drives_set_fault_regs_capture_and_stop():
             s.set(temperature_c="hot")
     assert fake.commands[-1] == {"cmd": "sensor_stop", "instance": "bmp280"}
     assert bp.sensors.status()["instances"] == []
-    with pytest.raises(FirmwareError, match="unknown sensor instance 'bmp280'"):
+    with pytest.raises(FirmwareError, match="BP0055: The pod has no emulated sensor bmp280"):
         bp.sensors.set("bmp280", temperature_c=1)
 
 
@@ -330,9 +330,9 @@ def test_capture_waits_for_the_dut_on_firmware_with_sensor_la_trigger():
     with pytest.raises(ValueError, match="timeout_s"):
         s.capture(16, timeout_s=601)
     # the pod's answer when the DUT stays quiet is a TriggerTimeout on the SDA channel
-    err = classify_firmware_error(FirmwareError(
-        "trigger timeout: no falling edge on LA2 (SDA of probe) within 2000 ms; the DUT did not use the I2C bus"))
-    assert isinstance(err, TriggerTimeout) and (err.la, err.edge) == (2, "falling")
+    err = firmware_error("", cmd="sensor_la", code="BP0039",
+                         values={"la": 2, "instance": "probe", "timeout_ms": 2000})
+    assert isinstance(err, TriggerTimeout) and (err.la, err.edge) == (2, "start")
 
 
 def test_capture_of_a_uart_or_spi_sensor_points_at_la_capture():

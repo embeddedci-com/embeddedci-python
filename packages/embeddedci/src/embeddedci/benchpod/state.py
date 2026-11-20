@@ -621,6 +621,11 @@ class ModuleInfo:
     #: The stored calibration blob's length in bytes (0 = none) and whether its CRC matched.
     cal_len: int = 0
     cal_ok: bool = False
+    #: The digital board and the module use the same flat-cable DAC pinout. ``False``: the DAC is
+    #: off and every command that drives it is refused
+    #: (:class:`~embeddedci.benchpod.errors.DacPinoutMismatchError`, ``BP0080``); a digital v3r4 or
+    #: later board needs analog module 3.5 or later. ``None`` when the pod does not report it.
+    dac_pinout_ok: Optional[bool] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -630,7 +635,9 @@ class ModuleInfo:
         return cls(present=d.get("present") is True, analog=d.get("analog") is True,
                    power=d.get("power") is True, bridge_power=d.get("bridge_power") is True,
                    eeprom=str(d.get("eeprom", "none")), type=s("type"), rev=s("rev"), serial=s("serial"),
-                   cal_len=_opt_int(d, "cal_len") or 0, cal_ok=d.get("cal_ok") is True, raw=d)
+                   cal_len=_opt_int(d, "cal_len") or 0, cal_ok=d.get("cal_ok") is True,
+                   dac_pinout_ok=d["dac_pinout_ok"] if isinstance(d.get("dac_pinout_ok"), bool) else None,
+                   raw=d)
 
 
 @dataclass(frozen=True)

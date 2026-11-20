@@ -170,10 +170,9 @@ and firmware 3.10.10+ takes it from the active profile itself on the first LA op
 profile that sets its I/O voltage needs nothing else. `la_voltage` (1.8 or 3.3) still sets it right
 after connecting for this session, and `bp.set_la_voltage(3.3)` at any time; `bp.get_la_voltage()`
 returns a `LaVoltage` whose `voltage` is `None` until one is chosen. 1.8 V needs a rev3 pod. With
-no voltage anywhere, a refused command raises `FirmwareError` with the message `la voltage not set;
-the wiring profile sets no I/O voltage: set la_mv in it (bp.save_wiring(bp.wiring.with_changes(la_mv=3300)),
-1800 for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call bp.set_la_voltage(3.3)`
-(prefixed with the command, as every `FirmwareError` is).
+no voltage anywhere, a refused command raises `FirmwareError` with code `BP0001`: `The I/O voltage
+is not set; set the board's I/O voltage first: BenchPod(conn, la_voltage=3.3) ...` (prefixed with
+the command, as every `FirmwareError` is).
 
 **5 V I/O (digital board v3r4).** On a pod with the digital board v3r4 (`bp.supports("la_5v")`,
 `bp.capabilities.vref_out`), `bp.set_la_voltage(5.0)` (or `la_mv: 5000` in the profile) keeps the
@@ -363,10 +362,10 @@ macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_
 
 ## Error codes
 
-When the pod refuses a request, firmware with error codes sends a stable code with it, and the SDK
-puts it on the exception: `FirmwareError.code` (`"BP0009"`), `.values` (the values that go with it,
-`{"name": "k66", "rev": 2}`) and `.docs_url`. The message says what went wrong and how to fix it
-from Python:
+When the pod refuses a request it can explain, it sends a stable code and its values, and no text
+(firmware 4.0). The SDK puts them on the exception: `FirmwareError.code` (`"BP0009"`), `.values`
+(`{"name": "k66", "rev": 2}`) and `.docs_url`, and renders the message from the error catalog it
+ships (benchpod-firmware's `errors/errors.json`): what went wrong and how to fix it from Python:
 
 ```text
 wiring_put: BP0009: The wiring profile k66 changed since it was loaded (it is now at revision 2);
@@ -375,27 +374,34 @@ load it again (bp.load_wiring("k66")), redo your change and save, or save under 
 ```
 
 A code never changes meaning and is never reused, so match on `exc.code` (or the exception
-class) in tests and scripts, not on the text: the text may change between releases.
-`embeddedci.benchpod.errors.explain("BP0009")` prints a code's entry offline.
-[embeddedci.com/docs/errors](https://embeddedci.com/docs/errors) lists every code.
+class) in tests and scripts, not on the text: the text may change between releases. The SDK itself
+never reads a refusal's text. `embeddedci.benchpod.errors.explain("BP0009")` prints a code's entry
+offline. [embeddedci.com/docs/errors](https://embeddedci.com/docs/errors) lists every code.
 
 The code also picks the exception class, and the code's values fill its fields:
 
 | Codes | Class | Fields |
 |---|---|---|
-| `BP0002` unknown command, `BP0017` gateware too old | `UnsupportedFeatureError` | `feature` (the command, or the feature the gateware lacks) |
-| `BP0003`, `BP0004` I2C / SPI session open, `BP0005` SWD/SPI/I2C engine busy, `BP0016` storage busy | `PodBusyError` | |
+| `BP0002` unknown command, `BP0017` gateware too old, `BP0046` no analog front end, `BP0056` no module link, `BP0058`, `BP0059` not in the running image, `BP0060` unknown update target, `BP0064` sweep with an input map, `BP0076` to `BP0078` USB host | `UnsupportedFeatureError` | `feature` (the command, the feature, `"analog"`, `"module"`, ...) |
+| `BP0080` the board and module flat-cable pinouts differ (the DAC is off) | `DacPinoutMismatchError` (an `UnsupportedFeatureError`) | `digital`, `module` |
+| `BP0003`, `BP0004`, `BP0049`, `BP0050` an I2C, SPI, UART or SWD session is open, `BP0005` the bus engine is busy, `BP0016`, `BP0048` storage busy, `BP0047` another long command, `BP0051` an update, `BP0052` the previous cloud command, `BP0066` a step train | `PodBusyError` | |
 | `BP0007` to `BP0015` wiring profiles | `WiringError` | `name` |
 | `BP0023`, `BP0024` pull resistors | `PullDirectionError` | `la`, `want`, `have` |
 | `BP0025` lease held by someone else | `PodLeasedError` | `holder`, `purpose`, `left_s` |
 | `BP0026` lease stopped | `PodLeaseLostError` | `by` |
 | `BP0030` client too old | `ClientTooOldError` | `client_api`, `min_client_api`, `api` |
-| every other code (`BP0001` I/O voltage not set, `BP0006` missing argument, `BP0018` to `BP0022` UART options, `BP0027` lease not held, `BP0028`, `BP0029` pin 21) | `FirmwareError` | |
+| `BP0031` pin in use | `PinConflictError` | `la`, `function`, `owner`, `instance` |
+| `BP0032`, `BP0033` pull-down conflicts | `PullConflictError` | `la` |
+| `BP0034`, `BP0035` DUT output conflicts | `DirectionConflictError` | `la` |
+| `BP0038`, `BP0039` trigger timeouts | `TriggerTimeout` | `la`, `edge` (`"start"` for `BP0039`) |
+| `BP0040` to `BP0044` LAN lock and settings the LAN may not change, `BP0075` plaintext 8080 off | `PodLockedError` | |
+| `BP0045` owner or admin only | `PermissionDeniedError` | |
+| `BP0053`, `BP0054` reply too large | `ReplyTooLargeError` | |
+| every other code (`BP0001` I/O voltage not set, `BP0006` missing argument, UART options, capture limits, ...) | `FirmwareError` | |
 
-Older firmware sends no code (`.code == ""`): the SDK then classifies the refusal from its text into
-the same classes. Refusals that have no code yet (pin, pull and direction conflicts, a LAN policy
-lock, `forbidden`, a trigger timeout, a reply too large) are classified from their text on every
-firmware. A code newer than this SDK is kept on `.code`, and its class comes from the text.
+A refusal without a code (an argument the pod checks itself, such as `"missing steps"`) keeps the
+pod's text as its message and is a plain `FirmwareError` (`.code == ""`). A code newer than this
+SDK is kept on `.code`, with a message that says to update the SDK.
 
 ## API conventions and stability
 
@@ -1322,13 +1328,14 @@ silently override the other, and the message names the SDK call that frees the c
 bp.gpio(4)
 try:
     bp.open_uart(rx=3, tx=4)
-except PinConflictError as exc:  # pin conflict: LA4 is in use by gpio; release it with bp.release_gpio(4)
+except PinConflictError as exc:  # open_uart: BP0031: LA4 is in use by gpio; free LA4 first: bp.release_gpio(4) ...
     bp.release_gpio(exc.la)
 ```
 
-The other owners point to `bp.sensors.stop("<instance>")`, closing the session from
-`bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train to finish. The pod's own
-text, with its raw protocol command, stays in `exc.firmware_message`.
+`exc.function` and `exc.owner` say who holds it (`exc.instance` names an emulated sensor); the
+message lists the ways to free a channel: `bp.release_gpio(la)`, `bp.sensors.stop("<instance>")`,
+closing the session from `bp.open_uart()` or `bp.open_spi()`, or waiting for a flash or step train
+to finish.
 
 `bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`, `pull_dirs`);
 `bp.la_pins(la=[3, 4])` only those channels. A listing too large for one cloud reply (a long
@@ -1817,7 +1824,10 @@ bp.set_module_id("am-3f9a1c07b2e4", "3.3")   # serial (up to 16 characters) and 
 `ModuleInfo` has the live `present` flag, `analog` (the module is the pod's analog front end), the
 two rails (`power`, `bridge_power`), the EEPROM state (`eeprom`: `"ok"`, `"blank"`, `"bad magic"`,
 `"bad crc"`, `"bad length"`, `"none"`), and with `"ok"` the `type`, `rev` and `serial`, plus the stored
-calibration blob's `cal_len` and `cal_ok`. `set_module_id(serial, rev, module_type="analog")` writes
+calibration blob's `cal_len` and `cal_ok`. `dac_pinout_ok` is `False` when the digital board and
+the module use different flat-cable DAC pinouts (a digital v3r4 or later board needs analog module
+3.5 or later): the DAC is then off and every command that drives it raises
+`DacPinoutMismatchError` (`BP0080`). `set_module_id(serial, rev, module_type="analog")` writes
 the identity and keeps the calibration. A serial names one module for life: a module that already
 has another serial is refused unless `replace=True`. The revision (`"3.3"` for analog-v3r3) decides
 features such as the ADC low range (3.4 and later) after the pod's next restart. Other boards answer
@@ -2508,18 +2518,20 @@ Match a pod refusal on its code or class, not its text: see [Error codes](#error
 | `TransportTimeout` (a `TransportError` and a `TimeoutError`) | the pod or tunnel did not answer in time | |
 | `ConnectionClosedError` (a `TransportError`) | the connection ended or reset before the reply | |
 | `TlsPinMismatchError` (a `TransportError`) | the pod's TLS certificate is not the one pinned for it (see [TLS on the LAN](#tls-on-the-lan)) | `addr`, `pinned`, `got` |
-| `FirmwareError` | the pod replied with an error (e.g. "la voltage not set"); a fix the firmware spells as a raw protocol command is rewritten into the SDK call in the message, and `firmware_message` keeps the pod's own text | `firmware_message`, `cmd` |
+| `FirmwareError` | the pod replied with an error: a coded refusal (see [Error codes](#error-codes)), rendered from the catalog, or a refusal without a code, with the pod's text | `code`, `values`, `docs_url`, `firmware_message` (the pod's text, `""` for a coded refusal), `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
 | `DeviceBusyError` | a device lease was not granted within `lease_wait` | |
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
-| `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or the USB console | `firmware_message`, `cmd` |
-| `PodBusyError` (a `FirmwareError`) | the pod is busy (`busy: …`), e.g. a capture or upload is running; an I2C or SPI session is already open (`BP0003`, `BP0004`), the engine that runs SWD, SPI and I2C is in use (`BP0005`), the storage cannot save while the DAC or a capture runs (`BP0016`) | `firmware_message`, `cmd` |
+| `PodLockedError` (a `FirmwareError`) | the pod's LAN policy keeps the command for the cloud or USB (`BP0040` to `BP0044`), or plaintext 8080 is off on the LAN (`BP0075`) | `code`, `cmd` |
+| `PodBusyError` (a `FirmwareError`) | the pod is busy: a session is already open (`BP0003`, `BP0004`, `BP0049`, `BP0050`), the bus engine or the storage is in use (`BP0005`, `BP0016`, `BP0048`), another long command, update or cloud command runs (`BP0047`, `BP0051`, `BP0052`), a step train runs (`BP0066`) | `code`, `cmd` |
+| `ReplyTooLargeError` (a `FirmwareError`) | the reply did not fit the pod's reply buffer (`BP0053`) or the cloud channel (`BP0054`) | `code`, `values` |
+| `DacPinoutMismatchError` (an `UnsupportedFeatureError`) | the DAC is off: the digital board and the analog module use different flat-cable pinouts (`BP0080`) | `digital`, `module` |
 | `PodLeasedError` (a `PodBusyError`, `DeviceBusyError` and `TransportError`) | someone else holds the pod's lease (`BP0025`), a cloud job holds the pod (its refusal on the LAN, or the server's HTTP 409), or the lease did not free within `lease_wait` | `holder`, `purpose`, `left_s`, `expires_at`, `status` |
 | `PodLeaseLostError` (a `FirmwareError`) | the pod's lease this session held was stopped from the web app or the cloud (`BP0026`); the command did not run | `by` |
-| `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `forbidden: …` on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
-| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it answers `unknown cmd` (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end | `feature`, `firmware_version`, `firmware_message`, `cmd` |
+| `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `BP0045` (owner or admin only) on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
+| `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it does not know the command (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end (`BP0046`, `feature="analog"`) | `feature`, `firmware_version`, `code`, `cmd` |
 | `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
 | `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |
 | `FirmwareTooOldError` (an `UnsupportedFeatureError`) | the pod runs firmware 3.x (client API below 2), which this SDK does not drive (raised on connect). Update the pod: `benchpod flash-self`, or the firmware update in the web app; or use embeddedci 3.x with it | `api`, `firmware_version`, `feature` (`"client_api"`) |

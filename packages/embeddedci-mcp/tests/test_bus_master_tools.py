@@ -37,15 +37,13 @@ def test_i2c_open_replaces_the_open_session(connected):
     assert connected.i2c["sda"] == 3
 
 
-def test_i2c_refusals_name_the_tools():
-    from embeddedci_mcp.server import _mcp_refusal_text
-
-    assert "i2c_close" in _mcp_refusal_text(
-        'pin conflict: LA1 is in use by i2cm_sda; stop the I2C session first ({"cmd":"i2c_stop"})')
-    assert _mcp_refusal_text("no I2C session: send i2c_start first").endswith("call i2c_open first")
-    text = _mcp_refusal_text('I2C needs pull-ups: switch on LA1\'s with {"cmd":"la","la":1,"pullup":"on"}, '
-                             'or pass "pullups":"external"')
-    assert 'set_pull(las=[1], pull="up")' in text and 'pullups="external"' in text
+def test_i2c_refusals_name_the_tools(connected):
+    with pytest.raises(ToolError, match=r"no I2C session is open: call i2c_open first"):
+        call("i2c_scan")
+    call("i2c_open", sda=1, scl=2)
+    connected.i2c = None                           # the pod lost the session (an engine reset)
+    with pytest.raises(ToolError, match=r"BP0062: No I2C session is open; call i2c_open first"):
+        call("i2c_scan")
 
 
 def test_la_dir_sets_lists_and_follows_the_wiring(connected):

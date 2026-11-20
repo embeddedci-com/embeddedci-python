@@ -14,7 +14,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Dict, List, Optional
 
-from embeddedci.benchpod.errors import FirmwareError, TransportError
+from embeddedci.benchpod.errors import FirmwareError, TransportError, firmware_error
 from embeddedci.benchpod.transport.base import RawLink, Transport
 
 
@@ -183,9 +183,9 @@ class FakeTransport(Transport):
         elif mode is not None:
             for la in las:
                 if self.function[la] not in ("none", "gpio"):
-                    raise FirmwareError(
-                        f"pin conflict: LA{la} is in use by {self.function[la]}; "
-                        "stop it first", cmd="gpio")
+                    fn = self.function[la]
+                    raise firmware_error("", cmd="gpio", code="BP0031", values={
+                        "la": la, "owner": fn, "function": fn, "instance": ""})
             for la in las:
                 self.function[la], self.mode[la] = "gpio", mode
                 self.level[la] = (None if mode == "input"

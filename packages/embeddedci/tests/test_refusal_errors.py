@@ -1,7 +1,5 @@
-"""Typed errors for the pod's policy refusals (locked/busy/forbidden) and the server's 403/409.
-
-The texts are the firmware's (benchpod-firmware stm32h563/src/command_handler.c dispatch_line,
-pod_policy.c) and the server's (writeLeaseBusy, writeJSONError)."""
+"""Typed errors for the server's 403 and 409 (writeLeaseBusy, writeJSONError). The pod's own
+refusals are classified by their code: test_error_codes.py."""
 
 from __future__ import annotations
 
@@ -14,82 +12,11 @@ import pytest
 
 from embeddedci.benchpod.errors import (
     DeviceBusyError,
-    FirmwareError,
     PermissionDeniedError,
-    PinConflictError,
-    PodBusyError,
     PodLeasedError,
-    PodLockedError,
-    PullConflictError,
     TransportError,
-    firmware_error,
 )
-from embeddedci.benchpod.protocol import Reply, raise_for_status
 from embeddedci.benchpod.transport.cloud import CloudTransport
-
-
-@pytest.mark.parametrize("text", [
-    "locked: generate needs the cloud or the USB console",
-    "locked: generate needs the cloud or USB",
-    "sig_policy: change it from the cloud or the USB console",
-    "lan_policy: change it from the cloud or the USB console",
-    "cloud_ca: change it from the cloud or the USB console",
-    "cloud_proxy: change it from the cloud or over USB",
-    "usb_network: change it on the device (the USB console, or over the USB link)",
-    "sig_policy: only the USB console can loosen the policy (now required)",
-])
-def test_locked(text):
-    err = firmware_error(text, cmd="x")
-    assert type(err) is PodLockedError and isinstance(err, FirmwareError)
-
-
-def test_leased_carries_holder_and_time_left():
-    err = firmware_error("busy: a cloud job holds this pod (octo/repo run 7, 42 s left)", cmd="gpio")
-    assert type(err) is PodLeasedError
-    assert err.holder == "octo/repo run 7" and err.left_s == 42
-    assert isinstance(err, PodBusyError) and isinstance(err, FirmwareError)
-    assert isinstance(err, DeviceBusyError)
-    assert err.firmware_message.startswith("busy:") and err.cmd == "gpio"
-
-
-def test_status_too_large_for_the_cloud_names_the_fix():
-    err = firmware_error("reply too large for the cloud channel (1838 bytes, limit 1791)", cmd="status")
-    assert isinstance(err, FirmwareError)
-    assert "too large for the cloud channel" in str(err) and "firmware 3.10.5" in str(err)
-    # Other commands' size refusals are left as they are.
-    other = firmware_error("reply too large for the cloud channel (1900 bytes, limit 1791)", cmd="la_pins")
-    assert "3.10.5" not in str(other)
-
-
-def test_la_pins_too_large_names_the_update():
-    for msg in ("reply too large", "reply too large for the cloud channel (2288 bytes, limit 1791)"):
-        err = firmware_error(msg, cmd="la_pins")
-        assert err.firmware_message == msg
-        assert "firmware after 3.10.12 reads this list in parts" in str(err)
-        assert "benchpod flash-self" in str(err) and "la_pins(la=" in str(err)
-    assert "3.10.12" not in str(firmware_error("reply too large", cmd="gpio"))
-
-
-def test_busy_without_a_lease():
-    err = firmware_error("busy: a capture or upload is running")
-    assert type(err) is PodBusyError
-
-
-def test_forbidden():
-    err = firmware_error("forbidden: generate needs an organization owner or admin", cmd="generate")
-    assert type(err) is PermissionDeniedError and isinstance(err, FirmwareError)
-    assert err.status is None
-
-
-def test_raise_for_status_raises_the_typed_error():
-    with pytest.raises(PodLockedError):
-        raise_for_status(Reply(status="error", message="locked: la needs the cloud or the USB console"),
-                         cmd="la")
-
-
-def test_other_refusals_stay_plain():
-    assert type(firmware_error("la voltage not set")) is FirmwareError
-    assert type(firmware_error("swd busy: an SPI session is using the engine")) is FirmwareError
 
 
 def test_server_api_403_is_permission_denied(monkeypatch):
@@ -147,65 +74,3 @@ def test_cloud_command_409_is_leased(monkeypatch):
 # command_handler_dac.c.
 
 LA_VOLTAGE_FW = "la voltage not set; set it with la_voltage (mv 1800 or 3300) first"
-
-
-def test_la_voltage_not_set_names_the_sdk_ways_to_set_it():
-    err = firmware_error(LA_VOLTAGE_FW, cmd="uart_proxy_start")
-    assert type(err) is FirmwareError
-    assert str(err) == ("uart_proxy_start: la voltage not set; the wiring profile sets no I/O voltage: "
-                        "set la_mv in it (bp.save_wiring(bp.wiring.with_changes(la_mv=3300)), 1800 "
-                        "for a 1.8 V board), or pass BenchPod(conn, la_voltage=3.3), or call "
-                        "bp.set_la_voltage(3.3)")
-    assert err.firmware_message == LA_VOLTAGE_FW and err.cmd == "uart_proxy_start"
-    assert "la voltage not set" in str(err)  # what callers match on
-
-
-@pytest.mark.parametrize("function, hint, fix", [
-    ("gpio", 'release it with {"cmd":"gpio","la":4,"mode":"off"}', "release it with bp.release_gpio(4)"),
-    ("uart_tx", "stop the uart proxy first",
-     "close the UART session from bp.open_uart() first (session.close(), or leave its with block)"),
-    ("swd_clk", "end the SWD session first", "wait for the running flash (its SWD session) to finish"),
-    ("i2c_sda", 'stop the sensor emulation first ({"cmd":"sensor_stop"})',
-     "stop the sensor emulation first with bp.sensors.stop()"),
-    ("sensor:env", 'stop the sensor emulation first ({"cmd":"sensor_stop","instance":"env"})',
-     'stop the sensor emulation first (bp.sensors.stop("env"))'),
-    ("spi_sck", 'stop the SPI session first ({"cmd":"spi_stop"})',
-     "close the SPI session from bp.open_spi() first (spi.close(), or leave its with block)"),
-    ("step", "wait for the step train to finish", "wait for the step train to finish"),
-    ("can_rx", 'stop it with {"cmd":"can_stop"}', 'stop it with {"cmd":"can_stop"}'),  # unknown: as is
-])
-def test_pin_conflict_names_the_sdk_call(function, hint, fix):
-    fw = f"pin conflict: LA4 is in use by {function}; {hint}"
-    err = firmware_error(fw, cmd="gpio")
-    assert type(err) is PinConflictError and isinstance(err, FirmwareError)
-    assert err.la == 4 and err.function == function
-    assert str(err) == f"gpio: pin conflict: LA4 is in use by {function}; {fix}"
-    assert err.firmware_message == fw
-
-
-def test_pull_conflict_names_set_pull():
-    fw = ("pull conflict: LA7 has its 10k pull-down engaged, which uart_rx can't work with (the line "
-          'idles high); disable it with {"cmd":"la","la":7,"pullup":"off"} or use another channel')
-    err = firmware_error(fw, cmd="uart_proxy_start")
-    assert type(err) is PullConflictError and err.la == 7
-    assert str(err).endswith('disable it with bp.set_pull(7, "off") or use another channel')
-    assert err.firmware_message == fw
-
-
-@pytest.mark.parametrize("fw, fixed", [
-    ('LA4 is not a gpio output (function gpio, gpio input); configure it with '
-     '{"cmd":"gpio","la":4,"mode":"output"}', 'configure it with bp.gpio(4, "output")'),
-    ('swd busy: an SPI session is using the engine ({"cmd":"spi_stop"})',
-     "using the engine (close the SPI session from bp.open_spi() first)"),
-    ('control loop not in the running gateware image (switch with {"cmd":"fpga_image","image":0})',
-     "(switch with bp.fpga_image(0))"),
-])
-def test_other_protocol_fixes_name_the_sdk_call(fw, fixed):
-    err = firmware_error(fw)
-    assert str(err).endswith(fixed) and err.firmware_message == fw
-
-
-def test_unknown_text_passes_through():
-    for text in ("unknown target", 'something odd {"cmd":"mystery"}'):
-        err = FirmwareError(text, cmd="x")
-        assert str(err) == f"x: {text}" and err.firmware_message == text

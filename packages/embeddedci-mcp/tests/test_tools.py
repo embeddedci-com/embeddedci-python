@@ -76,7 +76,7 @@ def test_every_tool_is_described_annotated_and_structured():
 def test_instructions_carry_the_session_start():
     assert mcp.instructions == INSTRUCTIONS
     for needle in ("connect", "set_la_voltage", "LA7/LA8", "flash runs OpenOCD",
-                   "Call `wiring` first", "gpio_release", "pin conflict", "trigger_la",
+                   "Call `wiring` first", "gpio_release", "PinConflictError", "trigger_la",
                    "measure_power"):
         assert needle in INSTRUCTIONS
 
@@ -131,16 +131,15 @@ def test_status_warns_about_safe_mode_and_crashes(fake_open, fake_transport, mon
 
 
 def test_status_too_large_for_the_cloud_keeps_the_connection(fake_open, fake_transport, monkeypatch):
-    # Firmware 3.10.4 over the cloud: its status did not fit the cloud channel and connect failed.
-    from embeddedci.benchpod.errors import FirmwareError
+    # A status that does not fit the cloud channel (BP0054): connect still works.
+    from embeddedci.benchpod.errors import firmware_error
 
     def too_large():
-        raise FirmwareError("reply too large for the cloud channel (1838 bytes, limit 1791)",
-                            cmd="status")
+        raise firmware_error("", cmd="status", code="BP0054", values={"bytes": 1838, "limit": 1791})
     monkeypatch.setattr(fake_transport, "status", too_large)
     result = call("connect", connection="192.168.1.50", la_voltage=3.3)
     assert result["connected"] is True and result["firmware"] == {}
-    assert any("too large for the cloud channel" in w and "3.10.5" in w for w in result["warnings"])
+    assert any("too large for the cloud channel" in w for w in result["warnings"])
 
 
 def test_short_form_status_gets_lan_tls_from_its_command(fake_open, fake_transport, monkeypatch):
@@ -558,7 +557,7 @@ def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
 
     with pytest.raises(ToolError):
         call("sensor_set", instance="a" * 17, values={"x": 1})
-    with pytest.raises(ToolError, match="unknown sensor instance 'nope'"):
+    with pytest.raises(ToolError, match="BP0055: The pod has no emulated sensor nope"):
         call("sensor_set", instance="nope", values={"x": 1})
     assert call("sensor_stop", instance="probe") == {"stopped": True, "instances": ["probe"]}
     assert call("sensor_stop") == {"stopped": True, "instances": ["env"]}

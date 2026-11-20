@@ -156,16 +156,15 @@ def test_deep_replay_switches_from_the_emulation_image():
     assert {"cmd": "fpga_image", "image": 1} in pod.commands and handle.deep
 
 
-def test_the_emulation_image_refusal_reads_as_sdk_calls():
-    from embeddedci.benchpod.errors import _sdk_refusal_text
+def test_the_emulation_image_refusals_read_as_sdk_calls():
+    from embeddedci.benchpod.errors import UnsupportedFeatureError, firmware_error
 
-    msg = ('control loop is not in the emulation image, which the emulated sensors use: '
-           '{"cmd":"sensor_stop","all":true} then {"cmd":"fpga_image","image":"loop"}')
-    assert _sdk_refusal_text(msg).endswith(
-        "use: bp.sensors.stop() then bp.fpga_image(FpgaImage.LOOP)")
-    msg = ('image switch refused: the emulated sensors env, imu need the emulation image; stop '
-           'them first ({"cmd":"sensor_stop","all":true})')
-    assert _sdk_refusal_text(msg).endswith("stop them first with bp.sensors.stop()")
+    e = firmware_error("", cmd="dac_control_loop", code="BP0059",
+                       values={"feature": "control loop", "image": "loop"})
+    assert isinstance(e, UnsupportedFeatureError) and e.feature == "control loop"
+    assert "bp.sensors.stop()" in str(e)
+    e = firmware_error("", cmd="fpga_image", code="BP0057", values={"sensors": "env, imu"})
+    assert "env, imu" in str(e) and "bp.sensors.stop()" in str(e)
 
 
 # -- replay --------------------------------------------------------------------------------

@@ -9,6 +9,11 @@ Pairs with BenchPod firmware 4.0.0 and embeddedci 4.0. Breaking changes:
   (`benchpod flash-self` or the web app). The instructions say so too.
 - `generate` returns no `bits` (the pod always plays 16 bits).
 - A serial device path (the USB console) supports `status` only.
+- **Refusals by code only.** Every coded refusal is rendered from the catalog with its MCP fix
+  (`fix.mcp`, naming this server's tools); the text rewrites of raw protocol commands are gone. A
+  refusal without a code keeps the pod's text.
+- `status` warns when `module.dac_pinout_ok` is false: the DAC is off because the digital board
+  and the analog module do not belong together (`BP0080`).
 
 ## 3.0.6
 

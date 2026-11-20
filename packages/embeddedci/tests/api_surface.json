@@ -469,6 +469,9 @@
   },
   "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
   "DacPath": "Literal['3v3', '5v', '12v', 'current_out']",
+  "DacPinoutMismatchError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, digital: 'str' = '', module: 'str' = '') -> 'None'"
+  },
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
   "DefinitionError": {
     "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
@@ -842,6 +845,7 @@
       "serial",
       "cal_len",
       "cal_ok",
+      "dac_pinout_ok",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'ModuleInfo'\""
@@ -919,7 +923,7 @@
     }
   },
   "PinConflictError": {
-    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, function: 'str' = '') -> 'None'"
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, function: 'str' = '', owner: 'str' = '', instance: 'str' = '') -> 'None'"
   },
   "PodBusyError": {},
   "PodLeaseLostError": {
@@ -1003,6 +1007,7 @@
     "__init__": "(self, *, stop: 'Callable[[], Any]', samples: 'int' = 0, sample_rate_hz: 'float' = 0.0, dac_path: 'str' = '', deep: 'bool' = False, data: 'Optional[dict]' = None, cotrig: 'bool' = False, switched_image: \"Optional['FpgaImageInfo']\" = None) -> 'None'"
   },
   "ReplayMapping": "Literal['faithful', 'fit']",
+  "ReplyTooLargeError": {},
   "ResetState": {
     "__fields__": [
       "asserted",
@@ -1381,6 +1386,7 @@
     "DacOutput",
     "DacOutputPath",
     "DacPath",
+    "DacPinoutMismatchError",
     "DecodeProtocol",
     "DefinitionError",
     "DeviceBusyError",
@@ -1462,6 +1468,7 @@
     "RailPower",
     "ReplayHandle",
     "ReplayMapping",
+    "ReplyTooLargeError",
     "ResetState",
     "SENSOR_LIBRARY_VERSION",
     "Segment",

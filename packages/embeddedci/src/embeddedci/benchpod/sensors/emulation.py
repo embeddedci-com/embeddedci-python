@@ -220,8 +220,7 @@ class Sensor:
         try:
             st = self._emulation.status(self.instance)
         except BenchPodError as exc:
-            # No code yet ("unknown sensor instance"): firmware PR 2 of the codes plan.
-            if "unknown sensor instance" in str(exc):
+            if getattr(exc, "code", "") == "BP0055":   # sensor_instance_unknown
                 return {}
             raise
         for entry in st.get("instances") or []:

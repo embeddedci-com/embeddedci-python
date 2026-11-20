@@ -40,10 +40,9 @@ class BusPod:
 
     TARGET = 0x42
 
-    def __init__(self, *, gateware: Optional[int] = 55, coded: bool = False) -> None:
+    def __init__(self, *, gateware: Optional[int] = 55) -> None:
         self.gateware = gateware
         #: Answer like firmware with error codes (BP0003), else like older firmware (text only).
-        self.coded = coded
         self.commands: List[dict] = []
         self.session: Optional[dict] = None
         self.mem = bytearray(range(256))
@@ -89,13 +88,11 @@ class BusPod:
         cmd = req["cmd"]
         if cmd == "i2c_start":
             if (self.gateware or 0) < 55:
-                raise FirmwareError("the I2C master needs gateware v55+: update the pod's firmware", cmd=cmd)
+                raise firmware_error("", cmd=cmd, code="BP0017", values={"feature": "I2C master", "min": 55})
             if req["pullups"] == "pod" and req["sda"] > 6:
                 raise FirmwareError(f"LA{req['sda']} has no pod pull-up (only LA1..LA6 do)", cmd=cmd)
             if self.session:
-                if self.coded:
-                    raise firmware_error("i2c busy: send i2c_stop first", cmd=cmd, code="BP0003")
-                raise FirmwareError("i2c busy: send i2c_stop first", cmd=cmd)
+                raise firmware_error("", cmd=cmd, code="BP0003")
             self.session = req
             self.driven[req["sda"]] = "i2cm_sda"
             self.driven[req["scl"]] = "i2cm_scl"
@@ -111,7 +108,7 @@ class BusPod:
             return {"active": True, "sda": self.session["sda"], "scl": self.session["scl"],
                     "hz": self.session["hz"], "pullups": self.session["pullups"]}
         if cmd in ("i2c_xfer", "i2c_scan") and not self.session:
-            raise FirmwareError("no I2C session: send i2c_start first", cmd=cmd)
+            raise firmware_error("", cmd=cmd, code="BP0062")
         if cmd == "i2c_xfer":
             write = unb64(req.get("write", ""))
             assert len(write) <= 128 and req.get("read", 0) <= 248
@@ -126,17 +123,16 @@ class BusPod:
                 req["la"] if isinstance(req["la"], list) else [req["la"]])
             for la in las:
                 if req["dir"] == "dut_output" and self.driven.get(la) == "gpio_output":
-                    raise FirmwareError(f"direction conflict: LA{la} is driven by gpio output, so it "
-                                        "can't be wired to a DUT output; stop that first", cmd=cmd)
+                    raise firmware_error("", cmd=cmd, code="BP0035",
+                                         values={"la": la, "function": "gpio output"})
             for la in las:
                 self.dirs[la] = req["dir"]
             return {"pins": [self._pin(la) for la in las]}
         if cmd == "gpio" and req.get("mode") == "output":
             la = req["la"]
             if self.dirs.get(la) == "dut_output":
-                raise FirmwareError(f"direction conflict: LA{la} is wired to a DUT output and gpio "
-                                    "output would drive against it; use gpio open_drain, or fix the "
-                                    f"wiring if LA{la} is not a DUT output", cmd=cmd)
+                raise firmware_error("", cmd=cmd, code="BP0034",
+                                     values={"la": la, "function": "gpio output"})
             self.driven[la] = "gpio_output"
             return {"pins": [{"la": la, "function": "gpio", "gpio": "output", "level": 0}]}
         if cmd == "la_pins":
@@ -150,7 +146,7 @@ class BusPod:
         result = None
         if send and send["bus"] == "i2c":
             if not self.session:
-                raise FirmwareError("send: no I2C session: send i2c_start first", cmd="la_capture")
+                raise firmware_error("", cmd="la_capture", code="BP0062")
             r = self._xfer(send["addr"], unb64(send.get("write", "")), send.get("read", 0))
             result = {"bus": "i2c", **{k: v for k, v in r.items() if k != "addr"}}
         elif send and send["bus"] == "spi":
@@ -198,27 +194,22 @@ def test_open_i2c_accepts_wiring_names_and_validates():
         bp.open_i2c(1, 1)
 
 
-@pytest.mark.parametrize("coded", [True, False])
-def test_busy_names_another_connection_as_the_holder(coded):
+def test_busy_names_another_connection_as_the_holder():
     """Another client (the desktop app, the web app) holds the pod's I2C master: the refusal says
     so and where, instead of pointing at an open_i2c() this script never called."""
-    bp, fake = pod(coded=coded)
+    bp, fake = pod()
     fake.session = {"sda": 1, "scl": 2, "hz": 100_000, "pullups": "pod"}
     with pytest.raises(FirmwareError) as e:
         bp.open_i2c()
     msg = str(e.value)
     assert "another connection to this pod holds its I2C master (LA1 SDA, LA2 SCL, 100000 Hz)" in msg
     assert "desktop app" in msg and "bp.open_i2c() first" not in msg
-    if coded:
-        assert e.value.code == "BP0003" and isinstance(e.value, PodBusyError)
-    else:   # firmware without codes: the text decides
-        assert e.value.firmware_message == "i2c busy: send i2c_stop first"
+    assert e.value.code == "BP0003" and isinstance(e.value, PodBusyError)
     assert fake.session["hz"] == 100_000          # nothing was stopped
 
 
-@pytest.mark.parametrize("coded", [True, False])
-def test_busy_names_this_benchpods_own_open_session(coded):
-    bp, fake = pod(coded=coded)
+def test_busy_names_this_benchpods_own_open_session():
+    bp, fake = pod()
     i2c = bp.open_i2c()
     with pytest.raises(FirmwareError, match="this BenchPod already has an I2C session open .LA1 SDA, LA2 SCL.: close it first"):
         bp.open_i2c()
@@ -436,7 +427,7 @@ def test_send_without_session_names_open_i2c():
 def test_pin_conflict_with_i2c_master_names_the_session():
     from embeddedci.benchpod.errors import firmware_error
 
-    e = firmware_error('pin conflict: LA1 is in use by i2cm_sda; stop the I2C session first '
-                       '({"cmd":"i2c_stop"})', cmd="gpio")
+    e = firmware_error("", cmd="gpio", code="BP0031",
+                       values={"la": 1, "owner": "i2cm_sda", "function": "i2cm_sda", "instance": ""})
     assert isinstance(e, PinConflictError) and e.function == "i2cm_sda"
-    assert "bp.open_i2c()" in str(e)
+    assert "close the UART, SPI or I2C session that uses it" in str(e)

@@ -1,7 +1,7 @@
 """UnsupportedFeatureError and the can_* capability checks on BenchPod.
 
-The pod's texts are the firmware's: ``unknown cmd`` (command_handler.c) and the digital board's
-analog refusal (cmd_gate.c cmd_gate_check)."""
+The pod refuses an unknown command with BP0002 and an analog command on the digital board with
+BP0046; their old texts decide nothing."""
 
 from __future__ import annotations
 
@@ -50,24 +50,24 @@ class CapsPod:
         raise AssertionError(f"nothing should reach the pod: {req}")
 
 
-def test_unknown_cmd_is_an_unsupported_feature():
-    err = firmware_error("unknown cmd", cmd="can_config")
+def test_unknown_command_is_an_unsupported_feature():
+    err = firmware_error("", cmd="can_start", code="BP0002", values={"cmd": "can_start"})
     assert type(err) is UnsupportedFeatureError
-    assert err.feature == "can_config" and err.cmd == "can_config"
-    # Still what it was before: a FirmwareError with the pod's text.
-    assert isinstance(err, FirmwareError) and err.firmware_message == "unknown cmd"
+    assert err.feature == "can_start" and err.cmd == "can_start"
+    assert isinstance(err, FirmwareError)
     with pytest.raises(UnsupportedFeatureError):
-        raise_for_status(Reply(status="error", message="unknown cmd"), cmd="sensor_start")
+        raise_for_status(Reply(status="error", code="BP0002", args={"cmd": "sensor_start"}),
+                         cmd="sensor_start")
 
 
 def test_the_digital_board_refusing_analog_is_an_unsupported_feature():
-    err = firmware_error(NO_ANALOG, cmd="capture")
+    err = firmware_error("", cmd="capture", code="BP0046", values={"cmd": "capture"})
     assert type(err) is UnsupportedFeatureError and err.feature == "analog"
 
 
-def test_other_refusals_are_not_unsupported():
-    for text in ("la voltage not set", "unknown target", "unknown cmd here"):
-        assert not isinstance(firmware_error(text), UnsupportedFeatureError), text
+def test_the_old_texts_are_not_classified():
+    for text in ("unknown cmd", NO_ANALOG, "la voltage not set", "unknown target"):
+        assert type(firmware_error(text)) is FirmwareError, text
 
 
 def test_a_missing_capability_raises_before_sending():

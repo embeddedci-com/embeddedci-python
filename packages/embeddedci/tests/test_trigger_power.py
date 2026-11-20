@@ -16,6 +16,7 @@ from embeddedci.benchpod import (
     TriggerTimeout,
     Wiring,
 )
+from embeddedci.benchpod.errors import firmware_error
 
 
 class StreamPod:
@@ -25,7 +26,7 @@ class StreamPod:
         self.caps = ["la", "capture_trigger", "power_profile"] if caps is None else caps
         self.requests: List[dict] = []
         self.chunks: Dict[str, List[dict]] = {}
-        self.error: Optional[str] = None
+        self.error: Any = None
         self.gateware = 59
 
     def status(self) -> Dict[str, Any]:
@@ -44,6 +45,8 @@ class StreamPod:
     def stream_chunks(self, req: dict) -> Iterator[Dict[str, Any]]:
         self.requests.append(req)
         if self.error:
+            if isinstance(self.error, tuple):
+                raise firmware_error("", cmd=req["cmd"], code=self.error[0], values=self.error[1])
             raise FirmwareError(self.error, cmd=req["cmd"])
         if "rate_hz" in req and isinstance(req["rate_hz"], float):
             # The firmware's parser refuses a non-integer here ("rate_hz must be a whole
@@ -97,7 +100,7 @@ def test_triggered_adc_capture_uses_the_streaming_path():
 
 def test_trigger_timeout_and_bounds():
     bp, pod = _bp()
-    pod.error = "trigger timeout: no rising edge on LA9 within 10000 ms"
+    pod.error = ("BP0038", {"la": 9, "edge": "rising", "timeout_ms": 10000})
     with pytest.raises(TriggerTimeout) as ei:
         bp.capture_la(8, trigger=Trigger(9))
     assert ei.value.la == 9 and ei.value.edge == "rising"

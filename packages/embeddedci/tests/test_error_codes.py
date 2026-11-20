@@ -1,15 +1,20 @@
-"""Pod refusals are classified by their stable error code; the text only decides without one.
+"""Pod refusals are classified by their stable error code only; firmware 4.0 sends no text with
+one (BP0030 alone carries a message, for clients from before the codes).
 
-One coded reply per catalog code gives the class and fields of ``errors._BY_CODE``; one text-only
-reply (firmware without codes) per text pattern gives the class it always did."""
+One coded reply without a message per catalog code gives the class and fields of
+``errors._BY_CODE`` and a message rendered from the catalog; a refusal without a code keeps its
+text and is never classified from it."""
 
 from __future__ import annotations
+
+from typing import Any, Dict
 
 import pytest
 
 from embeddedci.benchpod import errors
 from embeddedci.benchpod.errors import (
     ClientTooOldError,
+    DacPinoutMismatchError,
     DirectionConflictError,
     FirmwareError,
     PermissionDeniedError,
@@ -20,6 +25,7 @@ from embeddedci.benchpod.errors import (
     PodLockedError,
     PullConflictError,
     PullDirectionError,
+    ReplyTooLargeError,
     TriggerTimeout,
     UnsupportedFeatureError,
     WiringError,
@@ -27,108 +33,153 @@ from embeddedci.benchpod.errors import (
     error_catalog,
     firmware_error,
 )
+from embeddedci.benchpod.protocol import Reply, raise_for_status
 
-#: code -> (args the pod sends, the class, the fields it fills)
-CODED = {
-    "BP0001": ({}, FirmwareError, {}),
-    "BP0002": ({"cmd": "i2c_start"}, UnsupportedFeatureError, {"feature": "i2c_start"}),
-    "BP0003": ({}, PodBusyError, {}),
-    "BP0004": ({}, PodBusyError, {}),
-    "BP0005": ({"want": "i2c"}, PodBusyError, {}),
-    "BP0006": ({"arg": "name"}, FirmwareError, {}),
-    "BP0007": ({"name": "k66"}, WiringError, {"name": "k66"}),
-    "BP0008": ({"name": "K 66"}, WiringError, {"name": "K 66"}),
-    "BP0009": ({"name": "k66", "rev": 2}, WiringError, {"name": "k66"}),
-    "BP0010": ({"max": 8}, WiringError, {"name": ""}),
-    "BP0011": ({"bytes": 5000, "max": 4096}, WiringError, {"name": ""}),
-    "BP0012": ({}, WiringError, {"name": ""}),
-    "BP0013": ({"name": "default"}, WiringError, {"name": "default"}),
-    "BP0014": ({"expected": 0}, WiringError, {"name": ""}),
-    "BP0015": ({}, WiringError, {"name": ""}),
-    "BP0016": ({}, PodBusyError, {}),
-    "BP0017": ({"feature": "half_duplex", "min": 57}, UnsupportedFeatureError, {"feature": "half_duplex"}),
-    "BP0018": ({"la": 4}, FirmwareError, {}),
-    "BP0019": ({"rx": 4, "tx": 5}, FirmwareError, {}),
-    "BP0020": ({}, FirmwareError, {}),
-    "BP0021": ({"arg": "hold_ms", "max": 5000}, FirmwareError, {}),
-    "BP0022": ({"la": 4}, FirmwareError, {}),
-    "BP0023": ({"la": 9}, PullDirectionError, {"la": 9, "want": "", "have": ""}),
-    "BP0024": ({"la": 7, "want": "up", "have": "down"}, PullDirectionError,
-               {"la": 7, "want": "up", "have": "down"}),
-    "BP0025": ({"holder": "ci run 7", "purpose": "hil", "left_s": 42}, PodLeasedError,
-               {"holder": "ci run 7", "purpose": "hil", "left_s": 42}),
-    "BP0026": ({"by": "ward"}, PodLeaseLostError, {"by": "ward"}),
-    "BP0027": ({"id": "abc"}, FirmwareError, {}),
-    "BP0028": ({"mv": 4120}, FirmwareError, {}),
-    "BP0029": ({"mv": 120}, FirmwareError, {}),
-    "BP0030": ({"client_api": 0, "min_client_api": 1, "api": 1}, ClientTooOldError,
-               {"client_api": 0, "min_client_api": 1, "api": 1}),
+#: code -> (the class, the fields its args fill). The args come from the catalog (_args).
+CODED: Dict[str, Any] = {
+    "BP0001": (FirmwareError, {}),
+    "BP0002": (UnsupportedFeatureError, {"feature": "v_cmd"}),
+    "BP0003": (PodBusyError, {}),
+    "BP0004": (PodBusyError, {}),
+    "BP0005": (PodBusyError, {}),
+    "BP0006": (FirmwareError, {}),
+    **{f"BP00{n:02d}": (WiringError, {"name": "v_name" if n in (7, 8, 9, 13) else ""})
+       for n in range(7, 16)},
+    "BP0016": (PodBusyError, {}),
+    "BP0017": (UnsupportedFeatureError, {"feature": "v_feature"}),
+    **{f"BP00{n}": (FirmwareError, {}) for n in range(18, 23)},
+    "BP0023": (PullDirectionError, {"la": 7, "want": "", "have": ""}),
+    "BP0024": (PullDirectionError, {"la": 7, "want": "v_want", "have": "v_have"}),
+    "BP0025": (PodLeasedError, {"holder": "v_holder", "purpose": "v_purpose", "left_s": 7}),
+    "BP0026": (PodLeaseLostError, {"by": "v_by"}),
+    "BP0027": (FirmwareError, {}),
+    "BP0028": (FirmwareError, {}),
+    "BP0029": (FirmwareError, {}),
+    "BP0030": (ClientTooOldError, {"client_api": 7, "min_client_api": 7, "api": 7}),
+    "BP0031": (PinConflictError, {"la": 7, "function": "v_function", "owner": "v_owner",
+                                  "instance": "v_instance"}),
+    "BP0032": (PullConflictError, {"la": 7}),
+    "BP0033": (PullConflictError, {"la": 7}),
+    "BP0034": (DirectionConflictError, {"la": 7}),
+    "BP0035": (DirectionConflictError, {"la": 7}),
+    "BP0036": (FirmwareError, {}),
+    "BP0037": (FirmwareError, {}),
+    "BP0038": (TriggerTimeout, {"la": 7, "edge": "v_edge"}),
+    "BP0039": (TriggerTimeout, {"la": 7, "edge": "start"}),
+    **{f"BP00{n}": (PodLockedError, {}) for n in (40, 41, 42, 43, 44)},
+    "BP0045": (PermissionDeniedError, {}),
+    "BP0046": (UnsupportedFeatureError, {"feature": "analog"}),
+    **{f"BP00{n}": (PodBusyError, {}) for n in (47, 48, 49, 50, 51, 52)},
+    "BP0053": (ReplyTooLargeError, {}),
+    "BP0054": (ReplyTooLargeError, {}),
+    "BP0055": (FirmwareError, {}),
+    "BP0056": (UnsupportedFeatureError, {"feature": "module"}),
+    "BP0057": (FirmwareError, {}),
+    "BP0058": (UnsupportedFeatureError, {"feature": "v_feature"}),
+    "BP0059": (UnsupportedFeatureError, {"feature": "v_feature"}),
+    "BP0060": (UnsupportedFeatureError, {"feature": "v_target"}),
+    **{f"BP00{n}": (FirmwareError, {}) for n in (61, 62, 63)},
+    "BP0064": (UnsupportedFeatureError, {"feature": "dac_loop_input_map"}),
+    "BP0065": (FirmwareError, {}),
+    "BP0066": (PodBusyError, {}),
+    **{f"BP00{n}": (FirmwareError, {}) for n in range(67, 75)},
+    "BP0075": (PodLockedError, {}),
+    **{f"BP00{n}": (UnsupportedFeatureError, {"feature": "usb_host"}) for n in (76, 77, 78)},
+    "BP0079": (FirmwareError, {}),
+    "BP0080": (DacPinoutMismatchError, {"digital": "v_digital", "module": "v_module",
+                                        "feature": "dac"}),
 }
 
 
+def _args(code: str) -> Dict[str, Any]:
+    """The args a pod sends with ``code``: every arg the catalog names, "v_<name>" or 7."""
+    spec = error_catalog()["codes"][code].get("args") or {}
+    return {name: (7 if kind == "int" else f"v_{name}") for name, kind in spec.items()}
+
+
 def test_every_catalog_code_has_a_class():
-    """A sync that adds a code fails here until the code is in the table."""
+    """A sync that adds a code fails here until the code is in both tables."""
     assert set(error_catalog()["codes"]) == set(errors._BY_CODE) == set(CODED)
 
 
 @pytest.mark.parametrize("code", sorted(CODED))
-def test_coded_reply(code):
-    args, cls, fields = CODED[code]
-    # The text is one that would classify as something else, so only the code can decide.
-    err = firmware_error("pin conflict: LA4 is in use by gpio", cmd="x", code=code, values=args)
+def test_coded_reply_without_a_message(code):
+    """The firmware 4.0 reply: code and args, no message. The class, its fields and the message
+    all come from the code."""
+    args = _args(code)
+    with pytest.raises(FirmwareError) as info:
+        raise_for_status(Reply(status="error", code=code, args=args), cmd="x")
+    err = info.value
+    cls, fields = CODED[code]
     assert type(err) is cls
     assert err.code == code and err.values == args and err.docs_url.endswith("#" + code)
+    assert err.firmware_message == ""
     for name, want in fields.items():
         assert getattr(err, name) == want, name
-    assert classify_firmware_error(err) is err   # the client's re-classification keeps it
-    assert str(err).startswith(f"x: {code}: ")
+    assert classify_firmware_error(err) is err
+    entry = error_catalog()["codes"][code]
+    msg = str(err)
+    assert msg.startswith(f"x: {code}: ")
+    assert errors._fill(entry["message"], args) in msg and errors._fill(entry["fix"]["sdk"], args) in msg
+    assert "{" not in msg.replace(err.docs_url, "") and "unknown firmware error" not in msg
 
 
-def test_la_voltage_keeps_the_sdk_text():
-    err = firmware_error("la voltage not set; set la_mv ...", cmd="uart_proxy_start", code="BP0001")
-    assert "bp.set_la_voltage(3.3)" in str(err) and "set la_mv in it" in str(err)
-    assert str(err).startswith("uart_proxy_start: BP0001: la voltage not set")
+def test_a_plain_firmware_error_with_a_code_is_classified():
+    """A fake transport may raise FirmwareError and attach the code: the client's
+    re-classification gives the code's class."""
+    plain = FirmwareError("", cmd="gpio")
+    errors._attach_code(plain, "BP0031", {"la": 4, "owner": "gpio", "function": "gpio", "instance": ""})
+    err = classify_firmware_error(plain)
+    assert type(err) is PinConflictError and err.la == 4 and err.function == "gpio"
 
 
-def test_client_too_old_names_the_update():
-    err = firmware_error("update the BenchPod SDK", cmd="gpio", code="BP0030",
-                         values={"client_api": 0, "min_client_api": 1, "api": 1})
+def test_bp0030_keeps_its_message_and_names_the_update():
+    err = firmware_error("Update the BenchPod SDK, MCP or CLI: this firmware needs client API 3",
+                         cmd="gpio", code="BP0030",
+                         values={"client_api": 2, "min_client_api": 3, "api": 3})
+    assert type(err) is ClientTooOldError and err.min_client_api == 3
+    assert err.firmware_message.startswith("Update the BenchPod SDK")
     assert "pip install -U embeddedci" in str(err)
-    assert not isinstance(err, UnsupportedFeatureError)
 
 
-def test_unknown_code_falls_back_to_the_text():
-    """A code newer than this SDK: the text still classifies it, the code is kept."""
-    err = firmware_error("pin conflict: LA4 is in use by gpio", cmd="gpio", code="BP0999")
-    assert type(err) is PinConflictError and err.la == 4 and err.code == "BP0999"
+def test_la_voltage_names_the_sdk_ways_to_set_it():
+    err = firmware_error("", cmd="uart_proxy_start", code="BP0001")
+    assert str(err).startswith("uart_proxy_start: BP0001: The I/O voltage is not set")
+    assert "bp.set_la_voltage(3.3)" in str(err)
 
 
-# -- text only (firmware without codes): the classes they always had ---------------------------
-
-TEXT_ONLY = [
-    ("pin conflict: LA4 is in use by gpio; release it with x", PinConflictError, {"la": 4, "function": "gpio"}),
-    ("pull conflict: LA7 pull-down under a UART line", PullConflictError, {"la": 7}),
-    ("direction conflict: LA3 is a DUT output", DirectionConflictError, {"la": 3}),
-    ("the I2C master needs gateware v55+: update the pod's firmware", UnsupportedFeatureError,
-     {"feature": "cmd"}),
-    ("trigger timeout: no rising edge on LA2", TriggerTimeout, {"la": 2, "edge": "rising"}),
-    ("locked: generate needs the cloud or USB", PodLockedError, {}),
-    ("busy: a cloud job holds this pod (octo run 7, 42 s left)", PodLeasedError,
-     {"holder": "octo run 7", "left_s": 42}),
-    ("busy: stop the DAC or wait for the capture, then save", PodBusyError, {}),
-    ("forbidden: generate needs an organization owner or admin", PermissionDeniedError, {}),
-    ("unknown cmd", UnsupportedFeatureError, {"feature": "cmd"}),
-    ("this BenchPod has no analog front end", UnsupportedFeatureError, {"feature": "analog"}),
-    ("la voltage not set; set la_mv (1800 or 3300) in the active wiring profile", FirmwareError, {}),
-    ("i2c busy: send i2c_stop first", FirmwareError, {}),
-    ("no such profile", FirmwareError, {}),
-]
+def test_a_code_newer_than_the_sdk():
+    err = firmware_error("", cmd="gpio", code="BP0999", values={"la": 4})
+    assert type(err) is FirmwareError and err.code == "BP0999" and err.values == {"la": 4}
+    assert "update it (pip install -U embeddedci)" in str(err) and "#BP0999" in str(err)
+    said = firmware_error("something new", cmd="gpio", code="BP0999")
+    assert "something new" in str(said)
 
 
-@pytest.mark.parametrize("text,cls,fields", TEXT_ONLY, ids=[t[0][:24] for t in TEXT_ONLY])
-def test_text_only_reply(text, cls, fields):
+@pytest.mark.parametrize("text", [
+    "pin conflict: LA4 is in use by gpio",
+    "locked: generate needs the cloud or USB",
+    "busy: a cloud job holds this pod (octo run 7, 42 s left)",
+    "unknown cmd",
+    "this BenchPod has no analog front end",
+    "la voltage not set",
+    "missing steps",
+])
+def test_text_without_a_code_is_never_classified(text):
+    """Free-text refusals keep their message as it is, and their class is plain FirmwareError."""
     err = firmware_error(text, cmd="cmd")
-    assert type(err) is cls and err.code == ""
-    for name, want in fields.items():
-        assert getattr(err, name) == want, name
-    assert err.firmware_message == text
+    assert type(err) is FirmwareError and err.code == ""
+    assert err.firmware_message == text and str(err) == f"cmd: {text}"
+    with pytest.raises(FirmwareError) as info:
+        raise_for_status(Reply(status="error", message=text), cmd="cmd")
+    assert type(info.value) is FirmwareError and str(info.value) == f"cmd: {text}"
+
+
+def test_a_reply_without_code_or_message():
+    with pytest.raises(FirmwareError, match="unknown firmware error"):
+        raise_for_status(Reply(status="error"), cmd="x")
+
+
+def test_explain():
+    assert "BP0080 dac_pinout_mismatch" in errors.explain("bp0080")
+    assert "not in this SDK's catalog" in errors.explain("BP0999")

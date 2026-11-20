@@ -27,7 +27,19 @@ Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
 - Pull resistors use `la_pull` and step trains `la_step` (firmware 4.0 split the `la` command).
   `PullState` reads the 4.0 reply (`state`, `dirs`, `pullups_available` as a boolean); the
   resistor value comes from the board table, `la_pins` reports it on every board.
-- Features table revision 11.
+- **Refusals are classified by code only.** Firmware 4.0 sends a code and its args and no text
+  (`BP0030` alone carries one). Every catalog code (`BP0001` to `BP0080`) maps to an exception
+  class whose fields come from the args, and the message is the catalog's message and SDK fix. The
+  text patterns, the raw-command rewrites (`{"cmd":"gpio",...}` to `bp.release_gpio(4)`) and the
+  `la voltage not set` text are gone; a refusal without a code is a plain `FirmwareError` with the
+  pod's text, whatever it says. `errors.status_too_large`, `errors.la_pins_too_large` and
+  `STATUS_FITS_FIRMWARE` are gone. New classes: `ReplyTooLargeError` (`BP0053`, `BP0054`) and
+  `DacPinoutMismatchError` (`BP0080`, `digital`, `module`). `PinConflictError` has `owner` and
+  `instance` (`BP0031`). Over the cloud the transport retries on `BP0052` (it matched the text
+  "device busy").
+- `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
+  flat-cable DAC pinouts (the DAC is off).
+- Error catalog synced (`BP0031` to `BP0080`); features table revision 11.
 
 ## 3.0.6
 

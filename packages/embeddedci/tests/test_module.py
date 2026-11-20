@@ -53,6 +53,12 @@ def test_blank_module() -> None:
     assert isinstance(m, ModuleInfo)
     assert m.present and m.analog and m.eeprom == "blank"
     assert m.serial is None and m.cal_len == 0 and not m.cal_ok
+    assert m.dac_pinout_ok is None                     # the fake does not report it
+
+
+def test_dac_pinout_ok_is_read() -> None:
+    assert ModuleInfo.from_reply({"present": True, "dac_pinout_ok": False}).dac_pinout_ok is False
+    assert ModuleInfo.from_reply({"present": True, "dac_pinout_ok": True}).dac_pinout_ok is True
 
 
 def test_set_module_id_writes_once() -> None:

@@ -14,7 +14,7 @@ import pytest
 
 from embeddedci.benchpod import Wiring, BenchPod
 from embeddedci.benchpod.constants import PULL_TABLE
-from embeddedci.benchpod.errors import FirmwareError
+from embeddedci.benchpod.errors import FirmwareError, firmware_error
 from embeddedci.benchpod.transport.base import Transport
 
 import embeddedci_mcp.session as session_mod
@@ -94,7 +94,7 @@ class FakeTransport(Transport):
         #: Levels the "DUT" drives on channels the pod is not driving (bitmask, bit la-1).
         self.inputs = 0
         #: Set to a firmware message to make the next streamed capture / power profile fail with it.
-        self.error: Optional[str] = None
+        self.error: Any = None
         self.power_profile_running = False
         #: The I2C master session (i2c_start) and the DUT directions (la_dir).
         self.i2c: Optional[Dict[str, Any]] = None
@@ -154,7 +154,7 @@ class FakeTransport(Transport):
                 self.function[la] = "none"
         for la in (rx, tx):
             if self.function[la] != "none":
-                raise FirmwareError(self._conflict(la), cmd="uart_proxy_start")
+                raise self._conflict(la, "uart_proxy_start")
         if half_duplex:
             self.function[rx] = "uart_hd"
         else:
@@ -241,7 +241,7 @@ class FakeTransport(Transport):
 
     def _sensor(self, req):
         if req["instance"] not in self.sensors:
-            raise FirmwareError(f"unknown sensor instance '{req['instance']}'", cmd=req["cmd"])
+            raise firmware_error("", cmd=req["cmd"], code="BP0055", values={"instance": req["instance"]})
         return self.sensors[req["instance"]]
 
     def _cmd_sensor_fault(self, req):
@@ -313,11 +313,11 @@ class FakeTransport(Transport):
                 "dirs": list(hw.dirs) if hw else [], "pullups_available": True}
 
     # -- LA pin ownership + GPIO (the firmware's la_pins / gpio contract) --
-    def _conflict(self, la: int) -> str:
+    def _conflict(self, la: int, cmd: str) -> FirmwareError:
+        """The firmware's BP0031 (la_pin_in_use): a code and args, no text."""
         fn = self.function[la]
-        how = (f'release it with {{"cmd":"gpio","la":{la},"mode":"off"}}' if fn == "gpio"
-               else "stop the uart proxy first")
-        return f"pin conflict: LA{la} is in use by {fn}; {how}"
+        return firmware_error("", cmd=cmd, code="BP0031",
+                              values={"la": la, "owner": fn, "function": fn, "instance": ""})
 
     def _pin(self, la: int) -> Dict[str, Any]:
         pull = None
@@ -333,7 +333,7 @@ class FakeTransport(Transport):
     # -- bus master (i2c_*, spi_start, la_dir) --
     def _cmd_i2c_start(self, req):
         if self.i2c is not None:
-            raise FirmwareError("i2c busy: send i2c_stop first", cmd="i2c_start")
+            raise firmware_error("", cmd="i2c_start", code="BP0003")
         self.i2c = req
         self.function[req["sda"]], self.function[req["scl"]] = "i2cm_sda", "i2cm_scl"
         return {"sda": req["sda"], "scl": req["scl"], "hz": req["hz"], "pullups": req["pullups"]}
@@ -346,7 +346,7 @@ class FakeTransport(Transport):
 
     def _i2c_xfer(self, addr, write, read):
         if self.i2c is None:
-            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_xfer")
+            raise firmware_error("", cmd="i2c_xfer", code="BP0062")
         if addr == 0x20:  # a TCA9555 expander: input 0-1, output 2-3, polarity 4-5, config 6-7
             if not hasattr(self, "tca"):
                 self.tca, self.tca_ptr, self.tca_in = [0, 0, 0, 0, 0, 0, 0xFF, 0xFF], 0, 0
@@ -377,7 +377,7 @@ class FakeTransport(Transport):
 
     def _cmd_i2c_scan(self, req):
         if self.i2c is None:
-            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_scan")
+            raise firmware_error("", cmd="i2c_scan", code="BP0062")
         return {"from": req.get("from", 8), "to": req.get("to", 119), "found": [0x76]}
 
     def _cmd_spi_start(self, req):
@@ -424,12 +424,11 @@ class FakeTransport(Transport):
         if mode is not None:
             for la in las:  # validate everything before changing anything
                 if self.function[la] not in ("none", "gpio"):
-                    raise FirmwareError(self._conflict(la), cmd="gpio")
+                    raise self._conflict(la, "gpio")
                 if mode == "open_drain" and la in (7, 8) and self.pull_on[la]:
-                    raise FirmwareError(
-                        f"pull conflict: LA{la} has its 10k pull-down engaged, which gpio open_drain "
-                        "can't work with (a released line would read low); disable it with "
-                        f'{{"cmd":"la","la":{la},"pullup":"off"}} or use another channel', cmd="gpio")
+                    raise firmware_error("", cmd="gpio", code="BP0032", values={
+                        "la": la, "ohms": "10k", "function": "gpio open_drain",
+                        "reason": "a released line would read low"})
             for la in las:
                 self.function[la], self.mode[la] = "gpio", mode
                 self.level[la] = (None if mode == "input"
@@ -437,9 +436,8 @@ class FakeTransport(Transport):
             return {"pins": [self._pin(la) for la in las]}
         for la in las:
             if self.mode[la] not in ("output", "open_drain"):
-                raise FirmwareError(
-                    f"LA{la} is not a gpio output (function {self.function[la]}); configure it with "
-                    f'{{"cmd":"gpio","la":{la},"mode":"output"}}', cmd="gpio")
+                raise firmware_error("", cmd="gpio", code="BP0036",
+                                     values={"la": la, "function": self.function[la]})
             self.level[la] = req["level"]
         return {"pins": [self._pin(la) for la in las]}
 
@@ -591,6 +589,8 @@ class FakeTransport(Transport):
         self.requests.append(req)
         cmd = req["cmd"]
         if self.error:
+            if isinstance(self.error, tuple):   # a coded refusal: (code, args)
+                raise firmware_error("", cmd=cmd, code=self.error[0], values=self.error[1])
             raise FirmwareError(self.error, cmd=cmd)
         if cmd == "power_profile":
             self.power_profile_running = False

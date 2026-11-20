@@ -71,7 +71,7 @@ def test_gpio_write_and_read_round_trip(connected):
 
 
 def test_gpio_write_on_an_unconfigured_channel_is_refused(connected):
-    with pytest.raises(ToolError, match="is not a gpio output"):
+    with pytest.raises(ToolError, match="BP0036: LA6 is not a GPIO output"):
         call("gpio_write", la=[6], level=1)
 
 
@@ -106,24 +106,24 @@ def test_gpio_pulse_runs_a_step_train(connected):
 
 def test_pin_conflict_names_the_owner_and_how_to_free_it(connected):
     call("uart_open", rx=5, tx=4)
-    with pytest.raises(ToolError, match="PinConflictError: gpio: pin conflict: LA5 is in use by uart_rx; "
-                       "close the UART session first with uart_close"):
+    with pytest.raises(ToolError, match="PinConflictError: gpio: BP0031: LA5 is in use by uart_rx; "
+                       "free LA5 first: .*uart_close"):
         call("gpio_mode", la=[5])
     call("uart_close")
 
 
 def test_a_gpio_channel_blocks_the_uart_until_it_is_released(connected):
     call("gpio_mode", la=[5], mode="output")
-    with pytest.raises(ToolError, match=r"PinConflictError:.*LA5 is in use by gpio; "
-                       r"release it with gpio_release\(la=\[5\]\)$"):
+    with pytest.raises(ToolError, match=r"PinConflictError:.*BP0031: LA5 is in use by gpio; "
+                       r"free LA5 first: gpio_release\(la=\[5\]\)"):
         call("uart_open", rx=5, tx=4)
     call("gpio_release", la=[5])
     assert call("uart_open", rx=5, tx=4)["open"] is True
 
 
 def test_pull_conflict_reaches_the_agent(connected):
-    call("set_pull", las=[7], enabled=True)
-    with pytest.raises(ToolError, match="PullConflictError: .*pull-down engaged"):
+    call("set_pull", las=[7], pull="down")
+    with pytest.raises(ToolError, match="PullConflictError: .*BP0032: LA7 has its 10k pull-down on"):
         call("gpio_mode", la=[7], mode="open_drain")
 
 
