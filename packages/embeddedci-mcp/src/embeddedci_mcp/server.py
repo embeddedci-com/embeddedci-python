@@ -66,7 +66,6 @@ except ImportError:  # pragma: no cover - older SDK: wiring leaves board_header/
     header_map = None  # type: ignore[assignment]
 
 from embeddedci.benchpod import decode as sdk_decode
-from embeddedci.benchpod import usb_decode
 from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
@@ -2396,6 +2395,11 @@ async def decode_la(
             raise ValueError("spi needs sclk")
         if protocol == "usb" and (dp is None or dm is None):
             raise ValueError("usb needs dp and dm")
+        if protocol == "usb":
+            try:
+                from embeddedci.benchpod import usb_decode
+            except ImportError:
+                raise ValueError("usb decode needs embeddedci 4.0.1 or later: pip install -U embeddedci") from None
         la = SESSION.last_la
         if capture == "new" or la is None:
             la = pod.capture_la(samples, sample_rate_hz=sample_rate_hz)
