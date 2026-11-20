@@ -1533,7 +1533,7 @@
             }
           ],
           "default": null,
-          "description": "host[:port] (TCP, default port 8080), a serial device path (the USB console only), 'usb' (auto-detect: the pod's USB network adapter with the full API on firmware 3.9.0+, else its console), 'usb:<name>' (one of several pods on USB, by name: 'usb:benchpod-baea06'), 'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default (--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod set-connection`), else to find the one pod on the LAN over mDNS.",
+          "description": "host[:port] (TCP: TLS on 8443 by default, with the pod's certificate pinned on first use; plaintext only with an explicit :8080 or on the USB network adapter), a serial device path (the USB console, status only), 'usb' (auto-detect: the pod's USB network adapter with the full API, else its console), 'usb:<name>' (one of several pods on USB, by name: 'usb:benchpod-baea06'), 'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default (--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod set-connection`), else to find the one pod on the LAN over mDNS.",
           "title": "Connection"
         },
         "la_voltage": {

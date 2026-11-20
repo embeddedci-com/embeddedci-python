@@ -1541,7 +1541,7 @@
   "dsp": "module",
   "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
   "expansion_chip": "(name: 'str') -> 'ExpansionChip'",
-  "forget_lan_tls": "(host: 'str', port: 'int' = 8080) -> 'bool'",
+  "forget_lan_tls": "(host: 'str', port: 'int' = 8443) -> 'bool'",
   "header_map": "(w: 'Wiring', header: 'Optional[str]' = None) -> 'str'",
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
@@ -1553,5 +1553,5 @@
   "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'",
   "sensor_library": "(version: 'Optional[str]' = None, *, cache_dir: \"Union[str, 'os.PathLike[str]', None]\" = None, offline: 'bool' = False, refresh: 'bool' = False, timeout: 'float' = 30.0) -> 'SensorLibrary'",
   "sensors": "module",
-  "trust_lan_tls": "(host: 'str', port: 'int' = 8080, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
+  "trust_lan_tls": "(host: 'str', port: 'int' = 8443, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
 }

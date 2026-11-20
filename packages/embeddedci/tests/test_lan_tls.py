@@ -24,12 +24,15 @@ def pin_dir(tmp_path, monkeypatch):
 
 
 def test_plan():
-    assert T.plan("192.168.1.5", 8080, "auto") == T.DialPlan(("192.168.1.5", 8443), ("192.168.1.5", 8080), True)
-    assert T.plan("192.168.1.5", 8443, "auto") == T.DialPlan(("192.168.1.5", 8443), None, False)
-    assert T.plan("192.168.1.5", 9000, "auto") == T.DialPlan(None, ("192.168.1.5", 9000), False)
-    assert T.plan("10.237.8.85", 8080, "auto") == T.DialPlan(None, ("10.237.8.85", 8080), False)
-    assert T.plan("192.168.1.5", 8443, "off") == T.DialPlan(None, ("192.168.1.5", 8443), False)
-    assert T.plan("10.237.8.85", 8080, "on") == T.DialPlan(("10.237.8.85", 8443), None, False)
+    # 8443 (the default port of a LAN address) is TLS; a port given explicitly is plaintext, with
+    # no fallback either way.
+    assert T.plan("192.168.1.5", 8443, "auto") == T.DialPlan(("192.168.1.5", 8443), None)
+    assert T.plan("192.168.1.5", 8080, "auto") == T.DialPlan(None, ("192.168.1.5", 8080))
+    assert T.plan("192.168.1.5", 9000, "auto") == T.DialPlan(None, ("192.168.1.5", 9000))
+    assert T.plan("10.237.8.85", 8080, "auto") == T.DialPlan(None, ("10.237.8.85", 8080))
+    assert T.plan("192.168.1.5", 8443, "off") == T.DialPlan(None, ("192.168.1.5", 8080))
+    assert T.plan("192.168.1.5", 8080, "on") == T.DialPlan(("192.168.1.5", 8443), None)
+    assert T.plan("10.237.8.85", 8080, "on") == T.DialPlan(("10.237.8.85", 8443), None)
     assert T.tls_mode("ON") == "on" and T.tls_mode("") == "auto"
     with pytest.raises(ValueError):
         T.tls_mode("maybe")
@@ -124,28 +127,34 @@ def test_pin_key_for_the_default_port_is_the_tls_port():
     assert T.get_pin("192.168.1.5", 8443) == "ab" * 32
 
 
-@pytest.mark.parametrize("probe_error", [ConnectionRefusedError, TimeoutError])
-def test_a_pod_without_tls_is_probed_once_per_process(monkeypatch, probe_error):
-    """A pod without LAN TLS refuses 8443 or, when it lets the first SYN go unanswered, the probe
-    times out: either way it is probed once, not on every command (each one dials anew)."""
-    server = socket.socket()
-    server.bind(("127.0.0.1", 0))
-    server.listen()
-    real = socket.create_connection
+def test_a_lan_address_is_tls_on_8443_with_no_fallback(monkeypatch):
+    """A LAN address without a port goes to 8443 over TLS; when 8443 does not answer, the SDK
+    never falls back to plaintext 8080."""
+    from embeddedci.benchpod.connection import parse_connection
+    from embeddedci.benchpod.errors import TransportError
+
     dialed = []
 
     def fake_create_connection(addr, timeout=None):
-        dialed.append((addr[1], timeout))
-        if addr[1] == 8443:
-            raise probe_error("no TLS here")
-        return real(server.getsockname(), timeout=timeout)
+        dialed.append(addr[1])
+        raise ConnectionRefusedError("refused")
 
     monkeypatch.setattr(socket, "create_connection", fake_create_connection)
-    host = "192.0.2.%d" % (10 + [ConnectionRefusedError, TimeoutError].index(probe_error))
-    t = TcpTransport(f"{host}:8080")
-    for _ in range(3):
-        t._dial().close()
-    assert [port for port, _ in dialed] == [8443, 8080, 8080, 8080]
-    assert dialed[0][1] >= 1.2, "the probe must outlast the host's 1 s SYN retransmit"
-    assert not t.last_tls
-    server.close()
+    t = TcpTransport(parse_connection("192.0.2.10").addr, dial_timeout=0.05)
+    with pytest.raises(TransportError):
+        t._dial()
+    assert set(dialed) == {8443}
+
+
+def test_an_explicit_8080_is_plaintext_and_says_what_to_do(monkeypatch):
+    from embeddedci.benchpod.errors import TransportError
+
+    def fake_create_connection(addr, timeout=None):
+        raise ConnectionResetError("reset")
+
+    monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+    with pytest.raises(TransportError, match="over TLS only: connect without :8080"):
+        TcpTransport("192.0.2.10:8080", dial_timeout=0.05)._dial()
+    with pytest.raises(TransportError) as e:           # the USB link: no such hint
+        TcpTransport("10.237.8.85:8080", dial_timeout=0.05)._dial()
+    assert "TLS only" not in str(e.value)

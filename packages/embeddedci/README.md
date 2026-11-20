@@ -215,7 +215,8 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 
 | Form | Transport |
 |---|---|
-| `192.168.1.213`, `host:8080`, `[fe80::1]:8080` | network (JSON over TCP, port 8080 by default) |
+| `192.168.1.213`, `benchpod-baea06.local`, `[fe80::1]` | network: JSON over TLS on port 8443 (see [TLS on the LAN](#tls-on-the-lan)); an address on the pod's USB network adapter (`10.237.x.y`) is plaintext 8080 |
+| `host:8080`, `host:8443` | network on that port: `:8080` is plaintext (refused on Ethernet and Wi-Fi unless the pod's HTTPS-only is off), `:8443` TLS |
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
 | `usb` | USB pod, auto-detected by probing the serial ports (`serial` also accepted): its USB network adapter on firmware 3.9.0 and later (full API), else its USB console |
 | `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
@@ -283,12 +284,15 @@ client API check: firmware 3.x raises `FirmwareTooOldError` there too.
 
 ### TLS on the LAN
 
-Pods with firmware 3.9.3 or later also serve the API on port 8443 with TLS. For a network address
-on the default port (`192.168.1.5`, `:8080`, a pod name) the SDK connects to 8443 first and falls
-back to plaintext 8080 only when the pod has no TLS port and nothing is pinned for it, so older
-pods keep working. `:8443` means TLS only; any other port and the USB network adapter (`usb`, a
-physical link) stay plaintext. `BENCHPOD_TLS=on|off` overrides (`auto` is the default).
-`bp.transport.last_tls` says which one the last connection used.
+Firmware 4.0 serves the JSON API on Ethernet and Wi-Fi over TLS only, on port 8443 (HTTPS-only is
+on by default; plaintext 8080 stays on the USB network adapter). A network address without a port
+(`192.168.1.5`, a pod name, an mDNS discovery) goes to 8443 over TLS; there is no fallback to
+plaintext. Plaintext 8080 is used only when you name the port (`host:8080`, for a pod whose
+HTTPS-only you turned off) and on the USB network adapter (`usb`, or a `10.237.x.y` address: a
+physical link). Any other explicit port is plaintext too. `BENCHPOD_TLS=on|off` overrides (`auto`
+is the default). `bp.transport.last_tls` says which one the last connection used. mDNS discovery
+reads the pod's TLS port and client API level from its TXT record (`tls`, `api`) and refuses a pod
+with firmware 3.x (`FirmwareTooOldError`).
 
 The pod's certificate is its own, so the SDK pins its SHA-256 the first time (trust on first use)
 in `known_pods.json` next to `benchpod-cli`'s config; the CLI reads and writes the same file. A
@@ -2720,7 +2724,7 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 |---|---|
 | `parse_connection(raw)` | parse a connection string into a `ConnSpec` (raises `ConnectionConfigError`) |
 | `resolve_connection(connection=None)` | the same, falling back to `BENCHPOD_CONNECTION` |
-| `trust_lan_tls(host, port=8080, *, sha256=None)`, `forget_lan_tls(host, port=8080)` | pin the TLS certificate the pod presents now (returns its SHA-256), or drop the pin (see [TLS on the LAN](#tls-on-the-lan)) |
+| `trust_lan_tls(host, port=8443, *, sha256=None)`, `forget_lan_tls(host, port=8443)` | pin the TLS certificate the pod presents now (returns its SHA-256), or drop the pin (see [TLS on the LAN](#tls-on-the-lan)) |
 | `sensor_library(version=None, *, cache_dir=None, offline=False, refresh=False, timeout=30.0)` | the sensor library (see [The sensor library](#the-sensor-library)); `SENSOR_LIBRARY_VERSION` is the pinned version |
 | `load_definition(source, *, library=None, base_dir=None)`, `load_stimulus(source, *, library=None, base_dir=None)` | a definition or stimulus (name, path, dict or YAML/JSON text) as the dict the pod receives; header problems raise `DefinitionError` |
 | `make_build_reporter(*, api_base=None, audience=None, target="", name="")` | a `BuildReporter` inside GitHub Actions, else a `NoopBuildReporter` |

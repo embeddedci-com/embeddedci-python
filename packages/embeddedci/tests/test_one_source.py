@@ -84,11 +84,11 @@ def test_config_path_without_xdg_is_under_home(monkeypatch, tmp_path):
 
 def test_connection_precedence_argument_env_saved(monkeypatch, tmp_path):
     _save_config(tmp_path, {"connection": "10.0.0.3"})
-    assert resolve_connection().addr == "10.0.0.3:8080"                 # saved
+    assert resolve_connection().addr == "10.0.0.3:8443"                 # saved
     monkeypatch.setenv("BENCHPOD_CONNECTION", "10.0.0.2")
-    assert resolve_connection().addr == "10.0.0.2:8080"                 # env beats saved
-    assert resolve_connection("10.0.0.1").addr == "10.0.0.1:8080"       # argument beats both
-    assert resolve_connection("saved").addr == "10.0.0.3:8080"          # explicit keyword
+    assert resolve_connection().addr == "10.0.0.2:8443"                 # env beats saved
+    assert resolve_connection("10.0.0.1").addr == "10.0.0.1:8443"       # argument beats both
+    assert resolve_connection("saved").addr == "10.0.0.3:8443"          # explicit keyword
 
 
 def test_no_connection_anywhere_says_how_to_save_one():

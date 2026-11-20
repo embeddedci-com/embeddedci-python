@@ -220,16 +220,17 @@ def _mdns(monkeypatch, *pods):
     from embeddedci.benchpod import discovery
 
     found = [discovery.DiscoveredPod(name=name, hostname=f"{name}.local", addresses=[ip], port=8080,
-                                     pod_id="abcdefghijklmnop") for name, ip in pods]
+                                     pod_id="abcdefghijklmnop", tls_port=8443, api=2)
+             for name, ip in pods]
     monkeypatch.setattr(discovery, "discover", lambda timeout=discovery.DEFAULT_TIMEOUT: found)
 
 
 def test_connect_without_any_connection_finds_the_pod_over_mdns(fake_open, monkeypatch):
     _mdns(monkeypatch, ("benchpod-baea06", "192.168.1.220"))
     result = call("connect")
-    assert fake_open["connection"] == "192.168.1.220:8080"
+    assert fake_open["connection"] == "192.168.1.220:8443"          # TLS, from the TXT record
     assert result["connected"] is True and result["kind"] == "tcp"
-    assert result["connection"] == "192.168.1.220:8080"
+    assert result["connection"] == "192.168.1.220:8443"
 
 
 @pytest.mark.parametrize("configured", ["env", "server"])
@@ -266,7 +267,7 @@ def test_connect_with_several_pods_lists_them(fake_open, monkeypatch):
         call("connect")
     msg = str(err.value)
     assert "2 BenchPods found" in msg
-    for needle in ("benchpod-baea06", "192.168.1.220:8080", "benchpod-435dca", "192.168.1.221:8080",
+    for needle in ("benchpod-baea06", "192.168.1.220:8443", "benchpod-435dca", "192.168.1.221:8443",
                    "host[:port]", "'usb'", "cloud_list_devices"):
         assert needle in msg
     assert not SESSION.connected and "connection" not in fake_open

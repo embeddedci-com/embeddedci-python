@@ -12,6 +12,8 @@ Pairs with BenchPod firmware 4.0.0 and embeddedci 4.0. Breaking changes:
 - **Refusals by code only.** Every coded refusal is rendered from the catalog with its MCP fix
   (`fix.mcp`, naming this server's tools); the text rewrites of raw protocol commands are gone. A
   refusal without a code keeps the pod's text.
+- `connect` to a LAN address uses TLS on 8443 by default; mDNS discovery connects to the pod's
+  TLS port and refuses a pod with firmware 3.x.
 - `status` warns when `module.dac_pinout_ok` is false: the DAC is off because the digital board
   and the analog module do not belong together (`BP0080`).
 

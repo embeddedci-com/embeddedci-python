@@ -57,9 +57,10 @@ lists the pods it heard (name and address) and what to pass instead: `host[:port
 `claude mcp add benchpod -- uvx embeddedci-mcp` is enough for a single pod on your network: just
 ask the agent to connect.
 
-**TLS.** A network address uses TLS on port 8443 when the pod has it (firmware 3.9.3+) and pins
-the pod's certificate on first use, in the same `known_pods.json` as `benchpod-cli`; older pods
-stay on plaintext 8080. `BENCHPOD_TLS=on|off` and `BENCHPOD_TLS_CA` work as in the SDK. A changed
+**TLS.** A network address uses TLS on port 8443 (firmware 4.0 serves the LAN API only there by
+default) and pins the pod's certificate on first use, in the same `known_pods.json` as
+`benchpod-cli`. Plaintext 8080 is used only on the pod's USB network adapter or when the address
+names `:8080`. `BENCHPOD_TLS=on|off` and `BENCHPOD_TLS_CA` work as in the SDK. A changed
 certificate stops `connect` with both fingerprints: after a deliberate change, the user runs
 `benchpod lan-tls trust`. The `lan_tls` tool shows the certificate and switches HTTPS-only.
 
@@ -304,7 +305,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | --- | --- | --- |
 | `set_pull` | Pull LA channels `up` or `down`, or switch their resistor `off`; the pod picks the value. Today LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none; another direction is refused (BP0024, BP0023). `enabled` is the older on/off form. | **`las`**, `pull`, `enabled` |
 | `pull_status` | Every LA channel's pull resistor: state (`up`, `down` or `off`), the directions it supports and its value. | none |
-| `lan_tls` | The pod's LAN API over TLS (firmware 3.9.3+): port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
+| `lan_tls` | The pod's LAN API over TLS: port 8443, the HTTPS-only setting and the certificate's sha256 (what clients pin). Turning HTTPS-only off and regenerating need a TLS, USB or cloud connection. | `https_only`, `regenerate` |
 | `usb_network` | Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `set=off` |
 | `log_level` | Read or set how much the pod prints on its USB console (firmware newer than 3.10.12): `error`, `warn`, `info` (the default) or `debug`, which adds every command trace and the reconnect retry detail. Stored on the pod. | `level` |
 

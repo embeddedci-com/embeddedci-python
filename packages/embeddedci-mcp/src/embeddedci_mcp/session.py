@@ -98,7 +98,7 @@ def saved_connection() -> Optional[str]:
 
 #: What to pass instead when mDNS finds no single pod.
 CONNECTION_HELP = (
-    "pass connection= one of: host[:port] (a pod on the LAN, default port 8080), 'usb' (a pod on "
+    "pass connection= one of: host[:port] (a pod on the LAN: TLS on 8443 by default), 'usb' (a pod on "
     "this machine's USB), or 'embeddedci:<device>' for a cloud pod (cloud_list_devices lists "
     "them). The user can also make one the default with `benchpod set-connection <target>`, "
     + ENV_VAR + " or --connection."

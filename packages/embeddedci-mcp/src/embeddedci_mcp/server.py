@@ -473,8 +473,10 @@ def _local_lease(pod: Any) -> Optional[Dict[str, Any]]:
 @mcp.tool(annotations=_ann("Connect to a BenchPod", idempotent=True, cloud=True))
 async def connect(
     connection: Annotated[Optional[str], Field(description=(
-        "host[:port] (TCP, default port 8080), a serial device path (the USB console only), 'usb' "
-        "(auto-detect: the pod's USB network adapter with the full API on firmware 3.9.0+, else "
+        "host[:port] (TCP: TLS on 8443 by default, with the pod's certificate pinned on first use; "
+        "plaintext only with an explicit :8080 or on the USB network adapter), a serial device "
+        "path (the USB console, status only), 'usb' "
+        "(auto-detect: the pod's USB network adapter with the full API, else "
         "its console), 'usb:<name>' (one of several pods on USB, by name: 'usb:benchpod-baea06'), "
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
         "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
@@ -1767,7 +1769,7 @@ async def lan_tls(
         "True: the pod makes a new key and self-signed certificate. Clients that pinned the old one "
         "must trust the new one (`benchpod lan-tls trust`); this server's pin follows."))] = False,
 ) -> m.LanTlsResult:
-    """The pod's LAN API over TLS (firmware 3.9.3+): port 8443, HTTPS-only, and the certificate
+    """The pod's LAN API over TLS: port 8443 (this server's default for a LAN address), HTTPS-only, and the certificate
     clients pin (sha256). Connections to a network address use TLS by default when the pod has it.
     Installing your own certificate: `benchpod lan-tls set-cert` or the SDK's set_lan_tls_cert."""
     def op() -> m.LanTlsResult:

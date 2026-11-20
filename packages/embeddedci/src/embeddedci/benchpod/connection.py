@@ -2,7 +2,9 @@
 
 Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
 
-* ``host`` or ``host:port``        -> TCP/wifi (default port 8080)
+* ``host`` or ``host:port``        -> TCP/wifi: TLS on 8443 by default (plaintext 8080 on the pod's
+                                      USB network adapter, 10.237.0.0/16, or when ``:8080`` is
+                                      given)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
 * ``usb``                          -> USB pod, auto-detected by probing the ports
                                       (``serial`` is accepted as a legacy spelling); on
@@ -31,7 +33,11 @@ from dataclasses import dataclass
 from .cli_config import SAVED_KEYWORD, config_path, saved_connection
 from .errors import ConnectionConfigError
 
+#: The pod's plaintext JSON API: its USB network adapter, or a LAN address given with ``:8080``.
 DEFAULT_PORT = 8080
+#: The pod's JSON API over TLS: the default for a LAN address (firmware 4.0 serves only this on
+#: Ethernet and Wi-Fi unless HTTPS-only is turned off).
+TLS_PORT = 8443
 ENV_VAR = "BENCHPOD_CONNECTION"
 CLOUD_PREFIX = "embeddedci:"
 DISCOVER_KEYWORDS = ("discover", "mdns", "auto")
@@ -83,15 +89,23 @@ def _is_device_path(s: str) -> bool:
     return False
 
 
+def default_port(host: str) -> int:
+    """The port for an address given without one: 8080 on the pod's USB network adapter (a
+    physical link, plaintext), else 8443 (TLS)."""
+    from .transport.tls import is_usb_link
+
+    return DEFAULT_PORT if is_usb_link(host.strip("[]")) else TLS_PORT
+
+
 def _normalize_addr(s: str) -> str:
     # Bracketed IPv6 literal, optionally with a port.
     if s.startswith("["):
-        return s if "]:" in s else f"{s}:{DEFAULT_PORT}"
+        return s if "]:" in s else f"{s}:{default_port(s)}"
     # A single colon means host:port; more than one and no brackets means a bare
     # IPv6 address, which needs the default port appended as-is.
     if s.count(":") == 1:
         return s
-    return f"{s}:{DEFAULT_PORT}"
+    return f"{s}:{default_port(s)}"
 
 
 def parse_connection(raw: str) -> ConnSpec:
@@ -148,13 +162,24 @@ def _discover_one() -> ConnSpec:
         )
     if len(pods) > 1:
         listing = "\n".join(
-            f"  - {p.name}  {p.addr}  id={p.pod_id[:12]}…" for p in pods
+            f"  - {p.name}  {p.addr}  id={p.pod_id[:12]}…"
+            + ("" if p.supported else "  (firmware 3.x: update it)") for p in pods
         )
         raise ConnectionConfigError(
             f"{len(pods)} BenchPods found — disambiguate with an address or "
             f"hostname (e.g. {pods[0].hostname}):\n{listing}"
         )
-    return ConnSpec(kind="tcp", addr=_normalize_addr(pods[0].addr))
+    pod = pods[0]
+    if not pod.supported:
+        from .errors import FirmwareTooOldError
+        from .feature_map import MIN_FIRMWARE
+
+        raise FirmwareTooOldError(
+            f"the BenchPod found on the LAN ({pod.name}, {pod.hostname}) announces no client API "
+            f"2: it runs firmware 3.x, and this SDK needs firmware {MIN_FIRMWARE} or later. Update "
+            "it with the BenchPod CLI (`benchpod flash-self`) or the firmware update in the web "
+            "app, or use embeddedci 3.x with it", api=pod.api or 1)
+    return ConnSpec(kind="tcp", addr=_normalize_addr(pod.addr))
 
 
 def resolve_connection(connection: "str | None" = None) -> ConnSpec:

@@ -37,6 +37,14 @@ Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
   `DacPinoutMismatchError` (`BP0080`, `digital`, `module`). `PinConflictError` has `owner` and
   `instance` (`BP0031`). Over the cloud the transport retries on `BP0052` (it matched the text
   "device busy").
+- **TLS on the LAN by default.** A network address without a port goes to 8443 over TLS (the
+  pod's certificate pinned on first use, as before); the TLS-then-plaintext fallback is gone.
+  Plaintext 8080 is used only on the USB network adapter (`10.237.x.y`) or when the address names
+  `:8080`; a failed plaintext connect to a LAN address says to drop the port. `connection.TLS_PORT`
+  and `connection.default_port(host)` are new; `trust_lan_tls`, `forget_lan_tls` and the pin
+  helpers default to port 8443. `connection 'usb'` falls back to the pod's LAN address over TLS.
+  mDNS: `DiscoveredPod` has `tls_port`, `api`, `https_only` and `supported`; its `addr` uses the
+  TLS port, and `discover` refuses a single pod with firmware 3.x (`FirmwareTooOldError`).
 - `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
   flat-cable DAC pinouts (the DAC is off).
 - Error catalog synced (`BP0031` to `BP0080`); features table revision 11.
