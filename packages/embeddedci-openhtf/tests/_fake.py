@@ -14,7 +14,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Dict, List, Optional
 
-from embeddedci.benchpod.errors import FirmwareError, TransportError
+from embeddedci.benchpod.errors import FirmwareError, TransportError, firmware_error
 from embeddedci.benchpod.transport.base import RawLink, Transport
 
 
@@ -83,7 +83,7 @@ class FakeTransport(Transport):
         self.inputs = 0
         #: The statistics a power_profile reply carries (µA / mV / µJ / µC, as the firmware sends).
         self.power_stats: Dict[str, Any] = {
-            "efuse": 1, "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000,
+            "efuse": 1, "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000,
             "min_ua": 40_000, "peak_ua": 180_000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
             "energy_uj": 260_500, "charge_uc": 52_000, "fault": False, "truncated": False}
         #: The bin-averaged trace it carries (µs / µA / mV).
@@ -92,11 +92,12 @@ class FakeTransport(Transport):
                                               "bus_mv": [5010, 5000]}
 
     def status(self):
-        status = {"status": "ok", "fake": True, "caps": list(self.caps)}
-        if self.image is not None:
-            status["caps"] += ["dac", "dac_replay",
-                               "dac_control_loop" if self.image == 0 else "dac_deep_replay"]
-        return status
+        """A firmware 4.0 status. ``image`` None is a pod without the DAC images (and so, here,
+        without the analog front end)."""
+        return {"status": "ok", "fake": True, "version": "4.0.0", "api": 2, "min_client_api": 2,
+                "features_rev": 10, "gateware": 59,
+                "fpga_image": {0: "loop", 1: "deep"}.get(self.image, "unknown"),
+                "analog": self.image is not None or "current_out" in self.caps, "hw": []}
 
     def ping(self):
         return {"status": "ok", "data": "pong"}
@@ -112,17 +113,18 @@ class FakeTransport(Transport):
 
     # JSON commands. Returns the reply *data* (what the real transport.command yields).
     def command(self, req: dict):
-        self.commands.append(req)
         cmd = req.get("cmd")
+        if cmd in ("wiring_list", "la_dir"):    # the connect's own: no stored profile
+            return {}
+        self.commands.append(req)
         if cmd == "la_voltage":
             return {"mv": req.get("mv", 0)}
         if cmd == "analog_path":
             return {"path": req.get("path"), "u55": 0x03, "u58": 0x09}
         if cmd == "dac_out":
-            has_v = "volts" in req
+            has_v = "v" in req
             return {"path": req.get("path"),
-                    "mv": int(round(float(req["volts"]) * 1000)) if has_v else 0,
-                    "code": 128 if has_v else -1}
+                    **({"mv": int(round(float(req["v"]) * 1000)), "code16": 32768} if has_v else {})}
         if cmd == "generate":
             return {"cotrig": bool(req.get("on_capture", False))}
         if cmd == "current_out":
@@ -141,7 +143,7 @@ class FakeTransport(Transport):
             return {"armed": True, "k": req.get("k"), "vmin": req.get("vmin"),
                     "vmax": req.get("vmax"), "tick_div": req.get("tick_div"), "curve_pts": 256}
         if cmd == "dac_loop_probe":
-            return {"i": 4096, "v": 51000}
+            return {"i": 4096, "code16": 51000}
         if cmd == "fpga_image":
             if self.image is not None:
                 self.image = req.get("image")
@@ -180,9 +182,9 @@ class FakeTransport(Transport):
         elif mode is not None:
             for la in las:
                 if self.function[la] not in ("none", "gpio"):
-                    raise FirmwareError(
-                        f"pin conflict: LA{la} is in use by {self.function[la]}; "
-                        "stop it first", cmd="gpio")
+                    fn = self.function[la]
+                    raise firmware_error("", cmd="gpio", code="BP0031", values={
+                        "la": la, "owner": fn, "function": fn, "instance": ""})
             for la in las:
                 self.function[la], self.mode[la] = "gpio", mode
                 self.level[la] = (None if mode == "input"

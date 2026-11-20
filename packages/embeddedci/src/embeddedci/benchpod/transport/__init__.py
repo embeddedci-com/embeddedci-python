@@ -19,9 +19,8 @@ import logging
 import socket
 from typing import Any, Callable, Optional
 
-from ..connection import DEFAULT_PORT, ConnSpec
+from ..connection import DEFAULT_PORT, TLS_PORT, ConnSpec
 from ..errors import ConnectionConfigError
-from ..protocol import encode_request
 from .base import RawLink, Transport
 
 __all__ = [
@@ -84,7 +83,7 @@ def usb_net_address(status: Any) -> Optional[str]:
     console's text status parsed by :func:`~.serial.parse_text_status`), or None when USB
     networking is off, its link is down, or the firmware has no USB network (before 3.9.0)."""
     usb = status.get("usb") if isinstance(status, dict) else None
-    if not isinstance(usb, dict) or usb.get("net") != "on" or usb.get("link") is not True:
+    if not isinstance(usb, dict) or usb.get("net") is not True or usb.get("link") is not True:
         return None
     try:
         ip = ipaddress.IPv4Address(str(usb.get("ip", "")))
@@ -115,21 +114,16 @@ def _tcp_reachable(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT)
         return False
 
 
-def _api_answers(host: str, port: int, timeout: float = USB_NET_PROBE_TIMEOUT) -> bool:
-    """Whether the pod answers a JSON ``ping`` at ``host:port``. A TCP connect is not enough on the
-    pod's external LAN: with the LAN policy ``off`` it accepts the connection and resets it."""
+def _tls_api_answers(host: str, timeout: float) -> bool:
+    """Whether the pod answers a ``ping`` over TLS at ``host:8443`` (the LAN API of firmware 4.0;
+    the certificate is pinned on first use as for any LAN connection)."""
+    from .tcp import TcpTransport
+
+    probe = TcpTransport(f"{host}:{TLS_PORT}", timeout=min(timeout, USB_NET_PROBE_TIMEOUT * 2),
+                         dial_timeout=USB_NET_PROBE_TIMEOUT)
     try:
-        with socket.create_connection((host, port), timeout=timeout) as s:
-            s.settimeout(timeout)
-            s.sendall(encode_request({"cmd": "ping"}))
-            buf = b""
-            while b"\n" not in buf:
-                chunk = s.recv(256)
-                if not chunk:
-                    return False
-                buf += chunk
-            return b'"pong"' in buf
-    except OSError:
+        return probe.ping() == "pong"
+    except Exception:  # noqa: BLE001 - any failure keeps the console
         return False
 
 
@@ -183,8 +177,8 @@ def _open_usb(device: str, *, timeout: float, pod: str = "") -> Transport:
         # USB network the way in is the pod's Ethernet or Wi-Fi address when this computer reaches
         # it (the pod's external LAN policy applies there).
         lan = usb_lan_fallback_address(status)
-        if lan and _api_answers(lan, DEFAULT_PORT):
-            tcp = TcpTransport(f"{lan}:{DEFAULT_PORT}", timeout=timeout)
+        if lan and _tls_api_answers(lan, timeout):
+            tcp = TcpTransport(f"{lan}:{TLS_PORT}", timeout=timeout)
             tcp.usb_lan_fallback = why
             console.close()
             _log.warning("usb: %s; using the pod's network address %s (its external LAN policy "

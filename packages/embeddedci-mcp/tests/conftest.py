@@ -13,8 +13,8 @@ import anyio
 import pytest
 
 from embeddedci.benchpod import Wiring, BenchPod
-from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
-from embeddedci.benchpod.errors import FirmwareError
+from embeddedci.benchpod.constants import PULL_TABLE
+from embeddedci.benchpod.errors import FirmwareError, firmware_error
 from embeddedci.benchpod.transport.base import Transport
 
 import embeddedci_mcp.session as session_mod
@@ -94,7 +94,7 @@ class FakeTransport(Transport):
         #: Levels the "DUT" drives on channels the pod is not driving (bitmask, bit la-1).
         self.inputs = 0
         #: Set to a firmware message to make the next streamed capture / power profile fail with it.
-        self.error: Optional[str] = None
+        self.error: Any = None
         self.power_profile_running = False
         #: The I2C master session (i2c_start) and the DUT directions (la_dir).
         self.i2c: Optional[Dict[str, Any]] = None
@@ -111,17 +111,27 @@ class FakeTransport(Transport):
             "bus_mv": [5010, 4990, 5000, 5005]}
         #: The statistics its last chunk carries (µA / mV / µJ / µC, as the firmware sends them).
         self.power_stats: Dict[str, Any] = {
-            "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000, "min_ua": 40_000,
+            "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000, "min_ua": 40_000,
             "peak_ua": 180_000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
             "energy_uj": 260_500, "charge_uc": 52_000, "fault": False, "truncated": False}
 
     # -- Transport ABC --
     def status(self) -> Any:
-        caps = list(self.caps)
-        if self.image is not None:
-            caps.append("dac_control_loop" if self.image == 0 else "dac_deep_replay")
-        return {"version": getattr(self, "version", "2.0.0"), "board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
-                "caps": caps, "gateware": 55}
+        """A firmware 4.0 status: the features table decides from ``gateware``, ``fpga_image``
+        and the facts. :attr:`caps` names the gateware-gated features the test wants (the
+        gateware follows them) and the facts (``nrst_pin``)."""
+        caps = set(self.caps)
+        gw = 55
+        for name, need in (("uart_frame", 56), ("uart_hd", 57), ("uart_de", 58)):
+            if name in caps:
+                gw = need
+        if "gpio_read" not in caps:
+            gw = 34
+        image = {0: "loop", 1: "deep"}.get(self.image, "unknown") if self.image is not None else "unknown"
+        return {"version": getattr(self, "version", "4.0.0"), "board": "stm32h563", "adc_bits": 16,
+                "adc_fullscale_mv": 4096, "api": 2, "min_client_api": 2, "features_rev": 10,
+                "gateware": getattr(self, "gateware", None) or gw, "fpga_image": image,
+                "nrst_pin": "nrst_pin" in caps, "hw": [], "analog": getattr(self, "analog", True)}
 
     def ping(self) -> Any:
         return "pong"
@@ -144,7 +154,7 @@ class FakeTransport(Transport):
                 self.function[la] = "none"
         for la in (rx, tx):
             if self.function[la] != "none":
-                raise FirmwareError(self._conflict(la), cmd="uart_proxy_start")
+                raise self._conflict(la, "uart_proxy_start")
         if half_duplex:
             self.function[rx] = "uart_hd"
         else:
@@ -231,7 +241,7 @@ class FakeTransport(Transport):
 
     def _sensor(self, req):
         if req["instance"] not in self.sensors:
-            raise FirmwareError(f"unknown sensor instance '{req['instance']}'", cmd=req["cmd"])
+            raise firmware_error("", cmd=req["cmd"], code="BP0055", values={"instance": req["instance"]})
         return self.sensors[req["instance"]]
 
     def _cmd_sensor_fault(self, req):
@@ -282,30 +292,37 @@ class FakeTransport(Transport):
         return {"instance": req["instance"], "start": req["start"], "len": n,
                 "data_b64": base64.b64encode(bytes(range(n))).decode()}
 
-    def _cmd_la(self, req):
-        if "steps" in req:
-            return {"la": req["la"], "steps": req["steps"], "delay_us": req["delay_us"],
-                    "status": "started"}
+    def _cmd_la_step(self, req):
+        return {"la": req["la"], "steps": req["steps"], "delay_us": req["delay_us"],
+                "status": "started"}
+
+    def _cmd_la_pull(self, req):
         if "la" not in req:
-            return {"la_pullup_mask": 3, "pullups_available": 1}
+            return {"la_pullup_mask": 3, "pullups_available": True}
         la = req["la"]
-        if "pullup" in req:
-            self.pull_on[la] = req["pullup"] == "on"
-        return {"la": la, "pullup": int(self.pull_on.get(la, False)),
-                "ohms": PULL_OHMS.get(la, ""), "pull": "down" if la in PULLDOWN_CHANNELS else "up",
-                "pullups_available": 1}
+        hw = PULL_TABLE.get(la)
+        want = req.get("pull")
+        if want in ("up", "down") and (not hw or want not in hw.dirs):
+            from embeddedci.benchpod.errors import firmware_error
+            raise firmware_error("", cmd="la_pull", code="BP0024" if hw else "BP0023",
+                                 values={"la": la, "want": want, "have": hw.default if hw else ""})
+        if want is not None:
+            self.pull_on[la] = want != "off"
+        on = self.pull_on.get(la, False)
+        return {"la": la, "state": (hw.default if on else "off") if hw else "off",
+                "dirs": list(hw.dirs) if hw else [], "pullups_available": True}
 
     # -- LA pin ownership + GPIO (the firmware's la_pins / gpio contract) --
-    def _conflict(self, la: int) -> str:
+    def _conflict(self, la: int, cmd: str) -> FirmwareError:
+        """The firmware's BP0031 (la_pin_in_use): a code and args, no text."""
         fn = self.function[la]
-        how = (f'release it with {{"cmd":"gpio","la":{la},"mode":"off"}}' if fn == "gpio"
-               else "stop the uart proxy first")
-        return f"pin conflict: LA{la} is in use by {fn}; {how}"
+        return firmware_error("", cmd=cmd, code="BP0031",
+                              values={"la": la, "owner": fn, "function": fn, "instance": ""})
 
     def _pin(self, la: int) -> Dict[str, Any]:
         pull = None
-        if la in PULL_OHMS:
-            pull = {"dir": "down" if la in PULLDOWN_CHANNELS else "up", "ohms": PULL_OHMS[la],
+        if la in PULL_TABLE:
+            pull = {"dir": PULL_TABLE[la].default, "ohms": PULL_TABLE[la].ohms,
                     "on": self.pull_on[la]}
         e = {"la": la, "function": self.function[la], "gpio": self.mode[la],
              "level": self.level[la], "pull": pull}
@@ -316,10 +333,10 @@ class FakeTransport(Transport):
     # -- bus master (i2c_*, spi_start, la_dir) --
     def _cmd_i2c_start(self, req):
         if self.i2c is not None:
-            raise FirmwareError("i2c busy: send i2c_stop first", cmd="i2c_start")
+            raise firmware_error("", cmd="i2c_start", code="BP0003")
         self.i2c = req
         self.function[req["sda"]], self.function[req["scl"]] = "i2cm_sda", "i2cm_scl"
-        return {"sda": req["sda"], "scl": req["scl"], "hz": req["hz"], "pullups": req["pullups"]}
+        return {"sda": req["sda"], "scl": req["scl"], "clock_hz": req["clock_hz"], "pullups": req["pullups"]}
 
     def _cmd_i2c_stop(self, req):
         if self.i2c is not None:
@@ -329,7 +346,7 @@ class FakeTransport(Transport):
 
     def _i2c_xfer(self, addr, write, read):
         if self.i2c is None:
-            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_xfer")
+            raise firmware_error("", cmd="i2c_xfer", code="BP0062")
         if addr == 0x20:  # a TCA9555 expander: input 0-1, output 2-3, polarity 4-5, config 6-7
             if not hasattr(self, "tca"):
                 self.tca, self.tca_ptr, self.tca_in = [0, 0, 0, 0, 0, 0, 0xFF, 0xFF], 0, 0
@@ -360,12 +377,12 @@ class FakeTransport(Transport):
 
     def _cmd_i2c_scan(self, req):
         if self.i2c is None:
-            raise FirmwareError("no I2C session: send i2c_start first", cmd="i2c_scan")
+            raise firmware_error("", cmd="i2c_scan", code="BP0062")
         return {"from": req.get("from", 8), "to": req.get("to", 119), "found": [0x76]}
 
     def _cmd_spi_start(self, req):
         self.spi = req
-        return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+        return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "clock_hz", "mode")}
 
     def _cmd_spi_xfer(self, req):
         return {"rx": req["tx"], "cs": "released"}
@@ -407,12 +424,11 @@ class FakeTransport(Transport):
         if mode is not None:
             for la in las:  # validate everything before changing anything
                 if self.function[la] not in ("none", "gpio"):
-                    raise FirmwareError(self._conflict(la), cmd="gpio")
+                    raise self._conflict(la, "gpio")
                 if mode == "open_drain" and la in (7, 8) and self.pull_on[la]:
-                    raise FirmwareError(
-                        f"pull conflict: LA{la} has its 10k pull-down engaged, which gpio open_drain "
-                        "can't work with (a released line would read low); disable it with "
-                        f'{{"cmd":"la","la":{la},"pullup":"off"}} or use another channel', cmd="gpio")
+                    raise firmware_error("", cmd="gpio", code="BP0032", values={
+                        "la": la, "ohms": "10k", "function": "gpio open_drain",
+                        "reason": "a released line would read low"})
             for la in las:
                 self.function[la], self.mode[la] = "gpio", mode
                 self.level[la] = (None if mode == "input"
@@ -420,9 +436,8 @@ class FakeTransport(Transport):
             return {"pins": [self._pin(la) for la in las]}
         for la in las:
             if self.mode[la] not in ("output", "open_drain"):
-                raise FirmwareError(
-                    f"LA{la} is not a gpio output (function {self.function[la]}); configure it with "
-                    f'{{"cmd":"gpio","la":{la},"mode":"output"}}', cmd="gpio")
+                raise firmware_error("", cmd="gpio", code="BP0036",
+                                     values={"la": la, "function": self.function[la]})
             self.level[la] = req["level"]
         return {"pins": [self._pin(la) for la in las]}
 
@@ -435,15 +450,15 @@ class FakeTransport(Transport):
                     "elapsed_ms": 100, "n": 95}
         self.power_profile_running = True
         self.power_efuse = int(req.get("efuse", 1))
-        return {"started": True, "efuse": self.power_efuse, "rate_hz": 950.0}
+        return {"started": True, "efuse": self.power_efuse, "sample_rate_hz": 950.0}
 
     def _cmd_analog_path(self, req):
         return {"path": req["path"], "u55": 3, "u58": 9}
 
     def _cmd_dac_out(self, req):
-        has_v = "volts" in req
-        return {"path": req["path"], "mv": int(round(req["volts"] * 1000)) if has_v else 0,
-                "code": 128 if has_v else -1}
+        has_v = "v" in req
+        return ({"path": req["path"], "mv": int(round(req["v"] * 1000)), "code16": 32768}
+                if has_v else {"path": req["path"]})
 
     def _cmd_current_out(self, req):
         rng = {"min_ua": 4016, "max_ua": 20078}
@@ -539,16 +554,16 @@ class FakeTransport(Transport):
 
     def _cmd_dac_loop_input(self, req):
         return {"source": req.get("source", "fixed"), "input": req.get("input", 0),
-                "step": req.get("step", 0), "v": 1234}
+                "step": req.get("step", 0), "code16": 1234}
 
     def _cmd_dac_loop_probe(self, req):
-        return {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}
+        return {"i": 64000, "in": 32768, "source": "fixed", "code16": 20000}
 
     def _cmd_can_write(self, req):
         fd = len(req["data"]) > 8 or req.get("fd", False)
         self.can_rx.append({"id": req["id"], "data": req["data"], "ext": req["ext"],
                             "rtr": req["rtr"], "fd": fd, "brs": fd and req.get("brs", True),
-                            "ts": 100 + len(self.can_rx)})
+                            "ts_ms": 100 + len(self.can_rx)})
         return {"queued": True}
 
     def _cmd_can_read(self, req):
@@ -574,6 +589,8 @@ class FakeTransport(Transport):
         self.requests.append(req)
         cmd = req["cmd"]
         if self.error:
+            if isinstance(self.error, tuple):   # a coded refusal: (code, args)
+                raise firmware_error("", cmd=cmd, code=self.error[0], values=self.error[1])
             raise FirmwareError(self.error, cmd=cmd)
         if cmd == "power_profile":
             self.power_profile_running = False
@@ -583,14 +600,14 @@ class FakeTransport(Transport):
             yield {"status": "ok", "t_us": [], "current_ua": [], "bus_mv": [],
                    "stats": dict(self.power_stats, efuse=self.power_efuse), "more": False}
         elif cmd == "capture":
-            yield {"status": "ok", "data": sine_counts(req["samples"]), "adc_rate_hz": 100_000.0,
+            yield {"status": "ok", "data": sine_counts(req["samples"]), "adc_sample_rate_hz": 100_000.0,
                    "more": False}
         elif cmd == "la_capture":
             n = req["samples"]
             # LA1 toggles every 50 samples (10 kHz at 1 MS/s); LA3 stays high.
             edges = [[i, (0b100 | ((i // 50) % 2))] for i in range(0, n, 50)]
             last = {"status": "ok", "la": True, "la_edges": edges, "la_upto": n,
-                    "la_rate_hz": 1_000_000.0, "more": False}
+                    "la_sample_rate_hz": 1_000_000.0, "more": False}
             send = req.get("send")
             if send and send["bus"] == "i2c":
                 r = self._i2c_xfer(send["addr"], send.get("write", ""), send.get("read", 0))
@@ -602,7 +619,7 @@ class FakeTransport(Transport):
             yield last
         elif cmd == "capture_dual":
             yield {"status": "ok", "data": sine_counts(req["adc_samples"]),
-                   "adc_rate_hz": 100_000.0, "la_rate_hz": 1_000_000.0, "more": True}
+                   "adc_sample_rate_hz": 100_000.0, "la_sample_rate_hz": 1_000_000.0, "more": True}
             yield {"status": "ok", "la": True, "la_edges": [[0, 1]], "la_upto": req["la_samples"],
                    "more": False}
 

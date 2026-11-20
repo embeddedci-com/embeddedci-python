@@ -18,7 +18,7 @@ from embeddedci.benchpod import (
     TriggerTimeout,
     Wiring,
 )
-from embeddedci.benchpod.errors import classify_firmware_error
+from embeddedci.benchpod.errors import classify_firmware_error, firmware_error
 
 
 class PinPod:
@@ -36,7 +36,8 @@ class PinPod:
 
     # -- transport surface --
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "0.4.0", "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "version": "0.4.0", "caps": self.caps,
+                "gateware": 59 if "gpio_read" in self.caps else 34}
 
     def ping(self) -> Any:
         return "pong"
@@ -47,7 +48,7 @@ class PinPod:
     def uart_proxy_start(self, rx: int, tx: int, baud: int):
         for la in (rx, tx):
             if self.function[la] != "none":
-                raise FirmwareError(self._conflict(la), cmd="uart_proxy_start")
+                raise self._conflict(la, "uart_proxy_start")
         self.uart_starts.append((rx, tx, baud))
         raise AssertionError("not needed")
 
@@ -58,16 +59,15 @@ class PinPod:
             return {"pins": [self._entry(la) for la in range(1, 15)], "levels": self._levels()}
         if cmd == "gpio":
             return self._gpio(req)
-        if cmd == "la":
+        if cmd == "la_step":
             return {"la": req["la"], "steps": req.get("steps"), "status": "started"}
         return {}
 
     # -- behaviour --
-    def _conflict(self, la: int) -> str:
+    def _conflict(self, la: int, cmd: str) -> FirmwareError:
         fn = self.function[la]
-        how = (f'release it with {{"cmd":"gpio","la":{la},"mode":"off"}}' if fn == "gpio"
-               else "stop the uart proxy first")
-        return f"pin conflict: LA{la} is in use by {fn}; {how}"
+        return firmware_error("", cmd=cmd, code="BP0031",
+                              values={"la": la, "owner": fn, "function": fn, "instance": ""})
 
     def _entry(self, la: int) -> Dict[str, Any]:
         pull = None
@@ -97,18 +97,19 @@ class PinPod:
         if mode is not None:
             for la in las:
                 if self.function[la] not in ("none", "gpio"):
-                    raise FirmwareError(self._conflict(la), cmd="gpio")
+                    raise self._conflict(la, "gpio")
                 if mode == "open_drain" and la in (7, 8) and self.pull_on[la]:
-                    raise FirmwareError(
-                        f"pull conflict: LA{la} has its 10k pull-down engaged, which gpio open_drain can't "
-                        "work with (a released line would read low)", cmd="gpio")
+                    raise firmware_error("", cmd="gpio", code="BP0032", values={
+                        "la": la, "ohms": "10k", "function": "gpio open_drain",
+                        "reason": "a released line would read low"})
             for la in las:
                 self.function[la], self.mode[la] = "gpio", mode
                 self.level[la] = None if mode == "input" else req.get("level", 1 if mode == "open_drain" else 0)
             return {"pins": [self._entry(la) for la in las]}
         for la in las:
             if self.mode[la] not in ("output", "open_drain"):
-                raise FirmwareError(f"LA{la} is not a gpio output (function {self.function[la]})", cmd="gpio")
+                raise firmware_error("", cmd="gpio", code="BP0036",
+                                     values={"la": la, "function": self.function[la]})
             self.level[la] = req["level"]
         return {"pins": [self._entry(la) for la in las]}
 
@@ -157,9 +158,8 @@ def test_pin_conflicts_are_their_own_error():
     bp.gpio(4)
     with pytest.raises(PinConflictError) as ei:
         bp.open_uart(rx=3, tx=4)
-    assert ei.value.la == 4 and ei.value.function == "gpio"
-    assert str(ei.value).endswith("pin conflict: LA4 is in use by gpio; release it with bp.release_gpio(4)")
-    assert 'release it with {"cmd":"gpio","la":4,"mode":"off"}' in ei.value.firmware_message
+    assert ei.value.la == 4 and ei.value.function == "gpio" and ei.value.code == "BP0031"
+    assert "LA4 is in use by gpio; free LA4 first: bp.release_gpio(4)" in str(ei.value)
     assert isinstance(ei.value, FirmwareError)
 
 
@@ -205,7 +205,7 @@ def test_signals_by_name_with_active_low():
     pod.inputs = 1 << 9
     assert ready.read() == 1 and bp.wait_for_level("READY", 1, timeout=0)
     reset.pulse(0.002, count=3)
-    assert pod.commands[-1] == {"cmd": "la", "la": 9, "steps": 3, "delay_us": 2000}
+    assert pod.commands[-1] == {"cmd": "la_step", "la": 9, "steps": 3, "delay_us": 2000}
 
 
 def test_wait_for_level_times_out():
@@ -216,24 +216,18 @@ def test_wait_for_level_times_out():
 
 def test_pin_levels_fall_back_to_a_capture_without_gpio_read():
     pod = PinPod(caps=["la", "la_pins"])
-    pod.stream_chunks = lambda req: iter([{"status": "ok", "data": [0, 0b100000000], "la_rate_hz": 1e6,
+    pod.stream_chunks = lambda req: iter([{"status": "ok", "data": [0, 0b100000000], "la_sample_rate_hz": 1e6,
                                            "more": False}])  # type: ignore[attr-defined]
     bp, _ = _bp(pod)
     levels = bp.pin_levels()
     assert levels[9] == 1 and levels[1] == 0 and not any(c["cmd"] == "gpio" for c in pod.commands)
 
 
-def test_gpio_needs_firmware_that_has_it():
-    bp, pod = _bp(PinPod(caps=["la"]))
-    with pytest.raises(BenchPodError, match="la_pins.*firmware 0.4.0"):
-        bp.gpio(9)
-    assert pod.commands == []
-
-
 def test_error_classification():
     plain = FirmwareError("la voltage not set", cmd="gpio")
-    assert classify_firmware_error(plain) is plain
-    trig = classify_firmware_error(FirmwareError("trigger timeout: no rising edge on LA9 within 100 ms"))
+    assert classify_firmware_error(plain) is plain        # text alone decides nothing
+    trig = firmware_error("", code="BP0038", values={"la": 9, "edge": "rising", "timeout_ms": 100})
     assert isinstance(trig, TriggerTimeout) and (trig.la, trig.edge) == (9, "rising")
-    pull = classify_firmware_error(FirmwareError("pull conflict: LA8 is used by uart_rx, which can't ..."))
+    pull = firmware_error("", code="BP0033", values={"la": 8, "ohms": "10k", "function": "uart_rx",
+                                                     "reason": "x"})
     assert isinstance(pull, PullConflictError) and pull.la == 8

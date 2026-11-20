@@ -72,7 +72,7 @@ from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
 from embeddedci.benchpod import errors as _errors
 from embeddedci.benchpod import protocol as _protocol
-from embeddedci.benchpod.errors import STATUS_FITS_FIRMWARE, FirmwareError, status_too_large
+from embeddedci.benchpod.errors import FirmwareError
 from embeddedci.benchpod.errors import BenchPodError
 from embeddedci.benchpod.server_api import ServerApi
 
@@ -159,72 +159,6 @@ def _refusal_hint(exc: BenchPodError) -> str:
     return ""
 
 
-#: The firmware's "la voltage not set; ..." (any firmware version).
-_LA_VOLTAGE_UNSET = "la voltage not set"
-_LA_VOLTAGE_MCP = ("la voltage not set; the wiring profile sets no I/O voltage: ask the user "
-                   "for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in the profile (set_wiring with la_mv "
-                   "1800 or 3300, then save_wiring) or call set_la_voltage")
-
-#: Fixes the firmware spells as raw protocol commands (la_pins.c release_hint, the pull and
-#: gpio-output checks, command_handler_dap.c, command_handler_dac.c), named as this server's
-#: tools. Whole phrases first; anything not listed passes through unchanged. Kept here rather
-#: than taken from the SDK so the text is the same with every supported embeddedci release.
-_MCP_FIXES = (
-    (re.compile(r'release it with \{"cmd":"gpio","la":(\d+),"mode":"off"\}'),
-     r"release it with gpio_release(la=[\1])"),
-    (re.compile(r"stop the uart proxy first"),
-     "close the UART session first with uart_close"),
-    (re.compile(r"end the SWD session first"),
-     "wait for the running flash (its SWD session) to finish"),
-    (re.compile(r'\{"cmd":"sensor_stop","all":true\} then \{"cmd":"fpga_image","image":"(loop|deep)"\}'),
-     lambda m: 'sensor_stop() then fpga_image(image="'
-               + ("loop" if m.group(1) == "loop" else "deep_replay") + '")'),
-    (re.compile(r'stop them first \(\{"cmd":"sensor_stop","all":true\}\)'), "stop them first with sensor_stop"),
-    (re.compile(r'\{"cmd":"sensor_stop","instance":"([a-z0-9_]+)"\}'), r'sensor_stop(instance="\1")'),
-    (re.compile(r'stop the sensor emulation first \(\{"cmd":"sensor_stop"(?:,"all":true)?\}\)'),
-     "stop the sensor emulation first with sensor_stop"),
-    (re.compile(r'stop the SPI session first \(\{"cmd":"spi_stop"\}\)'),
-     'stop the SPI session first: another client holds it (the command tool can send '
-     '{"cmd":"spi_stop"})'),
-    (re.compile(r'\(\{"cmd":"spi_stop"\}\)'),
-     '(another client holds the SPI session; the command tool can send {"cmd":"spi_stop"})'),
-    (re.compile(r'stop the I2C session first \(\{"cmd":"i2c_stop"\}\)'),
-     "close the I2C session first with i2c_close"),
-    (re.compile(r"send i2c_stop first"), "call i2c_close first"),
-    (re.compile(r"send i2c_start first"), "call i2c_open first"),
-    (re.compile(r"i2c_start again"), "call i2c_open again"),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup":"on|pull":"up)"\}'), r'set_pull(las=[\1], pull="up")'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"pull":"down"\}'), r'set_pull(las=[\1], pull="down")'),
-    (re.compile(r'pass "pullups":"external"'), 'pass pullups="external"'),
-    (re.compile(r'\{"cmd":"la","la":(\d+),"(?:pullup|pull)":"off"\}'), r'set_pull(las=[\1], pull="off")'),
-    (re.compile(r'\{"cmd":"gpio","la":(\d+),"mode":"output"\}'), r'gpio_mode(la=[\1], mode="output")'),
-    (re.compile(r'\{"cmd":"fpga_image","image":0\}'), 'fpga_image(image="loop")'),
-    (re.compile(r'\{"cmd":"dac_loop_input"\}'), "loop_input"),
-)
-
-
-def _mcp_refusal_text(message: str) -> str:
-    """A pod refusal with its protocol-level fix named as this server's tool, or unchanged."""
-    if message.startswith(_LA_VOLTAGE_UNSET):
-        return _LA_VOLTAGE_MCP
-    for pattern, repl in _MCP_FIXES:
-        message = pattern.sub(repl, message)
-    return message
-
-
-def _error_text(exc: BenchPodError) -> str:
-    """``str(exc)``, with a firmware refusal's fix rewritten from the pod's own text (the SDK's
-    message names SDK calls; an agent here needs the tool names)."""
-    original = getattr(exc, "firmware_message", None)
-    if not isinstance(exc, _errors.FirmwareError) or not isinstance(original, str):
-        return str(exc)
-    text = _mcp_refusal_text(original)
-    if text == original:
-        return str(exc)
-    cmd = getattr(exc, "cmd", None)
-    return f"{cmd}: {text}" if cmd else text
-
-
 #: How to update this server, for a pod whose firmware is newer than it handles.
 _MCP_UPDATE = ("update embeddedci-mcp: uvx embeddedci-mcp@latest or pip install -U embeddedci-mcp, "
                "or update the benchpod plugin; then reconnect")
@@ -269,7 +203,8 @@ def _client_too_old_text(exc: BenchPodError) -> Optional[str]:
 
 
 def _coded_text(exc: BenchPodError) -> Optional[str]:
-    """A refusal with a stable error code, rendered with the catalog's fix for an agent."""
+    """A refusal with a stable error code, rendered from the catalog with its fix for an agent
+    (``fix.mcp``, naming this server's tools). The pod sends no text with a code."""
     from embeddedci.benchpod.errors import error_catalog
     code = getattr(exc, "code", "")
     entry = error_catalog().get("codes", {}).get(code) if code else None
@@ -278,21 +213,32 @@ def _coded_text(exc: BenchPodError) -> Optional[str]:
     values = getattr(exc, "values", {}) or {}
     fill = lambda t: re.sub(r"\{([a-z0-9_]+)\}", lambda m: str(values.get(m.group(1), "?")), t)  # noqa: E731
     cmd = getattr(exc, "cmd", None)
-    if code == "BP0001":   # this server's own text, as for firmware without codes
-        text = f"{code}: {_LA_VOLTAGE_MCP} (docs: {exc.docs_url})"
-        return f"{cmd}: {text}" if cmd else text
     text = f"{code}: {fill(entry['message'])}; {fill(entry['fix']['mcp'])} (docs: {exc.docs_url})"
     return f"{cmd}: {text}" if cmd else text
 
 
+def _firmware_too_old_text(exc: BenchPodError) -> Optional[str]:
+    """The SDK's FirmwareTooOldError: the pod runs firmware 3.x, which this server does not drive."""
+    if not isinstance(exc, _errors.FirmwareTooOldError):
+        return None
+    fw = getattr(exc, "firmware_version", "") or "3.x"
+    return (f"the pod runs firmware {fw} (client API {getattr(exc, 'api', 1)}); this BenchPod MCP "
+            f"server (embeddedci-mcp {_mcp_version()}) needs firmware 4.0.0 or later. Tell the user "
+            "to update the pod's firmware with the BenchPod CLI (benchpod flash-self) or the "
+            "firmware update in the web app, then reconnect; retrying will not help")
+
+
 def _tool_error(exc: BenchPodError) -> ToolError:
+    fw_old = _firmware_too_old_text(exc)
+    if fw_old:
+        return ToolError(f"{type(exc).__name__}: {fw_old}")
     too_old = _client_too_old_text(exc)
     if too_old:
         return ToolError(f"{type(exc).__name__}: {too_old}")
     coded = _coded_text(exc)
     if coded:
         return ToolError(f"{type(exc).__name__}: {coded}")
-    msg = f"{type(exc).__name__}: {_error_text(exc)}"
+    msg = f"{type(exc).__name__}: {exc}"
     hint = _refusal_hint(exc)
     return ToolError(f"{msg}. {hint}" if hint else msg)
 
@@ -429,16 +375,15 @@ def _status() -> m.StatusResult:
     try:
         firmware = pod.status()
     except FirmwareError as exc:
-        # Firmware 3.10.4's status can be too large for the cloud channel. The connection works:
-        # report the status as unknown with the fix, rather than failing the connect.
-        if not status_too_large(exc.firmware_message, exc.cmd):
+        # A status too large for the cloud channel (BP0054): the connection works, so report the
+        # status as unknown rather than failing.
+        if exc.code != "BP0054":
             raise
         firmware = {}
-        warnings.append(f"this pod's status is too large for the cloud channel (firmware "
-                        f"{pod.capabilities.firmware_version or 'older'}): update the pod to firmware "
-                        f"{STATUS_FITS_FIRMWARE} or later; the status fields are unknown until then")
+        warnings.append("this pod's status is too large for the cloud channel; the status fields "
+                        "are unknown")
     if isinstance(firmware, dict) and firmware.get("short_form") and "lan_tls" not in firmware:
-        # The cloud status is the short form (firmware 3.10.5+): lan_tls is its own command there.
+        # The cloud status is the short form: lan_tls is its own command there.
         try:
             tls = pod.lan_tls()
             firmware["lan_tls"] = {"port": tls.port, "https_only": tls.https_only, "sha256": tls.sha256}
@@ -448,6 +393,12 @@ def _status() -> m.StatusResult:
     boot = Capabilities.from_status(firmware).boot_warning()
     if boot:
         warnings.append(boot)
+    module = firmware.get("module") if isinstance(firmware, dict) else None
+    if isinstance(module, dict) and module.get("dac_pinout_ok") is False:
+        warnings.append("DAC off: the digital board and the analog module use different flat-cable "
+                        "pinouts (module.dac_pinout_ok is false), so every DAC command is refused "
+                        "(BP0080). Tell the user the two boards do not belong together: a digital "
+                        "v3r4 or later board needs an analog module 3.5 or later")
     try:
         la = pod.get_la_voltage().voltage
     except BenchPodError:
@@ -522,8 +473,10 @@ def _local_lease(pod: Any) -> Optional[Dict[str, Any]]:
 @mcp.tool(annotations=_ann("Connect to a BenchPod", idempotent=True, cloud=True))
 async def connect(
     connection: Annotated[Optional[str], Field(description=(
-        "host[:port] (TCP, default port 8080), a serial device path (the USB console only), 'usb' "
-        "(auto-detect: the pod's USB network adapter with the full API on firmware 3.9.0+, else "
+        "host[:port] (TCP: TLS on 8443 by default, with the pod's certificate pinned on first use; "
+        "plaintext only with an explicit :8080 or on the USB network adapter), a serial device "
+        "path (the USB console, status only), 'usb' "
+        "(auto-detect: the pod's USB network adapter with the full API, else "
         "its console), 'usb:<name>' (one of several pods on USB, by name: 'usb:benchpod-baea06'), "
         "'discover' (mDNS) or 'embeddedci:<device-name>' (cloud). Omit to use the server default "
         "(--connection, else BENCHPOD_CONNECTION, else the connection saved with `benchpod "
@@ -531,7 +484,7 @@ async def connect(
     la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the "
         "digital board v3r4)."))] = None,
-    lease_wait: Annotated[float, Field(ge=0, le=3600, description=(
+    lease_wait_s: Annotated[float, Field(ge=0, le=3600, description=(
         "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the "
         "pod's own on the LAN and USB network)."))] = 30.0,
     wiring_profile: Annotated[Optional[str], Field(description=(
@@ -545,7 +498,7 @@ async def connect(
     or after the server's idle timeout (the next tool call then reconnects).
     """
     def op() -> m.StatusResult:
-        SESSION.connect(connection, la_voltage=la_voltage, lease_wait=lease_wait,
+        SESSION.connect(connection, la_voltage=la_voltage, lease_wait=lease_wait_s,
                         wiring_profile=wiring_profile)
         try:
             return _status()
@@ -578,7 +531,7 @@ def _pin21(state: Any) -> Optional[m.Pin21Result]:
 
 
 @mcp.tool(annotations=_ann("Set LA I/O voltage", idempotent=True))
-async def set_la_voltage(voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
+async def set_la_voltage(la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
         "The DUT's I/O voltage. 5.0 needs a pod with the digital board v3r4 (status capabilities "
         "vref_out). Omit it to read the current voltage and pin 21 without changing anything."))] = None,
 ) -> m.LaVoltageResult:
@@ -594,10 +547,10 @@ async def set_la_voltage(voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Fi
     v3r4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
     voltage (select 5.0 or remove the signal).
     """
-    if voltage is None:
+    if la_voltage is None:
         state = await _call(lambda: SESSION.require().get_la_voltage())
     else:
-        state = await _call(lambda: SESSION.require().set_la_voltage(voltage))
+        state = await _call(lambda: SESSION.require().set_la_voltage(la_voltage))
     return m.LaVoltageResult(voltage=state.voltage, readback=state.readback, pin21=_pin21(state))
 
 
@@ -799,7 +752,7 @@ def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
 @mcp.tool(annotations=_ann("Power target on", destructive=True, idempotent=True))
 async def power_on(
     efuse: WiredEfuse = None,
-    delay: Annotated[Optional[float], Field(description=(
+    delay_s: Annotated[Optional[float], Field(description=(
         "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture)."))] = None,
     wiring_profile: Annotated[Optional[str], Field(description=(
         "A stored wiring profile to power the board with (it becomes this connection's profile); "
@@ -810,21 +763,21 @@ async def power_on(
     rail goes on, and the pod records the profile.
     The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
     a board that is already powered."""
-    return await _call(lambda: _switch_power(efuse, True, delay, wiring_profile))
+    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))
 async def power_off(
     efuse: WiredEfuse = None,
-    delay: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
+    delay_s: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
 ) -> m.PowerResult:
     """Switch the target's power rail off. The result says which rail was used."""
-    return await _call(lambda: _switch_power(efuse, False, delay))
+    return await _call(lambda: _switch_power(efuse, False, delay_s))
 
 
 @mcp.tool(annotations=_ann("Profile the target's power"))
 async def measure_power(
-    duration: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
+    duration_s: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling "
@@ -841,7 +794,7 @@ async def measure_power(
     calls, bracket them with power_profile_start / power_profile_stop.
     """
     return await _call_reporting(ctx, "profiling power", lambda: power_summary(
-        SESSION.require().measure_power(duration, efuse=efuse, rate_hz=rate_hz,
+        SESSION.require().measure_power(duration_s, efuse=efuse, rate_hz=rate_hz,
                                         keep_samples=points), points))
 
 
@@ -850,7 +803,7 @@ async def power_profile_start(
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that."))] = 500.0,
-    max_duration: Annotated[float, Field(gt=0, le=600, description=(
+    max_duration_s: Annotated[float, Field(gt=0, le=600, description=(
         "Seconds after which the pod stops sampling by itself (the result is then truncated)."))] = 60.0,
 ) -> m.PowerProfileStartResult:
     """Start sampling the target-power rail in the background, then run the steps you want to
@@ -859,8 +812,8 @@ async def power_profile_start(
         pod = SESSION.require()
         rail = pod.wiring.efuse if efuse is None else efuse
         SESSION.power_profile = pod.power_profile(efuse=rail, rate_hz=rate_hz,
-                                                  max_duration=max_duration).start()
-        return m.PowerProfileStartResult(efuse=rail, rate_hz=rate_hz, max_duration=max_duration)
+                                                  max_duration=max_duration_s).start()
+        return m.PowerProfileStartResult(efuse=rail, rate_hz=rate_hz, max_duration=max_duration_s)
 
     return await _call(op)
 
@@ -906,13 +859,13 @@ async def power_status() -> m.PowerStatusResult:
 async def reset_target(
     action: Annotated[Literal["pulse", "hold", "release", "status"], Field(description=(
         "pulse = reset once; hold = keep the target in reset; release = let it run; status = read only."))] = "pulse",
-    pulse: Annotated[float, Field(gt=0, le=1, description="Pulse length in seconds (at most 1).")] = 0.1,
+    pulse_s: Annotated[float, Field(gt=0, le=1, description="Pulse length in seconds (at most 1).")] = 0.1,
 ) -> m.ResetResult:
     """Drive the DUT's reset line from the pod's reset pin (rev3 pods, DUT header J1 pin 22)."""
     def op() -> m.ResetResult:
         pod = SESSION.require()
         if action == "pulse":
-            state = pod.reset_target(pulse=pulse)
+            state = pod.reset_target(pulse=pulse_s)
         elif action == "status":
             state = pod.reset_state()
         else:
@@ -1053,7 +1006,7 @@ async def i2c_open(
     scl: Annotated[Optional[LaRef], Field(description="SCL channel; omit for the profile's i2c_scl.")] = None,
     hz: Annotated[int, Field(ge=10_000, le=1_000_000, description="SCL rate.")] = 100_000,
     pullups: Annotated[Literal["pod", "external"], Field(description=(
-        "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today; at 1.8 V firmware newer than 3.10.12); "
+        "pod: channels with the pod's pull-up on (set_pull(pull=\"up\") first, LA1-LA6 today); "
         "external: the board has its own."))] = "pod",
 ) -> m.I2cSessionResult:
     """Make the pod an I2C master on two LA pins (gateware v55+), replacing any open session.
@@ -1138,7 +1091,7 @@ async def flash(
     connect_under_reset: Optional[bool] = None,
     extra_configs: Optional[List[str]] = None,
     extra_args: Optional[List[str]] = None,
-    timeout: Annotated[float, Field(gt=0, le=3600)] = 300.0,
+    timeout_s: Annotated[float, Field(gt=0, le=3600)] = 300.0,
     connect_attempts: Annotated[int, Field(ge=1, le=20)] = 5,
     build: Annotated[str, Field(description=(
         "Flash a build uploaded to embeddedci.com instead of a file: its build id (the upload's "
@@ -1209,7 +1162,7 @@ async def flash(
             target=target or pod.wiring.swd_target, file=file,
             load_address=load_address, target_power=target_power, verify=verify, reset=reset,
             connect_under_reset=connect_under_reset, extra_configs=tuple(extra_configs or ()),
-            extra_args=tuple(extra_args or ()), timeout=timeout,
+            extra_args=tuple(extra_args or ()), timeout=timeout_s,
             connect_attempts=connect_attempts, check=False,
             **from_build,
         )
@@ -1310,7 +1263,7 @@ def _uart_line(pod: Any, method: str, half_duplex: bool, entry: Optional[UartEnt
 
 @mcp.tool(annotations=_ann("Capture UART output"))
 async def capture_uart(
-    duration: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds.")],
+    duration_s: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds.")],
     rx: UartRx = None,
     tx: UartTx = None,
     baud: WiredBaud = None,
@@ -1335,7 +1288,7 @@ async def capture_uart(
 
     def op() -> m.UartCaptureResult:
         pod = SESSION.require()
-        return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=pattern,
+        return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration_s, until=pattern,
                                              **_uart_frame(pod, "capture_uart", parity, stop_bits),
                                              **_uart_line(pod, "capture_uart", half_duplex, entry),
                                              **_uart_de(pod, "capture_uart", de, de_active_low)))
@@ -1348,11 +1301,11 @@ async def power_cycle_and_capture(
     rx: UartRx = None,
     tx: UartTx = None,
     efuse: WiredEfuse = None,
-    delay: Annotated[float, Field(ge=0, le=60, description="Seconds into the capture the power comes back.")] = 1.0,
-    duration: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds; must exceed delay.")] = 4.0,
+    delay_s: Annotated[float, Field(ge=0, le=60, description="Seconds into the capture the power comes back.")] = 1.0,
+    duration_s: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds; must exceed delay_s.")] = 4.0,
     baud: WiredBaud = None,
     until_regex: Regex = None,
-    off_settle: Annotated[float, Field(ge=0, le=10)] = 0.3,
+    off_settle_s: Annotated[float, Field(ge=0, le=10)] = 0.3,
     parity: UartParity = None,
     stop_bits: UartStopBits = None,
     ctx: Context = None,  # type: ignore[assignment]
@@ -1367,8 +1320,8 @@ async def power_cycle_and_capture(
     def op() -> m.UartCaptureResult:
         pod = SESSION.require()
         return _uart_result(pod.power_cycle_and_capture(
-            rx=rx, tx=tx, efuse=efuse, delay=delay, duration=duration, baud=baud, until=pattern,
-            off_settle=off_settle, **_uart_frame(pod, "power_cycle_and_capture", parity, stop_bits)))
+            rx=rx, tx=tx, efuse=efuse, delay=delay_s, duration=duration_s, baud=baud, until=pattern,
+            off_settle=off_settle_s, **_uart_frame(pod, "power_cycle_and_capture", parity, stop_bits)))
 
     return await _call_reporting(ctx, "power-cycling", op)
 
@@ -1435,7 +1388,7 @@ async def uart_write(
 @mcp.tool(annotations=_ann("Read the DUT console", read_only=True))
 async def uart_read(
     until_regex: Regex = None,
-    timeout: Annotated[float, Field(ge=0, le=600, description=(
+    timeout_s: Annotated[float, Field(ge=0, le=600, description=(
         "Seconds to wait for until_regex (or, without one, for any new output)."))] = 2.0,
 ) -> m.UartReadResult:
     """Return the UART output received since the previous uart_read, optionally waiting for a match."""
@@ -1445,11 +1398,11 @@ async def uart_read(
         uart = SESSION.require_uart()
         matched: Optional[bool] = None
         if pattern is not None:
-            through_match = uart.read_until(pattern, timeout=timeout)  # searches unread text
+            through_match = uart.read_until(pattern, timeout=timeout_s)  # searches unread text
             matched = through_match is not None
             new = (through_match or "") + uart.read()
         else:
-            new = uart.read(timeout=timeout)
+            new = uart.read(timeout=timeout_s)
         return m.UartReadResult(text=clip(new, MAX_TEXT), matched=matched, closed=uart.closed,
                                 overflowed=uart.overflowed, truncated=len(new) > MAX_TEXT)
 
@@ -1587,7 +1540,7 @@ async def sensor_start(
 ) -> m.SensorStarted:
     """Make the pod play a sensor for the DUT: upload the definition (library name or your own YAML/JSON) and start it on pins.
 
-    Set the LA voltage first, and the pull-ups for I2C (set_pull([sda, scl], pull="up"), LA1-LA6).
+    Set the LA voltage first, and the pull-ups for I2C (set_pull(la=[sda, scl], pull="up"), LA1-LA6).
     Starting an instance name that runs replaces it. Up to 4 I2C sensors (several may share one
     bus at different addresses), 1 SPI, 1 UART and 2 analog sensors (one per output) run at once.
     I2C/SPI/UART sensors load the pod's emulation FPGA image if another runs (image_loaded in the
@@ -1719,72 +1672,42 @@ def _pull(state: Any) -> m.PullChannel:
                          held=getattr(state, "held", None))
 
 
-def _sdk_pulls_by_direction(pod: Any) -> bool:
-    """The SDK takes set_pull(la, "up" | "down" | "off") (embeddedci 3.0.3+)."""
-    return "pull" in inspect.signature(type(pod).set_pull).parameters
-
-
-def _set_pull_old_sdk(pod: Any, la: int, want: Any) -> Any:
-    """set_pull on embeddedci before 3.0.3, which only knows on/off: a direction is checked here,
-    so "up" never engages LA7's pull-down."""
-    from embeddedci.benchpod.constants import PULLDOWN_CHANNELS, PULLUP_CHANNELS
-
-    if want in ("up", "down"):
-        ok = PULLUP_CHANNELS if want == "up" else PULLDOWN_CHANNELS
-        if la not in ok:
-            raise ValueError(f"LA{la} can't pull {want} on this board; upgrade embeddedci for the full "
-                             "message (pull_status shows each channel's direction)")
-        want = True
-    elif want == "off":
-        want = False
-    return pod.set_pull(la, bool(want))
-
-
 @mcp.tool(annotations=_ann("Set pull resistors", idempotent=True))
 async def set_pull(
-    las: Annotated[List[PullPin], Field(min_length=1, max_length=14, description="LA channels (1-14).")],
-    pull: Annotated[Optional[Literal["up", "down", "off"]], Field(description=(
+    la: Annotated[List[PullPin], Field(min_length=1, max_length=14, description="LA channels (1-14).")],
+    pull: Annotated[Literal["up", "down", "off"], Field(description=(
         "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and "
         "strength in the result). A channel pulls only the ways its resistor allows (pull_status: "
         "supported): on the digital board v3r4 every channel pulls up or down; on older boards LA1-LA6 "
-        "pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))] = None,
-    enabled: Annotated[Optional[bool], Field(description=(
-        "Older form, use pull: true engages each channel's own direction, false is off."))] = None,
+        "pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))],
 ) -> m.PullStatusResult:
     """Pull LA channels up or down, or switch their pull resistor off. For an I2C bus pull SDA and
-    SCL up. The pull-ups pull to the LA voltage, at 1.8 V too on firmware newer than 3.10.12 (older
-    firmware refuses them with the LA bank at 1.8 V)."""
-    if pull is None and enabled is None:
-        raise ValueError('set_pull needs pull: "up", "down" or "off"')
-    want: Any = pull if pull is not None else bool(enabled)
-
+    SCL up. The pull-ups pull to the LA voltage (1.8 V or 3.3 V)."""
     def op() -> m.PullStatusResult:
         pod = SESSION.require()
-        if _sdk_pulls_by_direction(pod):
-            return m.PullStatusResult(channels=[_pull(pod.set_pull(la, want)) for la in las])
-        return m.PullStatusResult(channels=[_pull(_set_pull_old_sdk(pod, la, want)) for la in las])
+        return m.PullStatusResult(channels=[_pull(pod.set_pull(ch, pull)) for ch in la])
 
     return await _call(op)
 
 
 @mcp.tool(annotations=_ann("USB network setting", destructive=True))
 async def usb_network(
-    set: Annotated[Optional[Literal["off"]], Field(description=(
-        'Omit to read the setting. "off" turns the pod\'s USB network adapter off (only over the '
+    enabled: Annotated[Optional[Literal[False]], Field(description=(
+        "Omit to read the setting. false turns the pod's USB network adapter off (only over the "
         "pod's USB network link: connection 'usb'); the pod then re-enumerates as its USB console "
         "only and this connection ends. Turning it back on needs the USB console: the user runs "
         "`benchpod usb-network on`."))] = None,
 ) -> m.UsbNetworkResult:
-    """Read the pod's USB network setting (firmware 3.9.0+), or turn the adapter off. Only the device
-    changes it: Ethernet, Wi-Fi and the cloud may only read it."""
+    """Read the pod's USB network setting, or turn the adapter off. Only the device changes it:
+    Ethernet, Wi-Fi and the cloud may only read it."""
     def op() -> m.UsbNetworkResult:
         pod = SESSION.require()
-        on = pod.usb_network(None if set is None else False)
+        on = pod.usb_network(None if enabled is None else False)
         note = ""
-        if set == "off":
+        if enabled is False:
             note = ("The pod re-enumerates as its USB console only; this connection ends. Ask the user to run "
                     "`benchpod usb-network on` over the USB console to turn it back on.")
-        return m.UsbNetworkResult(setting="on" if on else "off", note=note)
+        return m.UsbNetworkResult(enabled=on, note=note)
 
     return await _call(op)
 
@@ -1816,7 +1739,7 @@ async def lan_tls(
         "True: the pod makes a new key and self-signed certificate. Clients that pinned the old one "
         "must trust the new one (`benchpod lan-tls trust`); this server's pin follows."))] = False,
 ) -> m.LanTlsResult:
-    """The pod's LAN API over TLS (firmware 3.9.3+): port 8443, HTTPS-only, and the certificate
+    """The pod's LAN API over TLS: port 8443 (this server's default for a LAN address), HTTPS-only, and the certificate
     clients pin (sha256). Connections to a network address use TLS by default when the pod has it.
     Installing your own certificate: `benchpod lan-tls set-cert` or the SDK's set_lan_tls_cert."""
     def op() -> m.LanTlsResult:
@@ -1841,8 +1764,7 @@ async def pull_status() -> m.PullStatusResult:
     (empty without a resistor) and its value."""
     def op() -> m.PullStatusResult:
         pod = SESSION.require()
-        las = range(1, 15) if _sdk_pulls_by_direction(pod) else range(1, 9)
-        return m.PullStatusResult(channels=[_pull(pod.pull_state(la)) for la in las])
+        return m.PullStatusResult(channels=[_pull(pod.pull_state(la)) for la in range(1, 15)])
 
     return await _call(op)
 
@@ -1980,10 +1902,10 @@ async def gpio_read(la: OptionalGpioChannels = None) -> m.GpioReadResult:
 async def gpio_wait(
     la: LaRef,
     level: GpioLevel = 1,
-    timeout: Annotated[float, Field(ge=0, le=600, description="Seconds to wait.")] = 5.0,
+    timeout_s: Annotated[float, Field(ge=0, le=600, description="Seconds to wait.")] = 5.0,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.GpioWaitResult:
-    """Wait until an LA channel or EXT pin reads `level` (reached=false when the timeout passes
+    """Wait until an LA channel or EXT pin reads `level` (reached=false when timeout_s passes
     first).
 
     Polled from this host, so it resolves to a few milliseconds plus the round trip — for precise
@@ -1993,7 +1915,7 @@ async def gpio_wait(
         pod = SESSION.require()
         ch = _gpio_ref(pod, la)
         start = time.monotonic()
-        reached = pod.wait_for_level(ch, level, timeout=timeout)
+        reached = pod.wait_for_level(ch, level, timeout=timeout_s)
         return m.GpioWaitResult(la=ch, level=level, reached=reached,
                                 waited=round(time.monotonic() - start, 4))
 
@@ -2003,7 +1925,7 @@ async def gpio_wait(
 @mcp.tool(annotations=_ann("Pulse a GPIO channel", destructive=True))
 async def gpio_pulse(
     la: LaRef,
-    width: Annotated[float, Field(ge=4e-6, le=0.065535,
+    width_s: Annotated[float, Field(ge=4e-6, le=0.065535,
                                   description="Seconds the pulse is high (and low between pulses), "
                                               "4 us to 65.535 ms.")],
     count: Annotated[int, Field(ge=1, le=65535, description="Number of pulses (at most 65535).")] = 1,
@@ -2016,8 +1938,8 @@ async def gpio_pulse(
     def op() -> m.GpioPulseResult:
         pod = SESSION.require()
         ch = _gpio_ref(pod, la)  # an EXT pin: la_step refuses it, saying why
-        pod.la_step(ch, steps=count, delay=width)
-        return m.GpioPulseResult(la=ch, count=count, width=width)
+        pod.la_step(ch, steps=count, delay=width_s)
+        return m.GpioPulseResult(la=ch, count=count, width=width_s)
 
     return await _call(op)
 
@@ -2297,7 +2219,7 @@ async def capture_adc(
     points: EnvelopePoints = 200,
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
-    trigger_timeout: TriggerTimeoutS = 10.0,
+    trigger_timeout_s: TriggerTimeoutS = 10.0,
     range: AdcRangeArg = None,
     oversample: Annotated[bool, Field(description=(
         "Convert at 400 kS/s and average down to sample_rate_hz: lower noise and a smaller step at 0 V, "
@@ -2319,7 +2241,7 @@ async def capture_adc(
     def op() -> m.AdcCaptureResult:
         cap = SESSION.require().capture_adc(samples, sample_rate_hz=sample_rate_hz, source=source,
                                             trigger=_trigger(trigger_la, trigger_edge),
-                                            trigger_timeout=trigger_timeout, range=range,
+                                            trigger_timeout=trigger_timeout_s, range=range,
                                             oversample=oversample)
         SESSION.last_adc = cap
         return adc_summary(cap, points)
@@ -2331,11 +2253,11 @@ async def capture_adc(
 async def capture_la(
     samples: Samples = 4096,
     sample_rate_hz: RateHz = None,
-    stop_dac_after: Annotated[Optional[float], Field(description=(
+    stop_dac_after_s: Annotated[Optional[float], Field(description=(
         "Seconds into the capture to cut a running DAC output (see the DUT react)."))] = None,
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts the capture on trigger_la.")] = "rising",
-    trigger_timeout: TriggerTimeoutS = 10.0,
+    trigger_timeout_s: TriggerTimeoutS = 10.0,
     trigger_pre_samples: Annotated[int, Field(ge=0, le=16_777_215, description=(
         "With trigger_la: also return up to this many samples from before the trigger "
         "(gateware v50+)."))] = 0,
@@ -2356,13 +2278,13 @@ async def capture_la(
     def op() -> m.LaCaptureResult:
         pod = SESSION.require()
         if send is not None:
-            la = _capture_with_send(pod, send, samples, sample_rate_hz, stop_dac_after, trigger_la,
-                                    trigger_edge, trigger_timeout, trigger_pre_samples)
+            la = _capture_with_send(pod, send, samples, sample_rate_hz, stop_dac_after_s, trigger_la,
+                                    trigger_edge, trigger_timeout_s, trigger_pre_samples)
         else:
             la = pod.capture_la(samples, sample_rate_hz=sample_rate_hz,
-                                stop_dac_after=stop_dac_after,
+                                stop_dac_after=stop_dac_after_s,
                                 trigger=_trigger(trigger_la, trigger_edge, trigger_pre_samples),
-                                trigger_timeout=trigger_timeout)
+                                trigger_timeout=trigger_timeout_s)
         SESSION.last_la = la
         return la_summary(la)
 
@@ -2403,11 +2325,11 @@ async def capture_correlated(
     adc_sample_rate_hz: RateHz = None,
     la_samples: Annotated[int, Field(ge=0, le=8_000_000)] = 4096,
     la_sample_rate_hz: RateHz = None,
-    stop_dac_after: Annotated[Optional[float], Field(description="Seconds into the capture to cut a running DAC.")] = None,
+    stop_dac_after_s: Annotated[Optional[float], Field(description="Seconds into the capture to cut a running DAC.")] = None,
     points: EnvelopePoints = 200,
     trigger_la: TriggerLa = None,
     trigger_edge: Annotated[TriggerEdge, Field(description="What starts both streams on trigger_la.")] = "rising",
-    trigger_timeout: TriggerTimeoutS = 10.0,
+    trigger_timeout_s: TriggerTimeoutS = 10.0,
     source: Annotated[Optional[AdcSource], Field(description=(
         "Route this ADC source first for the analog half; omit to keep routing. current_in captures "
         "the 4-20 mA input (J8) and the analog stats are then amps."))] = None,
@@ -2421,8 +2343,8 @@ async def capture_correlated(
     def op() -> m.CorrelatedCaptureResult:
         cc = SESSION.require().capture_correlated(
             adc_samples=adc_samples, adc_sample_rate_hz=adc_sample_rate_hz, la_samples=la_samples,
-            la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after,
-            trigger=_trigger(trigger_la, trigger_edge), trigger_timeout=trigger_timeout, source=source)
+            la_sample_rate_hz=la_sample_rate_hz, stop_dac_after=stop_dac_after_s,
+            trigger=_trigger(trigger_la, trigger_edge), trigger_timeout=trigger_timeout_s, source=source)
         if adc_samples:
             SESSION.last_adc = cc.adc
         if la_samples:
@@ -2551,7 +2473,7 @@ async def generate(
     dac_path: Annotated[Optional[DacPath], Field(description=(
         "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
         "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
-    duration: Annotated[Optional[float], Field(description="Seconds; omit to run until dac_stop.")] = None,
+    duration_s: Annotated[Optional[float], Field(description="Seconds; omit to run until dac_stop.")] = None,
     sample_rate_hz: RateHz = None,
     on_capture: Annotated[bool, Field(description="Start on the next capture's hardware t0 (phase-locked).")] = False,
     route: Annotated[bool, Field(description=(
@@ -2560,20 +2482,18 @@ async def generate(
 ) -> m.GenerateResult:
     """Drive a sine, square or sawtooth on a DAC output.
 
-    On firmware 3.9.1+ the pod takes the volts, calibrates them for dac_path and plays the waveform
-    at the DAC's full 16 bits (bits=16 in the result); both peaks must then be on the path. Older firmware builds it from 8-bit levels (bits=8): 256 steps over the path.
+    The pod takes the volts, calibrates them for dac_path and plays the waveform at the DAC's full
+    16 bits; both peaks must be on the path.
 
     dac_path current_out plays it as a current on the 4-20 mA output (J9), with amplitude and offset
-    in amps and steps of about 0.25 uA (63 uA on older firmware). See current_out for the wiring it needs. The DAC voltage
+    in amps and steps of about 0.25 uA. See current_out for the wiring it needs. The DAC voltage
     outputs are switched off for it. dac_stop then leaves the loop where the waveform stopped: call
     current_out(0.004) to go back to 4 mA.
     """
     handle = await _call(lambda: SESSION.require().generate(
         waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset, **_dac_path_arg(dac_path, route),
-        duration=duration, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
-    bits = 16 if (handle.data or {}).get("bits") == 16 else 8
-    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=handle.dac_path, cotrig=handle.cotrig,
-                            bits=bits)
+        duration=duration_s, sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route))
+    return m.GenerateResult(waveform=waveform, freq_hz=freq_hz, dac_path=handle.dac_path, cotrig=handle.cotrig)
 
 
 @mcp.tool(annotations=_ann("Stop the DAC", idempotent=True))
@@ -2606,26 +2526,42 @@ async def replay(
     volts: Annotated[Optional[List[float]], Field(description=(
         "Waveform in volts, one value per sample. On dac_path current_out the values are AMPS (0.004 to 0.020)."))] = None,
     from_last_capture: Annotated[bool, Field(description="Replay the last capture_adc instead of volts.")] = False,
+    waveform_id: Annotated[Optional[str], Field(description=(
+        "Instead of volts: a waveform from the cloud library (list_waveforms; needs server access)."))] = None,
     dac_path: Annotated[Optional[DacPath], Field(description=(
         "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
-        "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
+        "cal1 = 5v; for waveform_id: the waveform's own, else 3v3). Pick the one the DUT pin "
+        "tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
     mapping: Annotated[ReplayMapping, Field(description="faithful = reproduce volts (clip); fit = auto-scale.")] = "faithful",
     sample_rate_hz: Annotated[Optional[float], Field(description="Replay rate; defaults to the capture's own rate.")] = None,
+    window_start: Annotated[int, Field(ge=0, description="waveform_id: first recording sample to replay.")] = 0,
+    window_len: Annotated[int, Field(ge=0, description="waveform_id: samples to replay; 0 = to the end.")] = 0,
+    target_samples: Annotated[int, Field(ge=0, description=(
+        "waveform_id: downsample a shallow replay to this many samples."))] = 0,
     fault: Optional[m.FaultSpec] = None,
     on_capture: bool = False,
     route: Annotated[bool, Field(description="Route dac_path first (false = keep the current analog path).")] = True,
     switch_image: SwitchImage = True,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.ReplayResult:
-    """Loop a waveform out of the DAC until dac_stop — agent-provided volts or the last ADC capture.
+    """Loop a waveform out of the DAC until dac_stop: agent-provided volts, the last ADC capture,
+    or a waveform from the cloud library (waveform_id).
 
-    More than 2048 samples need the deep_replay gateware image, switched to automatically.
-    dac_path current_out replays on the 4-20 mA output (J9) in amps. A last capture of current_in
-    replays as the same current; a capture of a voltage source there needs mapping fit. See
-    current_out for the wiring. After dac_stop, call current_out(0.004) to go back to 4 mA.
+    More than 2048 samples need the deep_replay gateware image, switched to automatically (a
+    library waveform with target_samples is downsampled instead). dac_path current_out replays on
+    the 4-20 mA output (J9) in amps. A last capture of current_in, or a library recording with unit
+    mA, replays as the same current; a voltage recording there needs mapping fit. See current_out
+    for the wiring. After dac_stop, call current_out(0.004) to go back to 4 mA.
     """
-    if (volts is None) == (not from_last_capture):
-        raise ToolError("invalid argument: pass exactly one of volts or from_last_capture=true")
+    given = sum((volts is not None, from_last_capture, waveform_id is not None))
+    if given != 1:
+        raise ToolError("invalid argument: pass exactly one of volts, from_last_capture=true or waveform_id")
+    if waveform_id is not None:
+        return await _call_reporting(ctx, "arming replay", lambda: _replay_result(
+            SESSION.require().replay_waveform(
+                waveform_id, dac_path=dac_path, mapping=mapping, sample_rate_hz=sample_rate_hz,
+                window_start=window_start, window_len=window_len, target_samples=target_samples,
+                fault=_fault(fault), on_capture=on_capture, switch_image=switch_image)))
 
     def op() -> m.ReplayResult:
         pod = SESSION.require()
@@ -2786,35 +2722,6 @@ async def cloud_run_trace(
     return await _call(_lookup(op), lock=False)
 
 
-@mcp.tool(annotations=_ann("Replay a library waveform", destructive=True, cloud=True))
-async def replay_waveform(
-    waveform_id: str,
-    dac_path: Annotated[Optional[DacPath], Field(description="Output path; default the waveform's own, else 3v3.")] = None,
-    mapping: ReplayMapping = "faithful",
-    sample_rate_hz: RateHz = None,
-    window_start: Annotated[int, Field(ge=0, description="First recording sample to replay.")] = 0,
-    window_len: Annotated[int, Field(ge=0, description="Samples to replay; 0 = to the end.")] = 0,
-    target_samples: Annotated[int, Field(ge=0, description="Downsample a shallow replay to this many samples.")] = 0,
-    fault: Optional[m.FaultSpec] = None,
-    on_capture: bool = False,
-    switch_image: SwitchImage = True,
-    ctx: Context = None,  # type: ignore[assignment]
-) -> m.ReplayResult:
-    """Loop a cloud-library waveform out of the DAC until dac_stop (needs server access).
-
-    A recording too long for a shallow replay switches the pod to the deep_replay gateware image
-    (unless target_samples asks for a downsampled replay).
-    dac_path current_out replays on the 4-20 mA output (J9). A recording with unit mA replays there
-    as the same current; a recording in V there, or a mA recording on a voltage output, needs
-    mapping fit. After dac_stop, call current_out(0.004) to go back to 4 mA.
-    """
-    return await _call_reporting(ctx, "arming replay", lambda: _replay_result(
-        SESSION.require().replay_waveform(
-            waveform_id, dac_path=dac_path, mapping=mapping, sample_rate_hz=sample_rate_hz,
-            window_start=window_start, window_len=window_len, target_samples=target_samples,
-            fault=_fault(fault), on_capture=on_capture, switch_image=switch_image)))
-
-
 @mcp.tool(annotations=_ann("Save capture to the library", cloud=True))
 async def save_capture_as_recording(
     name: Annotated[str, Field(min_length=1)],
@@ -2905,7 +2812,7 @@ async def fpga_image(
 ) -> m.FpgaImageResult:
     """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
 
-    Rarely needed: control_loop, replay and replay_waveform switch automatically (also back from
+    Rarely needed: control_loop and replay switch automatically (also back from
     the emulation image once no I2C/SPI/UART sensor runs). The pod never switches back by itself,
     and refuses to leave the emulation image while I2C/SPI/UART sensors run (sensor_stop first).
     The switch resets the FPGA (any DAC output or UART session stops).
@@ -2968,7 +2875,7 @@ async def can_write(
 
 @mcp.tool(annotations=_ann("Read CAN frames", read_only=True))
 async def can_read(
-    timeout: Annotated[float, Field(ge=0, le=120, description=(
+    timeout_s: Annotated[float, Field(ge=0, le=120, description=(
         "With can_id: wait up to this long for it. Without: collect frames for this long (0 = what is buffered)."))] = 0.0,
     can_id: Optional[Annotated[int, Field(ge=0, le=0x1FFFFFFF)]] = None,
     max_frames: Annotated[int, Field(ge=1, le=1000)] = 32,
@@ -2978,9 +2885,9 @@ async def can_read(
         SESSION.require()
         bus = SESSION.require_can()
         if can_id is not None:
-            f = bus.read_until(can_id, timeout=timeout)
+            f = bus.read_until(can_id, timeout=timeout_s)
             return m.CanReadResult(frames=[_frame(f)] if f else [], matched=f is not None)
-        frames = bus.collect(timeout) if timeout > 0 else bus.read(max_frames)
+        frames = bus.collect(timeout_s) if timeout_s > 0 else bus.read(max_frames)
         return m.CanReadResult(frames=[_frame(f) for f in frames[:max_frames]])
 
     return await _call(op)
@@ -3035,21 +2942,21 @@ async def can_close() -> m.CanOpenResult:
 async def la_step(
     la: LaPin,
     steps: Annotated[int, Field(ge=1, le=65535, description="Number of step pulses (at most 65535).")],
-    delay: Annotated[float, Field(ge=4e-6, le=0.065535,
+    delay_s: Annotated[float, Field(ge=4e-6, le=0.065535,
                                   description="HALF the step period in seconds: each pulse is high for "
-                                              "delay, then low for delay, so pulses are 2 x delay apart. "
+                                              "delay_s, then low for delay_s, so pulses are 2 x delay_s apart. "
                                               "4 us to 65.535 ms.")],
     dir_la: Optional[LaPin] = None,
     direction: Literal[0, 1] = 0,
 ) -> m.StepResult:
     """Emit step pulses on an LA channel (step/dir motor drivers); with dir_la, set direction first.
 
-    The step rate is 1 / (2 x delay). The FPGA runs the train by itself; this returns as soon as it
+    The step rate is 1 / (2 x delay_s). The FPGA runs the train by itself; this returns as soon as it
     starts. More than 65535 steps: send several trains (wait for the pod between them).
     """
-    reply = await _call(lambda: SESSION.require().la_step(la, steps=steps, delay=delay, dir_la=dir_la,
+    reply = await _call(lambda: SESSION.require().la_step(la, steps=steps, delay=delay_s, dir_la=dir_la,
                                                          direction=direction))
-    return m.StepResult(la=la, steps=steps, delay=delay, status=str(reply.get("status", "started")))
+    return m.StepResult(la=la, steps=steps, delay=delay_s, status=str(reply.get("status", "started")))
 
 
 @mcp.tool(annotations=_ann("Raw firmware command", destructive=True))

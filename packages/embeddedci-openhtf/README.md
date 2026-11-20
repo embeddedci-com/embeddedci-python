@@ -39,7 +39,7 @@ from embeddedci_openhtf import benchpod_plug
 
 # TCP — or benchpod_plug("/dev/ttyACM0"). Bind it once per station; la_voltage is the DUT's
 # I/O voltage — change it to 1.8 for a 1V8 board.
-bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)
+bench = benchpod_plug("192.168.1.50", la_voltage=3.3)
 
 @htf.plug(bench=bench)
 def power_up(test, bench):
@@ -52,7 +52,7 @@ Connection forms (all **direct**, never cloud):
 
 | Form | Example |
 | --- | --- |
-| TCP `host[:port]` | `benchpod_plug("192.168.1.50:8080")` |
+| TCP `host[:port]` | `benchpod_plug("192.168.1.50")` |
 | USB, auto-detected | `benchpod_plug("usb")` (the pod's USB network adapter on firmware 3.9.0+, else its console) |
 | Serial device path | `benchpod_plug("/dev/ttyACM0")` / `benchpod_plug("COM5")` (the console only) |
 | `BENCHPOD_CONNECTION` env | `benchpod_plug()` (unbound) |
@@ -68,7 +68,7 @@ on which LA channel. Pass it to the plug — a dict, a path to a `.json` / `.tom
 `Wiring` — and it reaches `BenchPod(wiring=...)`:
 
 ```python
-bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+bench = benchpod_plug("192.168.1.50", la_voltage=3.3, wiring="bench.json")
 ```
 
 Every channel, baud, power rail and SWD argument a helper or phase leaves out then comes from the
@@ -95,7 +95,7 @@ unset for analog-only tests that don't touch the LA bank.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, `usb`, or `serial` |
+| `benchpod_connection` | `None` → `BENCHPOD_CONNECTION` | `host[:port]`, a serial device path, or `usb` |
 | `benchpod_timeout` | `30.0` | Transport timeout in seconds |
 | `benchpod_la_voltage` | `None` → `BENCHPOD_LA_VOLTAGE` | LA I/O-bank voltage in volts (`1.8` or `3.3`) |
 
@@ -120,7 +120,7 @@ Ready-made, fully-decorated phases for the common steps:
 import openhtf as htf
 from embeddedci_openhtf import benchpod_plug, boot_banner_phase, flash_phase, power_phase
 
-bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)
+bench = benchpod_plug("192.168.1.50", la_voltage=3.3)
 
 test = htf.Test(
     power_phase(bench, on=True),
@@ -188,7 +188,7 @@ from embeddedci_openhtf import (
     loopback_measure_phase, signal_generate_phase,
 )
 
-bench = benchpod_plug("192.168.1.50:8080")
+bench = benchpod_plug("192.168.1.50")
 
 test = htf.Test(
     # drive a 1 V-peak sine centered on 2.5 V (5V DAC path), capture the front ADC SMA
@@ -258,7 +258,7 @@ the seconds between an edge on one channel and the next edge on another.
 import openhtf as htf
 from embeddedci_openhtf import benchpod_plug, gpio_phase, la_delay_phase, release_gpio
 
-bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+bench = benchpod_plug("192.168.1.50", la_voltage=3.3, wiring="bench.json")
 
 test = htf.Test(
     gpio_phase(bench, la="TRIGGER", mode="output", level=0),
@@ -302,7 +302,7 @@ import openhtf as htf
 from embeddedci_openhtf import adc_capture, benchpod_plug, signal_generate
 
 @htf.measures(htf.Measurement("ripple_v").in_range(0.0, 0.05).with_units("V"))
-@htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
+@htf.plug(bench=benchpod_plug("192.168.1.50"))
 def ripple_under_load(test, bench):
     with signal_generate(bench, waveform="square", freq_hz=10, amplitude=2.0, dac_path="5v"):
         cap = adc_capture(bench, 8192, sample_rate_hz=20_000, source="ext")
@@ -326,7 +326,7 @@ from embeddedci_openhtf import (
     benchpod_plug, boot_banner_phase, close_persistent_benchpods, power_phase,
 )
 
-bench = benchpod_plug("192.168.1.50:8080", persistent=True, la_voltage=3.3)
+bench = benchpod_plug("192.168.1.50", persistent=True, la_voltage=3.3)
 test = htf.Test(power_phase(bench, on=True),
                 boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK"))
 try:

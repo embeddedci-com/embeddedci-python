@@ -263,26 +263,26 @@ class PullState:
 
     @classmethod
     def from_reply(cls, reply: Any, la: int) -> "PullState":
-        """From the pod's ``la`` reply. Firmware before ``la_pull_dir`` sends no ``state`` or
-        ``dirs``; the board table (:data:`~embeddedci.benchpod.constants.PULL_TABLE`) fills them."""
+        """From the pod's ``la_pull`` reply (``state``, ``dirs``, ``pullups_available``). The
+        reply has no resistor value: on boards with one resistor per channel it comes from the
+        board table (:data:`~embeddedci.benchpod.constants.PULL_TABLE`), ``la_pins`` reports it
+        on every board."""
         from .constants import PULL_TABLE
 
         d = _d(reply)
         la = int(d.get("la", la))
         hw = PULL_TABLE.get(la)
         dirs = d.get("dirs")
-        supported = (tuple(str(x) for x in dirs) if isinstance(dirs, list)
-                     else (hw.dirs if hw else ()))
-        pull = d.get("pull")
-        direction: Optional[str] = (str(pull) if pull in ("up", "down")
-                                    else (hw.default if hw and pull is None else None))
+        supported = tuple(str(x) for x in dirs) if isinstance(dirs, list) else ()
         state = d.get("state")
-        enabled = (state in ("up", "down")) if isinstance(state, str) else bool(d.get("pullup", 0))
-        if isinstance(state, str) and state in ("up", "down"):
-            direction = state
-        return cls(la=la, enabled=enabled, direction=direction,
-                   ohms=str(d.get("ohms", hw.ohms if hw else "") or ""),
-                   available=bool(d.get("pullups_available", 1)), supported=supported,
+        enabled = state in ("up", "down")
+        direction: Optional[str] = (str(state) if enabled
+                                    else (supported[0] if len(supported) == 1 else None))
+        ohms = d.get("ohms")
+        if not isinstance(ohms, str):
+            ohms = hw.ohms if hw and supported == hw.dirs else ""
+        return cls(la=la, enabled=enabled, direction=direction, ohms=ohms,
+                   available=d.get("pullups_available") is not False, supported=supported,
                    strength=str(d["strength"]) if isinstance(d.get("strength"), str) else None,
                    held=str(d["held"]) if isinstance(d.get("held"), str) else None, raw=d)
 
@@ -379,28 +379,26 @@ class DacOutput:
     #: The voltage the calibrated DAC actually produces (the nearest code to what was asked),
     #: or ``None`` when the call only routed the path.
     voltage: Optional[float]
-    #: The DAC code driving it as an 8-bit level (0..255), or ``None`` when only routed.
+    #: The DAC code driving it as an 8-bit level (0..255: the high byte of :attr:`code16`), or
+    #: ``None`` when only routed.
     code: Optional[int]
-    #: The full 16-bit DAC code driving it, or ``None`` when only routed or on firmware that
-    #: drives ``dac_out`` at 8 bits (before 3.8.1).
+    #: The 16-bit DAC code driving it, or ``None`` when only routed.
     code16: Optional[int] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "DacOutput":
         d = _d(reply)
-        code = _opt_int(d, "code")
-        routed_only = code is None or code < 0
+        code16 = _opt_int(d, "code16")
         # The firmware answers with the analog-path name (dac_5v); report the output-path name the
         # caller used (5v) so the result speaks the same vocabulary as dac_output's argument.
         path = str(d.get("path", ""))
         path = path[len("dac_"):] if path.startswith("dac_") else path
-        if routed_only:
+        if code16 is None or code16 < 0:   # only routed
             return cls(path=path, voltage=None, code=None, raw=d)
-        # A 16-bit pod also answers in microvolts: one step is well under a millivolt.
         uv = _opt_int(d, "uv")
         voltage = uv / 1e6 if uv is not None else (_opt_int(d, "mv") or 0) / 1000.0
-        return cls(path=path, voltage=voltage, code=code, code16=_opt_int(d, "code16"), raw=d)
+        return cls(path=path, voltage=voltage, code=code16 >> 8, code16=code16, raw=d)
 
 
 @dataclass(frozen=True)
@@ -621,6 +619,11 @@ class ModuleInfo:
     #: The stored calibration blob's length in bytes (0 = none) and whether its CRC matched.
     cal_len: int = 0
     cal_ok: bool = False
+    #: The digital board and the module use the same flat-cable DAC pinout. ``False``: the DAC is
+    #: off and every command that drives it is refused
+    #: (:class:`~embeddedci.benchpod.errors.DacPinoutMismatchError`, ``BP0080``); a digital v3r4 or
+    #: later board needs analog module 3.5 or later. ``None`` when the pod does not report it.
+    dac_pinout_ok: Optional[bool] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -630,7 +633,9 @@ class ModuleInfo:
         return cls(present=d.get("present") is True, analog=d.get("analog") is True,
                    power=d.get("power") is True, bridge_power=d.get("bridge_power") is True,
                    eeprom=str(d.get("eeprom", "none")), type=s("type"), rev=s("rev"), serial=s("serial"),
-                   cal_len=_opt_int(d, "cal_len") or 0, cal_ok=d.get("cal_ok") is True, raw=d)
+                   cal_len=_opt_int(d, "cal_len") or 0, cal_ok=d.get("cal_ok") is True,
+                   dac_pinout_ok=d["dac_pinout_ok"] if isinstance(d.get("dac_pinout_ok"), bool) else None,
+                   raw=d)
 
 
 @dataclass(frozen=True)
@@ -666,7 +671,7 @@ class LoopState:
     def from_reply(cls, reply: Any) -> "LoopState":
         d = _d(reply)
         return cls(source=d.get("source"), input_code=_opt_int(d, "input") or 0,
-                   step=_opt_int(d, "step") or 0, output_code=_opt_int(d, "v") or 0, raw=d)
+                   step=_opt_int(d, "step") or 0, output_code=_opt_int(d, "code16") or 0, raw=d)
 
 
 __all__: List[str] = [

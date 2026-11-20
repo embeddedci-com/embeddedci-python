@@ -183,7 +183,7 @@
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
     "set_log_level": "(self, level: 'str') -> 'str'",
     "set_module_id": "(self, serial: 'str', rev: 'str', module_type: 'str' = 'analog', *, replace: 'bool' = False) -> 'ModuleInfo'",
-    "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Union[PullDirection, bool, None, object]' = <required>, *, enabled: 'Optional[bool]' = None) -> 'PullState'",
+    "set_pull": "(self, la: 'Union[Pin, int]', pull: 'Optional[PullDirection]') -> 'PullState'",
     "set_reset": "(self, asserted: 'bool') -> 'ResetState'",
     "signal": "(self, name: 'str') -> 'GpioPin'",
     "spi_flash": "(self, image: \"Union[bytes, str, 'os.PathLike[str]']\", addr: 'int' = 0, *, erase: 'bool' = True, verify: 'bool' = True, hold_reset: 'bool' = False, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, mode: 'int' = 0, progress: 'Optional[_spi.Progress]' = None) -> '_spi.SpiFlashResult'",
@@ -247,10 +247,10 @@
     "clear_responders": "(self) -> 'dict'",
     "close": "(self) -> 'None'",
     "collect": "(self, duration: 'float', *, match: 'Optional[Match]' = None, poll: 'float' = 0.02) -> 'List[CanFrame]'",
-    "expect": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float' = 1.0) -> 'CanFrame'",
+    "expect": "(self, match: 'Optional[Match]' = None, *, timeout: 'float' = 1.0) -> 'CanFrame'",
     "fd": "property",
     "read": "(self, max_frames: 'int' = 8) -> 'List[CanFrame]'",
-    "read_until": "(self, match: 'Optional[Match]' = None, *, can_id: 'Optional[int]' = None, timeout: 'float', poll: 'float' = 0.02) -> 'Optional[CanFrame]'",
+    "read_until": "(self, match: 'Optional[Match]' = None, *, timeout: 'float', poll: 'float' = 0.02) -> 'Optional[CanFrame]'",
     "set_term": "(self, on: 'bool') -> 'dict'",
     "simulate_ecu": "(self, rules: 'dict') -> 'None'",
     "status": "(self) -> 'dict'",
@@ -342,7 +342,6 @@
       "analog",
       "dac_limits",
       "sensors",
-      "sensors_format",
       "sensors_digital",
       "sensor_la_trigger",
       "flash_kb",
@@ -470,6 +469,9 @@
   },
   "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
   "DacPath": "Literal['3v3', '5v', '12v', 'current_out']",
+  "DacPinoutMismatchError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, digital: 'str' = '', module: 'str' = '') -> 'None'"
+  },
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi']",
   "DefinitionError": {
     "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
@@ -581,6 +583,9 @@
   "FaultType": "Literal['flatline', 'spike', 'stuck']",
   "FirmwareError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None) -> 'None'"
+  },
+  "FirmwareTooOldError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, api: 'int' = 0, firmware_version: 'str' = '') -> 'None'"
   },
   "FlashError": {},
   "FlashResult": {
@@ -840,6 +845,7 @@
       "serial",
       "cal_len",
       "cal_ok",
+      "dac_pinout_ok",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'ModuleInfo'\""
@@ -917,7 +923,7 @@
     }
   },
   "PinConflictError": {
-    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, function: 'str' = '') -> 'None'"
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0, function: 'str' = '', owner: 'str' = '', instance: 'str' = '') -> 'None'"
   },
   "PodBusyError": {},
   "PodLeaseLostError": {
@@ -1001,6 +1007,7 @@
     "__init__": "(self, *, stop: 'Callable[[], Any]', samples: 'int' = 0, sample_rate_hz: 'float' = 0.0, dac_path: 'str' = '', deep: 'bool' = False, data: 'Optional[dict]' = None, cotrig: 'bool' = False, switched_image: \"Optional['FpgaImageInfo']\" = None) -> 'None'"
   },
   "ReplayMapping": "Literal['faithful', 'fit']",
+  "ReplyTooLargeError": {},
   "ResetState": {
     "__fields__": [
       "asserted",
@@ -1317,7 +1324,6 @@
     ],
     "assignments": "(self) -> 'Iterator[Tuple[str, int]]'",
     "coerce": "(cls, value: \"Union['Wiring', Mapping[str, Any], str, Path]\") -> \"'Wiring'\"",
-    "defaults": "(cls) -> \"'Wiring'\"",
     "describe": "(self) -> 'str'",
     "dut_dir": "(self, name: 'str') -> 'str'",
     "from_dict": "(cls, data: 'Mapping[str, Any]', *, source: 'str' = 'dict', strict: 'bool' = True) -> \"'Wiring'\"",
@@ -1379,6 +1385,7 @@
     "DacOutput",
     "DacOutputPath",
     "DacPath",
+    "DacPinoutMismatchError",
     "DecodeProtocol",
     "DefinitionError",
     "DeviceBusyError",
@@ -1398,6 +1405,7 @@
     "Fault",
     "FaultType",
     "FirmwareError",
+    "FirmwareTooOldError",
     "FlashError",
     "FlashResult",
     "FpgaImage",
@@ -1459,6 +1467,7 @@
     "RailPower",
     "ReplayHandle",
     "ReplayMapping",
+    "ReplyTooLargeError",
     "ResetState",
     "SENSOR_LIBRARY_VERSION",
     "Segment",
@@ -1531,7 +1540,7 @@
   "dsp": "module",
   "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
   "expansion_chip": "(name: 'str') -> 'ExpansionChip'",
-  "forget_lan_tls": "(host: 'str', port: 'int' = 8080) -> 'bool'",
+  "forget_lan_tls": "(host: 'str', port: 'int' = 8443) -> 'bool'",
   "header_map": "(w: 'Wiring', header: 'Optional[str]' = None) -> 'str'",
   "i2c": "module",
   "input_percent_to_code": "(percent: 'float') -> 'int'",
@@ -1543,5 +1552,5 @@
   "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'",
   "sensor_library": "(version: 'Optional[str]' = None, *, cache_dir: \"Union[str, 'os.PathLike[str]', None]\" = None, offline: 'bool' = False, refresh: 'bool' = False, timeout: 'float' = 30.0) -> 'SensorLibrary'",
   "sensors": "module",
-  "trust_lan_tls": "(host: 'str', port: 'int' = 8080, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
+  "trust_lan_tls": "(host: 'str', port: 'int' = 8443, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
 }

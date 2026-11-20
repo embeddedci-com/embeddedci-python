@@ -412,7 +412,7 @@ def test_measure_power_longer_than_the_transport_timeout_completes_over_tcp(pod_
             return
         seen.update(req)
         time.sleep(req["duration_ms"] / 1000.0 + 0.1)  # the pod samples for the whole duration
-        stats = {"n": 400, "duration_ms": req["duration_ms"], "rate_hz": 500,
+        stats = {"n": 400, "duration_ms": req["duration_ms"], "sample_rate_hz": 500,
                  "i_avg_ua": 12000, "i_min_ua": 10000, "i_max_ua": 15000,
                  "v_avg_mv": 5000, "energy_uj": 48000}
         conn.sendall((json.dumps({"status": "ok", "data": {"stats": stats}, "more": False})

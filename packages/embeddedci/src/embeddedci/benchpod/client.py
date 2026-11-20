@@ -51,7 +51,7 @@ from . import i2c_master as _i2c_master
 from . import motor_emulator as _motor_emulator
 from . import spi as _spi
 from . import uart as _uart
-from .capabilities import (ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE, UART_FRAME_FIRMWARE,
+from .capabilities import (ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE,
                            AffineCal, Capabilities)
 from .constants import (
     ADC_SOURCE_PATHS,
@@ -101,9 +101,9 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, ClientTooOldError, FirmwareError, PullDirectionError,
-                     UnsupportedFeatureError, classify_firmware_error, firmware_error,
-                     status_too_large)
+from .errors import (BenchPodError, ClientTooOldError, FirmwareError, FirmwareTooOldError,
+                     PullDirectionError, UnsupportedFeatureError, classify_firmware_error,
+                     firmware_error)
 from .flash import FlashResult
 from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -157,8 +157,6 @@ _WIRING_LOOKUP_TIMEOUT = 3.0
 #: Bytes of a wiring profile per wiring_get / wiring_put (the firmware's WIRING_PIECE_MAX).
 _WIRING_PIECE = 600
 
-#: Levels of the firmware's parametric generator (it builds each waveform from 8-bit codes).
-_GENERATOR_MAX_CODE = 255
 #: The 4-20 mA output (J9) as a waveform output path. Levels on it are amps.
 _CURRENT_OUT = "current_out"
 # The DAC output each named analog path drives (cal1/cal2 loop the 5 V / 12 V DAC back to the ADC).
@@ -210,6 +208,16 @@ def _mac_text(v: Any) -> Optional[str]:
     return v.strip().lower() if isinstance(v, str) and v.strip() else None
 
 
+def _major_version(version: str) -> Optional[int]:
+    """The major number of a firmware version (``"4.0.0"`` -> 4), None when it is not one."""
+    m = re.match(r"^v?(\d+)\.", (version or "").strip())
+    return int(m.group(1)) if m else None
+
+def _num(v: float) -> Union[int, float]:
+    """A number for the wire: an int when it is whole (``1000.0`` -> ``1000``)."""
+    f = float(v)
+    return int(f) if f.is_integer() else f
+
 def _sdk_version() -> str:
     try:
         from importlib.metadata import version
@@ -256,32 +264,20 @@ _EXT_REFUSALS = {
 }
 
 
-class _NoPull:
-    """set_pull's "pull not given" (``enabled=`` is the older keyword); a stable repr for the docs."""
-
-    def __repr__(self) -> str:
-        return "<required>"
-
-
-_NO_PULL = _NoPull()
-
-
 def _one_or_many(las: List[int]) -> Any:
     return las[0] if len(las) == 1 else las
 
 
 @contextmanager
 def _classified_errors() -> Iterator[None]:
-    """Re-raise a pod refusal as its specific error (PinConflictError, PullConflictError, TriggerTimeout)."""
+    """Re-raise a coded pod refusal that reached here as a plain FirmwareError as its specific
+    error (PinConflictError, PullConflictError, TriggerTimeout, ...), from its code."""
     try:
         yield
     except FirmwareError as exc:
         specific = classify_firmware_error(exc)
         if specific is exc:
             raise
-        if exc.code:   # keep the pod's code on the specific error
-            from .errors import _attach_code
-            _attach_code(specific, exc.code, exc.values)
         raise specific from None
 
 
@@ -556,28 +552,16 @@ class BenchPod:
         return _dict(self._transport.status())
 
     def _caps_status(self) -> Dict[str, Any]:
-        """``status`` for the capabilities: without the ``caps`` list where the firmware has the
-        features table (:mod:`~embeddedci.benchpod.feature_map`)."""
-        read = getattr(self._transport, "status_without_caps", None)
-        return _dict(read() if callable(read) else self._transport.status())
+        """``status`` for the capabilities (:mod:`~embeddedci.benchpod.feature_map`)."""
+        return _dict(self._transport.status())
 
     def diag(self) -> Dict[str, Any]:
         """The pod's health counters: ``heap_free``, ``heap_min``, ``stack_min``, per-task
         ``stacks``, the network stack's ``lwip_mem_*`` and ``pbuf_pool_*`` high-water marks,
-        ``malloc_failures``, the console's ``rx_dropped``/``tx_dropped`` and ``board_rev_mv``.
-
-        Firmware 3.10.9+ answers the ``diag`` command; older firmware has them in its full
-        :meth:`status`, which this reads instead (over the cloud that status is the short form,
-        so only the heap and ``stack_min`` are there).
+        ``malloc_failures``, the console's ``rx_dropped``/``tx_dropped`` and ``board_rev_mv``
+        (the ``diag`` command).
         """
-        try:
-            return _dict(self.command({"cmd": "diag"}))
-        except UnsupportedFeatureError:
-            st = self.status()
-            keys = ("heap_free", "heap_min", "stack_min", "stacks", "lwip_mem_max", "lwip_mem_size",
-                    "pbuf_pool_max", "pbuf_pool_size", "malloc_failures", "rx_dropped", "tx_dropped",
-                    "board_rev_mv")
-            return {k: st[k] for k in keys if k in st}
+        return _dict(self.command({"cmd": "diag"}))
 
     def mac_addresses(self, status: Optional[Mapping[str, Any]] = None) -> "MacAddresses":
         """The pod's Ethernet and Wi-Fi MACs, for a network that hands out addresses only to
@@ -624,10 +608,10 @@ class BenchPod:
             try:
                 status = self._caps_status()
             except FirmwareError as exc:
-                # Firmware 3.10.4's status can be too large for the cloud channel. Reading it again
-                # will not help: use the server's capabilities alone, and keep them.
+                # A status too large for the cloud channel (BP0054): reading it again will not
+                # help, so use the server's capabilities alone, and keep them.
                 _log.warning("could not read the pod's status for its capabilities: %s", exc)
-                status, status_ok = {}, status_too_large(exc.firmware_message, exc.cmd)
+                status, status_ok = {}, exc.code == "BP0054"
             except BenchPodError as exc:
                 _log.warning("could not read the pod's status for its capabilities: %s", exc)
                 status, status_ok = {}, False
@@ -648,25 +632,52 @@ class BenchPod:
                 except BenchPodError:
                     pass
             if not status_ok:
-                self._check_client_api(caps)
+                if caps.api or caps.firmware_version:
+                    self._check_client_api(caps)
                 return caps
             self._caps = caps
-        self._check_client_api(self._caps)
+        if self._caps.api or self._caps.firmware_version:   # nothing to check without a status
+            self._check_client_api(self._caps)
         return self._caps
 
     def _check_client_api(self, caps: Capabilities) -> None:
-        """Raise :class:`ClientTooOldError` when the pod speaks a client API level above
-        :data:`~embeddedci.benchpod.feature_map.CLIENT_API`: its firmware changed a reply or a
-        message in a way this SDK would misread. A pod without ``api`` counts as 1."""
-        if caps.client_api_level <= _feature_map.CLIENT_API:
-            return
+        """Refuse a pod this SDK does not drive.
+
+        :class:`FirmwareTooOldError` for firmware 3.x: its client API level is below
+        :data:`~embeddedci.benchpod.feature_map.MIN_POD_API` (a pod that announces none counts as
+        1; over the USB console, which announces none, its firmware version decides).
+        :class:`ClientTooOldError` when the pod speaks a level above
+        :data:`~embeddedci.benchpod.feature_map.CLIENT_API`, or takes none this low
+        (``min_client_api``): its firmware changed a reply or a message in a way this SDK would
+        misread."""
         fw = caps.firmware_version or "unknown"
+        level = caps.client_api_level
+        if not caps.api and self._console_only():
+            major = _major_version(caps.firmware_version)
+            level = _feature_map.MIN_POD_API if major is None or major >= 4 else 1
+        if level < _feature_map.MIN_POD_API:
+            raise FirmwareTooOldError(
+                f"the pod runs firmware {fw} (client API {level}); this SDK (embeddedci "
+                f"{_sdk_version()}) needs firmware {_feature_map.MIN_FIRMWARE} or later (client API "
+                f"{_feature_map.MIN_POD_API}). Update the pod with the BenchPod CLI (`benchpod "
+                f"flash-self`) or the firmware update in the web app, or keep this firmware and use "
+                f"embeddedci 3.x (pip install 'embeddedci<4')",
+                api=level, firmware_version=caps.firmware_version)
+        if level <= _feature_map.CLIENT_API and caps.min_client_api <= _feature_map.CLIENT_API:
+            return
         raise ClientTooOldError(
             f"this SDK is too old for the pod's firmware {fw}: the pod speaks client API "
-            f"{caps.client_api_level}, this SDK (embeddedci {_sdk_version()}) handles client API "
-            f"{_feature_map.CLIENT_API}; update the SDK (pip install -U embeddedci)",
-            client_api=_feature_map.CLIENT_API, api=caps.client_api_level,
+            f"{level} (and takes {caps.min_client_api} or newer), this SDK (embeddedci "
+            f"{_sdk_version()}) handles client API {_feature_map.CLIENT_API}; update the SDK (pip "
+            f"install -U embeddedci)",
+            client_api=_feature_map.CLIENT_API, api=level,
             min_client_api=caps.min_client_api, firmware_version=caps.firmware_version)
+
+    def _console_only(self) -> bool:
+        """The USB text console (no JSON API), which announces no client API level."""
+        from .transport.serial import SerialTransport
+
+        return isinstance(self._transport, SerialTransport)
 
     def _direct_network(self) -> bool:
         """A LAN or USB network connection: one that should get the pod's full status."""
@@ -687,9 +698,8 @@ class BenchPod:
             return again
         _log.warning(
             "the pod sent its short status over the network: its full status did not fit the connection. "
-            "The ADC calibration and the feature flags it leaves out come from embeddedci.com when "
-            "this computer is signed in, else from the board's defaults, so ADC readings can be "
-            "off. Firmware 3.10.9 keeps the full status small: update the pod (benchpod flash-self).")
+            "The ADC calibration it leaves out comes from embeddedci.com when this computer is "
+            "signed in, else from the board's defaults, so ADC readings can be off.")
         return again
 
     def refresh_capabilities(self) -> Capabilities:
@@ -929,10 +939,9 @@ class BenchPod:
             return None
         try:
             listing = _dict(cmd({"cmd": "wiring_list"}))
-            # Firmware that stores profiles always lists them; anything else does not store any.
             return listing if isinstance(listing.get("profiles"), list) else None
         except FirmwareError:
-            return None   # older firmware refuses it ("unknown cmd"): it stores no profiles
+            return None   # a pod that refuses the listing: no stored profile to use
         except BenchPodError as exc:
             if type(self._transport).__name__ == "SerialTransport":
                 return None   # the USB console runs no JSON commands
@@ -1207,7 +1216,7 @@ class BenchPod:
         self._apply_profile_pulls(w)
         cmd = self._pod_cmd()
         if w.profile_name and cmd is not None and type(self._transport).__name__ != "SerialTransport":
-            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "state": 1,
+            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "enabled": True,
                                    "delay_ms": _seconds_to_ms(delay, "delay"), "profile": w.profile_name}
             with _classified_errors():
                 cmd(req)
@@ -1286,9 +1295,9 @@ class BenchPod:
         """
         req: Dict[str, Any] = {"cmd": "usb_network"}
         if on is not None:
-            req["set"] = "on" if on else "off"
+            req["enabled"] = bool(on)
         data = self.command(req)
-        return isinstance(data, dict) and data.get("setting") == "on"
+        return isinstance(data, dict) and data.get("enabled") is True
 
     # -- console log level --------------------------------------------------
 
@@ -1644,22 +1653,14 @@ class BenchPod:
         except BenchPodError:
             return False
 
-    def _pull_dir_api(self) -> bool:
-        """The pod takes ``pull: up|down|off`` (feature ``la_pull_dir``); older firmware only
-        ``pullup: on|off``, on today's boards."""
-        try:
-            return self.supports("la_pull_dir")
-        except BenchPodError:
-            return False
-
     @staticmethod
-    def _pull_want(la: int, pull: Union[str, bool, None]) -> str:
-        """``pull`` as "up" / "down" / "off". True (deprecated) is the channel's own direction."""
-        if pull is None or pull is False:
+    def _pull_want(la: int, pull: Optional[str]) -> str:
+        """``pull`` as "up" / "down" / "off" (``None`` and ``"none"`` are off)."""
+        if pull is None:
             return "off"
-        if pull is True:
-            hw = PULL_TABLE.get(la)
-            return hw.default if hw else "up"
+        if isinstance(pull, bool):
+            raise TypeError(f'set_pull() takes "up", "down" or "off", not {pull!r} (the boolean form '
+                            "is gone in embeddedci 4.0)")
         want = str(pull).strip().lower()
         if want == "none":
             want = "off"
@@ -1670,14 +1671,13 @@ class BenchPod:
     def _pull_refusal(la: int, want: str, supported: Tuple[str, ...]) -> PullDirectionError:
         """The pod's own refusal (BP0023 / BP0024), for what the SDK refuses before asking."""
         if not supported:
-            return firmware_error(f"LA{la} has no pull resistor on this board", cmd="la",
+            return firmware_error(f"LA{la} has no pull resistor on this board", cmd="la_pull",
                                   code="BP0023", values={"la": la})  # type: ignore[return-value]
         have = supported[0]
-        return firmware_error(f"LA{la} supports pull-{have} only on this board", cmd="la",
+        return firmware_error(f"LA{la} supports pull-{have} only on this board", cmd="la_pull",
                               code="BP0024", values={"la": la, "want": want, "have": have})  # type: ignore[return-value]
 
-    def set_pull(self, la: Union[Pin, int], pull: Union[PullDirection, bool, None, object] = _NO_PULL, *,
-                 enabled: Optional[bool] = None) -> PullState:
+    def set_pull(self, la: Union[Pin, int], pull: Optional[PullDirection]) -> PullState:
         """Pull LA ``la`` ``"up"``, ``"down"`` or ``"off"`` (``None`` is off too) and return its
         :class:`PullState`.
 
@@ -1685,43 +1685,22 @@ class BenchPod:
         resistor can't pull raises :class:`~embeddedci.benchpod.errors.PullDirectionError` (BP0024,
         "LA7 supports pull-down only on this board"), and ``"up"``/``"down"`` on a channel without
         one too (BP0023). ``"off"`` is fine on every channel.
-
-        ``set_pull(la, True)`` / ``set_pull(la, False)`` (and ``enabled=``) still work
-        (deprecated): True engages the channel's own direction (up on LA1-LA6, down on LA7/LA8),
-        False is off.
         """
-        if pull is _NO_PULL:
-            if enabled is None:
-                raise TypeError('set_pull() needs pull: "up", "down" or "off"')
-            pull = bool(enabled)
         la_i = coerce_pin(la, "la")
         want = self._pull_want(la_i, pull)  # type: ignore[arg-type]
-        if self._pull_dir_api():
-            with _classified_errors():
-                reply = self.command({"cmd": "la", "la": la_i, "pull": want})
-            return PullState.from_reply(reply, la_i)
-        # Older firmware: only pullup on/off, which engages the channel's one direction. Check the
-        # direction here, so "up" never engages LA7's pull-down.
-        hw = PULL_TABLE.get(la_i)
-        if want != "off" and (not hw or want not in hw.dirs):
-            raise self._pull_refusal(la_i, want, hw.dirs if hw else ())
-        if not hw:
-            return PullState.none(la_i)
         with _classified_errors():
-            reply = self.command({"cmd": "la", "la": la_i, "pullup": "off" if want == "off" else "on"})
+            reply = self.command({"cmd": "la_pull", "la": la_i, "pull": want})
         return PullState.from_reply(reply, la_i)
 
     def pull_state(self, la: Union[Pin, int]) -> PullState:
         """Read LA ``la``'s pull resistor: engaged, direction, value, supported directions."""
         la_i = coerce_pin(la, "la")
-        if la_i not in PULL_TABLE and not self._pull_dir_api():
-            return PullState.none(la_i)   # older firmware refuses the query on LA9-LA14
         with _classified_errors():
-            return PullState.from_reply(self.command({"cmd": "la", "la": la_i}), la_i)
+            return PullState.from_reply(self.command({"cmd": "la_pull", "la": la_i}), la_i)
 
     def enabled_pulls(self) -> List[int]:
         """The LA channels whose pull resistor is currently engaged (either direction)."""
-        mask = int(_dict(self.command({"cmd": "la"})).get("la_pullup_mask", 0) or 0)
+        mask = int(_dict(self.command({"cmd": "la_pull"})).get("la_pullup_mask", 0) or 0)
         return [la for la in range(1, 15) if mask >> (la - 1) & 1]
 
     def enable_pullup(self, *las: Union[Pin, int]) -> None:
@@ -1749,11 +1728,7 @@ class BenchPod:
         """Switch the pull off, refusing a channel that can't pull ``kind`` at all (so a typo
         like disable_pullup(7) is not silently a no-op)."""
         la_i = coerce_pin(la, "la")
-        if self._pull_dir_api():
-            supported = self.pull_state(la_i).supported
-        else:
-            hw = PULL_TABLE.get(la_i)
-            supported = hw.dirs if hw else ()
+        supported = self.pull_state(la_i).supported
         if kind not in supported:
             raise self._pull_refusal(la_i, kind, supported)
         self.set_pull(la_i, "off")
@@ -1816,7 +1791,7 @@ class BenchPod:
         if volts is not None:
             if path == "off":
                 raise ValueError("volts cannot be set on the 'off' path")
-            req["volts"] = float(volts)
+            req["v"] = float(volts)
         out = DacOutput.from_reply(self.command(req))
         self._routed_dac_path = None if path == "off" else path
         self._dac_routed()
@@ -2079,11 +2054,9 @@ class BenchPod:
         try:
             self.command({"cmd": "module"})
             header = "front"
-        except UnsupportedFeatureError:
-            header = None
         except BenchPodError as e:
-            # No code yet ("no module link"): firmware PR 2 of the codes plan.
-            header = "j1" if "no module link" in str(e).lower() else None
+            # BP0056: a digital board without the module link, so its header is J1.
+            header = "j1" if getattr(e, "code", "") == "BP0056" else None
         if header is None:
             try:
                 header = header_from_status(self.status())
@@ -2150,7 +2123,7 @@ class BenchPod:
         8 Mbit/s. ``fd=True`` without ``data_bitrate`` is CAN FD without bit-rate switching
         (``data_bitrate=bitrate``). Without either, the bus is classic CAN."""
         check_choice(mode, CAN_MODES, "mode")
-        msg: Dict[str, Any] = {"cmd": "can_config", "bitrate": int(bitrate), "mode": mode,
+        msg: Dict[str, Any] = {"cmd": "can_start", "bitrate": int(bitrate), "mode": mode,
                                "term": bool(term)}
         if data_bitrate is None and fd:
             data_bitrate = bitrate
@@ -2222,7 +2195,7 @@ class BenchPod:
 
     def can_disable(self) -> Dict[str, Any]:
         """Stop FDCAN1 and release the peripheral."""
-        return _dict(self.command({"cmd": "can_disable"}))
+        return _dict(self.command({"cmd": "can_stop"}))
 
     def open_can(self, *, bitrate: int = 500_000, mode: CanMode = "normal",
                  term: bool = False, fd: bool = False,
@@ -2232,7 +2205,7 @@ class BenchPod:
 
             with bp.open_can(bitrate=500_000, mode="internal") as can:
                 can.write(0x123, [1, 2, 3])
-                frame = can.expect(can_id=0x123, timeout=1.0)
+                frame = can.expect(0x123, timeout=1.0)
 
         ``data_bitrate`` makes it a CAN FD bus (see :meth:`can_config`)::
 
@@ -2289,8 +2262,8 @@ class BenchPod:
             if not self.supports("uart_frame"):
                 fw = self.capabilities.firmware_version or "unknown"
                 raise UnsupportedFeatureError(
-                    f"UART parity and stop bits need firmware {UART_FRAME_FIRMWARE}+ (gateware v56; "
-                    f"this pod runs firmware {fw}): update the pod's firmware",
+                    f"UART parity and stop bits need gateware v56 (feature uart_frame; this pod "
+                    f"runs firmware {fw}): update the pod's firmware",
                     feature="uart_frame", firmware_version=self.capabilities.firmware_version)
         if entry is not None and not isinstance(entry, _uart.UartEntry):
             raise ValueError(f"entry must be a UartEntry, got {type(entry).__name__}")
@@ -2489,7 +2462,7 @@ class BenchPod:
         """``spi_start`` on four resolved channels (open_spi, and an expander's own session)."""
         self._require_capability("spi_master", "the SPI master")
         req = {"cmd": "spi_start", "sck": sck, "mosi": mosi, "miso": miso, "cs": cs,
-               "hz": int(hz), "mode": int(mode)}
+               "clock_hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
         with _classified_errors():
             info = _dict(self.command(req))
@@ -2533,15 +2506,14 @@ class BenchPod:
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= int(hz) <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
         self._require_gateware(BUS_MASTER_GATEWARE, "the I2C master")
-        req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "hz": int(hz), "pullups": pullups}
+        req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "clock_hz": int(hz), "pullups": pullups}
         if req["sda"] == req["scl"]:
             raise ValueError("sda and scl must be different LA pins")
         try:
             with _classified_errors():
                 info = _dict(self.command(req))
         except FirmwareError as exc:
-            # BP0003; the text for firmware without codes.
-            if exc.code == "BP0003" or (not exc.code and exc.firmware_message.startswith("i2c busy")):
+            if exc.code == "BP0003":   # i2c_session_open
                 exc.args = (self._i2c_busy_text(exc),)
             raise
         return _i2c_master.I2CMaster(self._classified_command, info)
@@ -2558,7 +2530,7 @@ class BenchPod:
         try:
             st = _dict(self.command({"cmd": "i2c_status"}))
             if st.get("active"):
-                where = f" (LA{st.get('sda')} SDA, LA{st.get('scl')} SCL, {st.get('hz')} Hz)"
+                where = f" (LA{st.get('sda')} SDA, LA{st.get('scl')} SCL, {st.get('clock_hz')} Hz)"
         except Exception:
             pass
         return (f"{prefix}i2c busy: another connection to this pod holds its I2C master{where}, "
@@ -2850,22 +2822,17 @@ class BenchPod:
 
     # -- output paths: volts, or amps on the 4-20 mA output ------------------------
 
-    def _output_range(self, dac_path: str, *, generator: bool = False) -> tuple:
+    def _output_range(self, dac_path: str) -> tuple:
         """``(min, max)`` an output path spans, in its own unit: volts, or AMPS on ``current_out``.
 
-        The 4-20 mA output's range is the pod's own (``current_out_range``), read once. The
-        8-bit generator (``generator=True``) tops out a little under it: a level is the high
-        byte of the 16-bit DAC code, so level 255 is code 65280.
+        The 4-20 mA output's range is the pod's own (``current_out_range``), read once.
         """
         if dac_path != _CURRENT_OUT:
             return _dsp.dac_path_range_v(dac_path)
         if self._current_out_span is None:
             rng = self.current_out_range()
             self._current_out_span = (rng.min_current, rng.max_current)
-        lo, hi = self._current_out_span
-        if generator:
-            hi = lo + (hi - lo) * 65280.0 / 65535.0
-        return lo, hi
+        return self._current_out_span
 
     def _route_output(self, dac_path: str) -> None:
         """Route an output before a waveform plays on it. The 4-20 mA output only switches the DAC
@@ -2907,15 +2874,14 @@ class BenchPod:
         """Generate a parametric waveform (``sine``/``square``/``sawtooth``) on a DAC output path.
 
         ``amplitude`` is the peak in volts and ``offset`` the center in volts (default: the middle
-        of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). On firmware 3.9.1+
-        (:attr:`Capabilities.generate16`) the pod takes the volts, converts them with its per-path
-        calibration and plays the waveform at the DAC's full 16 bits; both peaks must then be on
-        the path (a peak within 5% of an end the pod cannot quite reach is clamped to it). Older firmware builds it from 8-bit levels, so volts are
-        quantised to ``full_scale / 255`` using the same volts→code mapping as :meth:`replay`.
+        of ``dac_path``'s range — 0 V on the bipolar ±12 V ``12v`` path). The pod takes the volts,
+        converts them with its per-path calibration and plays the waveform at the DAC's full 16
+        bits; both peaks must be on the path (a peak within 5% of an end the pod cannot quite
+        reach is clamped to it).
 
         ``dac_path="current_out"`` plays it as a current on the 4-20 mA output (J9):
         ``amplitude`` and ``offset`` are then AMPS (``amplitude=0.006, offset=0.012`` swings 6 to
-        18 mA, in steps of about 0.25 µA at 16 bits, 63 µA at 8 bits). The DAC voltage outputs are switched off, and stopping
+        18 mA, in steps of about 0.25 µA). The DAC voltage outputs are switched off, and stopping
         the handle returns the loop to 4 mA. See :meth:`current_out` for the wiring.
         ``duration`` (seconds) stops it by itself; omitted, it runs until :meth:`dac_stop` or the
         returned handle's ``stop()``. ``on_capture=True`` defers the start to the next capture's
@@ -2936,48 +2902,6 @@ class BenchPod:
         check_choice(dac_path, DAC_PATHS, "dac_path")
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
-        if self.capabilities.generate16:
-            return self._generate16(waveform, freq_hz=freq_hz, amplitude=amplitude, offset=offset,
-                                    dac_path=dac_path, duration=duration,
-                                    sample_rate_hz=sample_rate_hz, on_capture=on_capture, route=route)
-        vmin, vmax = self._output_range(dac_path, generator=True)
-        unit = "A" if dac_path == _CURRENT_OUT else "V"
-        span = vmax - vmin
-        step = span / _GENERATOR_MAX_CODE
-        amp_code = int(round(float(amplitude) / step))
-        if amplitude <= 0 or amp_code < 1:
-            raise ValueError(f"amplitude must be at least {step:.4g} {unit} on the {dac_path} path, "
-                             f"got {amplitude!r}")
-        if amp_code > _GENERATOR_MAX_CODE:
-            raise ValueError(f"amplitude must be at most {span:.4g} {unit} on the {dac_path} path, got {amplitude!r}")
-        off_v = (vmin + vmax) / 2.0 if offset is None else float(offset)
-        off_code = int(round((off_v - vmin) / step))
-        if not 0 <= off_code <= _GENERATOR_MAX_CODE:
-            raise ValueError(f"offset must be within {vmin:.4g}..{vmax:.4g} {unit} on the {dac_path} path, "
-                             f"got {offset!r}")
-        req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq": float(freq_hz),
-                               "amplitude": amp_code, "offset": off_code}
-        if duration is not None:
-            ms = _seconds_to_ms(duration, "duration")
-            if ms <= 0:
-                raise ValueError("duration must be at least 1 ms; omit it to run until stopped")
-            req["duration_ms"] = ms
-        mhz = _capture.rate_mhz(sample_rate_hz)
-        if mhz is not None:
-            req["sample_rate_mhz"] = mhz
-        if on_capture:
-            req["on_capture"] = True
-        if route:
-            self._route_output(dac_path)
-        d = _dict(self.command(req))
-        return DacHandle(stop=self._stop_for(dac_path), dac_path=dac_path,
-                         cotrig=bool(d.get("cotrig", False)), data=d)
-
-    def _generate16(self, waveform: str, *, freq_hz: float, amplitude: float, offset: Optional[float],
-                    dac_path: str, duration: Optional[float], sample_rate_hz: Optional[float],
-                    on_capture: bool, route: bool) -> DacHandle:
-        """:meth:`generate` on firmware 3.9.1+: the calibrated 16-bit form. The pod routes the
-        output itself (unless ``route=False``) and refuses peaks it cannot reach."""
         vmin, vmax = self._output_range(dac_path)
         current = dac_path == _CURRENT_OUT
         unit = "A" if current else "V"
@@ -2992,7 +2916,7 @@ class BenchPod:
         if off - amp < vmin - slack or off + amp > vmax + slack:
             raise ValueError(f"the peaks {off - amp:.4g} to {off + amp:.4g} {unit} must stay within "
                              f"{vmin:.4g}..{vmax:.4g} {unit} on the {dac_path} path")
-        req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq": float(freq_hz)}
+        req: Dict[str, Any] = {"cmd": "generate", "waveform": waveform, "freq_hz": _num(freq_hz)}
         if current:
             req["amplitude_ua"] = round(amp * 1e6)
             req["offset_ua"] = round(off * 1e6)
@@ -3003,9 +2927,9 @@ class BenchPod:
             if ms <= 0:
                 raise ValueError("duration must be at least 1 ms; omit it to run until stopped")
             req["duration_ms"] = ms
-        mhz = _capture.rate_mhz(sample_rate_hz)
-        if mhz is not None:
-            req["sample_rate_mhz"] = mhz
+        rate = _capture.rate_hz(sample_rate_hz)
+        if rate is not None:
+            req["sample_rate_hz"] = rate
         if on_capture:
             req["on_capture"] = True
         if not route:
@@ -3126,7 +3050,7 @@ class BenchPod:
         d = _dict(self.command({"cmd": "dac_loop_probe"}))
         raw_in = d.get("in")
         return _control_loop.IVPoint(
-            i=int(d.get("i", 0)), v=int(d.get("v", 0)),
+            i=int(d.get("i", 0)), v=int(d.get("code16", 0)),
             input_code=None if raw_in is None else int(raw_in),
             source=d.get("source"),
             tripped=None if d.get("tripped") is None else bool(d.get("tripped")))
@@ -3274,9 +3198,9 @@ class BenchPod:
         if dac_path and route:
             self._route_output(dac_path)
         replay_req: Dict[str, Any] = {"cmd": "replay", "samples": n_samples}
-        mhz = _capture.rate_mhz(sample_rate_hz)
-        if mhz is not None:
-            replay_req["sample_rate_mhz"] = mhz
+        rate = _capture.rate_hz(sample_rate_hz)
+        if rate is not None:
+            replay_req["sample_rate_hz"] = rate
         if on_capture:
             replay_req["on_capture"] = True
         d = _dict(fn(data=code_bytes, replay=replay_req, psram=deep))
@@ -3535,10 +3459,9 @@ class BenchPod:
         """Every LA channel's function (``none``, ``gpio``, ``uart_rx``, …), GPIO mode and level, and
         bias resistor. A channel that is in use refuses other functions.
 
-        ``la``: only these channels (a channel, a wiring name, or a list), in pin order. Firmware
-        after 3.10.12 sends only those; older firmware sends all 14 and the SDK keeps the ones asked
-        for. A full listing too large for one cloud reply (a long sensor instance name on every
-        pin) is read in two parts by itself."""
+        ``la``: only these channels (a channel, a wiring name, or a list), in pin order. A full
+        listing too large for one cloud reply (a long sensor instance name on every pin) is read
+        in two parts by itself."""
         self._require_capability("la_pins", "LA pin modes and GPIO")
         if la == "all":
             la = None
@@ -3548,12 +3471,9 @@ class BenchPod:
         try:
             return self._la_pins_query(None)
         except FirmwareError as e:
-            # No code yet ("reply too large"): firmware PR 2 of the codes plan.
-            if "reply too large" not in str(getattr(e, "firmware_message", "") or e):
+            if e.code not in ("BP0053", "BP0054"):   # reply_too_large, cloud_reply_too_large
                 raise
             first = self._la_pins_query(list(range(1, 8)))
-            if len(first) > 7:   # firmware without the subset: it listed everything again
-                raise
             return first + [p for p in self._la_pins_query(list(range(8, 15))) if p.la >= 8]
 
     def _la_pins_query(self, las: Optional[List[int]]) -> List[LaPinState]:
@@ -3640,13 +3560,16 @@ class BenchPod:
 
     def _auto_pin_directions(self) -> None:
         """Send the wiring's pin directions on connect and on a new profile, when the firmware
-        has ``la_dir``. Raises only :class:`ClientTooOldError` (the pod's client API level is above
-        this SDK's); anything else goes to :attr:`pin_directions_status`."""
+        has ``la_dir``. Raises only :class:`ClientTooOldError` and :class:`FirmwareTooOldError` (the
+        pod's client API level is not this SDK's); anything else goes to
+        :attr:`pin_directions_status`."""
         if getattr(self, "_transport", None) is None:
             return
         try:
             if type(self._transport).__name__ == "SerialTransport":
                 self.pin_directions_status = "not sent: the USB console has no la_dir"
+                # connect's client API check: the console announces no level, its version decides
+                self._check_client_api(Capabilities.from_status(_dict(self._caps_status())))
                 return
             # The cached capabilities when there are some; else one status read that is not cached
             # (the first real use of capabilities reads and caches them as before). It is also
@@ -3658,13 +3581,15 @@ class BenchPod:
                 self._check_client_api(caps)
             if not caps.la_dir:
                 fw = caps.firmware_version or "unknown"
-                self.pin_directions_status = (f"not sent: this pod's firmware ({fw}) has no "
-                                              "la_dir (3.10.4+)")
+                self.pin_directions_status = f"not sent: this pod's firmware ({fw}) has no la_dir"
                 return
             self.apply_pin_directions()
             self.pin_directions_status = "sent"
         except ClientTooOldError:
             self.pin_directions_status = "not sent: this SDK is too old for the pod's firmware"
+            raise
+        except FirmwareTooOldError:
+            self.pin_directions_status = "not sent: the pod's firmware is too old for this SDK"
             raise
         except Exception as exc:  # a convenience on connect: report it, never fail the caller
             self.pin_directions_status = f"not sent: {exc}"
@@ -3946,9 +3871,8 @@ class BenchPod:
             check_choice(pull, _i2c_master.PULLUPS, "pullups")
             if pull == "pod" and not pod_ok:
                 raise _expansion.ExpansionError(
-                    "pullups='pod' needs both pins on LA1-LA6 (only they have pod pull-ups) and, at "
-                    "1.8 V, firmware with pull-ups at 1.8 V (newer than 3.10.12); use pullups='external' "
-                    "with pull-ups on the breakout")
+                    "pullups='pod' needs both pins on LA1-LA6 (only they have pod pull-ups) and an "
+                    "LA voltage of 1.8 V or 3.3 V; use pullups='external' with pull-ups on the breakout")
         else:
             if sda is not None or scl is not None or pullups is not None:
                 raise ValueError(f"the {info.name} is an SPI chip: sda, scl and pullups do not "
@@ -4181,7 +4105,7 @@ class BenchPod:
         self._require_capability("power_profile", "power profiles")
         # The API takes hertz as a float like every other rate, but the firmware's JSON parser
         # wants a whole number here — send 1000, not 1000.0.
-        return {"cmd": "power_profile", "efuse": rail, "rate_hz": int(round(rate_hz)),
+        return {"cmd": "power_profile", "efuse": rail, "sample_rate_hz": int(round(rate_hz)),
                 "keep_samples": int(keep_samples)}
 
     def _power_profile_chunks(self, req: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
@@ -4214,7 +4138,7 @@ class BenchPod:
                              f"(half the step period), got {delay!r}")
         if direction not in (0, 1):
             raise ValueError(f"direction must be 0 or 1, got {direction!r}")
-        req: Dict[str, Any] = {"cmd": "la", "la": self._resolve_la(la, why=_EXT_PULSES)[0],
+        req: Dict[str, Any] = {"cmd": "la_step", "la": self._resolve_la(la, why=_EXT_PULSES)[0],
                                "steps": int(steps),
                                "delay_us": delay_us}
         if dir_la is not None:

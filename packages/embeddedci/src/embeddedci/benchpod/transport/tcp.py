@@ -1,5 +1,5 @@
-"""JSON-over-TCP transport (wifi/network), port 8080 by default, TLS on 8443 when the pod has it
-(firmware 3.9.3+, see :mod:`.tls`).
+"""JSON-over-TCP transport (wifi/network): TLS on 8443 for a LAN address, plaintext 8080 on the
+pod's USB network adapter or when the port is given (see :mod:`.tls`).
 
 Mirrors the Go ``tcpclient``: each command dials a fresh connection (the
 firmware serves one client at a time), disables Nagle, sends one JSON line and
@@ -30,9 +30,6 @@ from . import tls as _tls
 
 DEFAULT_DIAL_TIMEOUT = 10.0  # total budget to establish a connection
 _DIAL_ATTEMPT_TIMEOUT = 0.5
-#: The 8443 probe outlasts the host's first SYN retransmit (1 s on macOS and Linux): a pod can let
-#: the first SYN go unanswered, and its reset (or TLS handshake) then comes at about 1 s.
-_TLS_PROBE_TIMEOUT = 1.5
 _DIAL_RETRY_BACKOFF = 0.1
 #: Floor for an upload's timeout (``load_bin``): the pod acknowledges a large upload slowly.
 _UPLOAD_TIMEOUT = 60.0
@@ -145,24 +142,11 @@ class TcpTransport(Transport):
         io_timeout = self.timeout if timeout is None else timeout
         p = _tls.plan(host, port, self.tls)
         tls_to = p.tls
-        if p.fallback and _tls.known_no_tls(p.plain) and not _tls.get_pin(host, port):
-            tls_to = None
         if tls_to is None:
+            assert p.plain is not None
             self.last_tls = False
             return self._connect(p.plain, self.dial_timeout, io_timeout)
-        if p.fallback and not _tls.get_pin(host, port):
-            # One probe per pod and process: a pod without LAN TLS answers 8443 with a reset. A
-            # probe that times out is remembered too, or every command would wait for it again.
-            try:
-                raw = self._connect(tls_to, _TLS_PROBE_TIMEOUT, io_timeout, retry=False,
-                                    attempt_timeout=_TLS_PROBE_TIMEOUT)
-            except TransportError as exc:
-                if isinstance(exc.__cause__, (ConnectionRefusedError, TimeoutError)):
-                    _tls.remember_no_tls(p.plain)
-                self.last_tls = False
-                return self._connect(p.plain, self.dial_timeout, io_timeout)
-        else:
-            raw = self._connect(tls_to, self.dial_timeout, io_timeout)
+        raw = self._connect(tls_to, self.dial_timeout, io_timeout)
         try:
             sock = _tls.wrap(raw, tls_to[0], tls_to[1], ca=self.tls_ca)
         except BenchPodError:
@@ -191,7 +175,11 @@ class TcpTransport(Transport):
                 if not retry or time.monotonic() >= deadline:
                     break
                 time.sleep(_DIAL_RETRY_BACKOFF)
-        raise TransportError(f"could not connect to {addr[0]}:{addr[1]}: {last}") from last
+        hint = ""
+        if addr[1] == _tls.PLAIN_PORT and not _tls.is_usb_link(addr[0]):
+            hint = ("; firmware 4.0 serves its API on the LAN over TLS only: connect without :8080 "
+                    "(TLS on 8443), or over USB")
+        raise TransportError(f"could not connect to {addr[0]}:{addr[1]}: {last}{hint}") from last
 
     @staticmethod
     def _recv_line(sock: socket.socket, buf: bytearray) -> bytes:
@@ -307,7 +295,11 @@ class TcpTransport(Transport):
                 pass
 
     def samples(self, req: dict) -> List[int]:
-        """Send a command whose reply is a chunked sample array."""
+        """Send a command whose reply is a chunked sample array, flattened from its decimal
+        ``data`` lists (asks for ``"enc":"dec"`` unless ``req`` names an encoding; captures come
+        as base64 otherwise, which :meth:`stream_chunks` yields)."""
+        req = {**req}
+        req.setdefault("enc", "dec")
         timeout = request_timeout(req, self.timeout)
         sock = self._dial(timeout, kind="capture")
         buf = bytearray()
@@ -434,14 +426,11 @@ class TcpTransport(Transport):
     def status(self) -> Any:
         return self.command({"cmd": "status"})
 
-    def status_without_caps(self) -> Any:
-        return self.command({"cmd": "status", "caps": False})
-
     def ping(self) -> Any:
         return self.command({"cmd": "ping"})
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
-        req: dict = {"cmd": "target_power", "efuse": efuse, "state": 1 if on else 0}
+        req: dict = {"cmd": "target_power", "efuse": efuse, "enabled": bool(on)}
         if delay_ms:
             req["delay_ms"] = int(delay_ms)
         self.command(req)

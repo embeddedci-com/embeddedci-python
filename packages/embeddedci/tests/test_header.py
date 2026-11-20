@@ -6,6 +6,8 @@ from typing import Any, Dict
 
 import pytest
 
+from embeddedci.benchpod.errors import firmware_error
+
 from embeddedci.benchpod import BenchPod, Wiring, header_map
 from embeddedci.benchpod.errors import BenchPodError, UnsupportedFeatureError
 from embeddedci.benchpod.header import connections, header_from_status
@@ -72,7 +74,7 @@ class _Pod:
 
 @pytest.mark.parametrize("module,status,want", [
     ({"present": True}, {}, "front"),
-    (BenchPodError("module: this BenchPod has no module link (digital v3r3 only)"), {}, "j1"),
+    (firmware_error("", cmd="module", code="BP0056", values={"cmd": "module"}), {}, "j1"),
     (UnsupportedFeatureError("unknown command: module"), {"board_rev": "v3r2"}, "j1"),
     (UnsupportedFeatureError("unknown command: module"), {"board_rev": "v3"}, None),
 ])

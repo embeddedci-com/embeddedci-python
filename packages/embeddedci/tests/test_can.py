@@ -58,7 +58,7 @@ class FakeCanPod:
         cmd = req.get("cmd")
         if cmd == "status":
             return {"status": "ok", "data": {"firmware_version": "3.10.2", "caps": list(self.caps)}}
-        if cmd == "can_config":
+        if cmd == "can_start":
             self._data_bitrate = int(req.get("data_bitrate", 0))
             self._enabled = True
             self._mode = req.get("mode", "normal")
@@ -80,7 +80,7 @@ class FakeCanPod:
             brs = fd and bool(req.get("brs", True)) and self._data_bitrate > self._bitrate
             frame = {"id": int(req["id"]), "ext": bool(req.get("ext", False)),
                      "rtr": bool(req.get("rtr", False)), "fd": fd, "brs": brs,
-                     "data": data, "ts": self._next_ts()}
+                     "data": data, "ts_ms": self._next_ts()}
             frame["dlc"] = len(frame["data"])
             if self._mode in ("internal", "external"):
                 self._rx.append(frame)          # loopback: echo back to RX
@@ -90,7 +90,7 @@ class FakeCanPod:
                         self._rx.append({
                             "id": r["reply_id"], "ext": r["reply_ext"], "rtr": False,
                             "data": list(r["reply_data"]),
-                            "dlc": len(r["reply_data"]), "ts": self._next_ts()})
+                            "dlc": len(r["reply_data"]), "ts_ms": self._next_ts()})
                         self._resp_hits += 1
                         break
             return {"status": "ok", "data": {
@@ -120,7 +120,7 @@ class FakeCanPod:
         if cmd == "can_term":
             self._term = bool(req.get("on", False))
             return {"status": "ok", "data": {"term": self._term}}
-        if cmd == "can_disable":
+        if cmd == "can_stop":
             self._enabled = False
             return {"status": "ok", "data": {"enabled": False}}
         return {"status": "error", "message": "unknown cmd"}
@@ -167,7 +167,7 @@ def bp(pod):
 # -- CanFrame ---------------------------------------------------------------
 
 def test_canframe_from_dict_roundtrip():
-    f = CanFrame.from_dict({"id": 0x123, "data": [1, 2, 3], "ext": True, "ts": 7})
+    f = CanFrame.from_dict({"id": 0x123, "data": [1, 2, 3], "ext": True, "ts_ms": 7})
     assert f.id == 0x123 and f.data == b"\x01\x02\x03" and f.dlc == 3 and f.ext
     assert "0x123" in str(f)
 
@@ -177,7 +177,7 @@ def test_canframe_from_dict_roundtrip():
 def test_can_config_request_shape(bp, pod):
     bp.can_config(bitrate=250_000, mode="external", term=True)
     assert pod.requests[-1] == {
-        "cmd": "can_config", "bitrate": 250_000, "mode": "external",
+        "cmd": "can_start", "bitrate": 250_000, "mode": "external",
         "term": True}
 
 
@@ -205,7 +205,7 @@ def test_can_term_toggle(bp, pod):
 def test_open_can_loopback_roundtrip(bp):
     with bp.open_can(bitrate=500_000, mode="internal") as can:
         can.write(0x123, [0xDE, 0xAD])
-        frame = can.expect(can_id=0x123, timeout=1.0)
+        frame = can.expect(0x123, timeout=1.0)
         assert frame.data == b"\xde\xad"
         assert frame.id == 0x123
 
@@ -221,13 +221,13 @@ def test_open_can_expect_predicate(bp):
 def test_open_can_expect_times_out(bp):
     with bp.open_can(mode="internal") as can:
         with pytest.raises(CanTimeout):
-            can.expect(can_id=0x7FF, timeout=0.1)
+            can.expect(0x7FF, timeout=0.1)
 
 
 def test_open_can_disables_on_exit(bp, pod):
     with bp.open_can(mode="internal"):
         pass
-    assert [r["cmd"] for r in pod.requests[-2:]] == ["can_disable", "can_term"]
+    assert [r["cmd"] for r in pod.requests[-2:]] == ["can_stop", "can_term"]
     assert pod.requests[-1]["on"] is False
     assert pod._enabled is False
 
@@ -253,8 +253,8 @@ def test_read_until_does_not_drop_other_frames(bp):
         can.write(0x111, [1])
         can.write(0x222, [2])
         # Ask for the SECOND id first; the first must not be lost.
-        assert can.expect(can_id=0x222, timeout=1.0).id == 0x222
-        assert can.expect(can_id=0x111, timeout=1.0).id == 0x111
+        assert can.expect(0x222, timeout=1.0).id == 0x222
+        assert can.expect(0x111, timeout=1.0).id == 0x111
 
 
 # -- autonomous responder (ECU simulation) ----------------------------------
@@ -263,7 +263,7 @@ def test_responder_roundtrip(bp, pod):
     with bp.open_can(mode="internal") as can:
         can.add_responder(0x7DF, 0x7E8, [0x50, 0x03])
         can.write(0x7DF, [0x02, 0x10, 0x03])          # request
-        reply = can.expect(can_id=0x7E8, timeout=1.0)  # firmware auto-reply
+        reply = can.expect(0x7E8, timeout=1.0)  # firmware auto-reply
         assert reply.data == b"\x50\x03"
         assert pod._resp_hits == 1
         assert can.status()["responder_rules"] == 1
@@ -274,8 +274,8 @@ def test_simulate_ecu_table(bp):
         can.simulate_ecu({0x100: (0x200, [0xAB]), 0x300: [0xCD]})  # 0x300 -> 0x301
         can.write(0x100, [0])
         can.write(0x300, [0])
-        assert can.expect(can_id=0x200, timeout=1.0).data == b"\xab"
-        assert can.expect(can_id=0x301, timeout=1.0).data == b"\xcd"
+        assert can.expect(0x200, timeout=1.0).data == b"\xab"
+        assert can.expect(0x301, timeout=1.0).data == b"\xcd"
 
 
 def test_clear_responders(bp, pod):
@@ -285,7 +285,7 @@ def test_clear_responders(bp, pod):
         assert pod._rules == []
         can.write(0x1, [0])
         with pytest.raises(CanTimeout):
-            can.expect(can_id=0x2, timeout=0.1)
+            can.expect(0x2, timeout=0.1)
 
 
 # -- timing helpers ---------------------------------------------------------
@@ -329,9 +329,9 @@ def test_assert_periodic_flags_too_few(bp, pod):
 def test_can_capability_flag_from_status_and_cloud_parameters():
     from embeddedci.benchpod.capabilities import Capabilities
 
-    assert Capabilities.from_status({"caps": ["la", "can"]}).can
-    assert not Capabilities.from_status({"caps": ["la"]}).can  # older firmware: not announced
-    assert Capabilities.from_parameters({"cap.can": "true"}).can
+    fw4 = Capabilities.from_status({"features_rev": 10, "gateware": 59})
+    assert fw4.can and fw4.can_fd
+    assert Capabilities.from_parameters({"cap.features_rev": "10"}).can
     assert not Capabilities.from_parameters({}).can
 
 
@@ -340,7 +340,7 @@ def test_can_capability_flag_from_status_and_cloud_parameters():
 def test_can_config_data_bitrate_means_fd(bp, pod):
     bp.can_config(bitrate=500_000, data_bitrate=2_000_000, mode="internal")
     assert pod.requests[-1] == {
-        "cmd": "can_config", "bitrate": 500_000, "mode": "internal", "term": False,
+        "cmd": "can_start", "bitrate": 500_000, "mode": "internal", "term": False,
         "data_bitrate": 2_000_000}
 
 
@@ -352,15 +352,6 @@ def test_can_config_fd_flag_is_fd_without_switching(bp, pod):
 def test_can_config_data_bitrate_below_bitrate_rejected(bp):
     with pytest.raises(ValueError):
         bp.can_config(bitrate=1_000_000, data_bitrate=500_000)
-
-
-def test_can_fd_needs_capability(bp, pod):
-    from embeddedci.benchpod.errors import UnsupportedFeatureError
-    pod.caps = ["can"]
-    with pytest.raises(UnsupportedFeatureError):
-        bp.can_config(data_bitrate=2_000_000)
-    with pytest.raises(UnsupportedFeatureError):
-        bp.can_write(0x1, bytes(12))
 
 
 def test_can_write_rejects_more_than_64(bp):
@@ -382,11 +373,11 @@ def test_open_can_fd_loopback_64_bytes(bp):
     with bp.open_can(bitrate=500_000, data_bitrate=2_000_000, mode="internal") as can:
         assert can.fd and can.data_bitrate == 2_000_000
         can.write(0x123, bytes(range(64)))
-        f = can.expect(can_id=0x123, timeout=1.0)
+        f = can.expect(0x123, timeout=1.0)
         assert f.fd and f.brs and f.data == bytes(range(64))
         assert "FD+BRS" in str(f)
         can.write(0x124, [1, 2], fd=False)
-        g = can.expect(can_id=0x124, timeout=1.0)
+        g = can.expect(0x124, timeout=1.0)
         assert not g.fd and g.data == b"\x01\x02"
 
 

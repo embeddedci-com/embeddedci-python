@@ -57,8 +57,8 @@ class SpiPod:
             assert len(set(pins)) == 4 and all(1 <= p <= 14 for p in pins)
             assert self.armed is None, "spi busy"
             self.armed = req
-            half = max(2, min(63, -(-24_000_000 // (2 * req["hz"]))))
-            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "hz": 24_000_000 // (2 * half)}
+            half = max(2, min(63, -(-24_000_000 // (2 * req["clock_hz"]))))
+            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "clock_hz": 24_000_000 // (2 * half)}
         if cmd == "spi_stop":
             self.armed = None
             return "spi stopped"
@@ -114,7 +114,7 @@ def test_open_spi_takes_pins_from_wiring_and_rounds_hz(pod):
 
 
 def test_open_spi_needs_the_capability_and_a_valid_mode():
-    bp = BenchPod(transport=SpiPod(caps=["la"]), wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
+    bp = BenchPod(transport=SpiPod(gateware=44), wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
     with pytest.raises(BenchPodError):
         bp.open_spi()
     bp = BenchPod(transport=SpiPod(), wiring=Wiring.preset().with_changes(spi_sclk=7, spi_mosi=8, spi_miso=9, spi_cs=10))
@@ -194,7 +194,7 @@ def test_spi_flash_programs_verifies_and_reports_progress(pod, tmp_path):
     assert res.length == len(img) and res.verified and res.erased == 12288 and res.jedec_id == "ef4014"
     assert seen[-1] == (2 * len(img), 2 * len(img)) and all(d <= t for d, t in seen)
     assert fake.armed is None
-    assert fake.commands[0]["cmd"] == "spi_start" and fake.commands[0]["hz"] == 6_000_000
+    assert fake.commands[0]["cmd"] == "spi_start" and fake.commands[0]["clock_hz"] == 6_000_000
 
 
 def test_spi_flash_holds_reset_and_releases_it_on_failure(pod):
@@ -220,7 +220,7 @@ def test_spi_flash_refuses_an_image_larger_than_the_part(pod):
         bp.spi_flash(bytes(4096), (1 << 20) - 100)
 
 
-def test_capability_flag_parses_from_status_caps():
+def test_capability_flag_follows_the_gateware():
     bp = BenchPod(transport=SpiPod())
     assert bp.capabilities.spi_master
-    assert not BenchPod(transport=SpiPod(caps=["la"])).capabilities.spi_master
+    assert not BenchPod(transport=SpiPod(gateware=44)).capabilities.spi_master

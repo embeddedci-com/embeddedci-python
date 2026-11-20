@@ -14,7 +14,7 @@ from embeddedci_mcp.guide import INSTRUCTIONS
 from embeddedci_mcp.server import mcp
 from embeddedci_mcp.session import SESSION
 
-from conftest import call, without_caps
+from conftest import call
 
 EXPECTED_TOOLS = {
     "connect", "disconnect", "status", "set_la_voltage",
@@ -33,7 +33,7 @@ EXPECTED_TOOLS = {
     "set_pull", "pull_status", "usb_network", "log_level", "lan_tls",
     "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
-    "generate", "dac_stop", "replay", "list_waveforms", "replay_waveform",
+    "generate", "dac_stop", "replay", "list_waveforms",
     "save_capture_as_recording",
     "control_loop", "loop_input", "loop_probe", "fpga_image",
     "can_open", "can_write", "can_read", "can_respond", "can_status", "can_close",
@@ -76,7 +76,7 @@ def test_every_tool_is_described_annotated_and_structured():
 def test_instructions_carry_the_session_start():
     assert mcp.instructions == INSTRUCTIONS
     for needle in ("connect", "set_la_voltage", "LA7/LA8", "flash runs OpenOCD",
-                   "Call `wiring` first", "gpio_release", "pin conflict", "trigger_la",
+                   "Call `wiring` first", "gpio_release", "PinConflictError", "trigger_la",
                    "measure_power"):
         assert needle in INSTRUCTIONS
 
@@ -87,7 +87,7 @@ def test_enums_reach_the_schema():
     tools = {t.name: t for t in anyio.run(mcp.list_tools)}
     assert tools["analog_path"].inputSchema["properties"]["path"]["enum"][0] == "off"
     # optional since digital v3r4 (omitted = read); 5.0 is the v3r4 5 V mode
-    assert tools["set_la_voltage"].inputSchema["properties"]["voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
+    assert tools["set_la_voltage"].inputSchema["properties"]["la_voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
 
 
 # -- errors + connection ---------------------------------------------------------------
@@ -131,16 +131,15 @@ def test_status_warns_about_safe_mode_and_crashes(fake_open, fake_transport, mon
 
 
 def test_status_too_large_for_the_cloud_keeps_the_connection(fake_open, fake_transport, monkeypatch):
-    # Firmware 3.10.4 over the cloud: its status did not fit the cloud channel and connect failed.
-    from embeddedci.benchpod.errors import FirmwareError
+    # A status that does not fit the cloud channel (BP0054): connect still works.
+    from embeddedci.benchpod.errors import firmware_error
 
     def too_large():
-        raise FirmwareError("reply too large for the cloud channel (1838 bytes, limit 1791)",
-                            cmd="status")
+        raise firmware_error("", cmd="status", code="BP0054", values={"bytes": 1838, "limit": 1791})
     monkeypatch.setattr(fake_transport, "status", too_large)
     result = call("connect", connection="192.168.1.50", la_voltage=3.3)
     assert result["connected"] is True and result["firmware"] == {}
-    assert any("too large for the cloud channel" in w and "3.10.5" in w for w in result["warnings"])
+    assert any("too large for the cloud channel" in w for w in result["warnings"])
 
 
 def test_short_form_status_gets_lan_tls_from_its_command(fake_open, fake_transport, monkeypatch):
@@ -221,16 +220,17 @@ def _mdns(monkeypatch, *pods):
     from embeddedci.benchpod import discovery
 
     found = [discovery.DiscoveredPod(name=name, hostname=f"{name}.local", addresses=[ip], port=8080,
-                                     pod_id="abcdefghijklmnop") for name, ip in pods]
+                                     pod_id="abcdefghijklmnop", tls_port=8443, api=2)
+             for name, ip in pods]
     monkeypatch.setattr(discovery, "discover", lambda timeout=discovery.DEFAULT_TIMEOUT: found)
 
 
 def test_connect_without_any_connection_finds_the_pod_over_mdns(fake_open, monkeypatch):
     _mdns(monkeypatch, ("benchpod-baea06", "192.168.1.220"))
     result = call("connect")
-    assert fake_open["connection"] == "192.168.1.220:8080"
+    assert fake_open["connection"] == "192.168.1.220:8443"          # TLS, from the TXT record
     assert result["connected"] is True and result["kind"] == "tcp"
-    assert result["connection"] == "192.168.1.220:8080"
+    assert result["connection"] == "192.168.1.220:8443"
 
 
 @pytest.mark.parametrize("configured", ["env", "server"])
@@ -267,7 +267,7 @@ def test_connect_with_several_pods_lists_them(fake_open, monkeypatch):
         call("connect")
     msg = str(err.value)
     assert "2 BenchPods found" in msg
-    for needle in ("benchpod-baea06", "192.168.1.220:8080", "benchpod-435dca", "192.168.1.221:8080",
+    for needle in ("benchpod-baea06", "192.168.1.220:8443", "benchpod-435dca", "192.168.1.221:8443",
                    "host[:port]", "'usb'", "cloud_list_devices"):
         assert needle in msg
     assert not SESSION.connected and "connection" not in fake_open
@@ -286,14 +286,14 @@ def test_connect_without_mdns_support_says_what_to_pass(fake_open, monkeypatch):
 
 def test_schema_rejects_bad_arguments(connected):
     with pytest.raises(ToolError):
-        call("set_la_voltage", voltage=5.0)
+        call("set_la_voltage", la_voltage=5.0)
     with pytest.raises(ToolError):
         call("power_on", efuse=3)
 
 
 def test_sdk_value_errors_become_tool_errors(connected):
     with pytest.raises(ToolError, match="invalid argument"):
-        call("generate", waveform="sine", freq_hz=10, amplitude=0.0001, dac_path="3v3")
+        call("generate", waveform="sine", freq_hz=10, amplitude=0.00001, dac_path="3v3")
 
 
 def test_disconnect(connected):
@@ -305,7 +305,7 @@ def test_disconnect(connected):
 # -- power + flash ---------------------------------------------------------------------
 
 def test_power_tools(connected):
-    assert call("power_on", efuse=1, delay=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
+    assert call("power_on", efuse=1, delay_s=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
                                                      "profile": None, "la_voltage": 3.3}
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
@@ -402,17 +402,17 @@ def test_flash_an_esp32_target(connected, monkeypatch):
 # -- UART ------------------------------------------------------------------------------
 
 def test_capture_uart(connected):
-    result = call("capture_uart", rx=5, tx=4, duration=1.0, until_regex="APP_OK")
+    result = call("capture_uart", rx=5, tx=4, duration_s=1.0, until_regex="APP_OK")
     assert result["matched"] is True and "boot" in result["text"] and result["truncated"] is False
 
 
 def test_bad_regex_is_a_tool_error(connected):
     with pytest.raises(ToolError, match="until_regex"):
-        call("capture_uart", rx=5, tx=4, duration=1.0, until_regex="(")
+        call("capture_uart", rx=5, tx=4, duration_s=1.0, until_regex="(")
 
 
 def test_power_cycle_and_capture(connected):
-    result = call("power_cycle_and_capture", rx=5, tx=4, delay=0.2, duration=1.0, off_settle=0)
+    result = call("power_cycle_and_capture", rx=5, tx=4, delay_s=0.2, duration_s=1.0, off_settle_s=0)
     assert "APP_OK" in result["text"]
     assert [c for c in connected.calls if c[0] == "target_power"] == [
         ("target_power", 1, False, 0), ("target_power", 1, True, 200)]
@@ -434,13 +434,13 @@ def test_uart_session_read_write(connected):
 def test_uart_frame_format(connected):
     # 8N1 by default; parity / stop bits need the pod's uart_frame capability
     assert call("uart_open", rx=5, tx=4)["parity"] == "none"
-    with pytest.raises(ToolError, match="firmware 3.10.8"):
+    with pytest.raises(ToolError, match="gateware v56"):
         call("uart_open", rx=5, tx=4, parity="even")
     connected.caps.append("uart_frame")
     SESSION.require().refresh_capabilities()
     r = call("uart_open", rx=5, tx=4, baud=19200, parity="even")
     assert (r["parity"], r["stop_bits"], r["baud"]) == ("even", 1, 19200)
-    call("capture_uart", rx=5, tx=4, duration=0.2, stop_bits=2)
+    call("capture_uart", rx=5, tx=4, duration_s=0.2, stop_bits=2)
     assert connected.uart_frames[-2:] == [("even", 1), ("none", 2)]
     with pytest.raises(ToolError):
         call("uart_open", rx=5, tx=4, parity="mark")
@@ -465,7 +465,7 @@ def test_uart_half_duplex_and_entry(connected):
          entry={"reset_ms": 5, "hold_ms": 3, "idle_ms": 2, "data_hex": "00"})
     e = connected.uart_lines[-1][3]
     assert e.to_request() == {"reset_ms": 5, "tx_low": True, "hold_ms": 3, "idle_ms": 2, "hex": "00"}
-    call("capture_uart", rx=1, tx=2, duration=0.2, entry={})
+    call("capture_uart", rx=1, tx=2, duration_s=0.2, entry={})
     assert connected.uart_lines[-1][2] is False and connected.uart_lines[-1][3] is not None
     with pytest.raises(ToolError):
         call("uart_open", rx=3, half_duplex=True, entry={"data_hex": "0"})
@@ -487,7 +487,7 @@ def test_uart_de(connected):
     SESSION.require().refresh_capabilities()
     call("uart_open", rx=5, tx=4, de=9)
     assert connected.uart_des[-1] == (9, False)
-    call("capture_uart", rx=5, tx=4, duration=0.2, de=9, de_active_low=True)
+    call("capture_uart", rx=5, tx=4, duration_s=0.2, de=9, de_active_low=True)
     assert connected.uart_des[-1] == (9, True)
     call("uart_open", rx=5, tx=4)
     assert connected.uart_des[-1] == (None, False)
@@ -527,7 +527,7 @@ registers:
 
 
 def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
-    call("set_pull", las=[1, 2], enabled=True)
+    call("set_pull", la=[1, 2], pull="up")
     started = call("sensor_start", definition="bme280", instance="env", pins={"sda": 2, "scl": 1},
                    address="0x77", values={"temperature_c": 22.5})
     assert started["instance"] == "env" and started["kind"] == "i2c" and started["name"] == "bme280"
@@ -558,7 +558,7 @@ def test_sensor_flow_from_a_library_name_and_inline_yaml(connected):
 
     with pytest.raises(ToolError):
         call("sensor_set", instance="a" * 17, values={"x": 1})
-    with pytest.raises(ToolError, match="unknown sensor instance 'nope'"):
+    with pytest.raises(ToolError, match="BP0055: The pod has no emulated sensor nope"):
         call("sensor_set", instance="nope", values={"x": 1})
     assert call("sensor_stop", instance="probe") == {"stopped": True, "instances": ["probe"]}
     assert call("sensor_stop") == {"stopped": True, "instances": ["env"]}
@@ -577,36 +577,24 @@ def test_sensor_stimulus_tools(connected):
         call("sensor_stimulus_load", stimulus=INLINE)
 
 
-def test_sensor_tools_refuse_old_firmware(connected):
-    without_caps(connected, "sensors")
-    with pytest.raises(ToolError, match="too old for sensor emulation; update the firmware"):
-        call("sensor_start", definition="bmp280", pins={"sda": 2, "scl": 1})
-
-
 def test_pulls(connected):
-    res = call("set_pull", las=[7], enabled=True)            # the older form still works
+    res = call("set_pull", la=[7], pull="down")
     assert res["channels"][0]["direction"] == "down" and res["channels"][0]["state"] == "down"
-    res = call("set_pull", las=[1, 2], pull="up")
+    res = call("set_pull", la=[1, 2], pull="up")
     assert [c["state"] for c in res["channels"]] == ["up", "up"]
     assert res["channels"][0]["supported"] == ["up"] and res["channels"][0]["ohms"] == "4.7k"
-    assert call("set_pull", las=[7], pull="off")["channels"][0]["state"] == "off"
+    assert call("set_pull", la=[7], pull="off")["channels"][0]["state"] == "off"
     status = call("pull_status")
-    new_sdk = "pull" in inspect.signature(BenchPod.set_pull).parameters
-    if not new_sdk:   # embeddedci before 3.0.3 (the mcp-min-sdk job): LA1-LA8, checked here
-        assert [c["la"] for c in status["channels"]] == list(range(1, 9))
-        with pytest.raises(ToolError, match="LA7 can't pull up"):
-            call("set_pull", las=[7], pull="up")
-        return
     assert [c["la"] for c in status["channels"]] == list(range(1, 15))
     assert status["channels"][8] == {"la": 9, "state": "off", "supported": [], "enabled": False,
                                      "direction": None, "ohms": "", "available": True, "strength": None,
                                      "held": None}
     with pytest.raises(ToolError, match="BP0023"):
-        call("set_pull", las=[9], pull="up")
+        call("set_pull", la=[9], pull="up")
     with pytest.raises(ToolError, match="LA7 supports pull-down only on this board"):
-        call("set_pull", las=[7], pull="up")
-    with pytest.raises(ToolError, match="needs pull"):
-        call("set_pull", las=[1])
+        call("set_pull", la=[7], pull="up")
+    with pytest.raises(ToolError, match="pull"):
+        call("set_pull", la=[1])
 
 
 # -- analog + captures -----------------------------------------------------------------
@@ -614,7 +602,7 @@ def test_pulls(connected):
 def test_analog_tools(connected):
     assert call("analog_path", path="cal1") == {"path": "cal1", "range": None}
     out = call("dac_output", path="5v", volts=2.5)
-    assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": None}
+    assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": 32768}
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
     assert call("adc_read", source="ext")["offset"] is None
@@ -664,14 +652,13 @@ def test_waveforms_on_the_current_output_are_in_amps(connected):
     out = call("generate", waveform="sine", freq_hz=2, amplitude=0.006, offset=0.012, dac_path="current_out")
     assert out["dac_path"] == "current_out"
     gen = connected.requests[-1]
-    assert gen["cmd"] == "generate" and (gen["amplitude"], gen["offset"]) == (96, 127)
-    # The voltage outputs are switched off first; no voltage path is routed.
-    assert {"cmd": "analog_path", "path": "current_out"} in connected.requests
+    assert gen["cmd"] == "generate" and (gen["amplitude_ua"], gen["offset_ua"]) == (6000, 12000)
+    # The pod switches the voltage outputs off itself; no voltage path is routed.
     assert not any(r.get("cmd") == "dac_out" for r in connected.requests)
 
     played = call("replay", volts=[0.004, 0.012, 0.020], dac_path="current_out", sample_rate_hz=1000)
     assert played["dac_path"] == "current_out" and played["samples"] == 3
-    with pytest.raises(Exception, match="at most"):
+    with pytest.raises(Exception, match="must stay within"):
         call("generate", waveform="sine", freq_hz=2, amplitude=12, dac_path="current_out")   # mA by mistake
 
 
@@ -691,9 +678,10 @@ def test_correlated_capture_of_the_current_input_is_in_amps(connected):
     assert call("capture_correlated", adc_samples=64, la_samples=64)["adc"]["unit"] == "V"
 
 
-def test_current_out_needs_newer_firmware(connected):
-    without_caps(connected, "current_out")
-    with pytest.raises(Exception, match="current_out"):
+def test_current_out_needs_the_analog_board(connected):
+    connected.analog = False
+    SESSION.require().refresh_capabilities()
+    with pytest.raises(Exception, match="analog front end"):
         call("current_out", current=0.012)
 
 
@@ -734,12 +722,6 @@ def test_dmm_calibration_tools(connected):
     assert cleared["dac"]["5v"] is None and cleared["adc_gain_ppm"]["cal1"] == 1850
 
 
-def test_dmm_calibration_needs_newer_firmware(connected):
-    without_caps(connected, "cal_dmm")
-    with pytest.raises(Exception, match="cal_dmm"):
-        call("calibrate_adc_gain", source="cal1")
-
-
 def test_calibrate_refusal_is_a_tool_error(connected):
     connected.error = "calibrate: current_in reads 996 mV, it must be within +/-50 mV of zero. Something is driving J8. Disconnect it and try again"
     with pytest.raises(Exception, match="996 mV"):
@@ -747,9 +729,10 @@ def test_calibrate_refusal_is_a_tool_error(connected):
     assert call("calibration")["calibrated"] is False
 
 
-def test_calibrate_needs_newer_firmware(connected):
-    without_caps(connected, "calibrate")
-    with pytest.raises(Exception, match="calibrate"):
+def test_calibrate_needs_the_analog_board(connected):
+    connected.analog = False
+    SESSION.require().refresh_capabilities()
+    with pytest.raises(Exception, match="analog front end"):
         call("calibration")
 
 
@@ -789,18 +772,20 @@ def test_capture_correlated(connected):
 def test_generate_and_stop(connected):
     result = call("generate", waveform="sine", freq_hz=1000, amplitude=1.0, on_capture=True)
     # No dac_path: the 3.3 V output, the lowest voltage one.
-    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "3v3", "cotrig": True, "bits": 8}
-    assert connected.requests[-2] == {"cmd": "dac_out", "path": "3v3"}
-    assert connected.requests[-1]["amplitude"] == 77
+    assert result == {"waveform": "sine", "freq_hz": 1000.0, "dac_path": "3v3", "cotrig": True}
+    assert connected.requests[-1] == {"cmd": "generate", "waveform": "sine", "freq_hz": 1000,
+                                      "path": "3v3", "amplitude_v": 1.0, "offset_v": 1.65,
+                                      "on_capture": True}
     assert call("dac_stop") == {"stopped": True}
     # route=false keeps a loopback set up with analog_path: no dac_out before the generator, and
     # the volts scale for the routed DAC (cal1 is the 5 V one).
     call("analog_path", path="cal1")
     res = call("generate", waveform="square", freq_hz=100, amplitude=1.0, route=False)
     assert [r["cmd"] for r in connected.requests[-2:]] == ["analog_path", "generate"]
-    assert res["dac_path"] == "5v" and connected.requests[-1]["amplitude"] == 51
+    assert res["dac_path"] == "5v" and connected.requests[-1]["route"] is False
+    assert connected.requests[-1]["offset_v"] == 2.5
     res = call("generate", waveform="sine", freq_hz=100, amplitude=1.0, dac_path="12v")
-    assert res["dac_path"] == "12v" and connected.requests[-2] == {"cmd": "dac_out", "path": "12v"}
+    assert res["dac_path"] == "12v" and connected.requests[-1]["path"] == "12v"
 
 
 def test_replay_sources(connected):
@@ -842,7 +827,7 @@ def test_can_tools(connected):
         call("can_write", can_id=0x123, data=[1])
     assert call("can_open", mode="internal")["open"] is True
     call("can_write", can_id=0x123, data=[0xDE, 0xAD])
-    frames = call("can_read", can_id=0x123, timeout=0.5)
+    frames = call("can_read", can_id=0x123, timeout_s=0.5)
     assert frames["matched"] is True and frames["frames"][0]["data"] == [0xDE, 0xAD]
     assert frames["frames"][0]["id_hex"] == "0x123"
     assert call("can_respond", match_id=0x7DF, reply_id=0x7E8, reply_data=[0x50])["rules"] == 1
@@ -861,12 +846,12 @@ def test_can_fd_tools(connected):
     SESSION.require().refresh_capabilities()
     opened = call("can_open", mode="internal", bitrate=500_000, data_bitrate=2_000_000)
     assert opened["fd"] is True and opened["data_bitrate"] == 2_000_000
-    cfg = [r for r in connected.requests if r["cmd"] == "can_config"][-1]
+    cfg = [r for r in connected.requests if r["cmd"] == "can_start"][-1]
     assert cfg["data_bitrate"] == 2_000_000
     call("can_write", can_id=0x123, data=list(range(64)), brs=False)
     req = [r for r in connected.requests if r["cmd"] == "can_write"][-1]
     assert len(req["data"]) == 64 and req["brs"] is False and "fd" not in req
-    frames = call("can_read", can_id=0x123, timeout=0.5)
+    frames = call("can_read", can_id=0x123, timeout_s=0.5)
     assert frames["frames"][0]["fd"] is True and len(frames["frames"][0]["data"]) == 64
     call("can_respond", match_id=0x7DF, reply_id=0x7E8, reply_data=list(range(12)), reply_fd=False)
     rr = [r for r in connected.requests if r["cmd"] == "can_respond"][-1]
@@ -879,16 +864,16 @@ def test_can_fd_tools(connected):
 # -- stepper + escape hatch --------------------------------------------------------------
 
 def test_la_step_and_command(connected):
-    assert call("la_step", la=3, steps=100, delay=0.001) == {"la": 3, "steps": 100, "delay": 0.001,
+    assert call("la_step", la=3, steps=100, delay_s=0.001) == {"la": 3, "steps": 100, "delay": 0.001,
                                                              "status": "started"}
     assert connected.requests[-1]["delay_us"] == 1000
     sent = len(connected.requests)
     with pytest.raises(ToolError):
-        call("la_step", la=3, steps=70000, delay=0.001)      # the pod counts 16 bits
+        call("la_step", la=3, steps=70000, delay_s=0.001)      # the pod counts 16 bits
     with pytest.raises(ToolError):
-        call("la_step", la=3, steps=10, delay=0.1)           # half-period above 65.535 ms
+        call("la_step", la=3, steps=10, delay_s=0.1)           # half-period above 65.535 ms
     with pytest.raises(ToolError):
-        call("gpio_pulse", la=3, width=0.001, count=70000)
+        call("gpio_pulse", la=3, width_s=0.001, count=70000)
     assert len(connected.requests) == sent
     assert call("command", request={"cmd": "adc_read", "source": "cal1"})["reply"]["source"] == "cal1"
     with pytest.raises(ToolError):
@@ -916,9 +901,9 @@ def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch)
     pod = SESSION.require()
     seen = []
     monkeypatch.setattr(pod, "usb_network", lambda on=None: seen.append(on) or (on is not False), raising=False)
-    assert call("usb_network")["setting"] == "on"
-    res = call("usb_network", set="off")
-    assert res["setting"] == "off" and "usb-network on" in res["note"] and seen == [None, False]
+    assert call("usb_network")["enabled"] is True
+    res = call("usb_network", enabled=False)
+    assert res["enabled"] is False and "usb-network on" in res["note"] and seen == [None, False]
 
 
 def test_log_level_reads_and_sets(fake_open, fake_transport, monkeypatch):

@@ -82,7 +82,6 @@ class CapabilitiesInfo(BaseModel):
     sensors: bool = Field(False, description=(
         "Sensor emulation from definitions (sensor_start and the other sensor_* tools). Without it "
         "the firmware is too old for sensor emulation."))
-    sensors_format: int = Field(0, description="The sensor definition format the pod reads (0 = not reported).")
     flash_kb: int = Field(0, description="Internal flash of the pod's MCU in KiB (0 = not reported).")
     ota_sig: bool = Field(False, description="Firmware updates are signed and the pod checks them.")
     sig_policy: str = Field("", description="Signature policy: audit (report only) or required.")
@@ -773,8 +772,6 @@ class GenerateResult(BaseModel):
     freq_hz: float
     dac_path: str
     cotrig: bool
-    bits: int = Field(default=8, description=(
-        "16 when the pod played the calibrated 16-bit waveform (firmware 3.9.1+), 8 for 8-bit levels."))
 
 
 class StopResult(BaseModel):
@@ -992,6 +989,6 @@ class LogLevelResult(BaseModel):
 
 
 class UsbNetworkResult(BaseModel):
-    """The pod's USB network setting (firmware 3.9.0+)."""
-    setting: str = Field(description='"on" or "off": whether the pod\'s USB port is also a network adapter.')
+    """The pod's USB network setting."""
+    enabled: bool = Field(description="Whether the pod's USB port is also a network adapter.")
     note: str = Field("", description="What happens next, after a change.")

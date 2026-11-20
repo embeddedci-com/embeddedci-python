@@ -30,7 +30,7 @@ NAIVE = Capabilities.from_status({"adc_bits": 8, "adc_fullscale_mv": 2550})  # 1
 
 def test_capture_adc_scales_to_volts_and_reads_rate():
     t = FakeCaptureTransport({"capture": [
-        {"status": "ok", "data": [0, 128, 255], "adc_rate_hz": 400000.0, "more": True},
+        {"status": "ok", "data": [0, 128, 255], "adc_sample_rate_hz": 400000.0, "more": True},
         {"status": "ok", "data": [255], "more": False},
     ]})
     cap = cap_mod.capture_adc(t, NAIVE, samples=4, sample_rate_hz=500_000)
@@ -40,7 +40,7 @@ def test_capture_adc_scales_to_volts_and_reads_rate():
     assert cap.volts[0] == pytest.approx(0.0)
     assert cap.volts[2] == pytest.approx(2.55, rel=1e-6)
     # The public API speaks hertz; the wire field stays the firmware's MHz.
-    assert t.sent[0] == {"cmd": "capture", "samples": 4, "sample_rate_mhz": 0.5}
+    assert t.sent[0] == {"cmd": "capture", "samples": 4, "sample_rate_hz": 500000}
 
 
 def test_capture_adc_falls_back_to_requested_rate():
@@ -53,7 +53,7 @@ def test_capture_adc_falls_back_to_requested_rate():
 def test_capture_adc_above_the_shallow_buffer_streams_from_psram():
     n = cap_mod.ADC_SHALLOW_MAX_SAMPLES + 1
     t = FakeCaptureTransport({"capture_dual": [
-        {"status": "ok", "data": [7] * n, "adc_rate_hz": 400000.0, "more": False},
+        {"status": "ok", "data": [7] * n, "adc_sample_rate_hz": 400000.0, "more": False},
     ]})
     cap = cap_mod.capture_adc(t, NAIVE, samples=n, source="ext")
     assert t.sent[0]["cmd"] == "capture_dual"
@@ -68,27 +68,37 @@ def _b64(words):
     return base64.urlsafe_b64encode(struct.pack(f"<{len(words)}H", *words)).rstrip(b"=").decode()
 
 
-B64_CAPS = Capabilities.from_status({"adc_bits": 8, "adc_fullscale_mv": 2550,
-                                     "caps": ["signal", "capture_b64"]})
+B64_CAPS = NAIVE
 
 
-def test_capture_b64_is_requested_only_when_the_pod_offers_it():
-    assert B64_CAPS.capture_b64 and not NAIVE.capture_b64
+def test_captures_take_the_default_base64():
+    """Firmware 4.0 sends base64 by default: a streamed capture names no encoding."""
     t = FakeCaptureTransport({})
     cap_mod.capture_adc(t, NAIVE, samples=4)
-    assert "enc" not in t.sent[0]  # an older pod never sees the key
-    cap_mod.capture_adc(t, B64_CAPS, samples=4)
-    assert t.sent[1]["enc"] == "b64"
-    # An LA-only capture has no dense ADC region to encode.
-    cap_mod.capture_correlated(t, B64_CAPS, adc_samples=0, la_samples=8)
-    assert "enc" not in t.sent[2]
+    assert "enc" not in t.sent[0]
+    cap_mod.capture_correlated(t, NAIVE, adc_samples=4, la_samples=8)
+    assert "enc" not in t.sent[1]
+
+
+def test_a_transport_without_chunks_asks_for_decimal():
+    class _Flat:
+        def __init__(self):
+            self.sent = []
+
+        def samples(self, req):
+            self.sent.append(req)
+            return [1, 2, 3]
+
+    t = _Flat()
+    assert cap_mod.capture_adc(t, NAIVE, samples=3).counts == [1, 2, 3]
+    assert t.sent == [{"cmd": "capture", "samples": 3, "enc": "dec"}]
 
 
 def test_capture_adc_decodes_b64_chunks():
     # Chunk lengths that leave every base64 remainder (1, 2, 0 bytes mod 3) and the extremes.
     words = [0, 1, 255, 256, 0x1234, 32767, 32768, 65534, 65535]
     t = FakeCaptureTransport({"capture": [
-        {"status": "ok", "bits": 16, "b64": _b64(words[:1]), "adc_rate_hz": 400000.0, "more": True},
+        {"status": "ok", "bits": 16, "b64": _b64(words[:1]), "adc_sample_rate_hz": 400000.0, "more": True},
         {"status": "chunk", "b64": _b64(words[1:4]), "more": True},
         {"status": "chunk", "b64": _b64(words[4:]), "more": False},
     ]})
@@ -99,12 +109,12 @@ def test_capture_adc_decodes_b64_chunks():
 
 def test_capture_correlated_decodes_b64_adc_alongside_rle_la():
     t = FakeCaptureTransport({"capture_dual": [
-        {"status": "ok", "bits": 16, "adc_rate_hz": 400000, "la_rate_hz": 1000000,
+        {"status": "ok", "bits": 16, "adc_sample_rate_hz": 400000, "la_sample_rate_hz": 1000000,
          "b64": _b64([10, 20, 30]), "more": True},
         {"status": "chunk", "la": True, "la_edges": [[0, 5], [2, 6]], "la_upto": 4, "more": False},
     ]})
     cc = cap_mod.capture_correlated(t, B64_CAPS, adc_samples=3, la_samples=4)
-    assert t.sent[0]["enc"] == "b64"
+    assert "enc" not in t.sent[0]
     assert cc.adc.counts == [10, 20, 30]
     assert cc.la.words == [5, 5, 6, 6]
 
@@ -137,7 +147,7 @@ def test_capture_rejects_bad_counts_and_rates():
 
 def test_capture_la_collects_words():
     t = FakeCaptureTransport({"la_capture": [
-        {"status": "ok", "data": [1, 2, 4, 8], "la_rate_hz": 1e6, "more": False},
+        {"status": "ok", "data": [1, 2, 4, 8], "la_sample_rate_hz": 1e6, "more": False},
     ]})
     la = cap_mod.capture_la(t, samples=4, sample_rate_hz=1e6)
     assert isinstance(la, LaCapture)
@@ -145,7 +155,7 @@ def test_capture_la_collects_words():
     assert la.channel(1) == [1, 0, 0, 0]
     assert la.channel(4) == [0, 0, 0, 1]
     assert la.edges(1) == 1
-    assert t.sent[0]["sample_rate_mhz"] == 1.0
+    assert t.sent[0]["sample_rate_hz"] == 1000000
 
 
 def test_capture_la_expands_rle_frames():
@@ -159,14 +169,14 @@ def test_capture_la_expands_rle_frames():
 def test_capture_la_pre_trigger_and_truncated():
     # gateware v50: the pre-trigger count and an early stop ride the first frame
     t = FakeCaptureTransport({"la_capture": [
-        {"status": "ok", "bits": 16, "la_rate_hz": 48000000, "pre_samples": 2, "la": True,
+        {"status": "ok", "bits": 16, "la_sample_rate_hz": 48000000, "pre_samples": 2, "la": True,
          "la_edges": [[0, 1], [2, 3]], "la_upto": 5, "more": False},
     ]})
     la = cap_mod.capture_la(t, samples=3, sample_rate_hz=48e6, trigger=Trigger(3, "falling", pre_samples=2))
     assert t.sent[0]["trigger"] == {"la": 3, "edge": "falling", "pre_samples": 2}
     assert la.words == [1, 1, 3, 3, 3] and la.pre_samples == 2 and la.truncated == ""
     t = FakeCaptureTransport({"la_capture": [
-        {"status": "ok", "bits": 16, "la_rate_hz": 48000000, "truncated": "busy", "la": True,
+        {"status": "ok", "bits": 16, "la_sample_rate_hz": 48000000, "truncated": "busy", "la": True,
          "la_edges": [[0, 1]], "la_upto": 2, "more": False},
     ]})
     la = cap_mod.capture_la(t, samples=1000, sample_rate_hz=48e6)
@@ -182,7 +192,7 @@ def test_trigger_pre_samples_must_be_a_count():
 def test_capture_correlated_expands_rle_la_edges():
     # ADC dense (2 samples) + LA as RLE transitions covering 5 samples.
     t = FakeCaptureTransport({"capture_dual": [
-        {"status": "ok", "data": [10, 20], "adc_rate_hz": 400000.0, "la_rate_hz": 1e6, "more": True},
+        {"status": "ok", "data": [10, 20], "adc_sample_rate_hz": 400000.0, "la_sample_rate_hz": 1e6, "more": True},
         {"status": "ok", "la": True, "la_edges": [[0, 3], [2, 7]], "la_upto": 5, "more": False},
     ]})
     ac = cap_mod.capture_correlated(t, NAIVE, adc_samples=2, adc_sample_rate_hz=400_000,
@@ -193,7 +203,7 @@ def test_capture_correlated_expands_rle_la_edges():
     assert ac.la.words == [3, 3, 7, 7, 7]
     assert ac.adc.sample_rate_hz == 400000.0
     assert ac.la.sample_rate_hz == 1e6
-    assert t.sent[0]["adc_rate_mhz"] == pytest.approx(0.4) and t.sent[0]["la_rate_mhz"] == 1.0
+    assert t.sent[0]["adc_sample_rate_hz"] == 400000 and t.sent[0]["la_sample_rate_hz"] == 1000000
 
 
 def test_capture_correlated_dense_la_fallback():

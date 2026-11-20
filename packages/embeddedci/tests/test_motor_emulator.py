@@ -71,8 +71,10 @@ class EmuPod:
 
     PROGRAMN, DONE = 9, 10
 
-    def __init__(self, *, boards: Optional[Dict[int, Board]] = None, caps: Optional[List[str]] = None) -> None:
+    def __init__(self, *, boards: Optional[Dict[int, Board]] = None, caps: Optional[List[str]] = None,
+                 gateware: int = 59) -> None:
         self.caps = ["la", "la_pins", "gpio_read", "spi_master", "spi_stream"] if caps is None else caps
+        self.gateware = gateware
         self.boards = {0: Board()} if boards is None else boards
         self.commands: List[dict] = []
         self.armed: Optional[dict] = None
@@ -87,7 +89,8 @@ class EmuPod:
 
     # -- transport surface
     def status(self) -> Dict[str, Any]:
-        return {"board": "stm32h563", "adc_bits": 16, "version": "3.4.0", "caps": self.caps}
+        return {"board": "stm32h563", "adc_bits": 16, "version": "3.4.0", "caps": self.caps,
+                "gateware": self.gateware}
 
     def ping(self) -> Any:
         return "pong"
@@ -103,9 +106,9 @@ class EmuPod:
         self.commands.append(req)
         cmd = req["cmd"]
         if cmd == "spi_start":
-            assert self.armed is None and req["mode"] == 0 and req["hz"] <= 6_000_000
+            assert self.armed is None and req["mode"] == 0 and req["clock_hz"] <= 6_000_000
             self.armed = req
-            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "hz": 6_000_000}
+            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "clock_hz": 6_000_000}
         if cmd == "spi_stop":
             self.armed = None
             return "spi stopped"
@@ -403,7 +406,7 @@ def test_open_motor_emulator_checks(pod):
     bp, fake = pod
     with pytest.raises(ValueError):
         bp.open_motor_emulator(hz=8_000_000)
-    bp2 = BenchPod(transport=EmuPod(caps=["la", "la_pins"]), wiring=WIRING)
+    bp2 = BenchPod(transport=EmuPod(caps=["la", "la_pins"], gateware=44), wiring=WIRING)
     with pytest.raises(BenchPodError):
         bp2.open_motor_emulator()
 
@@ -416,7 +419,7 @@ def test_spi_stream_session():
         cmds.append(req)
         return {"sent": req["len"], "ms": 250, "cs": "held"}
 
-    spi = SpiSession(command, {"hz": 6_000_000}, stage=lambda d: staged.append(d) or len(d))
+    spi = SpiSession(command, {"clock_hz": 6_000_000}, stage=lambda d: staged.append(d) or len(d))
     r = spi.stream(b"\x01" * 1000, head=b"\x7a\0\0\0", hold_cs=True)
     assert r == SpiStreamResult(sent=1000, seconds=0.25)
     assert staged == [b"\x01" * 1000]
@@ -432,8 +435,9 @@ def test_spi_stream_session():
 
 
 def test_capability():
-    assert Capabilities.from_status({"caps": ["spi_master", "spi_stream"]}).spi_stream
-    assert Capabilities.from_parameters({"cap.spi_stream": "true"}).spi_stream
+    assert Capabilities.from_status({"features_rev": 10, "gateware": 45}).spi_stream
+    assert not Capabilities.from_status({"features_rev": 10, "gateware": 44}).spi_stream
+    assert Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59"}).spi_stream
 
 
 def test_configure_from_a_file_and_input_checks(pod, tmp_path):

@@ -129,7 +129,7 @@ def test_control_loop_raises_if_not_armed():
 
 
 def test_loop_probe_returns_ivpoint():
-    bp, t = _bp({"dac_loop_probe": {"i": 4321, "v": 51000}})
+    bp, t = _bp({"dac_loop_probe": {"i": 4321, "code16": 51000}})
     pt = bp.loop_probe()
     assert isinstance(pt, IVPoint) and pt.i == 4321 and pt.v == 51000
     assert t.commands[-1] == {"cmd": "dac_loop_probe"}
@@ -159,7 +159,7 @@ def test_control_loop_sends_the_input_map():
 
 
 def test_handle_probe_delegates_to_client():
-    bp, t = _bp({"dac_control_loop": {"armed": True}, "dac_loop_probe": {"i": 7, "v": 9}})
+    bp, t = _bp({"dac_control_loop": {"armed": True}, "dac_loop_probe": {"i": 7, "code16": 9}})
     with bp.control_loop(voc_code=1000) as loop:
         pt = loop.probe()
         assert pt.i == 7 and pt.v == 9
@@ -178,15 +178,15 @@ def test_generate_on_capture_sets_flag():
     assert "on_capture" not in t.commands[-1]
 
 
-def test_generate_maps_volts_to_generator_codes_and_routes_the_path():
+def test_generate_sends_volts_and_the_pod_routes_the_path():
     bp, t = _bp()
     h = bp.generate("square", freq_hz=50, amplitude=1.0, dac_path="5v", duration=0.25,
                     sample_rate_hz=100_000)
-    route, gen = t.commands[-2], t.commands[-1]
-    assert route == {"cmd": "dac_out", "path": "5v"}
-    # 5 V over 255 levels: 1.0 V peak -> 51, default offset = mid-range 2.5 V -> 128.
-    assert gen == {"cmd": "generate", "waveform": "square", "freq": 50.0, "amplitude": 51,
-                   "offset": 128, "duration_ms": 250, "sample_rate_mhz": 0.1}
+    gen = t.commands[-1]
+    # The default offset is mid-range: 2.5 V on the 5 V path.
+    assert gen == {"cmd": "generate", "waveform": "square", "freq_hz": 50, "path": "5v",
+                   "amplitude_v": 1.0, "offset_v": 2.5, "duration_ms": 250,
+                   "sample_rate_hz": 100000}
     h.stop()
     assert t.commands[-1] == {"cmd": "dac_stop"}
 
@@ -194,8 +194,8 @@ def test_generate_maps_volts_to_generator_codes_and_routes_the_path():
 def test_generate_rejects_values_outside_the_path():
     bp, t = _bp()
     with pytest.raises(ValueError, match="amplitude"):
-        bp.generate("sine", freq_hz=10, amplitude=0.001, dac_path="3v3")
-    with pytest.raises(ValueError, match="offset"):
+        bp.generate("sine", freq_hz=10, amplitude=0.00001, dac_path="3v3")
+    with pytest.raises(ValueError, match="must stay within"):
         bp.generate("sine", freq_hz=10, amplitude=1.0, offset=6.0, dac_path="5v")
     with pytest.raises(ValueError, match="waveform"):
         bp.generate("triangle", freq_hz=10, amplitude=1.0)  # type: ignore[arg-type]
@@ -244,8 +244,12 @@ def test_capture_stop_dac_absent_when_unset():
 # -- capabilities flags ------------------------------------------------------
 
 def test_capabilities_parse_new_flags():
-    c = Capabilities.from_parameters({"cap.dac_control_loop": "true", "cap.dac_cotrig": "true"})
+    c = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59",
+                                      "cap.fpga_image": "loop"})
     assert c.dac_control_loop is True and c.dac_cotrig is True
+    deep = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "59",
+                                         "cap.fpga_image": "deep"})
+    assert deep.dac_control_loop is False and deep.dac_deep_replay is True
     c2 = Capabilities.from_parameters({})
     assert c2.dac_control_loop is False and c2.dac_cotrig is False
 
@@ -322,7 +326,7 @@ def test_control_loop_rejects_a_bad_source_before_sending():
 
 
 def test_loop_input_steps_a_running_loop():
-    bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "v": 123}})
+    bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "code16": 123}})
     out = bp.loop_input(65535, source="fixed")
     assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 65535, "source": "fixed"}
     assert isinstance(out, LoopState) and out.input_code == 65535 and out.output_code == 123
@@ -333,7 +337,7 @@ def test_loop_input_steps_a_running_loop():
 
 def test_handle_set_input_updates_its_view():
     bp, t = _bp({"dac_control_loop": {"armed": True, "source": "fixed", "input": 0},
-                 "dac_loop_input": {"source": "fixed", "input": 32768, "step": 0, "v": 9}})
+                 "dac_loop_input": {"source": "fixed", "input": 32768, "step": 0, "code16": 9}})
     loop = bp.control_loop(curve=[1, 2], source="fixed", input_code=0)
     loop.set_input(32768)
     assert loop.input_code == 32768 and loop.source == "fixed"
@@ -343,11 +347,11 @@ def test_handle_set_input_updates_its_view():
 def test_loop_probe_reports_the_loops_own_input():
     # In a fixed/sweep run `i` is an ADC reading nothing is using; `in` is what the loop indexed
     # the curve with. loop_input must prefer it — that is the value a test asserts against.
-    bp, _ = _bp({"dac_loop_probe": {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}})
+    bp, _ = _bp({"dac_loop_probe": {"i": 64000, "in": 32768, "source": "fixed", "code16": 20000}})
     pt = bp.loop_probe()
     assert pt.loop_input == 32768 and pt.source == "fixed" and pt.i == 64000
     # Older firmware omits both: there the ADC IS the input by construction.
-    bp2, _ = _bp({"dac_loop_probe": {"i": 4321, "v": 51000}})
+    bp2, _ = _bp({"dac_loop_probe": {"i": 4321, "code16": 51000}})
     pt2 = bp2.loop_probe()
     assert pt2.input_code is None and pt2.loop_input == 4321
 
@@ -387,8 +391,10 @@ def test_constant_and_linear_curves():
 
 
 def test_capabilities_parse_loop_sources():
-    c = Capabilities.from_parameters({"cap.dac_control_loop": "true",
-                                      "cap.dac_loop_sources": "true"})
+    c = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "29",
+                                      "cap.fpga_image": "loop"})
     assert c.dac_loop_sources is True
-    # Absent on a pre-v29 pod -> False, so a caller offers/uses the ADC source only.
-    assert Capabilities.from_parameters({"cap.dac_control_loop": "true"}).dac_loop_sources is False
+    # Absent on pre-v29 gateware -> False, so a caller offers/uses the ADC source only.
+    old = Capabilities.from_parameters({"cap.features_rev": "10", "cap.gateware": "28",
+                                        "cap.fpga_image": "loop"})
+    assert old.dac_control_loop is True and old.dac_loop_sources is False

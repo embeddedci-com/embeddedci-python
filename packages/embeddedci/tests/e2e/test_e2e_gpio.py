@@ -131,8 +131,6 @@ def test_pull_by_direction(gpio_pod, bench):
         assert gpio_pod.set_pull(bare, "off").supported == ()
         assert gpio_pod.pull_state(bare).state == "off"
         assert sorted(gpio_pod.enabled_pulls()) == sorted([up, down])
-        assert gpio_pod.set_pull(down, True).state == "down"      # the deprecated on/off form
-        assert gpio_pod.set_pull(down, False).state == "off"
     finally:
         gpio_pod.release_gpio(up, down)
         gpio_pod.set_pull(up, "off")
@@ -146,8 +144,8 @@ def test_uart_is_refused_on_a_gpio_pin_until_released(gpio_pod, bench):
     gpio_pod.gpio(tx)
     with pytest.raises(PinConflictError) as ei:
         gpio_pod.open_uart(rx=rx, tx=tx)
-    assert (ei.value.la, ei.value.function) == (tx, "gpio")
-    assert f"release it with bp.release_gpio({tx})" in str(ei.value)   # the SDK's own hint
+    assert (ei.value.code, ei.value.la, ei.value.function) == ("BP0031", tx, "gpio")
+    assert ei.value.owner == "gpio"
     gpio_pod.release_gpio(tx)
     with gpio_pod.open_uart(rx=rx, tx=tx):
         assert {_function(gpio_pod, rx).function, _function(gpio_pod, tx).function} == {"uart_rx", "uart_tx"}

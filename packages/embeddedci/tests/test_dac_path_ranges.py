@@ -60,10 +60,10 @@ def test_generate_on_12v_defaults_to_0_volts(monkeypatch):
     bp = BenchPod(transport=t, lease=False)
     bp.generate("square", freq_hz=10, amplitude=1.0, dac_path="12v")
     gen = t.commands[-1]
-    # 24 V over 255 levels: 1 V peak -> 11 levels, default offset 0 V -> mid-scale 128.
-    assert gen["amplitude"] == 11 and gen["offset"] == 128
+    # The default offset is 0 V, the middle of the bipolar path.
+    assert gen["amplitude_v"] == 1.0 and gen["offset_v"] == 0.0
     bp.generate("square", freq_hz=10, amplitude=1.0, offset=-6.0, dac_path="12v")
-    assert t.commands[-1]["offset"] == round(6.0 / (24 / 255))
+    assert t.commands[-1]["offset_v"] == -6.0
     with pytest.raises(ValueError, match="-12..12"):
         bp.generate("sine", freq_hz=10, amplitude=1.0, offset=13.0, dac_path="12v")
 

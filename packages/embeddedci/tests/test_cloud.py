@@ -282,12 +282,13 @@ class _JsonResp:
 
 
 def test_cloud_transport_command_retries_device_busy(monkeypatch):
-    """The pod refuses a second cloud command with "device busy" before running it (a server
-    push or a browser poll is ahead of it), so the transport asks again instead of failing."""
+    """The pod refuses a second cloud command with BP0052 (cloud_command_busy) before running it
+    (a server push or a browser poll is ahead of it), so the transport asks again instead of
+    failing. The envelope's error is the code itself: the pod sends no message."""
     from embeddedci.benchpod.transport import cloud
 
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
-    replies = [b'{"status":"error","error":"device busy"}'] * 2 + \
+    replies = [b'{"status":"error","error":"BP0052","code":"BP0052"}'] * 2 + \
         [b'{"status":"ok","data":{"range":"low"}}']
     sent = []
 
@@ -318,17 +319,17 @@ def test_cloud_transport_command_device_busy_gives_up(monkeypatch):
 
     def fake_urlopen(req, *a, **k):
         calls.append(1)
-        return _JsonResp(b'{"status":"error","error":"device busy"}')
+        return _JsonResp(b'{"status":"error","error":"BP0052","code":"BP0052"}')
 
     monkeypatch.setattr(_http, "urlopen", fake_urlopen)
-    with pytest.raises(FirmwareError, match="device busy"):
-        t.command({"cmd": "dac_out", "path": "5v", "volts": 1.0})
+    with pytest.raises(FirmwareError, match="BP0052: The pod is still running the previous cloud command"):
+        t.command({"cmd": "dac_out", "path": "5v", "v": 1.0})
     assert 10 < len(calls) <= cloud._BUSY_RETRY_BUDGET / cloud._BUSY_RETRY_WAIT + 1
 
 
 def test_cloud_transport_command_other_busy_is_not_retried(monkeypatch):
-    """Only the cloud channel's "device busy" is a refusal before running; "swd busy" and the
-    like come from the command itself and are raised at once."""
+    """Only BP0052 is a refusal before running; another busy refusal (BP0047) comes from the
+    command itself and is raised at once."""
     from embeddedci.benchpod.errors import FirmwareError
 
     t = CloudTransport("dev-a", api_base="https://example.test", token="x")
@@ -336,7 +337,7 @@ def test_cloud_transport_command_other_busy_is_not_retried(monkeypatch):
 
     def fake_urlopen(req, *a, **k):
         calls.append(1)
-        return _JsonResp(b'{"status":"error","error":"busy: a capture or upload is running"}')
+        return _JsonResp(b'{"status":"error","error":"BP0047","code":"BP0047"}')
 
     monkeypatch.setattr(_http, "urlopen", fake_urlopen)
     with pytest.raises(FirmwareError):
@@ -549,10 +550,10 @@ def test_cloud_command_retries_other_instance(monkeypatch):
 @pytest.mark.parametrize("req", [
     {"cmd": "can_write", "id": 1, "data": "00"},
     {"cmd": "nrst", "pulse_ms": 10},
-    {"cmd": "la", "la": 1, "steps": 5, "delay_us": 100},
+    {"cmd": "la_step", "la": 1, "steps": 5, "delay_us": 100},
     {"cmd": "spi_xfer", "tx": "9f"},
     {"cmd": "generate", "waveform": "sine"},
-    {"cmd": "target_power", "efuse": 1, "state": 1, "delay_ms": 500},
+    {"cmd": "target_power", "efuse": 1, "enabled": True, "delay_ms": 500},
     {"cmd": "dac_stop"},
     {"cmd": "la_voltage", "mv": 3300},
     {"cmd": "dac_limits", "path": "dac_out", "min_mv": 0},

@@ -65,24 +65,20 @@ def test_signal_generate_phase_converts_volts_through_generate():
                                      freq_hz=1000, amplitude=1.0, duration=0.5))
     assert rec.outcome == tr.Outcome.PASS
     i = _cmds(tx).index("generate")
-    # generate routes the DAC path first (3v3 when none is given), then sends 8-bit generator
-    # codes: 1.0 V / (3.3 V / 255) = 77, offset defaults to mid-range 1.65 V -> 127.
-    assert tx.commands[i - 1] == {"cmd": "dac_out", "path": "3v3"}
-    assert tx.commands[i] == {"cmd": "generate", "waveform": "sine", "freq": 1000.0,
-                              "amplitude": 77, "offset": 127, "duration_ms": 500}
+    # generate sends volts on the path (3v3 when none is given; the pod routes it); the offset
+    # defaults to mid-range 1.65 V.
+    assert tx.commands[i] == {"cmd": "generate", "waveform": "sine", "freq_hz": 1000, "path": "3v3",
+                              "amplitude_v": 1.0, "offset_v": 1.65, "duration_ms": 500}
 
 
 def test_signal_generate_helper_path_offset_and_rate():
     tx = FakeTransport()
     plug = benchpod_plug(transport=tx)()
-    handle = signal_generate(plug, waveform="square", freq_hz=50, amplitude=1.1, offset=0.66,
+    handle = signal_generate(plug, waveform="square", freq_hz=50, amplitude=0.6, offset=0.66,
                              dac_path="3v3", sample_rate_hz=250_000)
     assert isinstance(handle, DacHandle) and handle.dac_path == "3v3"
-    assert tx.commands[-2:] == [
-        {"cmd": "dac_out", "path": "3v3"},
-        {"cmd": "generate", "waveform": "square", "freq": 50.0, "amplitude": 85, "offset": 51,
-         "sample_rate_mhz": 0.25},
-    ]
+    assert tx.commands[-1] == {"cmd": "generate", "waveform": "square", "freq_hz": 50, "path": "3v3",
+                               "amplitude_v": 0.6, "offset_v": 0.66, "sample_rate_hz": 250000}
     handle.stop()
     assert tx.commands[-1] == {"cmd": "dac_stop"}
 
@@ -109,7 +105,7 @@ def test_adc_capture_phase_records_volts():
                                  mean_range=(1.5, 1.8), pp_range=(3.2, 3.4)))
     assert rec.outcome == tr.Outcome.PASS
     assert tx.commands[-2:] == [{"cmd": "analog_path", "path": "adc_ext"},
-                                {"cmd": "capture", "samples": 8}]
+                                {"cmd": "capture", "samples": 8, "enc": "dec"}]
     p = _phase(rec, "adc_capture")
     assert _value(p, "adc_mean_v") == pytest.approx(sum(TRI_V) / 8)
     assert _value(p, "adc_pp_v") == pytest.approx(3.3)
@@ -127,7 +123,7 @@ def test_adc_capture_phase_source_none_leaves_routing_and_passes_rate():
                                  sample_rate_hz=100_000, prefix="rail", attachment=None))
     assert rec.outcome == tr.Outcome.PASS
     assert "analog_path" not in _cmds(tx)
-    assert tx.commands[-1] == {"cmd": "capture", "samples": 8, "sample_rate_mhz": 0.1}
+    assert tx.commands[-1] == {"cmd": "capture", "samples": 8, "sample_rate_hz": 100000, "enc": "dec"}
     p = _phase(rec, "adc_capture")
     assert _value(p, "rail_pp_v") == pytest.approx(3.3)
     assert "adc.json" not in p.attachments
@@ -168,12 +164,11 @@ def test_loopback_measure_phase_generates_captures_then_stops():
                                       pp_range=(3.0, 3.5), mean_range=(1.5, 1.8)))
     assert rec.outcome == tr.Outcome.PASS
     # DAC first (its path re-applies and would open a loopback relay), then route the ADC.
-    assert _cmds(tx) == ["dac_out", "generate", "analog_path", "capture", "dac_stop"]
-    assert tx.commands[0] == {"cmd": "dac_out", "path": "3v3"}
-    assert tx.commands[1] == {"cmd": "generate", "waveform": "sine", "freq": 100.0,
-                              "amplitude": 77, "offset": 127}
-    assert tx.commands[2] == {"cmd": "analog_path", "path": "adc_ext"}
-    assert tx.commands[3] == {"cmd": "capture", "samples": 8, "sample_rate_mhz": 0.05}
+    assert _cmds(tx) == ["generate", "analog_path", "capture", "dac_stop"]
+    assert tx.commands[0] == {"cmd": "generate", "waveform": "sine", "freq_hz": 100, "path": "3v3",
+                              "amplitude_v": 1.0, "offset_v": 1.65}
+    assert tx.commands[1] == {"cmd": "analog_path", "path": "adc_ext"}
+    assert tx.commands[2] == {"cmd": "capture", "samples": 8, "sample_rate_hz": 50000, "enc": "dec"}
     p = _phase(rec, "loopback_measure")
     assert _value(p, "adc_pp_v") == pytest.approx(3.3)
     assert _value(p, "adc_mean_v") == pytest.approx(sum(TRI_V) / 8)
@@ -184,7 +179,7 @@ def test_loopback_measure_phase_internal_loopback_source():
     rec = _run(loopback_measure_phase(benchpod_plug(transport=tx), freq_hz=100, amplitude=1.0,
                                       dac_path="12v", samples=8, source="cal2", settle=0))
     assert rec.outcome == tr.Outcome.PASS
-    assert tx.commands[0] == {"cmd": "dac_out", "path": "12v"}
+    assert tx.commands[0]["cmd"] == "generate" and tx.commands[0]["path"] == "12v"
     assert {"cmd": "analog_path", "path": "cal2"} in tx.commands
 
 
@@ -246,14 +241,14 @@ def test_dac_output_phase_routes_and_sets_volts():
     tx = FakeTransport()
     rec = _run(dac_output_phase(benchpod_plug(transport=tx), path="5v", volts=2.5))
     assert rec.outcome == tr.Outcome.PASS
-    assert tx.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
+    assert tx.commands[-1] == {"cmd": "dac_out", "path": "5v", "v": 2.5}
 
 
 def test_dac_output_helper_returns_typed_result():
     tx = FakeTransport()
     plug = benchpod_plug(transport=tx)()
     out = dac_output(plug, "5v", volts=2.5)
-    assert out == DacOutput(path="5v", voltage=2.5, code=128)
+    assert out == DacOutput(path="5v", voltage=2.5, code=128, code16=32768)
     routed = dac_output(plug, "off")
     assert routed.voltage is None and routed.code is None
     assert tx.commands[-1] == {"cmd": "dac_out", "path": "off"}

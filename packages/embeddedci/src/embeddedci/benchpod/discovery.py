@@ -7,7 +7,8 @@ pods means the caller disambiguates (by id-prefix or hostname).
 
 The firmware advertises the same service type from every pod, with a unique
 hostname/instance derived from a slice of its Ed25519 public key and the full
-public key carried in the TXT ``id=`` item. See bench-pod-firmware
+public key carried in the TXT ``id=`` item; firmware 4.0 adds ``api=2`` (its
+client API level), ``tls=8443`` and ``https_only=1``. See bench-pod-firmware
 ``stm32h563/src/net_server.c`` (mDNS responder).
 
 ``zeroconf`` is an optional dependency (``pip install embeddedci[discovery]``);
@@ -36,21 +37,36 @@ class DiscoveredPod:
     name: str  # DNS-SD instance, e.g. "BenchPod a1b2c3"
     hostname: str  # "benchpod-a1b2c3.local"
     addresses: List[str] = field(default_factory=list)  # all A-record IPs
-    port: int = 8080
+    port: int = 8080  # the SRV port: plaintext 8080, which the LAN takes only with HTTPS-only off
     pod_id: str = ""  # full base64url Ed25519 pubkey (TXT id=)
+    #: The TLS port (TXT ``tls=``, 8443); 0 when the pod does not announce one.
+    tls_port: int = 0
+    #: The pod's client API level (TXT ``api=``); 0 when the pod does not announce one (firmware
+    #: 3.x, which this SDK does not drive).
+    api: int = 0
+    #: TXT ``https_only=1``: plaintext 8080 is off on the LAN.
+    https_only: bool = False
+
+    @property
+    def supported(self) -> bool:
+        """Whether this SDK drives the pod: it announces client API 2 or later (firmware 4.0)."""
+        from .feature_map import MIN_POD_API
+
+        return self.api >= MIN_POD_API
 
     @property
     def addr(self) -> str:
         """A ``host:port`` string ready for :func:`parse_connection`.
 
         Prefers a numeric address (avoids depending on the OS mDNS resolver), and of those the
-        pod's USB network link (firmware 3.9.0+) when this computer heard it there: a pod
-        advertises itself on each of its interfaces. Falls back to the ``.local`` hostname if no
-        address was resolved.
+        pod's USB network link when this computer heard it there: a pod advertises itself on each
+        of its interfaces. Falls back to the ``.local`` hostname if no address was resolved. The
+        port is the plaintext one on the USB link, else the TLS one (TXT ``tls``, 8443).
         """
         usb = [a for a in self.addresses if _on_usb_link(a)]
         host = (usb or self.addresses or [self.hostname])[0]
-        return f"{host}:{self.port}"
+        port = self.port if usb else (self.tls_port or 8443)
+        return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
 
     @property
     def on_usb(self) -> bool:
@@ -60,6 +76,11 @@ class DiscoveredPod:
 
 #: Where a pod's USB network adapter lives: a /30 per pod, derived from its unique ID.
 USB_LINK_NET = ipaddress.IPv4Network("10.237.0.0/16")
+
+
+def _txt_int(txt: Dict[str, str], key: str) -> int:
+    v = txt.get(key, "").strip()
+    return int(v) if v.isdigit() else 0
 
 
 def _on_usb_link(addr: str) -> bool:
@@ -104,6 +125,9 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
             addresses=addresses,
             port=info.port or 8080,
             pod_id=txt.get("id", ""),
+            tls_port=_txt_int(txt, "tls"),
+            api=_txt_int(txt, "api"),
+            https_only=txt.get("https_only", "") == "1",
         )
 
     class _Listener:

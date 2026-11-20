@@ -168,7 +168,7 @@ PULL_DIRECTIONS: Tuple[str, ...] = ("up", "down", "off")
 
 class PullHw(NamedTuple):
     """One LA channel's pull resistor on a board: the directions it can pull, the one
-    ``set_pull(la, True)`` (and firmware's older ``pullup:on``) engages, and its value."""
+    the channel pulls by default, and its value."""
 
     dirs: Tuple[str, ...]
     default: str
@@ -187,10 +187,6 @@ PULL_TABLE_V3: Dict[int, PullHw] = {
 }
 PULL_TABLE: Dict[int, PullHw] = PULL_TABLE_V3
 
-#: Derived from :data:`PULL_TABLE`, kept for existing callers.
-PULL_OHMS: Dict[int, str] = {la: hw.ohms for la, hw in PULL_TABLE.items()}
-PULLUP_CHANNELS: Tuple[int, ...] = tuple(la for la, hw in PULL_TABLE.items() if "up" in hw.dirs)
-PULLDOWN_CHANNELS: Tuple[int, ...] = tuple(la for la, hw in PULL_TABLE.items() if "down" in hw.dirs)
 
 # LA step trains (``la_step``, ``GpioPin.pulse``): the gateware counts steps and the half-period in
 # 16-bit counters, so the pod refuses more steps or a longer half-period.

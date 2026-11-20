@@ -79,8 +79,9 @@ class PowerProfile:
             raise BenchPodError("the pod's power_profile reply carried no statistics")
         samples = tuple((t / 1e6, i / 1e6, v / 1000.0) for t, i, v in zip(t_us, ua, mv))
         return cls(
-            efuse=int(stats.get("efuse", 0) or 0), rate_hz=float(stats.get("rate_hz", 0) or 0),
-            adc_rate_hz=float(stats.get("adc_rate_hz", stats.get("rate_hz", 0)) or 0),
+            efuse=int(stats.get("efuse", 0) or 0),
+            rate_hz=float(stats.get("sample_rate_hz", 0) or 0),
+            adc_rate_hz=float(stats.get("adc_sample_rate_hz", stats.get("sample_rate_hz", 0)) or 0),
             n=int(stats.get("n", 0) or 0), duration=float(stats.get("duration_ms", 0) or 0) / 1000.0,
             avg_current=_ua(stats, "avg_ua"), min_current=_ua(stats, "min_ua"),
             peak_current=_ua(stats, "peak_ua"), avg_voltage=_mv(stats, "avg_mv"),

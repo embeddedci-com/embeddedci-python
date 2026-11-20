@@ -1,15 +1,16 @@
-"""The pod's LAN API over TLS (firmware 3.9.3+), as ``benchpod`` does it (its ``tcpclient/tls.go``).
+"""The pod's LAN API over TLS, as ``benchpod`` does it (its ``tcpclient/tls.go``).
 
-The pod serves the same API on TCP 8443 with TLS 1.2 and its own certificate (self-signed on first
-boot, or one the user installed). How :class:`~.tcp.TcpTransport` connects:
+The pod serves the API on TCP 8443 with TLS 1.2 and its own certificate (self-signed on first
+boot, or one the user installed). Firmware 4.0 serves only that on Ethernet and Wi-Fi by default
+(HTTPS-only); plaintext 8080 stays on its USB network adapter. How :class:`~.tcp.TcpTransport`
+connects in ``"auto"`` (the default):
 
-- port 8443: TLS only.
-- port 8080 (the default): TLS on 8443 first; when 8443 refuses the connection (firmware without
-  LAN TLS) and nothing is pinned for the pod, plaintext 8080 as before. With a pin, a pod that stops
-  answering TLS is an error, never a silent downgrade.
-- any other port, and the pod's USB network adapter (10.237.0.0/16, a physical link): plaintext.
+- port 8443 (the default for a LAN address, see :func:`~..connection.default_port`): TLS.
+- any other port given explicitly (``host:8080``), and the pod's USB network adapter
+  (10.237.0.0/16, a physical link): plaintext. There is no fallback from TLS to plaintext.
 
-``tls="on"`` / ``"off"`` (or ``BENCHPOD_TLS``) overrides ``"auto"``.
+``tls="on"`` sends TLS to 8443 whatever the port; ``"off"`` plaintext (8080 for an address on
+8443). ``BENCHPOD_TLS`` sets the mode too.
 
 Trust: the SHA-256 of the pod's certificate (DER) is pinned on first use per address in
 ``known_pods.json`` next to ``benchpod-cli``'s config (the CLI reads and writes the same file). A
@@ -38,8 +39,6 @@ PLAIN_PORT = 8080
 TLS_PORT = 8443
 _USB_LINK = ipaddress.ip_network("10.237.0.0/16")
 _lock = threading.Lock()
-#: Pods (host:port) that refused 8443 in this process, so each command does not probe again.
-_no_tls: set = set()
 
 
 def tls_mode(value: Optional[str] = None) -> str:
@@ -69,30 +68,18 @@ def tls_addr(host: str, port: int) -> Tuple[str, int]:
 
 
 class DialPlan(NamedTuple):
-    tls: Optional[Tuple[str, int]]    # None: no TLS attempt
-    plain: Optional[Tuple[str, int]]  # None: no plaintext
-    fallback: bool                    # plaintext only when TLS is refused and nothing is pinned
+    tls: Optional[Tuple[str, int]]    # None: plaintext
+    plain: Optional[Tuple[str, int]]  # None: TLS
 
 
 def plan(host: str, port: int, mode: str) -> DialPlan:
-    """How to reach ``host:port`` in ``mode`` (see the module docstring)."""
+    """How to reach ``host:port`` in ``mode`` (see the module docstring): exactly one of TLS or
+    plaintext, never both."""
     if mode == "off":
-        return DialPlan(None, (host, port), False)
-    if port == TLS_PORT:
-        return DialPlan((host, port), None, False)
-    if mode == "on":
-        return DialPlan(tls_addr(host, port), None, False)
-    if port != PLAIN_PORT or is_usb_link(host):
-        return DialPlan(None, (host, port), False)
-    return DialPlan((host, TLS_PORT), (host, port), True)
-
-
-def remember_no_tls(addr: Tuple[str, int]) -> None:
-    _no_tls.add(addr)
-
-
-def known_no_tls(addr: Tuple[str, int]) -> bool:
-    return addr in _no_tls
+        return DialPlan(None, (host, PLAIN_PORT if port == TLS_PORT else port))
+    if mode == "on" or port == TLS_PORT:
+        return DialPlan(tls_addr(host, port), None)
+    return DialPlan(None, (host, port))
 
 
 # -- pins ---------------------------------------------------------------------------------------
@@ -138,7 +125,7 @@ def _save(path: Path, data: Dict) -> None:
         raise
 
 
-def get_pin(host: str, port: int = PLAIN_PORT) -> Optional[str]:
+def get_pin(host: str, port: int = TLS_PORT) -> Optional[str]:
     """The pinned SHA-256 (lowercase hex) for the pod at ``host``, if any."""
     with _lock:
         try:
@@ -148,7 +135,7 @@ def get_pin(host: str, port: int = PLAIN_PORT) -> Optional[str]:
     return pod.get("sha256") if isinstance(pod, dict) else None
 
 
-def set_pin(host: str, sha256: str, port: int = PLAIN_PORT, subject: str = "") -> None:
+def set_pin(host: str, sha256: str, port: int = TLS_PORT, subject: str = "") -> None:
     """Pin ``sha256`` for the pod at ``host`` (what ``benchpod lan-tls trust`` does)."""
     _sessions.clear()
     with _lock:
@@ -162,7 +149,7 @@ def set_pin(host: str, sha256: str, port: int = PLAIN_PORT, subject: str = "") -
         _save(path, data)
 
 
-def delete_pin(host: str, port: int = PLAIN_PORT) -> bool:
+def delete_pin(host: str, port: int = TLS_PORT) -> bool:
     """Forget the pod's pin. ``False`` when there was none."""
     with _lock:
         path = pin_store_path()
@@ -263,7 +250,7 @@ def forget_sessions() -> None:
     _sessions.clear()
 
 
-def trust_lan_tls(host: str, port: int = PLAIN_PORT, *, sha256: Optional[str] = None,
+def trust_lan_tls(host: str, port: int = TLS_PORT, *, sha256: Optional[str] = None,
                   timeout: float = 10.0) -> str:
     """Pin the certificate the pod at ``host`` presents now (after a deliberate change), like
     ``benchpod lan-tls trust``. With ``sha256`` only that certificate is trusted. Returns the
@@ -276,7 +263,7 @@ def trust_lan_tls(host: str, port: int = PLAIN_PORT, *, sha256: Optional[str] = 
     return got
 
 
-def peer_certificate(host: str, port: int = PLAIN_PORT, *, timeout: float = 10.0) -> bytes:
+def peer_certificate(host: str, port: int = TLS_PORT, *, timeout: float = 10.0) -> bytes:
     """The certificate (DER) the pod at ``host`` presents on its TLS port, unchecked."""
     th, tp = tls_addr(host, port)
     sock = socket.create_connection((th, tp), timeout=timeout)

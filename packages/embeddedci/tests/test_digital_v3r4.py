@@ -58,7 +58,7 @@ class Pod:
             if self.v3r4:
                 out["vref_out"] = self._vref()
             return out
-        if req["cmd"] == "la":
+        if req["cmd"] == "la_pull":
             la = req["la"]
             want = req.get("pull")   # None: a query
             if want is None:
@@ -69,16 +69,15 @@ class Pod:
                 self.pulls.pop(la, None)
             d, s = self.pulls.get(la, ("off", "none"))
             ohms = {"2.2k": "2.2k", "10k": "10k", "none": "10k"}[s]
-            out = {"la": la, "pullup": int(d != "off"), "ohms": ohms, "pull": d if d != "off" else "up",
-                   "state": d, "dirs": ["up", "down"], "strength": s,
-                   "strengths": ["10k", "2.2k", "both"], "pullups_available": 1}
+            out = {"la": la, "ohms": ohms, "state": d, "dirs": ["up", "down"], "strength": s,
+                   "strengths": ["10k", "2.2k", "both"], "pullups_available": True}
             if self.held and d != "off":
                 out.update(pullup=0, state="off", held=self.held)
             return out
         if req["cmd"] == "la_pins":
             want = req.get("la") if self.subset else None
             if want is None and self.too_large:
-                raise firmware_error("reply too large", cmd="la_pins")
+                raise firmware_error("", cmd="la_pins", code="BP0054", values={"bytes": 1900, "limit": 1791})
             pins = [self._entry(n) for n in range(1, 15) if want is None or n in want]
             return {"pins": pins, "pull_dirs": ["up", "down"], "levels": None}
         if req["cmd"] in ("la_dir", "gpio"):   # the same entries, without pull_dirs
@@ -179,11 +178,6 @@ def test_la_pins_too_large_reads_in_two_parts():
     assert [p.la for p in pins] == list(range(1, 15))
     assert pod.sent[-2:] == [{"cmd": "la_pins", "la": [1, 2, 3, 4, 5, 6, 7]},
                              {"cmd": "la_pins", "la": [8, 9, 10, 11, 12, 13, 14]}]
-    # Firmware without the subset cannot help: the error stands.
-    pod.subset = False
-    with pytest.raises(FirmwareError, match="reply too large") as e:
-        bp.la_pins()
-    assert "firmware after 3.10.12 reads this list in parts" in str(e.value)
 
 
 def test_la_dir_and_gpio_entries_pull_both_ways_on_v3r4():

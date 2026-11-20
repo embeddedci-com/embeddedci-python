@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import pytest
 
 from embeddedci.benchpod import BenchPod, Sensor, load_definition, load_stimulus, sensors
-from embeddedci.benchpod.errors import FirmwareError, UnsupportedFeatureError
+from embeddedci.benchpod.errors import firmware_error, FirmwareError, UnsupportedFeatureError
 from embeddedci.benchpod.sensors import yaml12
 from embeddedci.benchpod.sensors.definition import DefinitionError
 
@@ -152,7 +152,7 @@ class FakePod:
     def _known(self, req: dict) -> str:
         name = req["instance"]
         if name not in self.instances:
-            raise FirmwareError(f"unknown sensor instance '{name}'", cmd=req["cmd"])
+            raise firmware_error("", cmd=req["cmd"], code="BP0055", values={"instance": name})
         return name
 
     def command(self, req: dict) -> Any:
@@ -219,19 +219,6 @@ def make_pod(**kw) -> "tuple[BenchPod, FakePod]":
     return bp, fake
 
 
-def test_old_firmware_gets_a_clear_error_before_anything_is_sent():
-    bp, fake = make_pod(caps=("dac",))
-    for call in (lambda: bp.sensors.start("bme280"), lambda: bp.sensors.status(),
-                 lambda: bp.sensors.validate("bme280"), lambda: bp.sensors.stop()):
-        with pytest.raises(UnsupportedFeatureError) as info:
-            call()
-        assert str(info.value) == ("this pod's firmware is too old for sensor emulation; "
-                                   "update the firmware")
-        assert info.value.feature == "sensors"
-    # Only the pin directions the SDK sends from the wiring on connect.
-    assert [c for c in fake.commands if c["cmd"] != "la_dir"] == []
-
-
 def test_start_defines_in_chunks_then_starts_with_wired_pins():
     bp, fake = make_pod()
     s = bp.sensors.start("bme280", instance="env", pins={"drdy": "DRDY"}, address=0x77,
@@ -296,9 +283,9 @@ def test_handle_drives_set_fault_regs_capture_and_stop():
         with pytest.raises(ValueError, match="length is 1..9"):
             s.regs(0xF7, 10)
         assert len(s.capture(64)) == 64
-        assert fake.commands[-1]["sample_rate_mhz"] == 0.5, "500 kHz by default: the pod's own default is too fast"
+        assert fake.commands[-1]["sample_rate_hz"] == 500000, "500 kHz by default: the pod's own default is too fast"
         s.capture(16, sample_rate_hz=2_000_000)
-        assert fake.commands[-1]["sample_rate_mhz"] == 2.0
+        assert fake.commands[-1]["sample_rate_hz"] == 2000000
         with pytest.raises(ValueError, match="1..4096"):
             s.capture(4097)
         with pytest.raises(ValueError, match="at least one value"):
@@ -307,7 +294,7 @@ def test_handle_drives_set_fault_regs_capture_and_stop():
             s.set(temperature_c="hot")
     assert fake.commands[-1] == {"cmd": "sensor_stop", "instance": "bmp280"}
     assert bp.sensors.status()["instances"] == []
-    with pytest.raises(FirmwareError, match="unknown sensor instance 'bmp280'"):
+    with pytest.raises(FirmwareError, match="BP0055: The pod has no emulated sensor bmp280"):
         bp.sensors.set("bmp280", temperature_c=1)
 
 
@@ -333,7 +320,7 @@ def test_capture_waits_for_the_dut_on_firmware_with_sensor_la_trigger():
     s = bp.sensors.start(MINIMAL, pins={"sda": 2, "scl": 1})
     s.capture(64)
     req = fake.commands[-1]
-    assert req["trigger"] == "start" and req["timeout_ms"] == 2000 and req["sample_rate_mhz"] == 0.5
+    assert req["trigger"] == "start" and req["timeout_ms"] == 2000 and req["sample_rate_hz"] == 500000
     s.i2c_transactions(16, timeout_s=0.25)
     assert fake.commands[-1]["timeout_ms"] == 250
     bp.sensors.capture("probe", 16, wait_for_traffic=False)
@@ -343,17 +330,9 @@ def test_capture_waits_for_the_dut_on_firmware_with_sensor_la_trigger():
     with pytest.raises(ValueError, match="timeout_s"):
         s.capture(16, timeout_s=601)
     # the pod's answer when the DUT stays quiet is a TriggerTimeout on the SDA channel
-    err = classify_firmware_error(FirmwareError(
-        "trigger timeout: no falling edge on LA2 (SDA of probe) within 2000 ms; the DUT did not use the I2C bus"))
-    assert isinstance(err, TriggerTimeout) and (err.la, err.edge) == (2, "falling")
-
-
-def test_capture_on_firmware_without_the_trigger_sends_the_old_request():
-    bp, fake = make_pod()
-    s = bp.sensors.start(MINIMAL, pins={"sda": 2, "scl": 1})
-    for wait in (True, False):
-        s.capture(16, wait_for_traffic=wait)
-        assert set(fake.commands[-1]) == {"cmd", "instance", "samples", "sample_rate_mhz"}
+    err = firmware_error("", cmd="sensor_la", code="BP0039",
+                         values={"la": 2, "instance": "probe", "timeout_ms": 2000})
+    assert isinstance(err, TriggerTimeout) and (err.la, err.edge) == (2, "start")
 
 
 def test_capture_of_a_uart_or_spi_sensor_points_at_la_capture():

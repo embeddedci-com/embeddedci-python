@@ -1,7 +1,7 @@
 """UnsupportedFeatureError and the can_* capability checks on BenchPod.
 
-The pod's texts are the firmware's: ``unknown cmd`` (command_handler.c) and the digital board's
-analog refusal (cmd_gate.c cmd_gate_check)."""
+The pod refuses an unknown command with BP0002 and an analog command on the digital board with
+BP0046; their old texts decide nothing."""
 
 from __future__ import annotations
 
@@ -21,13 +21,18 @@ NO_ANALOG = ("this BenchPod has no analog front end (digital board): no DAC, ADC
 class CapsPod:
     """A pod that only answers status, with the given capability names."""
 
-    def __init__(self, caps: List[str], *, analog: Optional[bool] = None) -> None:
+    def __init__(self, caps: List[str], *, analog: Optional[bool] = None, gateware: int = 59,
+                 hw: Optional[List[str]] = None) -> None:
         self.caps = caps
         self.analog = analog
+        self.gateware = gateware
+        self.hw = ["usb_cc"] if hw is None else hw
         self.commands: List[dict] = []
 
     def status(self) -> Dict[str, Any]:
-        st: Dict[str, Any] = {"board": "stm32h563", "adc_bits": 16, "version": "3.1.0", "caps": self.caps}
+        st: Dict[str, Any] = {"board": "stm32h563", "adc_bits": 16, "version": "4.0.0", "api": 2,
+                              "min_client_api": 2, "features_rev": 10, "gateware": self.gateware,
+                              "fpga_image": "loop", "hw": self.hw, "nrst_pin": "nrst_pin" in self.caps}
         if self.analog is not None:
             st["analog"] = self.analog
         return st
@@ -39,38 +44,40 @@ class CapsPod:
         pass
 
     def command(self, req: dict) -> Any:
+        if req["cmd"] in ("wiring_list", "la_dir"):   # the connect's own
+            return {}
         self.commands.append(req)
         raise AssertionError(f"nothing should reach the pod: {req}")
 
 
-def test_unknown_cmd_is_an_unsupported_feature():
-    err = firmware_error("unknown cmd", cmd="can_config")
+def test_unknown_command_is_an_unsupported_feature():
+    err = firmware_error("", cmd="can_start", code="BP0002", values={"cmd": "can_start"})
     assert type(err) is UnsupportedFeatureError
-    assert err.feature == "can_config" and err.cmd == "can_config"
-    # Still what it was before: a FirmwareError with the pod's text.
-    assert isinstance(err, FirmwareError) and err.firmware_message == "unknown cmd"
+    assert err.feature == "can_start" and err.cmd == "can_start"
+    assert isinstance(err, FirmwareError)
     with pytest.raises(UnsupportedFeatureError):
-        raise_for_status(Reply(status="error", message="unknown cmd"), cmd="sensor_start")
+        raise_for_status(Reply(status="error", code="BP0002", args={"cmd": "sensor_start"}),
+                         cmd="sensor_start")
 
 
 def test_the_digital_board_refusing_analog_is_an_unsupported_feature():
-    err = firmware_error(NO_ANALOG, cmd="capture")
+    err = firmware_error("", cmd="capture", code="BP0046", values={"cmd": "capture"})
     assert type(err) is UnsupportedFeatureError and err.feature == "analog"
 
 
-def test_other_refusals_are_not_unsupported():
-    for text in ("la voltage not set", "unknown target", "unknown cmd here"):
-        assert not isinstance(firmware_error(text), UnsupportedFeatureError), text
+def test_the_old_texts_are_not_classified():
+    for text in ("unknown cmd", NO_ANALOG, "la voltage not set", "unknown target"):
+        assert type(firmware_error(text)) is FirmwareError, text
 
 
 def test_a_missing_capability_raises_before_sending():
-    pod = CapsPod(["la"])
+    pod = CapsPod(["la"], gateware=44)                 # SPI master needs gateware v45
     bp = BenchPod(transport=pod, lease=False)
     with pytest.raises(UnsupportedFeatureError) as info:
-        bp.gpio(9)
+        bp.open_spi(sck=1, mosi=2, miso=3, cs=4)
     err = info.value
-    assert err.feature == "la_pins" and err.firmware_version == "3.1.0"
-    assert "'la_pins' capability is missing" in str(err)
+    assert err.feature == "spi_master" and err.firmware_version == "4.0.0"
+    assert "'spi_master' capability is missing" in str(err)
     assert isinstance(err, BenchPodError)  # what it was before
     assert pod.commands == []
 
@@ -82,15 +89,16 @@ def test_can_properties_follow_the_capabilities():
     assert full.can_calibrate and full.can_current_out and full.can_reset_target and full.can_analog
     assert full.supports("can") and full.supports("spi_master")
 
-    bare = BenchPod(transport=CapsPod([]), lease=False)
-    assert not any((bare.can_gpio, bare.can_trigger, bare.can_spi, bare.can_profile_power,
-                    bare.can_calibrate, bare.can_current_out, bare.can_reset_target))
-    assert not bare.supports("can") and not bare.supports("no_such_flag")
+    bare = BenchPod(transport=CapsPod([], analog=False, gateware=34), lease=False)
+    assert not any((bare.can_trigger, bare.can_spi, bare.can_calibrate, bare.can_current_out,
+                    bare.can_reset_target))
+    assert bare.can_gpio and bare.can_profile_power and bare.supports("can")
+    assert not bare.supports("no_such_flag")
 
 
 def test_can_analog_is_false_only_on_the_digital_board():
     assert BenchPod(transport=CapsPod([], analog=True), lease=False).can_analog
-    assert BenchPod(transport=CapsPod([]), lease=False).can_analog  # older firmware: analog boards
+    assert BenchPod(transport=CapsPod([]), lease=False).can_analog  # no analog flag: analog
     assert not BenchPod(transport=CapsPod([], analog=False), lease=False).can_analog
 
 
@@ -102,9 +110,6 @@ def test_digital_board_names_the_missing_front_end_not_old_firmware(call):
         call(pod)
     assert err.value.feature == "analog" and "newer" not in str(err.value)
     assert pod._transport.commands == []
-    # Older firmware on an analog board still gets the update hint.
-    with pytest.raises(UnsupportedFeatureError, match="newer pod firmware"):
-        call(BenchPod(transport=CapsPod([]), lease=False))
 
 
 @pytest.mark.parametrize("analog,outcome", [(True, "passed"), (None, "passed"), (False, "skipped")],

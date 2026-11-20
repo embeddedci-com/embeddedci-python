@@ -20,7 +20,7 @@ class FakeTransport:
         self.uploads: List[dict] = []
 
     def status(self):
-        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096}
+        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096, "fpga_image": "deep"}
 
     def command(self, req: dict) -> Any:
         self.commands.append(req)
@@ -49,7 +49,7 @@ def test_replay_capture_maps_volts_and_routes_path():
     cap = Capture(counts=[], volts=[0.0, 2.5, 5.0], sample_rate_hz=1000.0)
     handle = bp.replay(cap, dac_path="5v", sample_rate_hz=400_000)
     assert isinstance(handle, ReplayHandle)
-    assert t.uploads[-1]["replay"]["sample_rate_mhz"] == pytest.approx(0.4)
+    assert t.uploads[-1]["replay"]["sample_rate_hz"] == 400000
     assert handle.sample_rate_hz == 400_000
     # routed the DAC path first
     assert {"cmd": "dac_out", "path": "5v"} in t.commands
@@ -92,7 +92,7 @@ def test_replay_handle_context_manager_stops():
 def test_replay_capture_defaults_to_its_own_rate():
     bp, t = _bp()
     bp.replay(Capture(counts=[], volts=[1.0, 2.0], sample_rate_hz=200_000.0), dac_path="5v")
-    assert t.uploads[-1]["replay"]["sample_rate_mhz"] == pytest.approx(0.2)
+    assert t.uploads[-1]["replay"]["sample_rate_hz"] == 200000
 
 
 def test_replay_rejects_unknown_path_and_mapping():

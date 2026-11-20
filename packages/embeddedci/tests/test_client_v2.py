@@ -29,14 +29,16 @@ from embeddedci.benchpod.state import (
 class FakeTransport:
     """Records every command and power call; replies are looked up by ``cmd``."""
 
-    def __init__(self, replies: Dict[str, Any] | None = None) -> None:
+    def __init__(self, replies: Dict[str, Any] | None = None, analog: bool = True) -> None:
         self.commands: List[dict] = []
         self.power: List[tuple] = []
         self.replies = replies or {}
         self.closed = False
+        self.analog = analog
 
     def status(self) -> Any:
-        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096}
+        return {"board": "stm32h563", "adc_bits": 16, "adc_fullscale_mv": 4096,
+                **({} if self.analog else {"analog": False})}
 
     def ping(self) -> Any:
         return "pong"
@@ -173,10 +175,10 @@ def test_power_status_pod_draw():
 
 
 def test_pod_current_capability():
-    assert Capabilities.from_status({"caps": ["la", "pod_current"]}).pod_current
-    assert not Capabilities.from_status({"caps": ["la"]}).pod_current
-    assert Capabilities.from_parameters({"cap.pod_current": "true"}).pod_current
-    assert not Capabilities.from_parameters({"cap.pod_current": "false"}).pod_current
+    assert Capabilities.from_status({"features_rev": 10, "hw": ["pod_current"]}).pod_current
+    assert not Capabilities.from_status({"features_rev": 10, "hw": []}).pod_current
+    assert Capabilities.from_parameters({"cap.features_rev": "10", "cap.pod_current": "true"}).pod_current
+    assert not Capabilities.from_parameters({"cap.features_rev": "10", "cap.pod_current": "false"}).pod_current
 
 
 def test_reset_line():
@@ -201,29 +203,8 @@ def test_usb_cc():
 
 # -- bias resistors ------------------------------------------------------------
 
-def test_pullups_and_pulldowns_are_not_interchangeable():
-    bp, t = _bp({"la": lambda req: {"la": req.get("la"), "pullup": 1, "ohms": "10k",
-                                    "pull": "down" if req.get("la") in (7, 8) else "up",
-                                    "pullups_available": 1}})
-    # firmware without la_pull_dir: the SDK checks the direction itself, like the pod would
-    with pytest.raises(ValueError, match="LA7 supports pull-down only"):
-        bp.enable_pullup(7)
-    with pytest.raises(ValueError, match="LA2 supports pull-up only"):
-        bp.enable_pulldown(2)
-    with pytest.raises(ValueError, match="LA9 has no pull resistor"):
-        bp.enable_pullup(9)
-    assert t.commands == []
-    bp.enable_pullup(1, 2)
-    bp.enable_pulldown(8)
-    assert t.commands == [{"cmd": "la", "la": 1, "pullup": "on"},
-                          {"cmd": "la", "la": 2, "pullup": "on"},
-                          {"cmd": "la", "la": 8, "pullup": "on"}]
-    state = bp.pull_state(8)
-    assert isinstance(state, PullState) and state.direction == "down" and state.enabled
-
-
 def test_enabled_pulls_decodes_the_mask():
-    bp, _ = _bp({"la": {"la_pullup_mask": 0b10000101, "pullups_available": 1}})
+    bp, _ = _bp({"la_pull": {"la_pullup_mask": 0b10000101, "pullups_available": True}})
     assert bp.enabled_pulls() == [1, 3, 8]
 
 
@@ -238,11 +219,11 @@ def test_analog_paths_take_canonical_names():
 
 
 def test_dac_output_reports_achieved_volts():
-    bp, t = _bp({"dac_out": lambda req: {"path": req["path"], "mv": 2498 if "volts" in req else 0,
-                                          "code": 127 if "volts" in req else -1}})
+    bp, t = _bp({"dac_out": lambda req: ({"path": req["path"], "mv": 2498, "uv": 2498000,
+                                           "code16": 32700} if "v" in req else {"path": req["path"]})})
     out = bp.dac_output("5v", volts=2.5)
-    assert out == DacOutput(path="5v", voltage=2.498, code=127)
-    assert t.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
+    assert out == DacOutput(path="5v", voltage=2.498, code=127, code16=32700)
+    assert t.commands[-1] == {"cmd": "dac_out", "path": "5v", "v": 2.5}
     routed = bp.dac_output("12v")
     assert routed.voltage is None and routed.code is None
     # The firmware names the analog path (dac_5v); the result uses dac_output's own vocabulary.
@@ -250,8 +231,8 @@ def test_dac_output_reports_achieved_volts():
     assert DacOutput.from_reply({"path": "off", "mv": 0, "code": -1}).path == "off"
     # Firmware that drives the full 16 bits answers in microvolts too.
     fine = DacOutput.from_reply({"path": "dac_5v", "mv": 2500, "uv": 2499985, "code": 128, "code16": 32723})
-    assert fine.voltage == pytest.approx(2.499985, abs=1e-9) and fine.code == 128 and fine.code16 == 32723
-    assert out.code16 is None
+    assert fine.voltage == pytest.approx(2.499985, abs=1e-9) and fine.code == 127 and fine.code16 == 32723
+    assert out.code16 == 32700
     with pytest.raises(ValueError):
         bp.dac_output("off", volts=1.0)
 
@@ -323,10 +304,11 @@ def test_current_out_refuses_what_is_not_amps():
     assert t.commands == []
 
 
-def test_current_out_needs_the_capability():
-    bp, t = _bp()                                   # older firmware: no `current_out`
+def test_current_out_needs_the_analog_board():
+    t = FakeTransport(analog=False)                 # the digital-only board: no 4-20 mA output
+    bp = BenchPod(transport=t, lease=False, wiring=Wiring.preset())
     for call in (lambda: bp.current_out(0.012), bp.current_out_range):
-        with pytest.raises(BenchPodError, match="current_out"):
+        with pytest.raises(BenchPodError, match="analog front end"):
             call()
     assert t.commands == []
     assert BenchPod(transport=CurrentPod(), lease=False).capabilities.current_out
@@ -368,10 +350,11 @@ def test_calibrate_runs_reads_and_clears():
         bp.calibrate("ext")  # type: ignore[arg-type]
 
 
-def test_calibrate_needs_the_capability():
-    bp, t = _bp()                                   # firmware 3.3.0 and older: no `calibrate`
+def test_calibrate_needs_the_analog_board():
+    t = FakeTransport(analog=False)
+    bp = BenchPod(transport=t, lease=False, wiring=Wiring.preset())
     for call in (bp.calibrate, bp.calibration, bp.clear_calibration):
-        with pytest.raises(BenchPodError, match="calibrate"):
+        with pytest.raises(BenchPodError, match="analog front end"):
             call()
     assert t.commands == []
     assert BenchPod(transport=CalPod(), lease=False).capabilities.calibrate
@@ -425,15 +408,10 @@ def test_calibrate_adc_gain_and_partial_clear():
         bp.clear_calibration("everything")  # type: ignore[arg-type]
 
 
-def test_dmm_calibration_needs_cal_dmm():
-    t = CalPod({"calibrate": lambda req: _CAL})       # 3.4.0 to 3.9.2: offset only
+def test_a_reply_without_dmm_parts():
+    t = CalPod({"calibrate": lambda req: _CAL})
     bp = BenchPod(transport=t, lease=False)
-    for call in (lambda: bp.calibrate_dac("5v", [(1, 1.0), (40000, 3.0)]), lambda: bp.calibrate_adc_gain("cal1"),
-                 lambda: bp.clear_calibration("adc")):
-        with pytest.raises(BenchPodError, match="cal_dmm"):
-            call()
-    assert t.commands == []
-    old = bp.calibration()                             # an old reply has no DMM parts
+    old = bp.calibration()                             # a pod never calibrated with a DMM
     assert old.dac == {} and old.adc_gain_ppm == {} and not old.dmm and old.measured is None
     assert old.zero_count is None
 
@@ -442,7 +420,7 @@ def test_capture_adc_routes_the_source_first():
     bp, t = _bp({"analog_path": {"path": "cal1"}})
     cap = bp.capture_adc(2, source="cal1", sample_rate_hz=100_000)
     assert t.commands[0] == {"cmd": "analog_path", "path": "cal1"}
-    assert t.commands[1] == {"cmd": "capture", "samples": 2, "sample_rate_mhz": 0.1}
+    assert t.commands[1] == {"cmd": "capture", "samples": 2, "sample_rate_hz": 100000, "enc": "dec"}
     assert cap.source == "cal1" and len(cap) == 2
 
 
@@ -464,7 +442,7 @@ def test_power_cycle_capture_window_must_cover_the_power_on():
 def test_la_step_delay_is_seconds():
     bp, t = _bp()
     bp.la_step(3, steps=200, delay=0.0005, dir_la=4, direction=1)
-    assert t.commands[-1] == {"cmd": "la", "la": 3, "steps": 200, "delay_us": 500,
+    assert t.commands[-1] == {"cmd": "la_step", "la": 3, "steps": 200, "delay_us": 500,
                               "dir_la": 4, "direction": 1}
     with pytest.raises(ValueError):
         bp.la_step(3, steps=10, delay=0)
@@ -493,8 +471,6 @@ def test_can_read_returns_frames():
     res = bp.can_read(max_frames=4)
     assert t.commands[-1] == {"cmd": "can_read", "max": 4}
     assert res.overflow == 2 and res.frames[0].id == 0x123 and res.frames[0].data == b"\x01\x02"
-    with pytest.raises(UnsupportedFeatureError):   # >8 bytes needs CAN FD (can_fd capability)
-        bp.can_write(0x10, list(range(9)))
     with pytest.raises(ValueError):
         bp.can_write(0x10, list(range(65)))
     with pytest.raises(ValueError):

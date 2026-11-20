@@ -26,7 +26,7 @@ LIGHT = {"status", "ping", "la_voltage"}
 class LeasePod:
     """A JSON/TCP pod with one RAM lease. Every connection reads lines until the client closes."""
 
-    def __init__(self, features_rev: int = 5, knows_lease: bool = True) -> None:
+    def __init__(self, features_rev: int = 10, knows_lease: bool = True) -> None:
         self.features_rev = features_rev
         self.knows_lease = knows_lease
         self.lease: Optional[Dict[str, Any]] = None   # id, holder, purpose, deadline
@@ -131,9 +131,10 @@ class LeasePod:
                     "message": f"lease lost: stopped by {by}"}
         live = self._live()
         if cmd == "status":
-            data: Dict[str, Any] = {"version": "3.10.13", "board": "stm32h563", "gateware": 58,
-                                    "features_rev": self.features_rev}
-            if req.get("caps") is False and self.knows_lease:
+            data: Dict[str, Any] = {"version": "4.0.0", "board": "stm32h563", "gateware": 58,
+                                    "features_rev": self.features_rev, "api": 2,
+                                    "min_client_api": 2}
+            if self.knows_lease:
                 data["local_lease"] = ({"held": True, "holder": self.lease["holder"],
                                         "purpose": self.lease["purpose"],
                                         "left_s": self._view(n)["left_s"],
@@ -335,32 +336,6 @@ def test_a_stopped_runner_lease_fails_the_join(pod, monkeypatch):
     pod.broken["L-runner"] = "ward"
     with pytest.raises(PodLeaseLostError):
         _open(pod)
-
-
-def test_no_lease_feature_takes_none():
-    p = LeasePod(features_rev=4)
-    try:
-        bp = _open(p)
-        bp.command({"cmd": "gpio"})
-        assert not bp.leased and "lease_acquire" not in p.cmds()
-        assert not any("lease" in r for r in p.log)             # no extra key for older firmware
-        bp.close()
-        assert "lease_release" not in p.cmds()
-    finally:
-        p.close()
-
-
-def test_no_lease_feature_warns_when_a_runner_lease_was_expected(monkeypatch, caplog):
-    monkeypatch.setenv("BENCHPOD_LEASE", "L-runner")
-    p = LeasePod(features_rev=4)
-    try:
-        with caplog.at_level(logging.WARNING, logger="embeddedci.benchpod"):
-            bp = _open(p)
-        assert any("BENCHPOD_LEASE" in r.message for r in caplog.records)
-        assert "lease_acquire" not in p.cmds()
-        bp.close()
-    finally:
-        p.close()
 
 
 def test_pod_that_does_not_know_the_command_takes_none():

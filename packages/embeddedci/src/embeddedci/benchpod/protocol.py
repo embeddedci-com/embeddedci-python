@@ -96,14 +96,15 @@ def parse_reply(line: bytes) -> Reply:
 
 
 def raise_for_status(reply: Reply, cmd: Optional[str] = None) -> Reply:
-    """Raise :class:`FirmwareError` (its specific subclass, see
-    :func:`~embeddedci.benchpod.errors.classify_firmware_error`) if the reply is an error packet.
+    """Raise :class:`FirmwareError` (its specific subclass, from the reply's code, see
+    :func:`~embeddedci.benchpod.errors.firmware_error`) if the reply is an error packet.
 
     Returns the reply unchanged on success so callers can chain.
     """
     if reply.status == "error":
-        raise firmware_error(reply.message or "unknown firmware error", cmd=cmd, code=reply.code,
-                             values=reply.args)
+        # A coded refusal carries no text (firmware 4.0): the catalog renders it.
+        message = reply.message if reply.code else (reply.message or "unknown firmware error")
+        raise firmware_error(message, cmd=cmd, code=reply.code, values=reply.args)
     if reply.status not in ("ok", "chunk"):
         raise TransportError(f"unexpected reply status {reply.status!r}")
     return reply

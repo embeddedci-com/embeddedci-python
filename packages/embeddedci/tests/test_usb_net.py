@@ -4,7 +4,6 @@ faked."""
 
 from __future__ import annotations
 
-import socket
 
 import pytest
 
@@ -32,12 +31,12 @@ STATUS = (
 
 def test_parse_usb_line_net_on():
     s = parse_text_status("status\r\n" + STATUS + f"  usb    : {USB_ON}\r\n> ")
-    assert s["usb"] == {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
+    assert s["usb"] == {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
 
 
 def test_parse_usb_line_wifi_configured():
     assert parse_usb_status_line(USB_WIFI) == {
-        "net": "off", "link": False, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
+        "net": False, "link": False, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}
 
 
 def test_parse_usb_line_from_older_firmware_is_left_alone():
@@ -48,11 +47,11 @@ def test_parse_usb_line_from_older_firmware_is_left_alone():
 
 
 @pytest.mark.parametrize("status, want", [
-    ({"usb": {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}, "10.237.8.85"),
-    ({"usb": {"net": "off", "link": False, "ip": "10.237.8.85"}}, None),
-    ({"usb": {"net": "on", "link": False, "ip": "10.237.8.85"}}, None),
-    ({"usb": {"net": "on", "link": True, "ip": "0.0.0.0"}}, None),
-    ({"usb": {"net": "on", "link": True, "ip": "garbage"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}, "10.237.8.85"),
+    ({"usb": {"net": False, "link": False, "ip": "10.237.8.85"}}, None),
+    ({"usb": {"net": True, "link": False, "ip": "10.237.8.85"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "0.0.0.0"}}, None),
+    ({"usb": {"net": True, "link": True, "ip": "garbage"}}, None),
     ({"usb": "cdc acm"}, None),
     ({"device": "benchpod"}, None),
     ("not a dict", None),
@@ -111,7 +110,7 @@ def usb(monkeypatch):
     monkeypatch.setattr(usblink, "local_usb_links", lambda: list(cfg["links"]))
     monkeypatch.setattr(usblink, "_short_id", lambda host, port, timeout: cfg["ids"].get(host, ""))
     monkeypatch.setattr(transport_mod, "_tcp_reachable", probe)
-    monkeypatch.setattr(transport_mod, "_api_answers", probe)
+    monkeypatch.setattr(transport_mod, "_tls_api_answers", lambda host, timeout: probe(host, 8443))
     cfg["probes"] = probes
     return cfg
 
@@ -139,23 +138,17 @@ def test_usb_name_selects_the_pod_and_upgrades(usb):
     assert FakeConsole.instances[0].pod == "baea06"  # the console was auto-detected by name
 
 
-def test_serial_keyword_also_upgrades(usb):
-    usb["status"] = {"device": "benchpod",
-                     "usb": {"net": "on", "link": True, "ip": "10.237.8.85", "host_ip": "10.237.8.86"}}
-    assert isinstance(open_transport(parse_connection("serial")), TcpTransport)
-
-
 @pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN])
-def test_usb_falls_back_to_the_pods_network_address_on_3_9(usb, line, caplog):
-    """3.9.0+ with USB networking off or down: its console has no la-voltage or power any more,
-    so the way in is the pod's Ethernet or Wi-Fi address from its status."""
+def test_usb_falls_back_to_the_pods_network_address(usb, line, caplog):
+    """USB networking off or down: the console answers status only, so the way in is the pod's
+    Ethernet or Wi-Fi address from its status, over TLS."""
     usb["status"] = _status(line)
     with caplog.at_level("WARNING", logger="embeddedci.benchpod"):
         t = open_transport(parse_connection("usb"))
-    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8080"
+    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8443"   # the LAN: TLS
     assert t.usb_lan_fallback and not t.usb_console
     assert FakeConsole.instances[0].closed
-    assert "192.168.1.215:8080" in caplog.text and "clear-wifi" in caplog.text
+    assert "192.168.1.215:8443" in caplog.text and "clear-wifi" in caplog.text
 
 
 @pytest.mark.parametrize("line", [USB_WIFI, USB_DOWN])
@@ -187,7 +180,7 @@ def test_usb_network_not_answering_falls_back_to_the_lan(usb):
     usb["status"] = _status(USB_ON)
     usb["reachable"] = {"192.168.1.215"}
     t = open_transport(parse_connection("usb"))
-    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8080"
+    assert isinstance(t, TcpTransport) and t.addr == "192.168.1.215:8443"
 
 
 def test_usb_keeps_the_console_when_status_fails(usb):
@@ -229,32 +222,9 @@ def test_discovered_pod_prefers_the_usb_link():
     assert both.addr == "10.237.8.85:8080" and both.on_usb
     lan = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local",
                         addresses=["192.168.1.221"])
-    assert lan.addr == "192.168.1.221:8080" and not lan.on_usb
+    assert lan.addr == "192.168.1.221:8443" and not lan.on_usb      # the LAN: TLS
     none = DiscoveredPod(name="BenchPod baea06", hostname="benchpod-baea06.local")
-    assert none.addr == "benchpod-baea06.local:8080"
-
-
-def test_api_answers_needs_a_pong():
-    """The LAN fallback pings: a pod whose external LAN policy is off accepts and resets."""
-    import threading
-
-    def serve(reply):
-        srv = socket.socket()
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(1)
-
-        def run():
-            c, _ = srv.accept()
-            c.recv(64)
-            if reply:
-                c.sendall(reply)
-            c.close()
-            srv.close()
-        threading.Thread(target=run, daemon=True).start()
-        return srv.getsockname()[1]
-
-    assert transport_mod._api_answers("127.0.0.1", serve(b'{"status":"ok","data":"pong"}\n'))
-    assert not transport_mod._api_answers("127.0.0.1", serve(b""))
+    assert none.addr == "benchpod-baea06.local:8443"
 
 
 def test_usb_takes_the_local_usb_link_without_the_console(usb):
@@ -301,9 +271,9 @@ def test_usb_network_method_reads_and_turns_off():
     class T:
         def command(self, req, **kw):
             sent.append(req)
-            return {"setting": "off" if req.get("set") == "off" else "on"}
+            return {"enabled": req.get("enabled", True)}
 
     pod = BenchPod.__new__(BenchPod)
     pod.command = T().command  # the method only needs command()
     assert pod.usb_network() is True and sent[-1] == {"cmd": "usb_network"}
-    assert pod.usb_network(False) is False and sent[-1] == {"cmd": "usb_network", "set": "off"}
+    assert pod.usb_network(False) is False and sent[-1] == {"cmd": "usb_network", "enabled": False}

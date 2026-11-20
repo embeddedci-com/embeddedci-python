@@ -203,7 +203,7 @@ def test_sensor_and_can(connected):
     if connected["capabilities"]["board"] == "stm32h563":
         call("can_open", mode="internal")
         call("can_write", can_id=0x321, data=[7, 8])
-        frames = call("can_read", can_id=0x321, timeout=1.0)
+        frames = call("can_read", can_id=0x321, timeout_s=1.0)
         assert frames["matched"] and frames["frames"][0]["data"] == [7, 8]
         call("can_close")
 
@@ -256,7 +256,7 @@ def test_firmware_refusals_are_tool_errors(connected):
     with pytest.raises(ToolError, match="FirmwareError"):
         call("reset_target")
     with pytest.raises(ToolError, match="FirmwareError"):
-        call("set_la_voltage", voltage=1.8)
+        call("set_la_voltage", la_voltage=1.8)
 
 
 def test_rev3_tools(connected):
@@ -269,20 +269,20 @@ def test_rev3_tools(connected):
     caps = connected["capabilities"]
     assert caps["board_rev"] in ("v3", "v3r2", "v3r4") and caps["nrst_pin"] and caps["usb_cc"], caps
     try:
-        r = call("set_la_voltage", voltage=1.8)
+        r = call("set_la_voltage", la_voltage=1.8)
         assert (r["voltage"], r["readback"]) == (1.8, 1.8), r
         # pin 21 only on digital v3r4, where it follows the bank to 1.8 V
         assert (r.get("pin21") is None) == (not caps.get("vref_out")), r
     finally:
-        assert call("set_la_voltage", voltage=3.3)["readback"] == 3.3
+        assert call("set_la_voltage", la_voltage=3.3)["readback"] == 3.3
     try:
         assert call("reset_target", action="hold")["asserted"] is True
         assert call("reset_target", action="status")["asserted"] is True
     finally:
         assert call("reset_target", action="release")["asserted"] is False
-    assert call("reset_target", action="pulse", pulse=0.05)["asserted"] is False
+    assert call("reset_target", action="pulse", pulse_s=0.05)["asserted"] is False
     with pytest.raises(ToolError):
-        call("reset_target", pulse=5)                   # longer than the pod can hold
+        call("reset_target", pulse_s=5)                   # longer than the pod can hold
     cc = call("command", request={"cmd": "usb_cc"})["reply"]   # the raw firmware reply
     assert cc["supported"] is True and cc["orientation"] in ("none", "cc1", "cc2"), cc
 
@@ -313,16 +313,16 @@ def test_dut_flash_boot_and_console(connected, pytestconfig):
                  target="target/stm32f4x.cfg", file=os.path.abspath(firmware), target_power=1)
     assert flash["ok"], flash
     try:
-        boot = call("power_cycle_and_capture", rx=rx, tx=tx, delay=0.5, duration=25, until_regex="APP_OK")
+        boot = call("power_cycle_and_capture", rx=rx, tx=tx, delay_s=0.5, duration_s=25, until_regex="APP_OK")
         assert boot["matched"], boot["text"][-1000:]
         call("power_off")
         call("uart_open", rx=rx, tx=tx)
         call("power_on")
-        assert call("uart_read", until_regex="APP_OK", timeout=25)["matched"]
-        call("uart_read", until_regex="> ", timeout=5)
+        assert call("uart_read", until_regex="APP_OK", timeout_s=25)["matched"]
+        call("uart_read", until_regex="> ", timeout_s=5)
         call("uart_write", text="help", line_ending="none")
         call("uart_write", text="\r", line_ending="none")
-        assert call("uart_read", until_regex="commands:", timeout=5)["matched"]
+        assert call("uart_read", until_regex="commands:", timeout_s=5)["matched"]
         call("uart_close")
     finally:
         call("power_off")

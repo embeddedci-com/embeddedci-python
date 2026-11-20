@@ -1,6 +1,76 @@
 # Changelog — `embeddedci`
 
+## 4.0.0
+
+Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
+
+- **Firmware 4.0 or later only.** `CLIENT_API` is 2 and every request says so. Connecting to a
+  pod with firmware 3.x (client API 1, or no `api` in its status) raises the new
+  `FirmwareTooOldError` (an `UnsupportedFeatureError`, `feature="client_api"`), which says to
+  update the pod with `benchpod flash-self` or the web app, or to stay on embeddedci 3.x. Over the
+  USB console, which announces no level, the firmware version decides. A pod whose
+  `min_client_api` is above 2 raises `ClientTooOldError`.
+- **Features come from the table only.** The `caps` list and every version fallback are gone:
+  `Capabilities` reads `features_rev`, the gateware, the image and the facts from `status` (and
+  the cloud `cap.features_rev`, `cap.gateware`, `cap.fpga_image`), never `status` with
+  `"caps":false`. `Capabilities.sensors_format` and the `signal` alias for the scope are gone;
+  `Transport.status_without_caps()` is gone. `diag()` sends `diag` only.
+- **USB console:** firmware 4.0's console answers `status`, `ping` and `identity` only, so the
+  serial transport no longer sends `la-voltage`, `power`, `dap-start` or `uart-proxy`; they raise
+  a `TransportError` that points at `usb` (the USB network adapter) or a network address. The
+  parsed `usb` status line reports `net` as a boolean, as the JSON status does.
+- **`generate` sends volts only**: `path` with `amplitude_v`/`offset_v`, or `amplitude_ua`/
+  `offset_ua` on `current_out`, `freq_hz` and `sample_rate_hz` in hertz; the pod routes the path.
+  The 8-bit form is gone. The MCP `generate` result has no `bits`.
+- **Captures take base64 by default:** the SDK no longer asks for `"enc":"b64"`; a transport
+  without chunked streaming asks for `"enc":"dec"`.
+- Pull resistors use `la_pull` and step trains `la_step` (firmware 4.0 split the `la` command).
+  `PullState` reads the 4.0 reply (`state`, `dirs`, `pullups_available` as a boolean); the
+  resistor value comes from the board table, `la_pins` reports it on every board.
+- **Refusals are classified by code only.** Firmware 4.0 sends a code and its args and no text
+  (`BP0030` alone carries one). Every catalog code (`BP0001` to `BP0080`) maps to an exception
+  class whose fields come from the args, and the message is the catalog's message and SDK fix. The
+  text patterns, the raw-command rewrites (`{"cmd":"gpio",...}` to `bp.release_gpio(4)`) and the
+  `la voltage not set` text are gone; a refusal without a code is a plain `FirmwareError` with the
+  pod's text, whatever it says. `errors.status_too_large`, `errors.la_pins_too_large` and
+  `STATUS_FITS_FIRMWARE` are gone. New classes: `ReplyTooLargeError` (`BP0053`, `BP0054`) and
+  `DacPinoutMismatchError` (`BP0080`, `digital`, `module`). `PinConflictError` has `owner` and
+  `instance` (`BP0031`). Over the cloud the transport retries on `BP0052` (it matched the text
+  "device busy").
+- **TLS on the LAN by default.** A network address without a port goes to 8443 over TLS (the
+  pod's certificate pinned on first use, as before); the TLS-then-plaintext fallback is gone.
+  Plaintext 8080 is used only on the USB network adapter (`10.237.x.y`) or when the address names
+  `:8080`; a failed plaintext connect to a LAN address says to drop the port. `connection.TLS_PORT`
+  and `connection.default_port(host)` are new; `trust_lan_tls`, `forget_lan_tls` and the pin
+  helpers default to port 8443. `connection 'usb'` falls back to the pod's LAN address over TLS.
+  mDNS: `DiscoveredPod` has `tls_port`, `api`, `https_only` and `supported`; its `addr` uses the
+  TLS port, and `discover` refuses a single pod with firmware 3.x (`FirmwareTooOldError`).
+- **Firmware 4.0 JSON names.** The public SDK names stay; the wire follows the firmware: rates in
+  hertz (`sample_rate_hz` on capture, la_capture, replay, sensor_la and generate;
+  `adc_sample_rate_hz`/`la_sample_rate_hz` on capture_dual and in the chunk replies;
+  `sample_rate_hz` for power profiles), `freq_hz`, `clock_hz` (i2c_start, spi_start and their
+  replies), `dac_out` `v` and reply `code16` (`DacOutput.code` is now its high byte),
+  `code16` in the loop probe and input replies, `can_start`/`can_stop`, CAN `ts_ms`,
+  `target_power` `enabled` (booleans in `target_status` too), `usb_network` `enabled` (a boolean
+  in and out; `status.usb.enabled` and `status.usb.net` are booleans).
+- **Removed** (approved for 4.0): `set_pull(la, True|False)` and `set_pull(..., enabled=)` (pass
+  `"up"`, `"down"` or `"off"`; the four shortcuts `enable_pullup`, `disable_pullup`,
+  `enable_pulldown`, `disable_pulldown` stay); `wiring.REFERENCE_BENCH` (use `DEFAULT_PINS`),
+  `wiring.PRESET_ALIASES` and the preset name `"embeddedci-reference"`, `Wiring.defaults()` (use
+  `Wiring.preset()`); `constants.PULL_OHMS`, `PULLUP_CHANNELS`, `PULLDOWN_CHANNELS` (use
+  `PULL_TABLE`); `transport.serial.RP_VID`; the `serial` connection keyword (use `usb`); the
+  CLI config's legacy `bench_pod_addr`; an LA channel number as `upload_build`'s reset input (a
+  flag only); `CanBus.expect(can_id=)` and `read_until(can_id=)` (pass the id as `match`).
+- `TriggerTimeout.edge` is `"start"` for an emulated sensor's bus capture (`BP0039`, an I2C START);
+  it was `"falling"` from the 3.x text. Over the USB console the firmware version is checked on
+  connect, and a network-only call says it is a network command.
+- `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
+  flat-cable DAC pinouts (the DAC is off).
+- Error catalog synced (`BP0031` to `BP0080`); features table revision 11.
+
 ## 3.0.6
+
+Never released: its changes ship in 4.0.0.
 
 - **Error codes decide the exception class.** Every code in the error catalog (`BP0001` to
   `BP0030`) maps to one class, and the code's values fill its fields; the text decides only for a

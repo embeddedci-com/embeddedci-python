@@ -3,8 +3,7 @@ share one default connection.
 
 ``benchpod-cli`` keeps its configuration in ``~/.config/benchpod-cli/config.json`` (or under
 ``$XDG_CONFIG_HOME``; see its ``internal/benchpodconfig``). ``benchpod set-connection <target>``
-and ``benchpod discover --save`` store the default connection there as ``connection``; older CLI
-versions wrote a TCP address as ``bench_pod_addr``, which is read the same way. The SDK never
+and ``benchpod discover --save`` store the default connection there as ``connection``. The SDK never
 writes this file. A missing, unreadable or malformed file means "nothing saved".
 """
 
@@ -36,8 +35,8 @@ def config_path() -> Path:
 
 
 def saved_connection(path: Optional[Path] = None) -> Optional[str]:
-    """The default connection ``benchpod-cli`` saved (``connection``, else the legacy
-    ``bench_pod_addr``), or None when there is none or the file cannot be read."""
+    """The default connection ``benchpod-cli`` saved (``connection``), or None when there is none
+    or the file cannot be read."""
     path = path or config_path()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -49,7 +48,7 @@ def saved_connection(path: Optional[Path] = None) -> Optional[str]:
     if not isinstance(data, dict):
         _log.warning("ignoring the benchpod-cli config %s: not a JSON object", path)
         return None
-    for key in ("connection", "bench_pod_addr"):
+    for key in ("connection",):
         value = data.get(key)
         if isinstance(value, str) and value.strip():
             conn = value.strip()

@@ -6,8 +6,9 @@ from typing import Any, Dict, Iterator, List
 
 from embeddedci.benchpod.transport.base import Transport
 
-STATUS = {"version": "3.10.11", "board": "stm32h563", "board_rev": "v3", "analog": True,
-          "gateware": 58, "features_rev": 0, "caps": ["calibrate", "la_pins"]}
+STATUS = {"version": "4.0.0", "board": "stm32h563", "board_rev": "v3", "analog": True,
+          "gateware": 58, "features_rev": 10, "api": 2, "min_client_api": 2, "fpga_image": "deep",
+          "hw": []}
 CALIBRATION = {"source": "current_in", "calibrated": True, "offset": 0.0012}
 
 
@@ -64,9 +65,6 @@ class FakePod(Transport):
 
     def status(self) -> Any:
         return self.command({"cmd": "status"})
-
-    def status_without_caps(self) -> Any:
-        return self.command({"cmd": "status", "caps": False})
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         self.requests.append({"cmd": "target_power", "efuse": efuse, "on": on})

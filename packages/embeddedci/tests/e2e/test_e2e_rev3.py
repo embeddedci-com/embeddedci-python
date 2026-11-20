@@ -48,12 +48,12 @@ def nrst_la(v3, bench):
     ch = bench.nrst_la
     if v3.capabilities.la_pins:
         v3.release_gpio(ch)
-    before = v3.pull_state(ch).enabled if ch <= 8 else None
-    if before:
-        v3.set_pull(ch, False)          # the pod's own 10 k pull-up must be what sets the level
+    before = v3.pull_state(ch).state if ch <= 8 else "off"
+    if before != "off":
+        v3.set_pull(ch, "off")          # the pod's own 10 k pull-up must be what sets the level
     yield ch
-    if before:
-        v3.set_pull(ch, True)
+    if before != "off":
+        v3.set_pull(ch, before)
 
 
 def _level(pod, ch: int) -> int:
@@ -112,7 +112,7 @@ def test_pulls_at_1v8(v3, bench):
     it on the switch and refuses it at 1.8 V."""
     ch = bench.free_pull_la
     v3.set_la_voltage(3.3)
-    before = v3.pull_state(ch).enabled
+    before = v3.pull_state(ch).state
     try:
         v3.enable_pullup(ch)
         v3.set_la_voltage(1.8)
@@ -138,7 +138,7 @@ def test_pull_down_at_1v8(v3, bench):
     if not v3.supports("la_pull_1v8"):
         pytest.skip("the pod firmware has no pulls at 1.8 V (feature la_pull_1v8)")
     ch = bench.free_pulldown_la
-    before = v3.pull_state(ch).enabled
+    before = v3.pull_state(ch).state
     try:
         v3.set_la_voltage(1.8)
         v3.set_pull(ch, "down")

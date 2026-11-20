@@ -1,5 +1,5 @@
 """Pin directions by default: the wiring profile's DUT direction per role and signal (dut_dirs),
-sent to the pod with la_dir on connect and on a new profile (firmware 3.10.4+)."""
+sent to the pod with la_dir on connect and on a new profile."""
 
 from __future__ import annotations
 
@@ -9,17 +9,6 @@ from embeddedci.benchpod import BenchPod, DirectionConflictError, Wiring
 from embeddedci.benchpod.wiring import Signal
 
 from test_i2c_master import BusPod
-
-
-class OldPod(BusPod):
-    def __init__(self, version: str) -> None:
-        super().__init__()
-        self.version = version
-
-    def status(self):
-        st = super().status()
-        st["version"] = self.version
-        return st
 
 
 def _sent(fake):
@@ -83,15 +72,6 @@ def test_connect_sends_the_wiring_directions():
         bp.signal("READY").configure("output")
 
 
-@pytest.mark.parametrize("version", ["3.10.3", "3.9.6", ""])
-def test_older_firmware_is_skipped_quietly(version):
-    fake = OldPod(version)
-    bp = BenchPod(transport=fake, wiring=Wiring.preset())
-    assert _sent(fake) == []
-    assert bp.pin_directions_status.startswith("not sent: this pod's firmware")
-    assert "la_dir (3.10.4+)" in bp.pin_directions_status
-
-
 def test_a_new_profile_is_sent_and_moves_marks():
     fake = BusPod()
     bp = BenchPod(transport=fake, wiring=Wiring.preset())
@@ -106,7 +86,7 @@ def test_a_driven_pin_does_not_fail_the_connect_or_the_assignment():
     bp = BenchPod(transport=fake, wiring=Wiring.preset().with_changes(uart_rx=None))
     bp.gpio(9, "output")  # LA9 unwired: a push-pull GPIO is fine
     bp.wiring = Wiring.preset().with_changes(uart_rx=9)  # now the profile says LA9 is the DUT's TX
-    assert "direction conflict: LA9" in bp.pin_directions_status
+    assert "BP0035" in bp.pin_directions_status and "LA9" in bp.pin_directions_status
     # The rest still went out, DUT outputs last.
     assert fake.dirs[4] == "dut_input" and fake.dirs[1] == "bidir"
     with pytest.raises(DirectionConflictError):

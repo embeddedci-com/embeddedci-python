@@ -76,7 +76,7 @@ def test_target_power_request_shape():
     try:
         t = TcpTransport(pod.addr, timeout=2)
         t.target_power(1, True)
-        assert seen == {"cmd": "target_power", "efuse": 1, "state": 1}
+        assert seen == {"cmd": "target_power", "efuse": 1, "enabled": True}
     finally:
         pod.close()
 

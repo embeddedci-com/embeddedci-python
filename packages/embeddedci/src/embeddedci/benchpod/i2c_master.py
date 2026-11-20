@@ -128,7 +128,7 @@ class I2CMaster:
         #: The SCL rate the pod runs (at or below the one asked for). A real bus runs somewhat
         #: slower: the SCL rise time adds to each period (400 kHz measured about 333 kHz with the
         #: pod's pull-ups on a short cable).
-        self.hz = int(info.get("hz", 0))
+        self.hz = int(info.get("clock_hz", 0))
         #: ``pod`` or ``external``.
         self.pullups = str(info.get("pullups", "pod"))
         self._closed = False

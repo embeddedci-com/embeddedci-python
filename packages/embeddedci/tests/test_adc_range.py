@@ -78,7 +78,7 @@ class RangePod:
                 self.range = "normal"
             return d
         if cmd == "capture":
-            return {"samples": [0x8000, 59538], "adc_rate_hz": 400000}
+            return {"samples": [0x8000, 59538], "adc_sample_rate_hz": 400000}
         return {}
 
     def samples(self, req: dict) -> List[int]:

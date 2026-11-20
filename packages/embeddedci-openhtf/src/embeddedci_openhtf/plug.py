@@ -13,7 +13,7 @@ Two ways to point it at a pod:
       import openhtf as htf
       from embeddedci_openhtf import benchpod_plug
 
-      @htf.plug(bench=benchpod_plug("192.168.1.50:8080", la_voltage=3.3))
+      @htf.plug(bench=benchpod_plug("192.168.1.50", la_voltage=3.3))
       def power_up(test, bench):
           bench.power_on()                  # methods proxy to the BenchPod SDK
           status = bench.pod.target_status()  # or reach the full client via .pod
@@ -35,7 +35,7 @@ like every other pod keyword. The bench's map of DUT signal to LA channel then s
 channels, baud, power rail and SWD target every helper and phase leaves out, and names work
 wherever a channel does::
 
-    bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3, wiring="bench.json")
+    bench = benchpod_plug("192.168.1.50", la_voltage=3.3, wiring="bench.json")
 
     @htf.plug(bench=bench)
     def run(test, bench):
@@ -277,7 +277,7 @@ def benchpod_plug(connection: Optional[str] = None, *, persistent: bool = False,
 
     Ergonomic for direct bench use — put the pod's address right in the test::
 
-        @htf.plug(bench=benchpod_plug("192.168.1.50:8080", la_voltage=3.3))
+        @htf.plug(bench=benchpod_plug("192.168.1.50", la_voltage=3.3))
         def phase(test, bench): ...
 
         @htf.plug(bench=benchpod_plug("/dev/ttyACM0"))

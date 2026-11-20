@@ -569,8 +569,8 @@ def _measure(pod, waveform: str, samples: int):
     """Volts of one firmware ``measure``: one DAC period of ``samples`` points, captured by the ADC
     phase-locked to it. The SDK does not wrap it, so this goes through the raw command."""
     np = pytest.importorskip("numpy")
-    counts = pod.command({"cmd": "measure", "waveform": waveform, "freq": 1000,
-                          "samples": samples})
+    counts = pod.command({"cmd": "measure", "waveform": waveform, "freq_hz": 1000,
+                          "samples": samples, "enc": "dec"})   # decimal: the default is base64
     assert len(counts) == samples, (waveform, samples, len(counts))
     return np.array([pod.capabilities.counts_to_volts(c) for c in counts])
 
@@ -995,12 +995,13 @@ def test_bias_resistors_report_their_direction(pod):
 @FREE_PULL_LA
 def test_bias_resistors_are_direction_aware(pod, bench):
     ch = bench.free_pull_la
-    before = pod.pull_state(ch).enabled
+    before = pod.pull_state(ch)
+    flip = "off" if before.enabled else before.supported[0]
     try:
-        assert pod.set_pull(ch, not before).enabled == (not before)
-        assert (ch in pod.enabled_pulls()) == (not before)
+        assert pod.set_pull(ch, flip).enabled == (not before.enabled)
+        assert (ch in pod.enabled_pulls()) == (not before.enabled)
     finally:
-        pod.set_pull(ch, before)
+        pod.set_pull(ch, before.state)
 
 
 @pytest.fixture
@@ -1042,7 +1043,8 @@ def test_sensor_emulation(pod, sensors, bench):
         try:
             txns = s.i2c_transactions(1024, timeout_s=0.5)
         except TriggerTimeout as exc:
-            assert exc.la == bench.i2c_sda and exc.edge == "falling", exc
+            # BP0039: the SDK names the trigger "start" (an I2C START), not an edge.
+            assert exc.code == "BP0039" and exc.la == bench.i2c_sda and exc.edge == "start", exc
             assert time.monotonic() - t0 >= 0.4, "the pod gave up before the timeout"
         else:
             assert txns, "a triggered sensor capture holds no transaction"
@@ -1192,10 +1194,10 @@ def test_can_loopback_responder_and_typed_reads(pod):
         pytest.skip("CAN is on the STM32H563 pod")
     with pod.open_can(bitrate=500_000, mode="internal") as can:
         can.write(0x123, [1, 2, 3])
-        assert can.expect(can_id=0x123, timeout=1.0).data == bytes([1, 2, 3])
+        assert can.expect(0x123, timeout=1.0).data == bytes([1, 2, 3])
         can.add_responder(0x7DF, 0x7E8, [0x41, 0x0C])
         can.write(0x7DF, [0x02, 0x01, 0x0C])
-        assert can.expect(can_id=0x7E8, timeout=1.0).data == bytes([0x41, 0x0C])
+        assert can.expect(0x7E8, timeout=1.0).data == bytes([0x41, 0x0C])
         pod.can_write(0x55, [9])
         time.sleep(0.05)
         result = pod.can_read(max_frames=8)
@@ -1217,17 +1219,17 @@ def test_can_fd_loopback(pod, mode, data_bitrate):
             reply = can.write(0x100 + n, payload, ext=n == 33)
             want = {33: 48}.get(n, n)
             assert reply["fd"] is True and reply["brs"] is True and reply["dlc"] == want
-            f = can.expect(can_id=0x100 + n, timeout=1.0)
+            f = can.expect(0x100 + n, timeout=1.0)
             assert f.fd and f.brs and f.data == payload + bytes(want - n)
         can.write(0x50, [1, 2], fd=False)        # classic frame on the FD bus
-        f = can.expect(can_id=0x50, timeout=1.0)
+        f = can.expect(0x50, timeout=1.0)
         assert not f.fd and f.data == b"\x01\x02"
         can.write(0x51, bytes(20), brs=False)    # FD at the nominal rate
-        f = can.expect(can_id=0x51, timeout=1.0)
+        f = can.expect(0x51, timeout=1.0)
         assert f.fd and not f.brs and len(f.data) == 20
         can.add_responder(0x7DF, 0x7E8, bytes(range(64)))
         can.write(0x7DF, [2, 1, 0x0C])
-        f = can.expect(can_id=0x7E8, timeout=1.0)
+        f = can.expect(0x7E8, timeout=1.0)
         assert f.fd and f.data == bytes(range(64))
         for i in range(12):                      # more than one can_read reply holds
             can.write(0x300 + i, bytes([i]) * 64)

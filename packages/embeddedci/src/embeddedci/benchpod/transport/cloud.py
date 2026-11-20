@@ -42,7 +42,8 @@ _RETRY_DELAYS = (0.5, 1.5)
 #: The pod runs one cloud command at a time and refuses a second with exactly this error,
 #: BEFORE running it (cloud_client.c), so any command can be sent again. The other side is
 #: usually a short server push (power reconcile, pin directions) or a browser's power poll.
-_DEVICE_BUSY = "device busy"
+#: The pod is still running the previous cloud command (cloud_command_busy): retried.
+_DEVICE_BUSY = "BP0052"
 _BUSY_RETRY_WAIT = 0.3
 #: How long one command keeps asking again while the pod answers "device busy".
 _BUSY_RETRY_BUDGET = 15.0
@@ -431,15 +432,20 @@ class CloudTransport(TcpTransport):
         while True:
             payload = self._command_once(url, body, req, cmd, timeout)
             if (payload.get("status") == "error"
-                    and str(payload.get("error") or "").strip().lower() == _DEVICE_BUSY
+                    and str(payload.get("code") or "") == _DEVICE_BUSY
                     and time.monotonic() + _BUSY_RETRY_WAIT < busy_until):
                 self.busy_retries = getattr(self, "busy_retries", 0) + 1
                 time.sleep(_BUSY_RETRY_WAIT)
                 continue
             break
         if payload.get("status") == "error":
-            raise firmware_error(payload.get("error") or "device returned an error", cmd=cmd,
-                                 code=str(payload.get("code") or ""),
+            code = str(payload.get("code") or "")
+            # The envelope's error is the pod's message, or the code itself when it sent none.
+            message = str(payload.get("error") or "")
+            if code and message == code:
+                message = ""
+            raise firmware_error(message if code else (message or "device returned an error"),
+                                 cmd=cmd, code=code,
                                  values=payload.get("args") if isinstance(payload.get("args"), dict) else None)
         return payload.get("data")
 

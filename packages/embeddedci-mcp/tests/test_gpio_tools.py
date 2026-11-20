@@ -21,7 +21,7 @@ def test_la_pins_reports_every_channel_with_levels(connected):
     assert [p["la"] for p in result["pins"]] == list(range(1, 15))
     assert _pin(result, 1) == {"la": 1, "function": "none", "gpio": None, "level": None,
                                "pull": "up", "pull_dirs": ["up"], "pull_ohms": "4.7k", "pull_on": False, "in_use": False,
-                               "dir": None, "warnings": None}
+                               "dir": "bidir", "warnings": None}
     assert _pin(result, 7)["pull"] == "down" and _pin(result, 12)["pull"] is None
     assert _pin(result, 14)["pull"] is None
     assert {lv["la"]: lv["level"] for lv in result["levels"]}[11] == 1
@@ -39,12 +39,6 @@ def test_la_pins_shows_who_owns_a_channel(connected):
     result = call("la_pins")
     assert _pin(result, 5)["function"] == "uart_rx" and _pin(result, 5)["in_use"] is True
     assert _pin(result, 4)["function"] == "uart_tx"
-
-
-def test_la_pins_needs_the_firmware_capability(connected):
-    without_caps(connected, "la_pins")
-    with pytest.raises(ToolError, match="la_pins"):
-        call("la_pins")
 
 
 # -- configuring and driving -------------------------------------------------------------
@@ -77,7 +71,7 @@ def test_gpio_write_and_read_round_trip(connected):
 
 
 def test_gpio_write_on_an_unconfigured_channel_is_refused(connected):
-    with pytest.raises(ToolError, match="is not a gpio output"):
+    with pytest.raises(ToolError, match="BP0036: LA6 is not a GPIO output"):
         call("gpio_write", la=[6], level=1)
 
 
@@ -94,48 +88,42 @@ def test_gpio_release_frees_channels(connected):
 
 def test_gpio_wait_returns_as_soon_as_the_level_is_there(connected):
     connected.inputs = 1 << 8  # LA9 is already high
-    result = call("gpio_wait", la=9, level=1, timeout=1.0)
+    result = call("gpio_wait", la=9, level=1, timeout_s=1.0)
     assert result["reached"] is True and result["la"] == 9 and result["waited"] < 1.0
 
 
 def test_gpio_wait_times_out_without_failing(connected):
-    result = call("gpio_wait", la=9, level=1, timeout=0.05)
+    result = call("gpio_wait", la=9, level=1, timeout_s=0.05)
     assert result["reached"] is False and result["waited"] >= 0.05
 
 
 def test_gpio_pulse_runs_a_step_train(connected):
-    assert call("gpio_pulse", la=3, width=0.001, count=5) == {"la": 3, "count": 5, "width": 0.001}
-    assert connected.requests[-1] == {"cmd": "la", "la": 3, "steps": 5, "delay_us": 1000}
+    assert call("gpio_pulse", la=3, width_s=0.001, count=5) == {"la": 3, "count": 5, "width": 0.001}
+    assert connected.requests[-1] == {"cmd": "la_step", "la": 3, "steps": 5, "delay_us": 1000}
 
 
 # -- ownership conflicts reach the agent ------------------------------------------------------
 
 def test_pin_conflict_names_the_owner_and_how_to_free_it(connected):
     call("uart_open", rx=5, tx=4)
-    with pytest.raises(ToolError, match="PinConflictError: gpio: pin conflict: LA5 is in use by uart_rx; "
-                       "close the UART session first with uart_close"):
+    with pytest.raises(ToolError, match="PinConflictError: gpio: BP0031: LA5 is in use by uart_rx; "
+                       "free LA5 first: .*uart_close"):
         call("gpio_mode", la=[5])
     call("uart_close")
 
 
 def test_a_gpio_channel_blocks_the_uart_until_it_is_released(connected):
     call("gpio_mode", la=[5], mode="output")
-    with pytest.raises(ToolError, match=r"PinConflictError:.*LA5 is in use by gpio; "
-                       r"release it with gpio_release\(la=\[5\]\)$"):
+    with pytest.raises(ToolError, match=r"PinConflictError:.*BP0031: LA5 is in use by gpio; "
+                       r"free LA5 first: gpio_release\(la=\[5\]\)"):
         call("uart_open", rx=5, tx=4)
     call("gpio_release", la=[5])
     assert call("uart_open", rx=5, tx=4)["open"] is True
 
 
 def test_pull_conflict_reaches_the_agent(connected):
-    call("set_pull", las=[7], enabled=True)
-    with pytest.raises(ToolError, match="PullConflictError: .*pull-down engaged"):
+    call("set_pull", la=[7], pull="down")
+    with pytest.raises(ToolError, match="PullConflictError: .*BP0032: LA7 has its 10k pull-down on"):
         call("gpio_mode", la=[7], mode="open_drain")
 
 
-def test_gpio_needs_the_firmware_capability(connected):
-    without_caps(connected, "la_pins")
-    with pytest.raises(ToolError, match="la_pins"):
-        call("gpio_mode", la=[3])
-    with pytest.raises(ToolError, match="la_pins"):
-        call("gpio_release")

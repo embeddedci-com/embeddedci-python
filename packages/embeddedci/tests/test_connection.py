@@ -8,12 +8,15 @@ from embeddedci.benchpod.errors import BenchPodError, ConnectionConfigError
 @pytest.mark.parametrize(
     "raw, kind, addr, device",
     [
-        ("192.168.1.213", "tcp", "192.168.1.213:8080", ""),
+        ("192.168.1.213", "tcp", "192.168.1.213:8443", ""),         # LAN: TLS by default
+        ("192.168.1.213:8080", "tcp", "192.168.1.213:8080", ""),    # a port given: as given
         ("192.168.1.213:9000", "tcp", "192.168.1.213:9000", ""),
-        ("host.local", "tcp", "host.local:8080", ""),
+        ("host.local", "tcp", "host.local:8443", ""),
+        ("10.237.8.85", "tcp", "10.237.8.85:8080", ""),             # the USB network: plaintext
+        ("fe80::1", "tcp", "fe80::1:8443", ""),
+        ("[fe80::1]", "tcp", "[fe80::1]:8443", ""),
         ("/dev/ttyACM0", "serial", "", "/dev/ttyACM0"),
         ("COM3", "serial", "", "COM3"),
-        ("serial", "serial", "", ""),
         ("USB", "serial", "", ""),
     ],
 )
@@ -56,11 +59,11 @@ def test_resolve_prefers_explicit_over_env(monkeypatch):
     monkeypatch.setenv(ENV_VAR, "/dev/ttyACM0")
     spec = resolve_connection("192.168.1.5")
     assert spec.is_wifi()
-    assert spec.addr == "192.168.1.5:8080"
+    assert spec.addr == "192.168.1.5:8443"
 
 
 def test_resolve_falls_back_to_env(monkeypatch):
-    monkeypatch.setenv(ENV_VAR, "serial")
+    monkeypatch.setenv(ENV_VAR, "usb")
     spec = resolve_connection()
     assert spec.is_serial()
 
@@ -82,13 +85,36 @@ def test_discover_single_pod(keyword, monkeypatch):
         addresses=["192.168.1.7"],
         port=8080,
         pod_id="abc",
+        tls_port=8443,
+        api=2,
     )
     monkeypatch.setattr(conn, "_discover_one", conn._discover_one)
     monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: [pod])
 
     spec = parse_connection(keyword)
     assert spec.kind == "tcp"
-    assert spec.addr == "192.168.1.7:8080"
+    assert spec.addr == "192.168.1.7:8443"           # the TXT tls port, not the SRV's 8080
+
+
+def test_discover_takes_the_usb_link_plaintext(monkeypatch):
+    from embeddedci.benchpod.discovery import DiscoveredPod
+
+    pod = DiscoveredPod(name="BenchPod a1", hostname="benchpod-a1.local",
+                        addresses=["192.168.1.7", "10.237.8.85"], port=8080, tls_port=8443, api=2)
+    monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: [pod])
+    assert parse_connection("discover").addr == "10.237.8.85:8080"
+
+
+def test_discover_refuses_firmware_3(monkeypatch):
+    from embeddedci.benchpod.discovery import DiscoveredPod
+    from embeddedci.benchpod.errors import FirmwareTooOldError
+
+    pod = DiscoveredPod(name="BenchPod a1", hostname="benchpod-a1.local",
+                        addresses=["192.168.1.7"], port=8080)          # no api, no tls in TXT
+    assert not pod.supported and pod.addr == "192.168.1.7:8443"
+    monkeypatch.setattr("embeddedci.benchpod.discovery.discover", lambda timeout=3.0: [pod])
+    with pytest.raises(FirmwareTooOldError, match="firmware 3.x.*benchpod flash-self"):
+        parse_connection("discover")
 
 
 def test_discover_none_found(monkeypatch):
@@ -122,3 +148,8 @@ def test_constant_coercion():
     with pytest.raises(ValueError):
         constants.coerce_pin(15, "swdio")
     assert not issubclass(ValueError, BenchPodError)
+
+
+def test_the_serial_alias_is_gone():
+    """embeddedci 4.0: "usb" only; "serial" is a host name like any other."""
+    assert parse_connection("serial").kind == "tcp"

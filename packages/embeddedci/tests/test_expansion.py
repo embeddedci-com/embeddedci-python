@@ -121,11 +121,8 @@ class ExpPod:
         self.gpio: Dict[int, dict] = {}
 
     def status(self) -> Dict[str, Any]:
-        if self.features_rev:   # 4: la_pull_1v8, pulls at a 1.8 V bank
-            return {"board": "stm32h563", "version": "3.10.13", "gateware": 58, "fpga_image": "deep",
-                    "features_rev": self.features_rev, "hw": ["nrst_pin"]}
-        return {"board": "stm32h563", "version": "3.10.4", "gateware": 55,
-                "caps": ["la", "la_pins", "gpio_read", "capture_trigger", "spi_master"]}
+        return {"board": "stm32h563", "version": "4.0.0", "gateware": 58, "fpga_image": "deep",
+                "features_rev": self.features_rev or 10, "hw": ["nrst_pin"]}
 
     def ping(self) -> Any:
         return "pong"
@@ -142,21 +139,19 @@ class ExpPod:
         cmd = req["cmd"]
         if cmd == "la_voltage":
             return {"mv": self.mv}
-        if cmd == "la" and "pullup" in req:
-            (self.pullups.add if req["pullup"] == "on" else self.pullups.discard)(req["la"])
-            return {"la": req["la"], "pullup": req["pullup"]}
-        if cmd == "la" and "pull" in req:
-            on = req["pull"] != "off"
-            (self.pullups.add if on else self.pullups.discard)(req["la"])
-            return {"la": req["la"], "pullup": int(on), "ohms": "4.7k", "pull": "up",
-                    "state": "up" if on else "off", "dirs": ["up"], "pullups_available": 1}
+        if cmd == "la_pull" and "la" in req:
+            if "pull" in req:
+                (self.pullups.add if req["pull"] != "off" else self.pullups.discard)(req["la"])
+            on = req["la"] in self.pullups
+            return {"la": req["la"], "state": "up" if on else "off", "dirs": ["up"],
+                    "pullups_available": True}
         if cmd == "i2c_start":
             if self.session:
                 raise FirmwareError("i2c busy: send i2c_stop first", cmd=cmd)
             if req["pullups"] == "pod":
                 assert {req["sda"], req["scl"]} <= self.pullups, "pod pull-ups must be on first"
             self.session = req
-            return {k: req[k] for k in ("sda", "scl", "hz", "pullups")}
+            return {k: req[k] for k in ("sda", "scl", "clock_hz", "pullups")}
         if cmd == "i2c_stop":
             self.session = None
             return "i2c stopped"
@@ -246,11 +241,7 @@ def test_voltage_checks():
     fake = ExpPod({0x20: Tca9555()}, mv=0)
     with pytest.raises(ExpansionError, match="set the LA voltage first"):
         BenchPod(transport=fake).expansion("tca9555")
-    with pytest.raises(ExpansionError, match="at 1.8 V, firmware with pull-ups at 1.8 V"):
-        attach(mv=1800, pullups="pod")                           # older firmware: none at 1.8 V
-    bp, fake, st = attach(mv=1800)                               # so the breakout's pull-ups
-    assert st.pullups == "external" and fake.pullups == set()
-    bp, fake, st = attach(mv=1800, features_rev=4)               # la_pull_1v8: the pod's, at 1.8 V
+    bp, fake, st = attach(mv=1800)                               # the pod's pull-ups at 1.8 V too
     assert st.pullups == "pod" and fake.pullups == {1, 2}
 
 
@@ -628,7 +619,7 @@ class SpiPod(ExpPod):
             if self.spi:
                 raise FirmwareError("spi busy: send spi_stop first", cmd=cmd)
             self.spi = req
-            return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+            return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "clock_hz", "mode")}
         if cmd == "spi_stop":
             self.commands.append(req)
             self.spi = None

@@ -21,8 +21,6 @@ from ..errors import (
     BenchPodError,
     ConnectionClosedError,
     ConnectionConfigError,
-    FirmwareError,
-    UnsupportedFeatureError,
     TransportError,
     TransportTimeout,
 )
@@ -39,7 +37,6 @@ from .base import RawLink, Transport
 # and 0x1209 is every pid.codes device), so they only ORDER the ports to probe.
 # Identification is by probing for BENCHPOD_MARKER, never by vendor id alone.
 POD_VIDS = (0x2E8A, 0x0483, 0x1209)
-RP_VID = 0x2E8A  # deprecated alias, kept for callers that imported it
 
 # The substring the firmware's ``status`` prints to identify itself
 # ("device : benchpod").
@@ -50,21 +47,14 @@ BENCHPOD_MARKER = "benchpod"
 PROBE_TIMEOUT = 2.0
 BAUD = 115200
 PROMPT = "> "
-DAP_READY = "dap ready"          # console prints "dap ready" then carries framed CMSIS-DAP
-DAP_LEAVE = b"\x00\x00"          # zero-length frame — leaves the console DAP passthrough
-UART_READY = "uart ready"        # console prints "uart ready (press Ctrl-] to exit)"
-CTRL_RBRACKET = b"\x1d"          # Ctrl-] — leaves the console UART proxy
 # The prompt followed only by complete firmware log lines ("[sig] ...\r\n"): see _read_until_prompt.
 _PROMPT_THEN_LOG = re.compile(r"(?:^|\n)>[ \t]*(?P<log>(?:\[[A-Za-z0-9_.:-]+\][^\r\n]*\r?\n)+)\Z")
 _CLEAR_LINE = b"\x08" * 128  # backspaces to clear any partial input line
 _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
-UNKNOWN_COMMAND = "unknown command"
-#: Firmware 3.9.0 answers a console command it moved to the JSON API with this marker instead.
-MOVED_TO_NETWORK = "moved to the network API"
-
-#: JSON commands the text console answers through its text equivalents (it has no JSON mode)
-#: (the STM32 pod's console is a text shell: status, ping, la-voltage, power, diagnostics).
-TEXT_CONSOLE_COMMANDS = ("status", "ping", "la_voltage")
+#: JSON commands the text console answers through its text equivalents (it has no JSON mode):
+#: firmware 4.0's console keeps status, ping and identity; everything else is on the JSON API
+#: (the LAN, the USB network adapter or the cloud).
+TEXT_CONSOLE_COMMANDS = ("status", "ping")
 
 
 @contextmanager
@@ -129,12 +119,12 @@ _IPV4 = r"(\d{1,3}(?:\.\d{1,3}){3})"
 
 def parse_usb_status_line(value: str) -> Optional[Dict[str, Any]]:
     """Parse the value of the console status's ``usb`` line into the JSON status's ``usb`` dict
-    (``{"net": "on"|"off", "link": bool, "ip": ..., "host_ip": ...}``), or None when the line
-    does not describe the USB network adapter (older firmware)."""
+    (``{"net": bool, "link": bool, "ip": ..., "host_ip": ...}``), or None when the line does not
+    describe the USB network adapter."""
     m = re.search(r"\bnet (on|off)\b", value)
     if not m:
         return None
-    usb: Dict[str, Any] = {"net": m.group(1)}
+    usb: Dict[str, Any] = {"net": m.group(1) == "on"}
     link = re.search(r"\blink (up|down)\b", value)
     usb["link"] = bool(link and link.group(1) == "up")
     if ip := re.search(r"\bpod " + _IPV4, value):
@@ -332,68 +322,6 @@ def autodetect_port(name: str = "") -> str:
     )
 
 
-class _SerialRawLink:
-    """Adapts the open serial port to :class:`RawLink` for a raw console mode.
-
-    ``read`` blocks (polling on a short timeout) until data arrives or the link
-    is closed, so a quiet stretch of the stream is not mistaken for EOF.
-    ``close`` sends a mode-specific quit byte (``Q`` for SWD, Ctrl-] ``0x1d`` for
-    UART proxy) to leave the mode; it does not close the underlying port (the
-    transport owns that).
-    """
-
-    def __init__(self, port, quit_byte: bytes = b"Q") -> None:
-        self._port = port
-        self._closed = False
-        self._quit = quit_byte
-        self._port.timeout = _RAW_READ_TIMEOUT
-        #: The error that ended the link, if it did not end cleanly (see RawLink).
-        self.error: Optional[BaseException] = None
-
-    def read(self, n: int) -> bytes:
-        # Return as soon as ANY byte is available — do NOT wait for the full `n`.
-        # pyserial's read(n) only returns early once `n` bytes arrive, so reading
-        # `n` here would stall the full per-read timeout on every remote_bitbang
-        # sample (the pod replies a byte or two at a time), throttling a flash to
-        # a crawl. Block for the first byte, then drain whatever else is buffered.
-        while not self._closed:
-            try:
-                first = self._port.read(1)
-                if not first:
-                    continue  # read timeout with no data → poll again (or until closed)
-                waiting = getattr(self._port, "in_waiting", 0) or 0
-                if waiting and n > 1:
-                    first += self._port.read(min(n - 1, waiting))
-            except OSError as exc:  # unplugged: the stream has ended, say why
-                if not self._closed:
-                    self.error = ConnectionClosedError(f"the USB serial link failed ({exc})")
-                    self._closed = True
-                return b""
-            return first
-        return b""
-
-    def write(self, data: bytes) -> int:
-        # Do NOT flush() here. flush() is tcdrain — it blocks until the OS has
-        # physically transmitted every byte, which on a USB-serial adapter can
-        # stall for tens of ms (or longer on a driver hiccup) on every write.
-        # In the SWD bridge that blocks the oc->pod pump thread, backs up
-        # OpenOCD, and can freeze a whole flash. The kernel transmits the queued
-        # bytes asynchronously regardless (serial has no Nagle), so the pod still
-        # receives them promptly and replies — we just don't wait on the drain.
-        self._port.write(data)
-        return len(data)
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self._port.write(self._quit)
-            self._port.flush()
-        except Exception:
-            pass
-
-
 class SerialTransport(Transport):
     """Talks to the pod over the USB serial console."""
 
@@ -460,11 +388,10 @@ class SerialTransport(Transport):
 
     @staticmethod
     def _unsupported(what: str) -> str:
-        return (f"{what!r} is not available over this pod's USB console, which only answers "
-                "text commands (status, ping, LA voltage, target power); connect over the network "
-                "(host[:port]) or the cloud (embeddedci:<device>) for it. On firmware 3.9.0 and "
-                "later, connection 'usb' reaches the full API over the pod's USB network adapter "
-                "(off while Wi-Fi is configured on the pod)")
+        return (f"{what!r} is not on this pod's USB console, which answers status and ping "
+                "only: it is a network command. Connection 'usb' reaches the full API over the "
+                "pod's USB network adapter (off while Wi-Fi is configured on the pod); a network "
+                "address (host[:port]) or the cloud (embeddedci:<device>) works too")
 
     def command(self, req: dict) -> Any:
         """Answer a JSON command through its text-console equivalent: the commands in
@@ -518,130 +445,26 @@ class SerialTransport(Transport):
             raise TransportError(f"the pod did not answer ping: {out.strip()!r}")
         return "pong"
 
-    def _moved_to_json(self, what: str) -> TransportError:
-        """Firmware 3.9.0 moved the instrument commands off the console to the JSON API."""
+    def _needs_network(self, what: str) -> TransportError:
+        """The USB console of firmware 4.0 answers status, ping and identity only."""
         return TransportError(
-            f"this pod's firmware (3.9.0 or later) has no {what} on its USB console "
-            f"{self.device or ''}: it is a network command. Connect with 'usb', which uses the "
-            "pod's USB network adapter (Wi-Fi configured on the pod turns it off; `benchpod "
-            "clear-wifi` turns it back on) or else the pod's network address (refused while its "
-            "external LAN policy is off), or pass that address".replace("  ", " "))
-
-    def _text_la_voltage(self, req: dict) -> Dict[str, Any]:
-        line = "la-voltage" + (f" {int(req['mv'])}" if req.get("mv") is not None else "")
-        out = self._send_command(line)
-        if MOVED_TO_NETWORK in out:
-            raise self._moved_to_json("la-voltage")
-        if "needs a v3 pod" in out or "usage:" in out:
-            msg = next((ln.strip() for ln in out.replace("\r", "\n").split("\n")
-                        if "needs a v3 pod" in ln or "usage:" in ln), out.strip())
-            raise FirmwareError(msg, cmd="la_voltage")
-        m = re.search(r"LA VCCIO = (?:(\d+) mV|UNSET) \(st=(-?\d+)\)", out)
-        if not m:
-            raise TransportError(f"unexpected la-voltage reply: {out.strip()!r}")
-        return {"mv": int(m.group(1) or 0), "st": int(m.group(2))}
+            f"{what} is not on this pod's USB console {self.device or ''}: it is a network "
+            "command. Connect with 'usb', which uses the pod's USB network adapter (Wi-Fi "
+            "configured on the pod turns it off; `benchpod clear-wifi` turns it back on), or pass "
+            "the pod's network address".replace("  ", " "))
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
-        if delay_ms:
-            raise TransportError("the pod's USB console cannot schedule a delayed power change; "
-                                 "use delay=None, or a network/cloud connection")
-        out = self._send_command(f"power {int(efuse)} {'on' if on else 'off'}")
-        if MOVED_TO_NETWORK in out:
-            raise self._moved_to_json("power")
-        if UNKNOWN_COMMAND in out or "bad eFuse" in out or "ERROR:" in out:
-            raise TransportError(f"firmware rejected power {efuse}: {out.strip()!r}")
-
-    def _console_raw_handshake(
-        self, cmd: str, ready: str, quit_byte: bytes
-    ) -> RawLink:
-        """Send a console command, read until the ``ready`` sentinel, then hand
-        back the raw byte link (its ``close()`` sends ``quit_byte`` to exit).
-
-        On any failure we still send ``quit_byte``: by the time the sentinel is
-        due the firmware may already have armed and switched to the raw mode, so
-        without it the pod stays wedged until its inactivity watchdog and the
-        next handshake fails too.
-        """
-        with _port_errors(cmd.split()[0]):
-            return self._console_raw_handshake_inner(cmd, ready, quit_byte)
-
-    def _console_raw_handshake_inner(self, cmd: str, ready: str, quit_byte: bytes) -> RawLink:
-        # Recover from a previous raw session that didn't cleanly exit (e.g. a
-        # stalled flash whose Q got dropped on a flaky link): send the quit byte
-        # so the pod leaves raw mode, then this command is parsed by the console
-        # rather than swallowed as protocol bytes. Harmless when already in text
-        # mode (an unknown char, cleared below).
-        try:
-            self._port.write(quit_byte)
-            self._port.flush()
-            time.sleep(0.1)
-            self._port.reset_input_buffer()
-        except Exception:
-            pass
-        self._write_line(cmd)
-        deadline = time.monotonic() + self.timeout
-        verb = cmd.split()[0]
-        acc = bytearray()
-
-        def _recover_and_raise(msg: str):
-            try:
-                self._port.write(quit_byte)
-                self._port.flush()
-                time.sleep(0.1)
-                self._port.reset_input_buffer()
-            except Exception:
-                pass
-            raise TransportError(msg)
-
-        # Match the ``ready`` sentinel as a substring of the accumulated output
-        # rather than line-by-line: the firmware can emit a long, newline-less
-        # run (backspace echo from the clear-line prefix) before the sentinel,
-        # and the command echo never contains the sentinel, so this is robust.
-        while time.monotonic() < deadline:
-            chunk = self._port.read(256)
-            if chunk:
-                acc.extend(chunk)
-            text = acc.decode("utf-8", errors="replace")
-            if ready in text:
-                return _SerialRawLink(self._port, quit_byte=quit_byte)
-            if UNKNOWN_COMMAND in text:
-                _recover_and_raise(
-                    f"this pod's USB console has no '{verb}' command — flashing and the UART "
-                    "proxy need a network (host[:port]) or cloud (embeddedci:<device>) connection"
-                )
-            if "ERROR:" in text or "usage:" in text:
-                _recover_and_raise(
-                    f"{verb} rejected by firmware; pod output:\n{text.strip()}"
-                )
-        _recover_and_raise(
-            f"{verb}: pod never reported {ready!r}; pod output:\n{acc.decode('utf-8', 'replace').strip()}"
-        )
+        raise self._needs_network("target power")
 
     def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
                   packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
-        # The USB console's dap-start keeps the default 256 x 1 packets.
-        cmd = f"dap-start {swclk} {swdio}"
-        return self._console_raw_handshake(cmd, DAP_READY, quit_byte=DAP_LEAVE)
+        raise self._needs_network("SWD (flashing)")
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
                          entry: Any = None, de: Optional[int] = None,
                          de_active_low: bool = False) -> RawLink:
-        if de is not None:
-            raise UnsupportedFeatureError(
-                "UART de needs the network, the USB network or the cloud: the USB console's "
-                "uart-proxy has no DE", feature="uart_de")
-        if half_duplex or entry is not None:
-            raise UnsupportedFeatureError(
-                "UART half_duplex and entry need the network, the USB network or the cloud: the "
-                "USB console's uart-proxy has neither", feature="uart_hd")
-        if parity != "none" or stop_bits != 1:
-            raise UnsupportedFeatureError(
-                "UART parity and stop bits need the network, the USB network or the cloud: the "
-                "USB console's uart-proxy is 8N1 only", feature="uart_frame")
-        return self._console_raw_handshake(
-            f"uart-proxy {rx} {tx} {baud}", UART_READY, quit_byte=CTRL_RBRACKET
-        )
+        raise self._needs_network("the UART proxy")
 
     def close(self) -> None:
         try:

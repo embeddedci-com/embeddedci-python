@@ -366,8 +366,8 @@ def test_benchpod_attaches_to_the_active_run(tmp_path):
     assert active_run() is None
     assert "can_write" in calls
     block = run.pod()
-    assert block == {"name": "benchpod-abc123", "board": "analog-v3", "firmware": "3.10.11",
-                     "gateware": 58, "features_rev": 0,
+    assert block == {"name": "benchpod-abc123", "board": "analog-v3", "firmware": "4.0.0",
+                     "gateware": 58, "features_rev": 10,
                      "calibration_sha256": sha256_of_json(CALIBRATION), "connection": "lan"}
     # the calibration read is provenance, not part of the test's calls
     assert "calibrate" not in calls
@@ -487,7 +487,7 @@ def test_plugin_writes_a_run_folder(pytester):
     inputs = record["inputs"]
     assert set(inputs) == {"dut_firmware", "tests", "pod", "wiring", "tools", "github"}
     assert inputs["dut_firmware"]["file"] == "app.elf" and inputs["dut_firmware"]["size"] == 8
-    assert inputs["pod"]["firmware"] == "3.10.11" and inputs["pod"]["connection"] == "lan"
+    assert inputs["pod"]["firmware"] == "4.0.0" and inputs["pod"]["connection"] == "lan"
     assert set(inputs["tools"]) == {"cli", "sdk", "python", "pytest", "os"}
     assert set(inputs["github"]) == {"run_id", "run_attempt", "run_url", "workflow", "actor"}
     assert set(record["health"]) == {"valid", "reasons", "lost_samples", "rate_misses", "busy_retries",
@@ -571,7 +571,7 @@ def test_pass(pod, measure):
     assert set(part["health"]) == {"lost_samples", "rate_misses", "busy_retries", "reconnects",
                                    "measurements_dropped", "trace_truncated", "reasons"}
     assert set(part["tools"]) == {"sdk", "python", "pytest"}
-    assert part["pod"]["firmware"] == "3.10.11"
+    assert part["pod"]["firmware"] == "4.0.0"
     case = part["cases"][0]
     assert case["step"] == "hil" and case["measurements"][0]["name"] == "v"
     line = _lines(out / case["trace"])[0]

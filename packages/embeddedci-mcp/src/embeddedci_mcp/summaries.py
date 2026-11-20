@@ -10,7 +10,7 @@ import dataclasses
 from typing import Any, List, Optional, Sequence, Tuple
 
 from embeddedci.benchpod import Capture, LaCapture, PowerProfile, Trigger, Wiring
-from embeddedci.benchpod.constants import PULL_OHMS, PULLDOWN_CHANNELS
+from embeddedci.benchpod.constants import PULL_TABLE
 
 try:   # embeddedci 3.0.3+: the board's pull table (directions per channel)
     from embeddedci.benchpod.constants import PULL_TABLE
@@ -121,8 +121,8 @@ def _bias(la: int) -> Optional[str]:
     hw = PULL_TABLE.get(la)
     if hw:
         return f"{hw.ohms} {'/'.join(hw.dirs)}"
-    ohms = PULL_OHMS.get(la)
-    return None if not ohms else f"{ohms} {'down' if la in PULLDOWN_CHANNELS else 'up'}"
+    hw = PULL_TABLE.get(la)
+    return None if not hw else f"{hw.ohms} {hw.default}"
 
 
 def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
