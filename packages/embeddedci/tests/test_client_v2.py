@@ -219,11 +219,11 @@ def test_analog_paths_take_canonical_names():
 
 
 def test_dac_output_reports_achieved_volts():
-    bp, t = _bp({"dac_out": lambda req: {"path": req["path"], "mv": 2498 if "volts" in req else 0,
-                                          "code": 127 if "volts" in req else -1}})
+    bp, t = _bp({"dac_out": lambda req: ({"path": req["path"], "mv": 2498, "uv": 2498000,
+                                           "code16": 32700} if "v" in req else {"path": req["path"]})})
     out = bp.dac_output("5v", volts=2.5)
-    assert out == DacOutput(path="5v", voltage=2.498, code=127)
-    assert t.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
+    assert out == DacOutput(path="5v", voltage=2.498, code=127, code16=32700)
+    assert t.commands[-1] == {"cmd": "dac_out", "path": "5v", "v": 2.5}
     routed = bp.dac_output("12v")
     assert routed.voltage is None and routed.code is None
     # The firmware names the analog path (dac_5v); the result uses dac_output's own vocabulary.
@@ -231,8 +231,8 @@ def test_dac_output_reports_achieved_volts():
     assert DacOutput.from_reply({"path": "off", "mv": 0, "code": -1}).path == "off"
     # Firmware that drives the full 16 bits answers in microvolts too.
     fine = DacOutput.from_reply({"path": "dac_5v", "mv": 2500, "uv": 2499985, "code": 128, "code16": 32723})
-    assert fine.voltage == pytest.approx(2.499985, abs=1e-9) and fine.code == 128 and fine.code16 == 32723
-    assert out.code16 is None
+    assert fine.voltage == pytest.approx(2.499985, abs=1e-9) and fine.code == 127 and fine.code16 == 32723
+    assert out.code16 == 32700
     with pytest.raises(ValueError):
         bp.dac_output("off", volts=1.0)
 
@@ -420,7 +420,7 @@ def test_capture_adc_routes_the_source_first():
     bp, t = _bp({"analog_path": {"path": "cal1"}})
     cap = bp.capture_adc(2, source="cal1", sample_rate_hz=100_000)
     assert t.commands[0] == {"cmd": "analog_path", "path": "cal1"}
-    assert t.commands[1] == {"cmd": "capture", "samples": 2, "sample_rate_mhz": 0.1, "enc": "dec"}
+    assert t.commands[1] == {"cmd": "capture", "samples": 2, "sample_rate_hz": 100000, "enc": "dec"}
     assert cap.source == "cal1" and len(cap) == 2
 
 

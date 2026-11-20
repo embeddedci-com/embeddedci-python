@@ -323,7 +323,7 @@ def test_cloud_transport_command_device_busy_gives_up(monkeypatch):
 
     monkeypatch.setattr(_http, "urlopen", fake_urlopen)
     with pytest.raises(FirmwareError, match="BP0052: The pod is still running the previous cloud command"):
-        t.command({"cmd": "dac_out", "path": "5v", "volts": 1.0})
+        t.command({"cmd": "dac_out", "path": "5v", "v": 1.0})
     assert 10 < len(calls) <= cloud._BUSY_RETRY_BUDGET / cloud._BUSY_RETRY_WAIT + 1
 
 
@@ -553,7 +553,7 @@ def test_cloud_command_retries_other_instance(monkeypatch):
     {"cmd": "la_step", "la": 1, "steps": 5, "delay_us": 100},
     {"cmd": "spi_xfer", "tx": "9f"},
     {"cmd": "generate", "waveform": "sine"},
-    {"cmd": "target_power", "efuse": 1, "state": 1, "delay_ms": 500},
+    {"cmd": "target_power", "efuse": 1, "enabled": True, "delay_ms": 500},
     {"cmd": "dac_stop"},
     {"cmd": "la_voltage", "mv": 3300},
     {"cmd": "dac_limits", "path": "dac_out", "min_mv": 0},

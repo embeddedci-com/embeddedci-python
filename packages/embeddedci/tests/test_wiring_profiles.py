@@ -91,10 +91,10 @@ class ProfilePod:
                 self.la_mv = req["mv"]
             return {"mv": self.la_mv or 0, "st": 1}
         if verb == "target_status":
-            return {f"efuse{n}": {"enabled": int(self.rails[n]), "fault": 0, "valid": 1} for n in (1, 2)}
+            return {f"efuse{n}": {"enabled": self.rails[n], "fault": False, "valid": True} for n in (1, 2)}
         if verb == "target_power":
-            self.rails[req["efuse"]] = bool(req["state"])
-            return {"efuse": req["efuse"], "enabled": req["state"], "delay_ms": 0}
+            self.rails[req["efuse"]] = req["enabled"] is True
+            return {"efuse": req["efuse"], "enabled": req["enabled"], "delay_ms": 0}
         return {}
 
     def sent(self, verb: str) -> List[dict]:

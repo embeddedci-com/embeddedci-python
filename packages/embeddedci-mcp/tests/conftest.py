@@ -111,7 +111,7 @@ class FakeTransport(Transport):
             "bus_mv": [5010, 4990, 5000, 5005]}
         #: The statistics its last chunk carries (µA / mV / µJ / µC, as the firmware sends them).
         self.power_stats: Dict[str, Any] = {
-            "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000, "min_ua": 40_000,
+            "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000, "min_ua": 40_000,
             "peak_ua": 180_000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
             "energy_uj": 260_500, "charge_uc": 52_000, "fault": False, "truncated": False}
 
@@ -336,7 +336,7 @@ class FakeTransport(Transport):
             raise firmware_error("", cmd="i2c_start", code="BP0003")
         self.i2c = req
         self.function[req["sda"]], self.function[req["scl"]] = "i2cm_sda", "i2cm_scl"
-        return {"sda": req["sda"], "scl": req["scl"], "hz": req["hz"], "pullups": req["pullups"]}
+        return {"sda": req["sda"], "scl": req["scl"], "clock_hz": req["clock_hz"], "pullups": req["pullups"]}
 
     def _cmd_i2c_stop(self, req):
         if self.i2c is not None:
@@ -382,7 +382,7 @@ class FakeTransport(Transport):
 
     def _cmd_spi_start(self, req):
         self.spi = req
-        return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+        return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "clock_hz", "mode")}
 
     def _cmd_spi_xfer(self, req):
         return {"rx": req["tx"], "cs": "released"}
@@ -450,15 +450,15 @@ class FakeTransport(Transport):
                     "elapsed_ms": 100, "n": 95}
         self.power_profile_running = True
         self.power_efuse = int(req.get("efuse", 1))
-        return {"started": True, "efuse": self.power_efuse, "rate_hz": 950.0}
+        return {"started": True, "efuse": self.power_efuse, "sample_rate_hz": 950.0}
 
     def _cmd_analog_path(self, req):
         return {"path": req["path"], "u55": 3, "u58": 9}
 
     def _cmd_dac_out(self, req):
-        has_v = "volts" in req
-        return {"path": req["path"], "mv": int(round(req["volts"] * 1000)) if has_v else 0,
-                "code": 128 if has_v else -1}
+        has_v = "v" in req
+        return ({"path": req["path"], "mv": int(round(req["v"] * 1000)), "code16": 32768}
+                if has_v else {"path": req["path"]})
 
     def _cmd_current_out(self, req):
         rng = {"min_ua": 4016, "max_ua": 20078}
@@ -554,16 +554,16 @@ class FakeTransport(Transport):
 
     def _cmd_dac_loop_input(self, req):
         return {"source": req.get("source", "fixed"), "input": req.get("input", 0),
-                "step": req.get("step", 0), "v": 1234}
+                "step": req.get("step", 0), "code16": 1234}
 
     def _cmd_dac_loop_probe(self, req):
-        return {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}
+        return {"i": 64000, "in": 32768, "source": "fixed", "code16": 20000}
 
     def _cmd_can_write(self, req):
         fd = len(req["data"]) > 8 or req.get("fd", False)
         self.can_rx.append({"id": req["id"], "data": req["data"], "ext": req["ext"],
                             "rtr": req["rtr"], "fd": fd, "brs": fd and req.get("brs", True),
-                            "ts": 100 + len(self.can_rx)})
+                            "ts_ms": 100 + len(self.can_rx)})
         return {"queued": True}
 
     def _cmd_can_read(self, req):
@@ -600,14 +600,14 @@ class FakeTransport(Transport):
             yield {"status": "ok", "t_us": [], "current_ua": [], "bus_mv": [],
                    "stats": dict(self.power_stats, efuse=self.power_efuse), "more": False}
         elif cmd == "capture":
-            yield {"status": "ok", "data": sine_counts(req["samples"]), "adc_rate_hz": 100_000.0,
+            yield {"status": "ok", "data": sine_counts(req["samples"]), "adc_sample_rate_hz": 100_000.0,
                    "more": False}
         elif cmd == "la_capture":
             n = req["samples"]
             # LA1 toggles every 50 samples (10 kHz at 1 MS/s); LA3 stays high.
             edges = [[i, (0b100 | ((i // 50) % 2))] for i in range(0, n, 50)]
             last = {"status": "ok", "la": True, "la_edges": edges, "la_upto": n,
-                    "la_rate_hz": 1_000_000.0, "more": False}
+                    "la_sample_rate_hz": 1_000_000.0, "more": False}
             send = req.get("send")
             if send and send["bus"] == "i2c":
                 r = self._i2c_xfer(send["addr"], send.get("write", ""), send.get("read", 0))
@@ -619,7 +619,7 @@ class FakeTransport(Transport):
             yield last
         elif cmd == "capture_dual":
             yield {"status": "ok", "data": sine_counts(req["adc_samples"]),
-                   "adc_rate_hz": 100_000.0, "la_rate_hz": 1_000_000.0, "more": True}
+                   "adc_sample_rate_hz": 100_000.0, "la_sample_rate_hz": 1_000_000.0, "more": True}
             yield {"status": "ok", "la": True, "la_edges": [[0, 1]], "la_upto": req["la_samples"],
                    "more": False}
 

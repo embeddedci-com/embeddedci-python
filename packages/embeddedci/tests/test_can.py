@@ -58,7 +58,7 @@ class FakeCanPod:
         cmd = req.get("cmd")
         if cmd == "status":
             return {"status": "ok", "data": {"firmware_version": "3.10.2", "caps": list(self.caps)}}
-        if cmd == "can_config":
+        if cmd == "can_start":
             self._data_bitrate = int(req.get("data_bitrate", 0))
             self._enabled = True
             self._mode = req.get("mode", "normal")
@@ -80,7 +80,7 @@ class FakeCanPod:
             brs = fd and bool(req.get("brs", True)) and self._data_bitrate > self._bitrate
             frame = {"id": int(req["id"]), "ext": bool(req.get("ext", False)),
                      "rtr": bool(req.get("rtr", False)), "fd": fd, "brs": brs,
-                     "data": data, "ts": self._next_ts()}
+                     "data": data, "ts_ms": self._next_ts()}
             frame["dlc"] = len(frame["data"])
             if self._mode in ("internal", "external"):
                 self._rx.append(frame)          # loopback: echo back to RX
@@ -90,7 +90,7 @@ class FakeCanPod:
                         self._rx.append({
                             "id": r["reply_id"], "ext": r["reply_ext"], "rtr": False,
                             "data": list(r["reply_data"]),
-                            "dlc": len(r["reply_data"]), "ts": self._next_ts()})
+                            "dlc": len(r["reply_data"]), "ts_ms": self._next_ts()})
                         self._resp_hits += 1
                         break
             return {"status": "ok", "data": {
@@ -120,7 +120,7 @@ class FakeCanPod:
         if cmd == "can_term":
             self._term = bool(req.get("on", False))
             return {"status": "ok", "data": {"term": self._term}}
-        if cmd == "can_disable":
+        if cmd == "can_stop":
             self._enabled = False
             return {"status": "ok", "data": {"enabled": False}}
         return {"status": "error", "message": "unknown cmd"}
@@ -167,7 +167,7 @@ def bp(pod):
 # -- CanFrame ---------------------------------------------------------------
 
 def test_canframe_from_dict_roundtrip():
-    f = CanFrame.from_dict({"id": 0x123, "data": [1, 2, 3], "ext": True, "ts": 7})
+    f = CanFrame.from_dict({"id": 0x123, "data": [1, 2, 3], "ext": True, "ts_ms": 7})
     assert f.id == 0x123 and f.data == b"\x01\x02\x03" and f.dlc == 3 and f.ext
     assert "0x123" in str(f)
 
@@ -177,7 +177,7 @@ def test_canframe_from_dict_roundtrip():
 def test_can_config_request_shape(bp, pod):
     bp.can_config(bitrate=250_000, mode="external", term=True)
     assert pod.requests[-1] == {
-        "cmd": "can_config", "bitrate": 250_000, "mode": "external",
+        "cmd": "can_start", "bitrate": 250_000, "mode": "external",
         "term": True}
 
 
@@ -227,7 +227,7 @@ def test_open_can_expect_times_out(bp):
 def test_open_can_disables_on_exit(bp, pod):
     with bp.open_can(mode="internal"):
         pass
-    assert [r["cmd"] for r in pod.requests[-2:]] == ["can_disable", "can_term"]
+    assert [r["cmd"] for r in pod.requests[-2:]] == ["can_stop", "can_term"]
     assert pod.requests[-1]["on"] is False
     assert pod._enabled is False
 
@@ -340,7 +340,7 @@ def test_can_capability_flag_from_status_and_cloud_parameters():
 def test_can_config_data_bitrate_means_fd(bp, pod):
     bp.can_config(bitrate=500_000, data_bitrate=2_000_000, mode="internal")
     assert pod.requests[-1] == {
-        "cmd": "can_config", "bitrate": 500_000, "mode": "internal", "term": False,
+        "cmd": "can_start", "bitrate": 500_000, "mode": "internal", "term": False,
         "data_bitrate": 2_000_000}
 
 

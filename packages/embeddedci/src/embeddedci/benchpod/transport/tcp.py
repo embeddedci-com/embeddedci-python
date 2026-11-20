@@ -430,7 +430,7 @@ class TcpTransport(Transport):
         return self.command({"cmd": "ping"})
 
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
-        req: dict = {"cmd": "target_power", "efuse": efuse, "state": 1 if on else 0}
+        req: dict = {"cmd": "target_power", "efuse": efuse, "enabled": bool(on)}
         if delay_ms:
             req["delay_ms"] = int(delay_ms)
         self.command(req)

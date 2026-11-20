@@ -48,7 +48,7 @@ class _Pod:
 
     def stream_chunks(self, req: dict):
         self.commands.append(req)
-        yield {"status": "ok", "data": list(self.counts), "adc_rate_hz": 100000.0, "la_rate_hz": 1e6, "more": True}
+        yield {"status": "ok", "data": list(self.counts), "adc_sample_rate_hz": 100000.0, "la_sample_rate_hz": 1e6, "more": True}
         yield {"status": "ok", "la": True, "la_edges": [[0, 1], [2, 3]], "la_upto": 4, "more": False}
 
     def load_replay(self, *, data, replay, psram=False):

@@ -48,7 +48,7 @@ class StreamPod:
             if isinstance(self.error, tuple):
                 raise firmware_error("", cmd=req["cmd"], code=self.error[0], values=self.error[1])
             raise FirmwareError(self.error, cmd=req["cmd"])
-        if "rate_hz" in req and isinstance(req["rate_hz"], float):
+        if "sample_rate_hz" in req and isinstance(req["sample_rate_hz"], float):
             # The firmware's parser refuses a non-integer here ("rate_hz must be a whole
             # number 0..1000000") — a float used to reach the pod and fail only on hardware.
             raise FirmwareError("power_profile: rate_hz must be a whole number 0..1000000",
@@ -76,7 +76,7 @@ def test_trigger_validates_itself():
 def test_triggered_la_capture_request_and_result():
     bp, pod = _bp()
     pod.chunks["la_capture"] = [{"status": "ok", "la": True, "la_edges": [[0, 256]], "la_upto": 4,
-                                 "la_rate_hz": 1e6, "more": False}]
+                                 "la_sample_rate_hz": 1e6, "more": False}]
     la = bp.capture_la(4, sample_rate_hz=1e6, trigger=Trigger(9, "falling"), trigger_timeout=2.5)
     req = pod.requests[-1]
     assert req["trigger"] == {"la": 9, "edge": "falling"} and req["trigger_timeout_ms"] == 2500
@@ -91,7 +91,7 @@ def test_trigger_names_come_from_the_wiring_profile():
 
 def test_triggered_adc_capture_uses_the_streaming_path():
     bp, pod = _bp()
-    pod.chunks["capture_dual"] = [{"status": "ok", "data": [1, 2, 3], "adc_rate_hz": 1e5, "more": False}]
+    pod.chunks["capture_dual"] = [{"status": "ok", "data": [1, 2, 3], "adc_sample_rate_hz": 1e5, "more": False}]
     cap = bp.capture_adc(3, trigger=Trigger(2, "low"))
     req = pod.requests[-1]
     assert req["cmd"] == "capture_dual" and req["la_samples"] == 0 and req["trigger"]["edge"] == "low"
@@ -119,7 +119,7 @@ def test_triggers_need_gateware_that_has_them():
 
 # -- power profiles ---------------------------------------------------------------------
 
-STATS = {"efuse": 1, "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52000,
+STATS = {"efuse": 1, "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52000,
          "min_ua": 40000, "peak_ua": 180000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
          "energy_uj": 260500, "charge_uc": 52000, "fault": False, "truncated": False}
 
@@ -132,7 +132,7 @@ def test_measure_power_request_and_units():
         {"status": "ok", "t_us": [], "current_ua": [], "bus_mv": [], "stats": STATS, "more": False},
     ]
     prof = bp.measure_power(1.0, keep_samples=2)
-    assert pod.requests[-1] == {"cmd": "power_profile", "efuse": 2, "rate_hz": 500,
+    assert pod.requests[-1] == {"cmd": "power_profile", "efuse": 2, "sample_rate_hz": 500,
                                 "keep_samples": 2, "duration_ms": 1000}
     assert isinstance(prof, PowerProfile)
     assert prof.avg_current == pytest.approx(0.052) and prof.peak_current == pytest.approx(0.18)
@@ -151,7 +151,7 @@ def test_power_profile_session_start_stop():
     with session as prof:
         with pytest.raises(BenchPodError, match="still running"):
             _ = prof.result
-    assert pod.requests[0] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500, "keep_samples": 0,
+    assert pod.requests[0] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500, "keep_samples": 0,
                                "max_duration_ms": 5000, "action": "start"}
     assert pod.requests[-1] == {"cmd": "power_profile", "action": "stop"}
     assert prof.result.n == 950 and prof.stop() is prof.result

@@ -66,7 +66,7 @@ class CanFrame:
             data=bytes(d.get("data", []) or []),
             ext=bool(d.get("ext", False)),
             rtr=bool(d.get("rtr", False)),
-            ts=int(d.get("ts", 0)),
+            ts=int(d.get("ts_ms", 0)),
             fd=bool(d.get("fd", False)),
             brs=bool(d.get("brs", False)),
         )

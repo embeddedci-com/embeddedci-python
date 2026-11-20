@@ -123,7 +123,7 @@ def test_adc_capture_phase_source_none_leaves_routing_and_passes_rate():
                                  sample_rate_hz=100_000, prefix="rail", attachment=None))
     assert rec.outcome == tr.Outcome.PASS
     assert "analog_path" not in _cmds(tx)
-    assert tx.commands[-1] == {"cmd": "capture", "samples": 8, "sample_rate_mhz": 0.1, "enc": "dec"}
+    assert tx.commands[-1] == {"cmd": "capture", "samples": 8, "sample_rate_hz": 100000, "enc": "dec"}
     p = _phase(rec, "adc_capture")
     assert _value(p, "rail_pp_v") == pytest.approx(3.3)
     assert "adc.json" not in p.attachments
@@ -168,7 +168,7 @@ def test_loopback_measure_phase_generates_captures_then_stops():
     assert tx.commands[0] == {"cmd": "generate", "waveform": "sine", "freq_hz": 100, "path": "3v3",
                               "amplitude_v": 1.0, "offset_v": 1.65}
     assert tx.commands[1] == {"cmd": "analog_path", "path": "adc_ext"}
-    assert tx.commands[2] == {"cmd": "capture", "samples": 8, "sample_rate_mhz": 0.05, "enc": "dec"}
+    assert tx.commands[2] == {"cmd": "capture", "samples": 8, "sample_rate_hz": 50000, "enc": "dec"}
     p = _phase(rec, "loopback_measure")
     assert _value(p, "adc_pp_v") == pytest.approx(3.3)
     assert _value(p, "adc_mean_v") == pytest.approx(sum(TRI_V) / 8)
@@ -241,14 +241,14 @@ def test_dac_output_phase_routes_and_sets_volts():
     tx = FakeTransport()
     rec = _run(dac_output_phase(benchpod_plug(transport=tx), path="5v", volts=2.5))
     assert rec.outcome == tr.Outcome.PASS
-    assert tx.commands[-1] == {"cmd": "dac_out", "path": "5v", "volts": 2.5}
+    assert tx.commands[-1] == {"cmd": "dac_out", "path": "5v", "v": 2.5}
 
 
 def test_dac_output_helper_returns_typed_result():
     tx = FakeTransport()
     plug = benchpod_plug(transport=tx)()
     out = dac_output(plug, "5v", volts=2.5)
-    assert out == DacOutput(path="5v", voltage=2.5, code=128)
+    assert out == DacOutput(path="5v", voltage=2.5, code=128, code16=32768)
     routed = dac_output(plug, "off")
     assert routed.voltage is None and routed.code is None
     assert tx.commands[-1] == {"cmd": "dac_out", "path": "off"}

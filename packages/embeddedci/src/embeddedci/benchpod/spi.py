@@ -88,7 +88,7 @@ class SpiSession:
         self.miso = int(info.get("miso", 0))
         self.cs = int(info.get("cs", 0))
         #: The SCK rate the pod picked (at or below the one asked for).
-        self.hz = int(info.get("hz", 0))
+        self.hz = int(info.get("clock_hz", 0))
         self.mode = int(info.get("mode", 0))
         self._closed = False
 

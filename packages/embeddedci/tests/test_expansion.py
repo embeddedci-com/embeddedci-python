@@ -151,7 +151,7 @@ class ExpPod:
             if req["pullups"] == "pod":
                 assert {req["sda"], req["scl"]} <= self.pullups, "pod pull-ups must be on first"
             self.session = req
-            return {k: req[k] for k in ("sda", "scl", "hz", "pullups")}
+            return {k: req[k] for k in ("sda", "scl", "clock_hz", "pullups")}
         if cmd == "i2c_stop":
             self.session = None
             return "i2c stopped"
@@ -619,7 +619,7 @@ class SpiPod(ExpPod):
             if self.spi:
                 raise FirmwareError("spi busy: send spi_stop first", cmd=cmd)
             self.spi = req
-            return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "hz", "mode")}
+            return {k: req[k] for k in ("sck", "mosi", "miso", "cs", "clock_hz", "mode")}
         if cmd == "spi_stop":
             self.commands.append(req)
             self.spi = None

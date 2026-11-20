@@ -106,9 +106,9 @@ class EmuPod:
         self.commands.append(req)
         cmd = req["cmd"]
         if cmd == "spi_start":
-            assert self.armed is None and req["mode"] == 0 and req["hz"] <= 6_000_000
+            assert self.armed is None and req["mode"] == 0 and req["clock_hz"] <= 6_000_000
             self.armed = req
-            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "hz": 6_000_000}
+            return {**{k: req[k] for k in ("sck", "mosi", "miso", "cs", "mode")}, "clock_hz": 6_000_000}
         if cmd == "spi_stop":
             self.armed = None
             return "spi stopped"
@@ -419,7 +419,7 @@ def test_spi_stream_session():
         cmds.append(req)
         return {"sent": req["len"], "ms": 250, "cs": "held"}
 
-    spi = SpiSession(command, {"hz": 6_000_000}, stage=lambda d: staged.append(d) or len(d))
+    spi = SpiSession(command, {"clock_hz": 6_000_000}, stage=lambda d: staged.append(d) or len(d))
     r = spi.stream(b"\x01" * 1000, head=b"\x7a\0\0\0", hold_cs=True)
     assert r == SpiStreamResult(sent=1000, seconds=0.25)
     assert staged == [b"\x01" * 1000]

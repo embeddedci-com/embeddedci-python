@@ -250,7 +250,7 @@ its external LAN policy. `bp.usb_network()` reads it (`True` = on) over any conn
 `bp.usb_network(False)` turns the adapter off, which only works over the USB link itself: the pod
 replies, then re-enumerates as its USB console only, which ends the connection. Over Ethernet,
 Wi-Fi or the cloud the pod refuses the change (`PodLockedError`). Turning it back on needs the USB
-console: `benchpod usb-network on`. Status reports it as `usb.setting` and, when the adapter is
+console: `benchpod usb-network on`. Status reports it as `usb.enabled` (a boolean, as `usb.net` is) and, when the adapter is
 off, `usb.off_reason` (`"setting"` or `"wifi"`).
 
 **When the USB network is off.** `usb` is the full API over the USB network adapter when it is

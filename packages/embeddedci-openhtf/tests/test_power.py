@@ -40,7 +40,7 @@ def test_measure_power_returns_si_units():
     plug = benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1})()
     profile = measure_power(plug, 1.0)
     assert isinstance(profile, PowerProfile)
-    assert _request(tx) == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500,
+    assert _request(tx) == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                             "keep_samples": 0, "duration_ms": 1000}
     assert profile.avg_current == pytest.approx(0.052)
     assert profile.peak_current == pytest.approx(0.18)
@@ -54,7 +54,7 @@ def test_measure_power_passes_its_keywords_through():
     plug = benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1})()
     profile = measure_power(plug, 0.5, efuse=2, rate_hz=500, keep_samples=2)
     req = _request(tx)
-    assert req["efuse"] == 2 and req["rate_hz"] == 500.0 and req["keep_samples"] == 2
+    assert req["efuse"] == 2 and req["sample_rate_hz"] == 500 and req["keep_samples"] == 2
     assert req["duration_ms"] == 500
     assert profile.samples == ((0.0, 0.04, 5.01), (0.5, 0.06, 5.0))
 
@@ -104,7 +104,7 @@ def test_measure_power_phase_attaches_the_kept_samples():
     assert _value(phase, "sleep_avg_current_a") == pytest.approx(0.052)
     payload = json.loads(phase.attachments["power.json"].data)
     assert payload["efuse"] == 2 and payload["samples"][0] == [0.0, 0.04, 5.01]
-    assert _request(tx)["rate_hz"] == 500.0
+    assert _request(tx)["sample_rate_hz"] == 500
 
 
 def test_measure_power_phase_can_skip_the_attachment():

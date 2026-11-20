@@ -96,7 +96,7 @@ class BusPod:
             self.session = req
             self.driven[req["sda"]] = "i2cm_sda"
             self.driven[req["scl"]] = "i2cm_scl"
-            return {"sda": req["sda"], "scl": req["scl"], "hz": 363636 if req["hz"] == 400_000 else req["hz"],
+            return {"sda": req["sda"], "scl": req["scl"], "clock_hz": 363636 if req["clock_hz"] == 400_000 else req["clock_hz"],
                     "pullups": req["pullups"]}
         if cmd == "i2c_stop":
             self.session = None
@@ -106,7 +106,7 @@ class BusPod:
             if not self.session:
                 return {"active": False}
             return {"active": True, "sda": self.session["sda"], "scl": self.session["scl"],
-                    "hz": self.session["hz"], "pullups": self.session["pullups"]}
+                    "clock_hz": self.session["clock_hz"], "pullups": self.session["pullups"]}
         if cmd in ("i2c_xfer", "i2c_scan") and not self.session:
             raise firmware_error("", cmd=cmd, code="BP0062")
         if cmd == "i2c_xfer":
@@ -177,7 +177,7 @@ def test_open_i2c_pins_from_wiring_and_rate_reply():
     bp, fake = pod()
     with bp.open_i2c(hz=400_000) as i2c:
         assert (i2c.sda, i2c.scl, i2c.hz, i2c.pullups) == (1, 2, 363636, "pod")
-        assert fake.commands[-1] == {"cmd": "i2c_start", "sda": 1, "scl": 2, "hz": 400_000, "pullups": "pod"}
+        assert fake.commands[-1] == {"cmd": "i2c_start", "sda": 1, "scl": 2, "clock_hz": 400_000, "pullups": "pod"}
     assert fake.commands[-1] == {"cmd": "i2c_stop"}
     assert fake.session is None
 
@@ -198,14 +198,14 @@ def test_busy_names_another_connection_as_the_holder():
     """Another client (the desktop app, the web app) holds the pod's I2C master: the refusal says
     so and where, instead of pointing at an open_i2c() this script never called."""
     bp, fake = pod()
-    fake.session = {"sda": 1, "scl": 2, "hz": 100_000, "pullups": "pod"}
+    fake.session = {"sda": 1, "scl": 2, "clock_hz": 100_000, "pullups": "pod"}
     with pytest.raises(FirmwareError) as e:
         bp.open_i2c()
     msg = str(e.value)
     assert "another connection to this pod holds its I2C master (LA1 SDA, LA2 SCL, 100000 Hz)" in msg
     assert "desktop app" in msg and "bp.open_i2c() first" not in msg
     assert e.value.code == "BP0003" and isinstance(e.value, PodBusyError)
-    assert fake.session["hz"] == 100_000          # nothing was stopped
+    assert fake.session["clock_hz"] == 100_000          # nothing was stopped
 
 
 def test_busy_names_this_benchpods_own_open_session():

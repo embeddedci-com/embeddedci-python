@@ -277,9 +277,9 @@ def test_usb_network_method_reads_and_turns_off():
     class T:
         def command(self, req, **kw):
             sent.append(req)
-            return {"setting": "off" if req.get("set") == "off" else "on"}
+            return {"enabled": req.get("enabled", True)}
 
     pod = BenchPod.__new__(BenchPod)
     pod.command = T().command  # the method only needs command()
     assert pod.usb_network() is True and sent[-1] == {"cmd": "usb_network"}
-    assert pod.usb_network(False) is False and sent[-1] == {"cmd": "usb_network", "set": "off"}
+    assert pod.usb_network(False) is False and sent[-1] == {"cmd": "usb_network", "enabled": False}

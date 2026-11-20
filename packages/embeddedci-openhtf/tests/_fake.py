@@ -83,7 +83,7 @@ class FakeTransport(Transport):
         self.inputs = 0
         #: The statistics a power_profile reply carries (µA / mV / µJ / µC, as the firmware sends).
         self.power_stats: Dict[str, Any] = {
-            "efuse": 1, "rate_hz": 364.0, "adc_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000,
+            "efuse": 1, "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 950, "duration_ms": 1000, "avg_ua": 52_000,
             "min_ua": 40_000, "peak_ua": 180_000, "avg_mv": 5010, "min_mv": 4990, "max_mv": 5030,
             "energy_uj": 260_500, "charge_uc": 52_000, "fault": False, "truncated": False}
         #: The bin-averaged trace it carries (µs / µA / mV).
@@ -122,10 +122,9 @@ class FakeTransport(Transport):
         if cmd == "analog_path":
             return {"path": req.get("path"), "u55": 0x03, "u58": 0x09}
         if cmd == "dac_out":
-            has_v = "volts" in req
+            has_v = "v" in req
             return {"path": req.get("path"),
-                    "mv": int(round(float(req["volts"]) * 1000)) if has_v else 0,
-                    "code": 128 if has_v else -1}
+                    **({"mv": int(round(float(req["v"]) * 1000)), "code16": 32768} if has_v else {})}
         if cmd == "generate":
             return {"cotrig": bool(req.get("on_capture", False))}
         if cmd == "current_out":
@@ -144,7 +143,7 @@ class FakeTransport(Transport):
             return {"armed": True, "k": req.get("k"), "vmin": req.get("vmin"),
                     "vmax": req.get("vmax"), "tick_div": req.get("tick_div"), "curve_pts": 256}
         if cmd == "dac_loop_probe":
-            return {"i": 4096, "v": 51000}
+            return {"i": 4096, "code16": 51000}
         if cmd == "fpga_image":
             if self.image is not None:
                 self.image = req.get("image")

@@ -1226,7 +1226,7 @@ class BenchPod:
         self._apply_profile_pulls(w)
         cmd = self._pod_cmd()
         if w.profile_name and cmd is not None and type(self._transport).__name__ != "SerialTransport":
-            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "state": 1,
+            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "enabled": True,
                                    "delay_ms": _seconds_to_ms(delay, "delay"), "profile": w.profile_name}
             with _classified_errors():
                 cmd(req)
@@ -1305,9 +1305,9 @@ class BenchPod:
         """
         req: Dict[str, Any] = {"cmd": "usb_network"}
         if on is not None:
-            req["set"] = "on" if on else "off"
+            req["enabled"] = bool(on)
         data = self.command(req)
-        return isinstance(data, dict) and data.get("setting") == "on"
+        return isinstance(data, dict) and data.get("enabled") is True
 
     # -- console log level --------------------------------------------------
 
@@ -1810,7 +1810,7 @@ class BenchPod:
         if volts is not None:
             if path == "off":
                 raise ValueError("volts cannot be set on the 'off' path")
-            req["volts"] = float(volts)
+            req["v"] = float(volts)
         out = DacOutput.from_reply(self.command(req))
         self._routed_dac_path = None if path == "off" else path
         self._dac_routed()
@@ -2142,7 +2142,7 @@ class BenchPod:
         8 Mbit/s. ``fd=True`` without ``data_bitrate`` is CAN FD without bit-rate switching
         (``data_bitrate=bitrate``). Without either, the bus is classic CAN."""
         check_choice(mode, CAN_MODES, "mode")
-        msg: Dict[str, Any] = {"cmd": "can_config", "bitrate": int(bitrate), "mode": mode,
+        msg: Dict[str, Any] = {"cmd": "can_start", "bitrate": int(bitrate), "mode": mode,
                                "term": bool(term)}
         if data_bitrate is None and fd:
             data_bitrate = bitrate
@@ -2214,7 +2214,7 @@ class BenchPod:
 
     def can_disable(self) -> Dict[str, Any]:
         """Stop FDCAN1 and release the peripheral."""
-        return _dict(self.command({"cmd": "can_disable"}))
+        return _dict(self.command({"cmd": "can_stop"}))
 
     def open_can(self, *, bitrate: int = 500_000, mode: CanMode = "normal",
                  term: bool = False, fd: bool = False,
@@ -2481,7 +2481,7 @@ class BenchPod:
         """``spi_start`` on four resolved channels (open_spi, and an expander's own session)."""
         self._require_capability("spi_master", "the SPI master")
         req = {"cmd": "spi_start", "sck": sck, "mosi": mosi, "miso": miso, "cs": cs,
-               "hz": int(hz), "mode": int(mode)}
+               "clock_hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
         with _classified_errors():
             info = _dict(self.command(req))
@@ -2525,7 +2525,7 @@ class BenchPod:
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= int(hz) <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
         self._require_gateware(BUS_MASTER_GATEWARE, "the I2C master")
-        req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "hz": int(hz), "pullups": pullups}
+        req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "clock_hz": int(hz), "pullups": pullups}
         if req["sda"] == req["scl"]:
             raise ValueError("sda and scl must be different LA pins")
         try:
@@ -2549,7 +2549,7 @@ class BenchPod:
         try:
             st = _dict(self.command({"cmd": "i2c_status"}))
             if st.get("active"):
-                where = f" (LA{st.get('sda')} SDA, LA{st.get('scl')} SCL, {st.get('hz')} Hz)"
+                where = f" (LA{st.get('sda')} SDA, LA{st.get('scl')} SCL, {st.get('clock_hz')} Hz)"
         except Exception:
             pass
         return (f"{prefix}i2c busy: another connection to this pod holds its I2C master{where}, "
@@ -3069,7 +3069,7 @@ class BenchPod:
         d = _dict(self.command({"cmd": "dac_loop_probe"}))
         raw_in = d.get("in")
         return _control_loop.IVPoint(
-            i=int(d.get("i", 0)), v=int(d.get("v", 0)),
+            i=int(d.get("i", 0)), v=int(d.get("code16", 0)),
             input_code=None if raw_in is None else int(raw_in),
             source=d.get("source"),
             tripped=None if d.get("tripped") is None else bool(d.get("tripped")))
@@ -3217,9 +3217,9 @@ class BenchPod:
         if dac_path and route:
             self._route_output(dac_path)
         replay_req: Dict[str, Any] = {"cmd": "replay", "samples": n_samples}
-        mhz = _capture.rate_mhz(sample_rate_hz)
-        if mhz is not None:
-            replay_req["sample_rate_mhz"] = mhz
+        rate = _capture.rate_hz(sample_rate_hz)
+        if rate is not None:
+            replay_req["sample_rate_hz"] = rate
         if on_capture:
             replay_req["on_capture"] = True
         d = _dict(fn(data=code_bytes, replay=replay_req, psram=deep))
@@ -4122,7 +4122,7 @@ class BenchPod:
         self._require_capability("power_profile", "power profiles")
         # The API takes hertz as a float like every other rate, but the firmware's JSON parser
         # wants a whole number here — send 1000, not 1000.0.
-        return {"cmd": "power_profile", "efuse": rail, "rate_hz": int(round(rate_hz)),
+        return {"cmd": "power_profile", "efuse": rail, "sample_rate_hz": int(round(rate_hz)),
                 "keep_samples": int(keep_samples)}
 
     def _power_profile_chunks(self, req: Dict[str, Any]) -> Iterator[Dict[str, Any]]:

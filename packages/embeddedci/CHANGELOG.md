@@ -45,6 +45,14 @@ Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
   helpers default to port 8443. `connection 'usb'` falls back to the pod's LAN address over TLS.
   mDNS: `DiscoveredPod` has `tls_port`, `api`, `https_only` and `supported`; its `addr` uses the
   TLS port, and `discover` refuses a single pod with firmware 3.x (`FirmwareTooOldError`).
+- **Firmware 4.0 JSON names.** The public SDK names stay; the wire follows the firmware: rates in
+  hertz (`sample_rate_hz` on capture, la_capture, replay, sensor_la and generate;
+  `adc_sample_rate_hz`/`la_sample_rate_hz` on capture_dual and in the chunk replies;
+  `sample_rate_hz` for power profiles), `freq_hz`, `clock_hz` (i2c_start, spi_start and their
+  replies), `dac_out` `v` and reply `code16` (`DacOutput.code` is now its high byte),
+  `code16` in the loop probe and input replies, `can_start`/`can_stop`, CAN `ts_ms`,
+  `target_power` `enabled` (booleans in `target_status` too), `usb_network` `enabled` (a boolean
+  in and out; `status.usb.enabled` and `status.usb.net` are booleans).
 - `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
   flat-cable DAC pinouts (the DAC is off).
 - Error catalog synced (`BP0031` to `BP0080`); features table revision 11.

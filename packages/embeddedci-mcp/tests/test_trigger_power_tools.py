@@ -67,7 +67,7 @@ def test_the_schema_bounds_the_trigger_arguments(connected):
 
 def test_measure_power_reports_statistics_in_si_units(connected):
     result = call("measure_power", duration=1.0)
-    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500,
+    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 0, "duration_ms": 1000}
     assert result["efuse"] == 1 and result["n"] == 950
     # the delivered rate, with the sensor's configured conversion rate beside it
@@ -85,7 +85,7 @@ def test_measure_power_reports_statistics_in_si_units(connected):
 def test_measure_power_returns_a_trace_when_points_are_asked_for(connected):
     result = call("measure_power", duration=1.0, points=4, efuse=2, rate_hz=500)
     assert connected.requests[-1]["keep_samples"] == 4 and connected.requests[-1]["efuse"] == 2
-    assert connected.requests[-1]["rate_hz"] == 500.0
+    assert connected.requests[-1]["sample_rate_hz"] == 500
     assert result["trace_current"] == [0.04, 0.18, 0.05, 0.048]
     assert result["trace_voltage"] == [5.01, 4.99, 5.0, 5.005]
     assert result["trace_step"] == pytest.approx(0.25)
@@ -101,7 +101,7 @@ def test_measure_power_downsamples_a_long_trace(connected):
 def test_power_profile_session_brackets_other_calls(connected):
     started = call("power_profile_start", rate_hz=500, max_duration=5)
     assert started == {"running": True, "efuse": 1, "rate_hz": 500.0, "max_duration": 5.0}
-    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "rate_hz": 500.0,
+    assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 4096, "max_duration_ms": 5000,
                                       "action": "start"}
     assert call("status")["session"]["power_profile_running"] is True

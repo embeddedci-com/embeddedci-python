@@ -379,28 +379,26 @@ class DacOutput:
     #: The voltage the calibrated DAC actually produces (the nearest code to what was asked),
     #: or ``None`` when the call only routed the path.
     voltage: Optional[float]
-    #: The DAC code driving it as an 8-bit level (0..255), or ``None`` when only routed.
+    #: The DAC code driving it as an 8-bit level (0..255: the high byte of :attr:`code16`), or
+    #: ``None`` when only routed.
     code: Optional[int]
-    #: The full 16-bit DAC code driving it, or ``None`` when only routed or on firmware that
-    #: drives ``dac_out`` at 8 bits (before 3.8.1).
+    #: The 16-bit DAC code driving it, or ``None`` when only routed.
     code16: Optional[int] = None
     raw: Dict[str, Any] = _raw()
 
     @classmethod
     def from_reply(cls, reply: Any) -> "DacOutput":
         d = _d(reply)
-        code = _opt_int(d, "code")
-        routed_only = code is None or code < 0
+        code16 = _opt_int(d, "code16")
         # The firmware answers with the analog-path name (dac_5v); report the output-path name the
         # caller used (5v) so the result speaks the same vocabulary as dac_output's argument.
         path = str(d.get("path", ""))
         path = path[len("dac_"):] if path.startswith("dac_") else path
-        if routed_only:
+        if code16 is None or code16 < 0:   # only routed
             return cls(path=path, voltage=None, code=None, raw=d)
-        # A 16-bit pod also answers in microvolts: one step is well under a millivolt.
         uv = _opt_int(d, "uv")
         voltage = uv / 1e6 if uv is not None else (_opt_int(d, "mv") or 0) / 1000.0
-        return cls(path=path, voltage=voltage, code=code, code16=_opt_int(d, "code16"), raw=d)
+        return cls(path=path, voltage=voltage, code=code16 >> 8, code16=code16, raw=d)
 
 
 @dataclass(frozen=True)
@@ -673,7 +671,7 @@ class LoopState:
     def from_reply(cls, reply: Any) -> "LoopState":
         d = _d(reply)
         return cls(source=d.get("source"), input_code=_opt_int(d, "input") or 0,
-                   step=_opt_int(d, "step") or 0, output_code=_opt_int(d, "v") or 0, raw=d)
+                   step=_opt_int(d, "step") or 0, output_code=_opt_int(d, "code16") or 0, raw=d)
 
 
 __all__: List[str] = [

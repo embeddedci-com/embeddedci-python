@@ -129,7 +129,7 @@ def test_control_loop_raises_if_not_armed():
 
 
 def test_loop_probe_returns_ivpoint():
-    bp, t = _bp({"dac_loop_probe": {"i": 4321, "v": 51000}})
+    bp, t = _bp({"dac_loop_probe": {"i": 4321, "code16": 51000}})
     pt = bp.loop_probe()
     assert isinstance(pt, IVPoint) and pt.i == 4321 and pt.v == 51000
     assert t.commands[-1] == {"cmd": "dac_loop_probe"}
@@ -159,7 +159,7 @@ def test_control_loop_sends_the_input_map():
 
 
 def test_handle_probe_delegates_to_client():
-    bp, t = _bp({"dac_control_loop": {"armed": True}, "dac_loop_probe": {"i": 7, "v": 9}})
+    bp, t = _bp({"dac_control_loop": {"armed": True}, "dac_loop_probe": {"i": 7, "code16": 9}})
     with bp.control_loop(voc_code=1000) as loop:
         pt = loop.probe()
         assert pt.i == 7 and pt.v == 9
@@ -326,7 +326,7 @@ def test_control_loop_rejects_a_bad_source_before_sending():
 
 
 def test_loop_input_steps_a_running_loop():
-    bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "v": 123}})
+    bp, t = _bp({"dac_loop_input": {"source": "fixed", "input": 65535, "step": 0, "code16": 123}})
     out = bp.loop_input(65535, source="fixed")
     assert t.commands[-1] == {"cmd": "dac_loop_input", "input": 65535, "source": "fixed"}
     assert isinstance(out, LoopState) and out.input_code == 65535 and out.output_code == 123
@@ -337,7 +337,7 @@ def test_loop_input_steps_a_running_loop():
 
 def test_handle_set_input_updates_its_view():
     bp, t = _bp({"dac_control_loop": {"armed": True, "source": "fixed", "input": 0},
-                 "dac_loop_input": {"source": "fixed", "input": 32768, "step": 0, "v": 9}})
+                 "dac_loop_input": {"source": "fixed", "input": 32768, "step": 0, "code16": 9}})
     loop = bp.control_loop(curve=[1, 2], source="fixed", input_code=0)
     loop.set_input(32768)
     assert loop.input_code == 32768 and loop.source == "fixed"
@@ -347,11 +347,11 @@ def test_handle_set_input_updates_its_view():
 def test_loop_probe_reports_the_loops_own_input():
     # In a fixed/sweep run `i` is an ADC reading nothing is using; `in` is what the loop indexed
     # the curve with. loop_input must prefer it — that is the value a test asserts against.
-    bp, _ = _bp({"dac_loop_probe": {"i": 64000, "in": 32768, "source": "fixed", "v": 20000}})
+    bp, _ = _bp({"dac_loop_probe": {"i": 64000, "in": 32768, "source": "fixed", "code16": 20000}})
     pt = bp.loop_probe()
     assert pt.loop_input == 32768 and pt.source == "fixed" and pt.i == 64000
     # Older firmware omits both: there the ADC IS the input by construction.
-    bp2, _ = _bp({"dac_loop_probe": {"i": 4321, "v": 51000}})
+    bp2, _ = _bp({"dac_loop_probe": {"i": 4321, "code16": 51000}})
     pt2 = bp2.loop_probe()
     assert pt2.input_code is None and pt2.loop_input == 4321
 

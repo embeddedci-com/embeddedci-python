@@ -51,7 +51,7 @@ def test_target_power_no_delay_omits_field():
     pod = FakePod()
     try:
         TcpTransport(pod.addr, timeout=2).target_power(1, True)
-        assert pod.requests[-1] == {"cmd": "target_power", "efuse": 1, "state": 1}
+        assert pod.requests[-1] == {"cmd": "target_power", "efuse": 1, "enabled": True}
     finally:
         pod.close()
 
@@ -61,7 +61,7 @@ def test_target_power_with_delay_sends_delay_ms():
     try:
         TcpTransport(pod.addr, timeout=2).target_power(2, True, 2000)
         assert pod.requests[-1] == {
-            "cmd": "target_power", "efuse": 2, "state": 1, "delay_ms": 2000
+            "cmd": "target_power", "efuse": 2, "enabled": True, "delay_ms": 2000
         }
     finally:
         pod.close()
@@ -73,6 +73,6 @@ def test_client_power_on_delay_seconds_to_ms():
         device = BenchPod(transport=TcpTransport(pod.addr, timeout=2))
         device.power_on(bp.INTERNAL, delay=1.5)
         assert pod.requests[-1]["delay_ms"] == 1500
-        assert pod.requests[-1]["state"] == 1
+        assert pod.requests[-1]["enabled"] is True
     finally:
         pod.close()

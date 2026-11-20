@@ -608,7 +608,7 @@ def test_pulls(connected):
 def test_analog_tools(connected):
     assert call("analog_path", path="cal1") == {"path": "cal1", "range": None}
     out = call("dac_output", path="5v", volts=2.5)
-    assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": None}
+    assert out == {"path": "5v", "voltage": 2.5, "code": 128, "code16": 32768}
     assert call("dac_output", path="off")["voltage"] is None
     assert call("adc_read", source="ext")["voltage"] == pytest.approx(3.301)
     assert call("adc_read", source="ext")["offset"] is None
@@ -852,7 +852,7 @@ def test_can_fd_tools(connected):
     SESSION.require().refresh_capabilities()
     opened = call("can_open", mode="internal", bitrate=500_000, data_bitrate=2_000_000)
     assert opened["fd"] is True and opened["data_bitrate"] == 2_000_000
-    cfg = [r for r in connected.requests if r["cmd"] == "can_config"][-1]
+    cfg = [r for r in connected.requests if r["cmd"] == "can_start"][-1]
     assert cfg["data_bitrate"] == 2_000_000
     call("can_write", can_id=0x123, data=list(range(64)), brs=False)
     req = [r for r in connected.requests if r["cmd"] == "can_write"][-1]

@@ -6,8 +6,8 @@ are scaled to volts here using the device :class:`~embeddedci.benchpod.capabilit
 — mirroring the server's ADC affine model — so a test gets calibrated volts regardless of
 transport, without needing the server's orchestration endpoints.
 
-The public API speaks hertz and seconds; the firmware's ``*_rate_mhz`` / ``*_us`` wire fields are
-produced only here.
+The public API speaks hertz and seconds, as the firmware's ``*_sample_rate_hz`` wire fields do;
+its ``*_us`` fields are produced only here.
 """
 
 from __future__ import annotations
@@ -55,7 +55,8 @@ def _apply_trigger(req: dict, trigger: Optional[Trigger], timeout: float) -> Non
 
 
 def rate_mhz(rate_hz: Optional[float]) -> Optional[float]:
-    """Hertz → the firmware's ``sample_rate_mhz`` (``None`` stays ``None`` = device default)."""
+    """Hertz → the embeddedci.com server's ``sample_rate_mhz`` (``None`` stays ``None`` = the
+    default). The pod itself takes hertz (:func:`rate_hz`)."""
     if rate_hz is None:
         return None
     if rate_hz <= 0:
@@ -150,14 +151,14 @@ def capture_adc(transport: Any, caps: Capabilities, *, samples: int = 4096,
         adc.source = source
         return adc
     req: dict = {"cmd": "capture", "samples": n}
-    mhz = rate_mhz(sample_rate_hz)
-    if mhz is not None:
-        req["sample_rate_mhz"] = mhz
+    rate_req = rate_hz(sample_rate_hz)
+    if rate_req is not None:
+        req["sample_rate_hz"] = rate_req
     counts: List[int] = []
     rate = 0.0
     for chunk in _stream_or_samples(transport, req):
-        if chunk.get("adc_rate_hz"):
-            rate = float(chunk["adc_rate_hz"])
+        if chunk.get("adc_sample_rate_hz"):
+            rate = float(chunk["adc_sample_rate_hz"])
         counts.extend(_dense(chunk))
     volts = [caps.counts_to_volts(c) for c in counts]
     return Capture(counts=counts, volts=volts, sample_rate_hz=_rate_hz(rate, sample_rate_hz),
@@ -231,9 +232,9 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     gateware < v21.
     """
     req: dict = {"cmd": "la_capture", "samples": _check_samples(samples)}
-    mhz = rate_mhz(sample_rate_hz)
-    if mhz is not None:
-        req["sample_rate_mhz"] = mhz
+    rate_req = rate_hz(sample_rate_hz)
+    if rate_req is not None:
+        req["sample_rate_hz"] = rate_req
     stop_us = _us(stop_dac_after, "stop_dac_after")
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
@@ -250,8 +251,8 @@ def capture_la(transport: Any, *, samples: int = 4096, sample_rate_hz: Optional[
     for chunk in _stream_or_samples(transport, req):
         if isinstance(chunk.get("send"), dict):
             sent = SendResult.from_reply(chunk["send"])
-        if chunk.get("la_rate_hz"):
-            rate = float(chunk["la_rate_hz"])
+        if chunk.get("la_sample_rate_hz"):
+            rate = float(chunk["la_sample_rate_hz"])
         if chunk.get("pre_samples"):
             pre = int(chunk["pre_samples"])
         if chunk.get("truncated"):
@@ -319,12 +320,12 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
     if getattr(transport, "stream_chunks", None) is None:
         raise BenchPodError("capture_correlated needs a streaming transport (TCP, serial or cloud)")
     req: dict = {"cmd": "capture_dual", "adc_samples": adc_samples, "la_samples": la_samples}
-    adc_mhz = rate_mhz(adc_sample_rate_hz)
-    la_mhz = rate_mhz(la_sample_rate_hz)
-    if adc_mhz is not None:
-        req["adc_rate_mhz"] = adc_mhz
-    if la_mhz is not None:
-        req["la_rate_mhz"] = la_mhz
+    adc_rate = rate_hz(adc_sample_rate_hz)
+    la_rate = rate_hz(la_sample_rate_hz)
+    if adc_rate is not None:
+        req["adc_sample_rate_hz"] = adc_rate
+    if la_rate is not None:
+        req["la_sample_rate_hz"] = la_rate
     stop_us = _us(stop_dac_after, "stop_dac_after")
     if stop_us > 0:
         req["stop_dac_after_us"] = stop_us
@@ -335,10 +336,10 @@ def capture_correlated(transport: Any, caps: Capabilities, *, adc_samples: int =
     la_dense: List[int] = []
     adc_rate = la_rate = 0.0
     for chunk in transport.stream_chunks(req):
-        if chunk.get("adc_rate_hz"):
-            adc_rate = float(chunk["adc_rate_hz"])
-        if chunk.get("la_rate_hz"):
-            la_rate = float(chunk["la_rate_hz"])
+        if chunk.get("adc_sample_rate_hz"):
+            adc_rate = float(chunk["adc_sample_rate_hz"])
+        if chunk.get("la_sample_rate_hz"):
+            la_rate = float(chunk["la_sample_rate_hz"])
         if chunk.get("la"):
             edges = chunk.get("la_edges") or []
             la_edges.extend([int(e[0]), int(e[1])] for e in edges)

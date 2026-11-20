@@ -216,7 +216,7 @@ def test_wait_for_level_times_out():
 
 def test_pin_levels_fall_back_to_a_capture_without_gpio_read():
     pod = PinPod(caps=["la", "la_pins"])
-    pod.stream_chunks = lambda req: iter([{"status": "ok", "data": [0, 0b100000000], "la_rate_hz": 1e6,
+    pod.stream_chunks = lambda req: iter([{"status": "ok", "data": [0, 0b100000000], "la_sample_rate_hz": 1e6,
                                            "more": False}])  # type: ignore[attr-defined]
     bp, _ = _bp(pod)
     levels = bp.pin_levels()
