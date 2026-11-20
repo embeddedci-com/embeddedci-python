@@ -61,6 +61,9 @@ Pairs with BenchPod firmware 4.0.0 (client API 2). Breaking changes:
   `PULL_TABLE`); `transport.serial.RP_VID`; the `serial` connection keyword (use `usb`); the
   CLI config's legacy `bench_pod_addr`; an LA channel number as `upload_build`'s reset input (a
   flag only); `CanBus.expect(can_id=)` and `read_until(can_id=)` (pass the id as `match`).
+- `TriggerTimeout.edge` is `"start"` for an emulated sensor's bus capture (`BP0039`, an I2C START);
+  it was `"falling"` from the 3.x text. Over the USB console the firmware version is checked on
+  connect, and a network-only call says it is a network command.
 - `ModuleInfo.dac_pinout_ok`: `False` when the digital board and the analog module use different
   flat-cable DAC pinouts (the DAC is off).
 - Error catalog synced (`BP0031` to `BP0080`); features table revision 11.

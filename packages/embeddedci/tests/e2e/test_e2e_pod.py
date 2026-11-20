@@ -569,8 +569,8 @@ def _measure(pod, waveform: str, samples: int):
     """Volts of one firmware ``measure``: one DAC period of ``samples`` points, captured by the ADC
     phase-locked to it. The SDK does not wrap it, so this goes through the raw command."""
     np = pytest.importorskip("numpy")
-    counts = pod.command({"cmd": "measure", "waveform": waveform, "freq": 1000,
-                          "samples": samples})
+    counts = pod.command({"cmd": "measure", "waveform": waveform, "freq_hz": 1000,
+                          "samples": samples, "enc": "dec"})   # decimal: the default is base64
     assert len(counts) == samples, (waveform, samples, len(counts))
     return np.array([pod.capabilities.counts_to_volts(c) for c in counts])
 
@@ -995,12 +995,13 @@ def test_bias_resistors_report_their_direction(pod):
 @FREE_PULL_LA
 def test_bias_resistors_are_direction_aware(pod, bench):
     ch = bench.free_pull_la
-    before = pod.pull_state(ch).enabled
+    before = pod.pull_state(ch)
+    flip = "off" if before.enabled else before.supported[0]
     try:
-        assert pod.set_pull(ch, not before).enabled == (not before)
-        assert (ch in pod.enabled_pulls()) == (not before)
+        assert pod.set_pull(ch, flip).enabled == (not before.enabled)
+        assert (ch in pod.enabled_pulls()) == (not before.enabled)
     finally:
-        pod.set_pull(ch, before)
+        pod.set_pull(ch, before.state)
 
 
 @pytest.fixture
@@ -1042,7 +1043,8 @@ def test_sensor_emulation(pod, sensors, bench):
         try:
             txns = s.i2c_transactions(1024, timeout_s=0.5)
         except TriggerTimeout as exc:
-            assert exc.la == bench.i2c_sda and exc.edge == "falling", exc
+            # BP0039: the SDK names the trigger "start" (an I2C START), not an edge.
+            assert exc.code == "BP0039" and exc.la == bench.i2c_sda and exc.edge == "start", exc
             assert time.monotonic() - t0 >= 0.4, "the pod gave up before the timeout"
         else:
             assert txns, "a triggered sensor capture holds no transaction"

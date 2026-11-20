@@ -3568,6 +3568,8 @@ class BenchPod:
         try:
             if type(self._transport).__name__ == "SerialTransport":
                 self.pin_directions_status = "not sent: the USB console has no la_dir"
+                # connect's client API check: the console announces no level, its version decides
+                self._check_client_api(Capabilities.from_status(_dict(self._caps_status())))
                 return
             # The cached capabilities when there are some; else one status read that is not cached
             # (the first real use of capabilities reads and caches them as before). It is also

@@ -388,10 +388,10 @@ class SerialTransport(Transport):
 
     @staticmethod
     def _unsupported(what: str) -> str:
-        return (f"{what!r} is not available over this pod's USB console, which only answers "
-                "status and ping; connect over the network (host[:port]) or the cloud "
-                "(embeddedci:<device>) for it. Connection 'usb' reaches the full API over the "
-                "pod's USB network adapter (off while Wi-Fi is configured on the pod)")
+        return (f"{what!r} is not on this pod's USB console, which answers status and ping "
+                "only: it is a network command. Connection 'usb' reaches the full API over the "
+                "pod's USB network adapter (off while Wi-Fi is configured on the pod); a network "
+                "address (host[:port]) or the cloud (embeddedci:<device>) works too")
 
     def command(self, req: dict) -> Any:
         """Answer a JSON command through its text-console equivalent: the commands in
