@@ -115,7 +115,11 @@ def test_current_loop_terminals(connected):
         assert rng["current"] is None and 0.0039 < rng["min_current"] < 0.0042 < 0.0199 < rng["max_current"]
         held = call("current_out", current=0.012)
         assert abs(held["current"] - 0.012) < 2e-6
-        if connected["firmware"].get("board_rev") == "v3r2":
+        # The quad DAC (analog v3r2, or any board with an analog module: firmware dac_quad_for_board)
+        # drives the 4-20 mA output from its own channel, which the 5 V loopback does not see.
+        fw = connected["firmware"]
+        module = fw.get("module") if isinstance(fw.get("module"), dict) else {}
+        if fw.get("board_rev") == "v3r2" or (module.get("present") and module.get("analog")):
             pytest.skip("quad DAC: the 5 V loopback does not see the 4-20 mA output; needs the J9 fixture")
         want = (0.012 - rng["min_current"]) / (rng["max_current"] - rng["min_current"]) * 65535 / 65536 * 4.99
         time.sleep(0.1)
