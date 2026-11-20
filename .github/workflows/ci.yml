@@ -4,8 +4,14 @@ on:
   push:
     branches: ["**"]
   pull_request:
-  # publish.yml calls this workflow so a release tag publishes only after the same tests pass.
+  # publish.yml calls this workflow so a release tag publishes only after the same tests pass,
+  # with every supported Python. Pushes and pull requests test the newest Python only.
   workflow_call:
+    inputs:
+      all-pythons:
+        description: "Test every supported Python version (releases), not only the newest"
+        type: boolean
+        default: false
 
 # Tests only read the repo. (Called from publish.yml, this cannot widen the caller's token either.)
 permissions:
@@ -18,7 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Pushes and pull requests: the newest Python. Releases (publish.yml): all of them.
+        python-version: ${{ fromJSON(inputs.all-pythons && '["3.10", "3.11", "3.12", "3.13", "3.14"]' || '["3.14"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -47,10 +54,23 @@ jobs:
         run: |
           pytest -q scripts
           python scripts/check_release_tag.py --consistency
+
+  openhtf:
+    # The OpenHTF plug supports Python 3.10-3.13 (openhtf has no 3.14 build): pushes test the newest
+    # of those, releases all of them.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(inputs.all-pythons && '["3.10", "3.11", "3.12", "3.13"]' || '["3.13"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install + test the OpenHTF plug
-        # Tested on the Python versions the package declares (3.10-3.13).
-        if: matrix.python-version != '3.14'
         run: |
+          python -m pip install -e "packages/embeddedci[dev]"
           python -m pip install -e "packages/embeddedci-openhtf[dev]"
           pytest -q packages/embeddedci-openhtf
 
@@ -62,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.13"]
+        python-version: ${{ fromJSON(inputs.all-pythons && '["3.10", "3.14"]' || '["3.14"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
