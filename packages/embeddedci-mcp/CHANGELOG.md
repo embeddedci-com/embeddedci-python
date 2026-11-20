@@ -2,13 +2,12 @@
 
 ## 4.0.1
 
-Not released yet.
+Not released yet. Needs embeddedci 4.0.1.
 
 - **`decode_la` decodes USB** full and low speed: `protocol="usb"`, `dp`, `dm`, `speed`
   (`auto`, `full`, `low`). `items` are transactions, `transfers` the control transfers (an
   enumeration as a list), with `speed`, `errors` and `sof_count`. `benchpod://capture/decode`
-  carries the packets, transactions and transfers. USB needs embeddedci 4.0.1; with 4.0.0 the
-  tool says to upgrade.
+  carries the packets, transactions and transfers.
 
 ## 4.0.0
 
