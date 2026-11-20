@@ -8,7 +8,7 @@ no EmbeddedCI cloud account or web UI required.
     import openhtf as htf
     from embeddedci_openhtf import benchpod_plug, flash_phase, boot_banner_phase
 
-    bench = benchpod_plug("192.168.1.50:8080", la_voltage=3.3)   # or "/dev/ttyACM0"
+    bench = benchpod_plug("192.168.1.50", la_voltage=3.3)   # or "/dev/ttyACM0"
 
     test = htf.Test(
         flash_phase(bench, file="fw.elf", target="target/stm32f4x.cfg",

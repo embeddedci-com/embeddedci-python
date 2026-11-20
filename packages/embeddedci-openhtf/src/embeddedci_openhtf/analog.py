@@ -15,7 +15,7 @@ The ``bench`` argument to every helper is a connected :class:`~embeddedci.benchp
 *or* a :class:`~embeddedci_openhtf.BenchPodPlug` (the plug proxies the SDK methods), so inside a
 phase you can pass the injected ``bench`` straight through::
 
-    @htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
+    @htf.plug(bench=benchpod_plug("192.168.1.50"))
     def stim(test, bench):
         signal_generate(bench, waveform="sine", freq_hz=1000, amplitude=1.0)   # 1 V peak on 5V path
 

@@ -5,7 +5,7 @@ banner — connecting **directly** to the pod over TCP (no EmbeddedCI cloud).
 Run it against a pod on your LAN::
 
     pip install embeddedci-openhtf
-    python flash_and_boot.py --pod 192.168.1.50:8080 --firmware fw.elf
+    python flash_and_boot.py --pod 192.168.1.50 --firmware fw.elf
 
 Needs `openocd` on PATH (the pod is the CMSIS-DAP probe; OpenOCD drives the flash
 algorithm). The bench wiring below — which LA channel carries SWCLK/SWDIO and the

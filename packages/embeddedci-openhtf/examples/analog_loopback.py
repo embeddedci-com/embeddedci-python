@@ -9,7 +9,7 @@ calibrated **volts** — the canonical analog signal-path self-test. Wire the po
 filter/amplifier whose response you want to check).
 
     pip install embeddedci-openhtf
-    python analog_loopback.py --pod 192.168.1.50:8080
+    python analog_loopback.py --pod 192.168.1.50
 
 Units follow the embeddedci SDK: amplitude/offset/limits in volts, durations in
 seconds, frequencies and sample rates in hertz.

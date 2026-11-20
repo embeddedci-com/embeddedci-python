@@ -9,7 +9,7 @@ with a ping each run and reconnected if it dropped. It is closed once at the end
 with ``close_persistent_benchpods()``.
 
     pip install embeddedci-openhtf
-    python station.py --pod 192.168.1.50:8080
+    python station.py --pod 192.168.1.50
     # enter each board's serial number when prompted; Ctrl-C to stop
 
 The pod connection stays up for the whole session; only the per-DUT test phases

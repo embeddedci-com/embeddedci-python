@@ -7,7 +7,7 @@ matching declaration/record pair for the common BenchPod results so you don't
 hand-roll the boilerplate:
 
     @htf.measures(flash_ok_measurement())
-    @htf.plug(bench=benchpod_plug("192.168.1.50:8080"))
+    @htf.plug(bench=benchpod_plug("192.168.1.50"))
     def flash(test, bench):
         result = bench.flash(file="fw.elf", target="target/stm32f4x.cfg",
                              swclk=11, swdio=12, nreset=True, check=False)
