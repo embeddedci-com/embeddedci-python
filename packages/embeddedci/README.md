@@ -1341,7 +1341,8 @@ to finish.
 
 `bp.la_pins()` lists every channel's `LaPinState` (`function`, `gpio` mode, `level`, `pull`, `pull_on`, `pull_dirs`);
 `bp.la_pins(la=[3, 4])` only those channels. A listing too large for one cloud reply (a long
-sensor instance name on every channel) is read in two parts by itself (firmware after 3.10.12),
+sensor instance name on every channel) is read in parts by itself: in pages on firmware after
+4.0.0 (`la_pins_paged`), else in two halves (firmware after 3.10.12),
 and `bp.configure_gpio(channels, mode)` is the same group claim as `gpio_pins()` returning those states.
 Captures observe every channel whatever its function. GPIO channels stay GPIO — also across
 disconnects — until released (the pytest `benchpod` fixture releases them at session start and end),

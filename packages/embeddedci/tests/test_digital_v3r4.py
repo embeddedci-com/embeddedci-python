@@ -204,3 +204,76 @@ def test_profile_takes_5v():
     assert Wiring(la_mv=5000).la_voltage == 5.0
     with pytest.raises(ValueError, match="1800, 3300 or 5000"):
         Wiring(la_mv=2500)
+
+
+class PagedPod(Pod):
+    """Firmware with la_pins_paged (features rev 12): a reply carries at most ``page`` pins and
+    says ``next``; ``from`` continues there, with or without ``la``."""
+
+    def __init__(self, page: int = 5, features_rev: int = 12) -> None:
+        super().__init__(True, features_rev)
+        self.page = page
+        self.bad_next = False
+
+    def command(self, req: dict) -> Any:
+        if req.get("cmd") != "la_pins":
+            return super().command(req)
+        self.sent.append(req)
+        want = req.get("la") or list(range(1, 15))
+        if self.features_rev < 12:   # older firmware ignores "from"
+            start = 1
+        else:
+            start = req.get("from", 1)
+        todo = [n for n in want if n >= start]
+        out: Dict[str, Any] = {"pins": [self._entry(n) for n in todo[:self.page]],
+                               "pull_dirs": ["up", "down"], "levels": len(self.sent)}
+        if len(todo) > self.page:
+            out["next"] = 1 if self.bad_next else todo[self.page]
+        return out
+
+
+def test_la_pins_pages_with_from_and_next():
+    pod = PagedPod(page=5)
+    bp = BenchPod(transport=pod, lease=False, wiring={"version": 2})
+    assert bp.supports("la_pins_paged")
+    pins = bp.la_pins()
+    assert [p.la for p in pins] == list(range(1, 15))
+    assert all(p.pull_dirs == ("up", "down") for p in pins)
+    assert [r for r in pod.sent if r["cmd"] == "la_pins"] == [
+        {"cmd": "la_pins"}, {"cmd": "la_pins", "from": 6}, {"cmd": "la_pins", "from": 11}]
+
+
+def test_la_pins_pages_a_subset_with_the_same_la():
+    pod = PagedPod(page=2)
+    bp = BenchPod(transport=pod, lease=False, wiring={"version": 2})
+    pins = bp.la_pins(la=[2, 4, 6, 8, 10])
+    assert [p.la for p in pins] == [2, 4, 6, 8, 10]
+    assert [r for r in pod.sent if r["cmd"] == "la_pins"] == [
+        {"cmd": "la_pins", "la": [2, 4, 6, 8, 10]},
+        {"cmd": "la_pins", "la": [2, 4, 6, 8, 10], "from": 6},
+        {"cmd": "la_pins", "la": [2, 4, 6, 8, 10], "from": 10}]
+
+
+def test_la_pins_listing_that_fits_is_one_round_trip():
+    pod = PagedPod(page=14)
+    bp = BenchPod(transport=pod, lease=False, wiring={"version": 2})
+    assert len(bp.la_pins()) == 14
+    assert [r for r in pod.sent if r["cmd"] == "la_pins"] == [{"cmd": "la_pins"}]
+
+
+def test_la_pins_stops_when_next_does_not_move_forward():
+    pod = PagedPod(page=5)
+    pod.bad_next = True
+    bp = BenchPod(transport=pod, lease=False, wiring={"version": 2})
+    pins = bp.la_pins()
+    assert [p.la for p in pins] == [1, 2, 3, 4, 5]
+    assert len([r for r in pod.sent if r["cmd"] == "la_pins"]) == 1
+
+
+def test_la_pins_ignores_next_without_the_feature():
+    # Firmware before la_pins_paged never says next; if a reply did, the SDK would not page.
+    pod = PagedPod(page=5, features_rev=11)
+    bp = BenchPod(transport=pod, lease=False, wiring={"version": 2})
+    assert not bp.supports("la_pins_paged")
+    assert [p.la for p in bp.la_pins()] == [1, 2, 3, 4, 5]
+    assert [r for r in pod.sent if r["cmd"] == "la_pins"] == [{"cmd": "la_pins"}]
