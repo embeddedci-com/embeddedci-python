@@ -1,5 +1,16 @@
 # Changelog — `embeddedci-mcp`
 
+## 4.0.1
+
+For BenchPod firmware 4.0.1; needs embeddedci 4.0.1.
+
+- **LAN pairing.** Firmware 4.0.1 answers a computer on Ethernet or Wi-Fi only after it is paired.
+  The server connects with this computer's TLS client key (shared with the `benchpod` CLI and the
+  SDK). An unpaired computer gets `BP0081`, whose fix tells the agent to have the user pair it
+  once over USB (`benchpod setup`) or use the cloud.
+- **`la_pins` gets all 14 pins over the cloud**, even with long sensor names (firmware 4.0.1 pages
+  the listing).
+
 ## 4.0.0
 
 Pairs with BenchPod firmware 4.0.0 and embeddedci 4.0. Breaking changes:
