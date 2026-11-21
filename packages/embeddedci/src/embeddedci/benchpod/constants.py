@@ -119,7 +119,7 @@ ReplayMapping = Literal["faithful", "fit"]
 #: Where the in-fabric control loop takes its input from.
 LoopSource = Literal["adc", "fixed", "sweep"]
 #: Protocols the off-device LA decoder understands.
-DecodeProtocol = Literal["i2c", "uart", "spi"]
+DecodeProtocol = Literal["i2c", "uart", "spi", "usb", "modbus", "can", "pwm", "onewire", "smbus", "pmbus"]
 #: FDCAN operating mode; ``internal``/``external`` are loopbacks for a lone pod.
 CanMode = Literal["normal", "internal", "external", "listen"]
 #: A fault spliced into a replayed waveform.

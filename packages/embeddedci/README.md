@@ -1945,6 +1945,11 @@ frames = bp.decode(la, "uart", rx=5, baud=115200)
 print(decode.uart_text(frames))
 words = la.decode("spi", sclk=1, mosi=2, miso=3, cs=4)
 
+usb = bp.capture_la(480_000, sample_rate_hz=48_000_000)  # 10 ms of a full-speed bus
+enum = usb.decode("usb", dp=7, dm=8)                     # speed from the idle state
+for t in enum.transfers:                                  # control transfers: the enumeration
+    print(t.request, t.status, t.detail)                  # GET_DESCRIPTOR DEVICE length 64 OK USB 2.00, ...
+
 both = bp.capture_correlated(adc_samples=4096, adc_sample_rate_hz=400_000,
                              la_samples=4096, la_sample_rate_hz=1_000_000)
 print(both.adc.duration, both.la.duration)              # one hardware trigger: timebases align
@@ -1981,7 +1986,27 @@ about 0.44 times the returned rate.
 * `bp.decode(source, protocol, **channels)` / `LaCapture.decode(...)` — off-device decoding of
   `i2c` (`sda`, `scl`), `uart` (`rx`, `baud`, optional `data_bits`, `parity`, `stop_bits`) and `spi`
   (`sclk`, optional `mosi`, `miso`, `cs`, `mode`, `bits`, `msb_first`). Results are
-  `I2CTransaction`, `UartFrame` and `SpiFrame` lists.
+  `I2CTransaction`, `UartFrame` and `SpiFrame` lists. `usb` (`dp`, `dm`, optional `speed`:
+  `full`, `low` or `auto`) returns a `UsbDecode`: `packets` (PID, address, endpoint, frame, data,
+  CRC5/CRC16 checked, `error` per packet), `transactions` (token, data, handshake; repeated NAKs
+  merged into `count`) and `transfers` (control transfers with the SETUP request and the
+  descriptors read back decoded). Tap D+ and D- on two LA channels at the 3.3 V I/O level. Full
+  speed needs `sample_rate_hz=48_000_000`; low speed decodes from 6 MS/s. High speed is not
+  visible to the LA. `decode.decode_usb(words, dp=, dm=, sample_rate_hz=)` decodes raw words.
+* More protocols through the same `bp.decode` / `LaCapture.decode`:
+
+  | Protocol | Arguments | Result |
+  |---|---|---|
+  | `modbus` (RTU) | `rx`, `baud`; optional `tx` (two-line tap), `data_bits`, `parity` (default `even`), `stop_bits` | `ModbusFrame` list: `role` (request/response), `line` (the channel it was on), `addr`, `function_name`, `start`, `quantity`, `values`, `exception`, `summary`, `reply_to`, `response_us`, CRC checked |
+  | `can` (CAN, CAN FD) | `can` (the transceiver's RXD), `bitrate`; optional `data_bitrate`, `sample_point`, `data_sample_point` | `CanFrame` list: `id_hex`, `extended`, `fd`, `brs`, `dlc`, `len`, `data_hex`, `ack`, `kind` (data/remote/error), CRC and stuffing checked |
+  | `pwm` | `channels`; optional `servo` (read the high pulses as servo positions) | `PwmDecode`: per channel `periods` (period, frequency, high, low, duty), `freq_hz` / `duty` / `high_us` min, max, mean, `jitter_us`, `glitches`, `servo` (with `servo=True`) |
+  | `onewire` | `onewire` | `OneWireTransaction` list: `reset`, `presence`, `overdrive`, `rom_command_name`, `rom`, `rom_crc_ok`, `function`, `bytes_hex`, `detail` (a temperature) |
+  | `smbus`, `pmbus` | `sda`, `scl`; optional `pec` (`auto`, `on`, `off`) | `SmbusTransaction` list: `kind`, `command`, `command_name`, `data_hex`, `value` (PMBus: volts, amps, status bits), `pec` |
+
+  Rates: CAN needs 6 samples per data bit (2 Mbit/s data: 12 MS/s), 1-Wire 1 MS/s (4 MS/s in
+  overdrive). The modules `modbus_decode`, `can_decode`, `pwm_decode`, `onewire_decode` and
+  `smbus_decode` hold the classes and the checksums (`modbus_crc`, `can_crc`, `crc8`, `pec8`,
+  `linear11`).
 
 | `Capture` | `LaCapture` |
 |---|---|
@@ -2661,6 +2686,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `I2CByte` | `I2CMessage.data` | `value`, `ack` |
 | `UartFrame` | `decode("uart")` | `index`, `start_us`, `end_us`, `value`, `hex`, `text`, `ok`, `error` |
 | `SpiFrame` | `decode("spi")` | `index`, `start_us`, `end_us`, `mosi`, `miso`, `mosi_hex`, `miso_hex` |
+| `UsbDecode` | `decode("usb")` | `speed`, `packets`, `transactions`, `transfers`, `sof_count`, `keep_alive_count`, `error_count`, `as_dict()` |
 | `AnalogPathState` | `analog_path` | `path`, `dac_mux_register`, `cal_relay_register`, `range` |
 | `AdcReading` | `adc_read` | `source`, `voltage`, `count`, `span`, `offset`, `current`, `range`, `fullscale`, `overrange` |
 | `AdcRangeState` | `adc_range` | `range`, `supported`, `fullscale`, `normal_fullscale`, `low_fullscale`, `a`, `b` (volts, the `ext` fit of the range) |

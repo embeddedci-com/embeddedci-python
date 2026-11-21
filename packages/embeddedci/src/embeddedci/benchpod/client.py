@@ -2881,11 +2881,16 @@ class BenchPod:
         return trigger
 
     def decode(self, source: Union[LaCapture, Sequence[int]], protocol: DecodeProtocol = "i2c", *,
-               sample_rate_hz: Optional[float] = None, **channels: Any) -> list:
-        """Decode ``i2c``/``uart``/``spi`` from an LA capture (or raw 14-bit words) off-device.
+               sample_rate_hz: Optional[float] = None, **channels: Any) -> Any:
+        """Decode a protocol from an LA capture (or raw 14-bit words) off-device.
 
         Channels by protocol: i2c ``sda``, ``scl``; uart ``rx``, ``baud``; spi ``sclk`` (+ ``mosi``,
-        ``miso``, ``cs``, ``mode``). See :func:`embeddedci.benchpod.decode.decode`.
+        ``miso``, ``cs``, ``mode``); usb ``dp``, ``dm`` (+ ``speed``); modbus ``rx``, ``baud`` (+
+        ``tx``); can ``can``, ``bitrate`` (+ ``data_bitrate``, ``sample_point``); pwm ``channels``;
+        onewire ``onewire``; smbus / pmbus ``sda``, ``scl`` (+ ``pec``). USB returns a
+        :class:`~embeddedci.benchpod.usb_decode.UsbDecode`, PWM a
+        :class:`~embeddedci.benchpod.pwm_decode.PwmDecode`, the others a list. See
+        :func:`embeddedci.benchpod.decode.decode`.
         """
         from . import decode as _decode
 

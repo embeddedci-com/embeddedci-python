@@ -14,6 +14,22 @@
   `benchpod` CLI does. Without `[discovery]` it is the host name `benchpod-c2f662.local`.
   `benchpod-c2f662.local` stays a host name. New: `discovery.find_pod(short)`, which stops
   browsing as soon as that pod answers.
+- **USB decoding from the logic analyzer.** `bp.decode(la, "usb", dp=, dm=)` (and
+  `LaCapture.decode`, `decode.decode_usb`) decodes full speed (12 Mbit/s, capture at 48 MS/s) and
+  low speed (1.5 Mbit/s, 6 MS/s and more) from a passive D+/D- tap: packets with CRC5/CRC16,
+  bit stuffing and PID checks flagged per packet, transactions (token, data, handshake, repeated
+  NAKs merged) and control transfers with the SETUP request and the descriptors read back
+  decoded. Returns a `UsbDecode`; locked to the server's decoder by shared vectors.
+- **Five more LA decoders:** `modbus` (RTU on the UART decoder: request/response pairing,
+  function codes, registers and coils, exceptions, CRC), `can` (CAN 2.0 and ISO CAN FD from one
+  channel: bit stuffing, CRC15/17/21, BRS, ACK, error frames), `pwm` (per-period frequency, duty
+  and widths, summary, jitter, glitches, servo pulses), `onewire` (reset/presence, overdrive,
+  ROM commands and search, CRC8, scratchpad temperature) and `smbus`/`pmbus` (SMBus protocols,
+  PEC, PMBus command names, LINEAR11/LINEAR16 values, status bits). All locked to the server's
+  decoders by shared vectors.
+- CAN FD follows ISO 11898-1:2015 at the end of the data field (no dynamic stuff bit where the
+  CRC field's fixed stuff bit stands), accepts a late or two-bit ACK, and re-synchronizes on
+  falling edges only, so a transceiver that stretches dominant bits still decodes.
 
 ## 4.0.1
 
