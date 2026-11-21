@@ -12,6 +12,9 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
                                       :func:`~embeddedci.benchpod.transport.open_transport`)
 * ``usb:<name>``                   -> the USB pod with that name, when several are plugged in
                                       (``usb:baea06``, ``usb:benchpod-baea06``)
+* ``benchpod-a1b2c3`` / ``a1b2c3``  -> the pod with that name: its address found on the LAN over
+                                      mDNS, else ``usb:<name>`` (as the ``benchpod`` CLI does).
+                                      ``benchpod-a1b2c3.local`` stays a host name.
 * ``discover`` / ``mdns`` / ``auto`` -> find a single pod on the LAN via mDNS
 * ``embeddedci:<device-name>``     -> drive a named device through embeddedci.com (an API key
                                       anywhere, or GitHub Actions OIDC)
@@ -43,6 +46,10 @@ DISCOVER_KEYWORDS = ("discover", "mdns", "auto")
 USB_PREFIX = "usb:"
 
 _COM_RE = re.compile(r"^COM[0-9]+$", re.IGNORECASE)
+#: A pod's name as on its label and in ``discover``: ``benchpod-a1b2c3`` or ``a1b2c3`` (its identity
+#: short id). Only this exact shape is a pod name; ``benchpod-a1b2c3.local`` and every other host
+#: name go to the OS resolver (the pin of a ``.local`` name stays keyed by that name).
+_POD_NAME_RE = re.compile(r"^(?:benchpod-)?[0-9a-f]{6}$", re.IGNORECASE)
 
 
 @dataclass
@@ -140,7 +147,38 @@ def parse_connection(raw: str) -> ConnSpec:
         return _discover_one()
     if _is_device_path(s):
         return ConnSpec(kind="serial", device=s)
+    if _POD_NAME_RE.match(s):
+        return _find_named_pod(normalize_pod_name(s))
     return ConnSpec(kind="tcp", addr=_normalize_addr(s))
+
+
+def _find_named_pod(short: str) -> ConnSpec:
+    """The pod named ``benchpod-<short>``: its address when it answers on the LAN over mDNS, else
+    ``usb:<short>``, which finds it on USB. Without the ``discovery`` extra (zeroconf) it is the
+    host name ``benchpod-<short>.local``, left to the OS resolver."""
+    from .discovery import find_pod
+
+    try:
+        pod = find_pod(short)
+    except RuntimeError:  # no zeroconf
+        return ConnSpec(kind="tcp", addr=_normalize_addr(f"benchpod-{short}.local"))
+    if pod is None:
+        return ConnSpec(kind="serial", device="", pod=short)
+    _refuse_firmware_3(pod)
+    return ConnSpec(kind="tcp", addr=_normalize_addr(pod.addr))
+
+
+def _refuse_firmware_3(pod) -> None:  # noqa: ANN001 - a DiscoveredPod
+    if pod.supported:
+        return
+    from .errors import FirmwareTooOldError
+    from .feature_map import MIN_FIRMWARE
+
+    raise FirmwareTooOldError(
+        f"the BenchPod found on the LAN ({pod.name}, {pod.hostname}) announces no client API "
+        f"2: it runs firmware 3.x, and this SDK needs firmware {MIN_FIRMWARE} or later. Update "
+        "it with the BenchPod CLI (`benchpod flash-self`) or the firmware update in the web "
+        "app, or use embeddedci 3.x with it", api=pod.api or 1)
 
 
 def _discover_one() -> ConnSpec:
@@ -167,15 +205,7 @@ def _discover_one() -> ConnSpec:
             f"hostname (e.g. {pods[0].hostname}):\n{listing}"
         )
     pod = pods[0]
-    if not pod.supported:
-        from .errors import FirmwareTooOldError
-        from .feature_map import MIN_FIRMWARE
-
-        raise FirmwareTooOldError(
-            f"the BenchPod found on the LAN ({pod.name}, {pod.hostname}) announces no client API "
-            f"2: it runs firmware 3.x, and this SDK needs firmware {MIN_FIRMWARE} or later. Update "
-            "it with the BenchPod CLI (`benchpod flash-self`) or the firmware update in the web "
-            "app, or use embeddedci 3.x with it", api=pod.api or 1)
+    _refuse_firmware_3(pod)
     return ConnSpec(kind="tcp", addr=_normalize_addr(pod.addr))
 
 
