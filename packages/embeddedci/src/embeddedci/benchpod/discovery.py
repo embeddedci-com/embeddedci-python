@@ -18,9 +18,9 @@ it is imported lazily so the rest of the package works without it.
 from __future__ import annotations
 
 import ipaddress
-import time
+import threading
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 #: DNS-SD service type the firmware advertises.
 SERVICE_TYPE = "_benchpod._tcp.local."
@@ -96,6 +96,30 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
     Raises :class:`RuntimeError` with an install hint if ``zeroconf`` is not
     installed. Returns an empty list when nothing answers.
     """
+    return sorted(_browse(timeout).values(), key=lambda p: p.name)
+
+
+def names_pod(pod: DiscoveredPod, short: str) -> bool:
+    """Whether ``pod`` is the pod with the short id ``short`` (``"a1b2c3"``), by its DNS-SD
+    instance (``"BenchPod a1b2c3"``) or host name (``"benchpod-a1b2c3.local"``)."""
+    from .connection import normalize_pod_name
+
+    return normalize_pod_name(pod.name) == short or normalize_pod_name(pod.hostname) == short
+
+
+def find_pod(short: str, timeout: float = DEFAULT_TIMEOUT) -> Optional[DiscoveredPod]:
+    """Browse the LAN for the pod with the short id ``short`` (``"a1b2c3"``), stopping as soon as
+    it answers; None when it does not within ``timeout`` seconds. Raises :class:`RuntimeError`
+    without ``zeroconf``, like :func:`discover`."""
+    for pod in _browse(timeout, want=short).values():
+        if names_pod(pod, short) and pod.addresses:
+            return pod
+    return None
+
+
+def _browse(timeout: float, want: str = "") -> Dict[str, DiscoveredPod]:
+    """The pods heard within ``timeout`` seconds, by service name; with ``want`` (a short id) the
+    browse ends as soon as that pod answers with an address."""
     try:
         from zeroconf import ServiceBrowser, Zeroconf
     except ImportError as exc:  # pragma: no cover - exercised via install extra
@@ -105,6 +129,7 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
         ) from exc
 
     found: Dict[str, DiscoveredPod] = {}
+    done = threading.Event()
     zc = Zeroconf()
 
     def _record(zeroconf, type_: str, name: str) -> None:
@@ -129,6 +154,8 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
             api=_txt_int(txt, "api"),
             https_only=txt.get("https_only", "") == "1",
         )
+        if want and found[name].addresses and names_pod(found[name], want):
+            done.set()
 
     class _Listener:
         def add_service(self, zeroconf, type_, name):
@@ -142,8 +169,8 @@ def discover(timeout: float = DEFAULT_TIMEOUT) -> List[DiscoveredPod]:
 
     ServiceBrowser(zc, SERVICE_TYPE, _Listener())
     try:
-        time.sleep(timeout)
+        done.wait(timeout)
     finally:
         zc.close()
 
-    return sorted(found.values(), key=lambda p: p.name)
+    return dict(found)
