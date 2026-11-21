@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Dict, NamedTuple, Optional, Tuple
 
 from ..cli_config import config_dir
+from . import client_identity
 
 PLAIN_PORT = 8080
 TLS_PORT = 8443
@@ -206,6 +207,14 @@ def _context(ca: Optional[str], verify: bool) -> ssl.SSLContext:
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE  # the pin is the check
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            # LAN pairing (client_identity.py): firmware 4.0.1+ asks for a client certificate and
+            # lets in only paired keys beyond status; older firmware never asks.
+            files = client_identity.identity_files()
+            if files is not None:
+                try:
+                    ctx.load_cert_chain(files[0], files[1])
+                except (OSError, ssl.SSLError):
+                    pass
             _contexts[key] = ctx
         return ctx
 

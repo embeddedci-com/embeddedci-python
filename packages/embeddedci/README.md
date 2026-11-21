@@ -315,6 +315,27 @@ cloud connection; over plaintext Ethernet or Wi-Fi the pod refuses (`PodLockedEr
 `set_lan_tls_cert` needs a network connection (it uploads the bundle); after it and after
 `regenerate_lan_tls()` the SDK pins the new certificate for the address it used.
 
+### LAN pairing
+
+From firmware 4.0.1 the pod answers only status to a computer on Ethernet or Wi-Fi that is not
+paired with it: anything else raises `PodNotPairedError` (`BP0081`, a `PodLockedError`). Pair this
+computer once over the pod's USB cable, or through the cloud as an organization owner or admin:
+
+```python
+BenchPod("usb").pair()                 # the USB network adapter, or the console when it is off
+BenchPod("embeddedci:bench-01").pair()
+```
+
+`benchpod setup` does the same. The SDK presents this computer's TLS client key on every
+connection to port 8443: `client.key` and `client.crt` next to `known_pods.json`, made on first use
+and shared with `benchpod` and the MCP server. A CI runner passes its own with
+`BENCHPOD_CLIENT_KEY_PEM` (or `BENCHPOD_CLIENT_CERT` and `BENCHPOD_CLIENT_KEY`). Over USB,
+`pair()` also pins the pod's LAN certificate for its LAN address.
+
+`bp.lan_clients()` lists the paired computers (`LanClient.this` marks this one);
+`lan_clients(add=..., spki_sha256=...)`, `remove=...` (a name, or 8+ hex digits of a key) and
+`clear=True` change the list over USB or the cloud only. `set_lan_pairing(False)` turns pairing off.
+
 ### Console log level
 
 How much the pod prints on its USB console (firmware newer than 3.10.12, feature `log_level`).
@@ -359,6 +380,8 @@ macs = bp.mac_addresses()      # MacAddresses(eth_mac='02:35:c7:76:b7:9b', wifi_
 | `BENCHPOD_LIFT_DAC_LIMITS` | pytest sessions | `1` clears the pod's DAC output limits for the session and restores the same limits at the end, even when tests fail (only with the output stage switched off) |
 | `BENCHPOD_TLS` | network connections | `auto` (default), `on` or `off`: TLS to the pod's LAN API on 8443, see [TLS on the LAN](#tls-on-the-lan) |
 | `BENCHPOD_TLS_CA` | network connections over TLS | PEM file of CA certificates: verify the pod's certificate and host name instead of pinning it |
+| `BENCHPOD_CLIENT_KEY_PEM` | network connections over TLS | This computer's TLS client certificate and key, PEM, for [LAN pairing](#lan-pairing) (a CI secret; `benchpod lan-clients add --new-key` prints one) instead of `client.key`/`client.crt` |
+| `BENCHPOD_CLIENT_CERT`, `BENCHPOD_CLIENT_KEY` | network connections over TLS | The same as two files |
 | `BENCHPOD_STALL_TIMEOUT` | flashing | seconds with no SWD traffic before a flash attempt is aborted and retried (default 60) |
 | `BENCHPOD_SENSOR_LIBRARY` | no `version` argument / `--benchpod-sensor-library` | sensor library version: `latest` or a release such as `0.2.0` (default: the version the SDK pins), see [Emulated sensors](#emulated-sensors) |
 | `BENCHPOD_LEASE` | connecting | a lease id to join instead of taking a new lease (set by `benchpod ci` for its child processes), see [Device leases](#device-leases) |
@@ -2635,6 +2658,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `ResetState` | `reset_target`, `set_reset`, `reset_state` | `asserted`, `supported` |
 | `MacAddresses` | `mac_addresses` | `eth_mac`, `wifi_mac` (None while not known), `has_wifi`, `source` (`pod`, `server` or empty) |
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
+| `LanClients` | `lan_clients`, `pair` | `pairing` (computers on the LAN must be paired), `count`, `max`, `clients` (`LanClient`: `name`, `spki_sha256`, `this`), `has(spki_sha256)` |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available`, `supported`, `strength` (digital v3r4) |
 | `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `pull_dirs`, `dir`, `warn`, `warnings`, `in_use` |

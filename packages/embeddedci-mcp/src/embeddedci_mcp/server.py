@@ -2425,7 +2425,7 @@ async def decode_la(
             try:
                 from embeddedci.benchpod import usb_decode
             except ImportError:
-                raise ValueError("usb decode needs embeddedci 4.0.1 or later: pip install -U embeddedci") from None
+                raise ValueError("usb decode needs embeddedci 4.0.2 or later: pip install -U embeddedci") from None
         la = SESSION.last_la
         if capture == "new" or la is None:
             la = pod.capture_la(samples, sample_rate_hz=sample_rate_hz)

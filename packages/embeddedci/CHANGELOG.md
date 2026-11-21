@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## 4.0.1
+## 4.0.2
 
 Not released yet.
 
@@ -18,13 +18,28 @@ Not released yet.
   PEC, PMBus command names, LINEAR11/LINEAR16 values, status bits). All locked to the server's
   decoders by shared vectors.
 
+## 4.0.1
+
+For BenchPod firmware 4.0.1. Works with firmware 4.0.0 too.
+
+- **LAN pairing.** Firmware 4.0.1 answers a computer on Ethernet or Wi-Fi only after it is paired
+  with the pod. The SDK presents this computer's TLS client key on every LAN connection: the same
+  `client.key`/`client.crt` as the `benchpod` CLI (next to `known_pods.json`), made on first use.
+  CI runners pass `BENCHPOD_CLIENT_KEY_PEM`, or `BENCHPOD_CLIENT_CERT` and `BENCHPOD_CLIENT_KEY`.
+  - `bp.pair()` pairs this computer over the pod's USB cable or the cloud, and pins the pod's LAN
+    certificate.
+  - `bp.lan_clients()` lists the paired computers; its `add`, `remove` and `clear` arguments change the list
+    (USB or cloud only). `bp.set_lan_pairing(False)` turns pairing off.
+  - An unpaired computer gets `PodNotPairedError` (`BP0081`), which says how to pair. A full list (32 computers) is `BP0082`.
+  - Over the USB console (with the USB network off), `lan_clients` and `lan_tls` still work.
+  - New dependency: `cryptography>=41`, to make the key and certificate.
 - **`la_pins` reads a long listing in pages.** On firmware with the `la_pins_paged` feature
   (features table revision 12), a reply that cannot carry every pin says `next`; the SDK asks
   again with `"from": next` (and the same `la`) and joins the pins, so `bp.la_pins()` and the MCP
   `la_pins` tool get all 14 pins over the cloud even with a long sensor name on every pin. It
   stops after 16 replies, or when `next` does not move forward. Older firmware is read in two
   halves after `BP0053`/`BP0054`, as before.
-- Features table revision 12.
+- Features table revision 13; error codes `BP0081` and `BP0082`.
 
 ## 4.0.0
 

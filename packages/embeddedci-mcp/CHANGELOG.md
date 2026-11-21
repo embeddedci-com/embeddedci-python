@@ -1,8 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## 4.0.1
+## 4.0.2
 
-Not released yet. Needs embeddedci 4.0.1.
+Not released yet. Needs embeddedci 4.0.2.
 
 - **`decode_la` decodes USB** full and low speed: `protocol="usb"`, `dp`, `dm`, `speed`
   (`auto`, `full`, `low`). `items` are transactions, `transfers` the control transfers (an
@@ -12,6 +12,17 @@ Not released yet. Needs embeddedci 4.0.1.
   arguments `tx` (Modbus two-line tap), `can`, `bitrate`, `data_bitrate`, `sample_point`,
   `channels` (PWM), `onewire`, `pec`. `items` has one line per frame, transaction or channel;
   `errors` counts the bad ones. `benchpod://capture/decode` carries the full results.
+
+## 4.0.1
+
+For BenchPod firmware 4.0.1; needs embeddedci 4.0.1.
+
+- **LAN pairing.** Firmware 4.0.1 answers a computer on Ethernet or Wi-Fi only after it is paired.
+  The server connects with this computer's TLS client key (shared with the `benchpod` CLI and the
+  SDK). An unpaired computer gets `BP0081`, whose fix tells the agent to have the user pair it
+  once over USB (`benchpod setup`) or use the cloud.
+- **`la_pins` gets all 14 pins over the cloud**, even with long sensor names (firmware 4.0.1 pages
+  the listing).
 
 ## 4.0.0
 

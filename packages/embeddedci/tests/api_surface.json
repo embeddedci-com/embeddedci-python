@@ -140,6 +140,7 @@
     "la_dir": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]], None]' = None, dir: 'Optional[str]' = None) -> 'List[LaPinState]'",
     "la_pins": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]], None]' = None) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",
+    "lan_clients": "(self, *, add: 'Optional[str]' = None, spki_sha256: 'Optional[str]' = None, remove: 'Optional[str]' = None, clear: 'bool' = False) -> \"'LanClients'\"",
     "lan_tls": "(self) -> \"'LanTls'\"",
     "leased": "property",
     "load_wiring": "(self, name: 'Optional[str]' = None) -> 'Wiring'",
@@ -155,6 +156,7 @@
     "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
     "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None, encoding: 'str' = 'utf-8', half_duplex: 'bool' = False, entry: 'Optional[_uart.UartEntry]' = None, de: 'Union[Pin, int, str, None]' = None, de_active_low: 'bool' = False) -> '_uart.UartSession'",
+    "pair": "(self, name: 'Optional[str]' = None) -> \"'LanClients'\"",
     "pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'Dict[int, str]'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
     "ping": "(self) -> 'Any'",
@@ -179,6 +181,7 @@
     "set_default_wiring": "(self, name: 'str') -> 'str'",
     "set_gpio": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]]]', level: 'Union[int, Sequence[int]]') -> 'None'",
     "set_la_voltage": "(self, voltage: 'float') -> 'LaVoltage'",
+    "set_lan_pairing": "(self, on: 'bool') -> 'bool'",
     "set_lan_tls_cert": "(self, cert_pem: 'Union[str, bytes]', key_pem: 'Union[str, bytes]') -> \"'LanTls'\"",
     "set_lan_tls_https_only": "(self, on: 'bool') -> \"'LanTls'\"",
     "set_log_level": "(self, level: 'str') -> 'str'",
@@ -761,6 +764,23 @@
     "from_reply": "(cls, reply: 'Any') -> \"'LaVoltage'\"",
     "is_set": "property"
   },
+  "LanClient": {
+    "__fields__": [
+      "name",
+      "spki_sha256",
+      "this"
+    ]
+  },
+  "LanClients": {
+    "__fields__": [
+      "pairing",
+      "count",
+      "max",
+      "clients"
+    ],
+    "from_reply": "(cls, data: 'Any', mine: 'str' = '') -> \"'LanClients'\"",
+    "has": "(self, spki_sha256: 'str') -> 'bool'"
+  },
   "LanTls": {
     "__fields__": [
       "port",
@@ -933,6 +953,7 @@
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, holder: 'str' = '', left_s: 'Optional[int]' = None, expires_at: 'str' = '', status: 'Optional[int]' = None, purpose: 'str' = '') -> 'None'"
   },
   "PodLockedError": {},
+  "PodNotPairedError": {},
   "PowerProfile": {
     "__fields__": [
       "efuse",
@@ -1439,6 +1460,8 @@
     "LaCapture",
     "LaPinState",
     "LaVoltage",
+    "LanClient",
+    "LanClients",
     "LanTls",
     "LibraryEntry",
     "LocalLease",
@@ -1471,6 +1494,7 @@
     "PodLeaseLostError",
     "PodLeasedError",
     "PodLockedError",
+    "PodNotPairedError",
     "PowerProfile",
     "PowerProfileSession",
     "PowerStatus",

@@ -63,12 +63,12 @@ def test_i2c_decode_has_timed_segments(connected):
     assert [s["type"] for s in t["segments"]][:3] == ["start", "address-write", "ack"]
 
 
-try:  # the min-SDK CI job runs these tests against embeddedci 4.0.0, which has no USB decoder
+try:  # the min-SDK CI job runs these tests against an embeddedci without the LA decoders
     import embeddedci.benchpod.usb_decode  # noqa: F401
     _no_usb = False
 except ImportError:
     _no_usb = True
-needs_usb_sdk = pytest.mark.skipif(_no_usb, reason="needs embeddedci 4.0.1 (USB decode)")
+needs_usb_sdk = pytest.mark.skipif(_no_usb, reason="needs embeddedci 4.0.2 (the LA decoders)")
 
 
 def _usb_vector_words():

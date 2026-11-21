@@ -233,6 +233,14 @@ class PodLockedError(FirmwareError):
     TLS on 8443, the SDK's default)."""
 
 
+class PodNotPairedError(PodLockedError):
+    """This computer is not paired with the pod (``BP0081``, firmware 4.0.1+): over Ethernet and
+    Wi-Fi it may only read the pod's status. Pair it once over the pod's USB cable with
+    :meth:`~embeddedci.benchpod.BenchPod.pair` (or ``benchpod setup``), or use the cloud
+    (``embeddedci:<device>``). A :class:`PodLockedError`, so code that handles the LAN policy
+    handles this too."""
+
+
 class PodBusyError(FirmwareError):
     """The pod refused because it is busy: an I2C, SPI, UART or SWD session is already open
     (``BP0003``, ``BP0004``, ``BP0049``, ``BP0050``), the engine that runs SWD, SPI and I2C is in
@@ -557,6 +565,8 @@ _BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
     "BP0079": (FirmwareError, _NO_FIELDS),                       # usb_host_other_port {port}
     "BP0080": (DacPinoutMismatchError,                           # dac_pinout_mismatch
                lambda v, cmd: {"digital": _str(v.get("digital")), "module": _str(v.get("module"))}),
+    "BP0081": (PodNotPairedError, _NO_FIELDS),                   # lan_not_paired {cmd}
+    "BP0082": (FirmwareError, _NO_FIELDS),                       # lan_clients_full {max}
 }
 
 

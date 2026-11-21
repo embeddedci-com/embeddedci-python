@@ -114,6 +114,7 @@ from .errors import (
     PodLeasedError,
     PodLeaseLostError,
     PodLockedError,
+    PodNotPairedError,
     PullConflictError,
     ReplyTooLargeError,
     PullDirectionError,
@@ -143,7 +144,7 @@ from .lease import DeviceLease
 from .lowlevel import LowLevel
 from .power import PowerProfile, PowerProfileSession
 from .replay import DacHandle, Fault, ReplayHandle, Segment
-from .results import Capture, CorrelatedCapture, LaCapture, LanTls, MacAddresses, Trigger
+from .results import Capture, CorrelatedCapture, LaCapture, LanClient, LanClients, LanTls, MacAddresses, Trigger
 from .transport.tls import delete_pin as forget_lan_tls, trust_lan_tls
 from .server_api import ServerApi, ServerApiError, ServerPermissionDeniedError
 from .state import (
@@ -361,6 +362,9 @@ __all__ = [
     "ServerApiError",
     "ServerPermissionDeniedError",
     "PodLockedError",
+    "PodNotPairedError",
+    "LanClient",
+    "LanClients",
     "PodBusyError",
     "PodLeasedError",
     "PodLeaseLostError",

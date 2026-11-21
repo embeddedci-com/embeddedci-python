@@ -21,6 +21,7 @@ from ..errors import (
     BenchPodError,
     ConnectionClosedError,
     ConnectionConfigError,
+    FirmwareError,
     TransportError,
     TransportTimeout,
 )
@@ -54,7 +55,7 @@ _RAW_READ_TIMEOUT = 0.1  # poll interval while bridging raw CMSIS-DAP bytes
 #: JSON commands the text console answers through its text equivalents (it has no JSON mode):
 #: firmware 4.0's console keeps status, ping and identity; everything else is on the JSON API
 #: (the LAN, the USB network adapter or the cloud).
-TEXT_CONSOLE_COMMANDS = ("status", "ping")
+TEXT_CONSOLE_COMMANDS = ("status", "ping", "lan_clients", "lan_tls")
 
 
 @contextmanager
@@ -445,6 +446,29 @@ class SerialTransport(Transport):
             raise TransportError(f"the pod did not answer ping: {out.strip()!r}")
         return "pong"
 
+    def _text_lan_clients(self, req: dict) -> Dict[str, Any]:
+        """``lan_clients`` through the console's ``lan-clients`` (firmware 4.0.1+): pairing works
+        here also while the USB network adapter is off. The reply has the JSON command's shape."""
+        if req.get("add") is not None:
+            name, key = str(req["add"]), str(req.get("spki_sha256", ""))
+            if not name or any(c in name for c in " \t\"\r\n"):
+                raise ValueError(f"lan_clients add: {name!r}: over the USB console a name has no spaces")
+            line = f"lan-clients add {name} {key.lower()}"
+        elif req.get("remove") is not None:
+            line = f"lan-clients remove {req['remove']}"
+        elif req.get("clear"):
+            line = "lan-clients clear"
+        else:
+            line = "lan-clients"
+        return parse_text_lan_clients(self._send_command(line), line)
+
+    def _text_lan_tls(self, req: dict) -> Dict[str, Any]:
+        """``lan_tls`` (a read) through the console's ``lan-tls``: the port, HTTPS-only, SCPI and
+        the certificate's SHA-256."""
+        if len(req) > 1:
+            raise TransportError(self._unsupported("lan_tls (a change)"))
+        return parse_text_lan_tls(self._send_command("lan-tls"))
+
     def _needs_network(self, what: str) -> TransportError:
         """The USB console of firmware 4.0 answers status, ping and identity only."""
         return TransportError(
@@ -471,3 +495,74 @@ class SerialTransport(Transport):
             self._port.close()
         except Exception:
             pass
+
+
+def _console_reply_lines(raw: str, line: str) -> List[str]:
+    out, echo_seen = [], False
+    for ln in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        ln = ln.strip().lstrip(">").strip()
+        if not ln:
+            continue
+        if not echo_seen and ln == line:
+            echo_seen = True
+            continue
+        out.append(ln)
+    return out
+
+
+def _console_refusal(cmd: str, raw: str, rest: str) -> None:
+    if "unknown command" in raw:
+        raise TransportError(f"this firmware has no {cmd} on its USB console (firmware 4.0.1+)")
+    if rest == "error" or rest.startswith("error "):
+        why = rest[5:].strip() or "refused"
+        raise FirmwareError(f"{cmd}: {why}")
+
+
+def parse_text_lan_clients(raw: str, line: str = "lan-clients") -> Dict[str, Any]:
+    """The console's ``lan-clients`` reply as the JSON command's ``data``."""
+    data: Dict[str, Any] = {}
+    header = False
+    for ln in _console_reply_lines(raw, line):
+        if ln.startswith("lan-clients "):
+            rest = ln[len("lan-clients "):].strip()
+            _console_refusal("lan-clients", raw, rest)
+            if rest in ("added", "renamed", "same"):
+                data["outcome"] = rest
+                continue
+            f = rest.replace(",", " ").split()
+            if len(f) >= 3 and f[1] == "of" and f[0].isdigit() and f[2].isdigit():
+                data.update(count=int(f[0]), max=int(f[2]), offset=0, clients=[],
+                            pairing=len(f) >= 5 and f[3] == "pairing" and f[4] == "on")
+                header = True
+            continue
+        if header:
+            f = ln.split()
+            if len(f) == 2 and len(f[1]) == 64:
+                data["clients"].append({"name": f[0], "spki_sha256": f[1]})
+    if not header:
+        _console_refusal("lan-clients", raw, "")
+        raise TransportError(f"the pod did not answer lan-clients: {raw.strip()[-200:]!r}")
+    return data
+
+
+def parse_text_lan_tls(raw: str) -> Dict[str, Any]:
+    """The console's ``lan-tls`` reply: ``lan-tls port 8443 https-only on sha256 <hex> ... scpi off``."""
+    for ln in reversed(_console_reply_lines(raw, "lan-tls")):
+        if not ln.startswith("lan-tls "):
+            continue
+        rest = ln[len("lan-tls "):].strip()
+        _console_refusal("lan-tls", raw, rest)
+        f = rest.split()
+        out: Dict[str, Any] = {"sha256": ""}
+        for i in range(len(f) - 1):
+            if f[i] == "port" and f[i + 1].isdigit():
+                out["port"] = int(f[i + 1])
+            elif f[i] == "https-only":
+                out["https_only"] = f[i + 1] == "on"
+            elif f[i] == "sha256" and len(f[i + 1]) == 64:
+                out["sha256"] = f[i + 1].lower()
+            elif f[i] == "scpi":
+                out["scpi"] = f[i + 1] == "on"
+        return out
+    _console_refusal("lan-tls", raw, "")
+    raise TransportError(f"the pod did not answer lan-tls: {raw.strip()[-200:]!r}")
