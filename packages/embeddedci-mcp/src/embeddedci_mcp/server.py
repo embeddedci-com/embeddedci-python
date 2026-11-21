@@ -2380,6 +2380,7 @@ async def decode_la(
     sample_point: Annotated[Optional[float], Field(gt=0, lt=1, description=(
         "can: where a bit is read, as a fraction of it (default 0.75)."))] = None,
     channels: Annotated[Optional[List[LaPin]], Field(description="pwm: the channels to measure.")] = None,
+    servo: Annotated[bool, Field(description="pwm: also read the high pulses as servo positions (1 ms = 0 %, 2 ms = 100 %).")] = False,
     onewire: Annotated[Optional[LaPin], Field(description="onewire: the bus line.")] = None,
     pec: Annotated[Literal["auto", "on", "off"], Field(description=(
         "smbus/pmbus: auto = a trailing byte that matches is a PEC; on = every transaction ends in one."))] = "auto",
@@ -2438,6 +2439,7 @@ async def decode_la(
                     if v is not None}
         if protocol == "pwm":
             channels["channels"] = list(channels_arg)
+            channels["servo"] = servo
         if protocol in ("smbus", "pmbus"):
             channels["pec"] = pec
         if protocol == "spi":

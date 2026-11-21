@@ -3,7 +3,7 @@
 The Python mirror of the EmbeddedCI server's ``decode/pwm.go`` (held to it by
 ``pwm_decode_vectors.json``). A period runs from a rising edge to the next. 1-2 sample pulses on a
 signal whose typical pulse spans 20 samples or more are glitches, folded into the level around
-them. A train of 0.4-2.6 ms pulses every 2.5-30 ms reads as a servo signal.
+them. With ``servo=True`` the high pulses also read as servo positions (1 ms = 0 %, 2 ms = 100 %).
 """
 
 from __future__ import annotations
@@ -84,8 +84,9 @@ def _stat(v: List[float]) -> PwmStat:
     return PwmStat(min(v), max(v), s / len(v))
 
 
-def decode_pwm(words: Sequence[int], *, channels: Sequence[int], sample_rate_hz: float) -> PwmDecode:
-    """Measure each of ``channels`` (1-based)."""
+def decode_pwm(words: Sequence[int], *, channels: Sequence[int], sample_rate_hz: float,
+               servo: bool = False) -> PwmDecode:
+    """Measure each of ``channels`` (1-based); ``servo`` adds servo pulse widths and positions."""
     if not channels:
         raise ValueError("pwm needs one or more channels in 1..14")
     if sample_rate_hz <= 0:
@@ -94,11 +95,11 @@ def decode_pwm(words: Sequence[int], *, channels: Sequence[int], sample_rate_hz:
     for ch in channels:
         if not 1 <= ch <= 14:
             raise ValueError(f"pwm channel {ch} is not in 1..14")
-        res.channels.append(_channel([(w >> (ch - 1)) & 1 for w in words], ch, sample_rate_hz))
+        res.channels.append(_channel([(w >> (ch - 1)) & 1 for w in words], ch, sample_rate_hz, servo))
     return res
 
 
-def _channel(line: List[int], ch: int, rate: float) -> PwmChannel:
+def _channel(line: List[int], ch: int, rate: float, servo: bool) -> PwmChannel:
     c = PwmChannel(ch)
     runs: List[list] = []  # [level, start, n]
     for i, v in enumerate(line):
@@ -152,7 +153,7 @@ def _channel(line: List[int], ch: int, rate: float) -> PwmChannel:
     for p in per:
         sq += (p - c.period_us.mean) * (p - c.period_us.mean)
     c.jitter_us = math.sqrt(sq / len(per))
-    if 2500 <= c.period_us.mean <= 30000 and c.high_us.min >= 400 and c.high_us.max <= 2600:
+    if servo:
         ms = [h / 1000 for h in hi]
         c.servo = PwmServo(_stat(ms), _stat([(m - 1) * 100 for m in ms]))
     return c

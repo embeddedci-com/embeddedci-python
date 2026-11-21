@@ -49,6 +49,7 @@ class ModbusFrame:
     crc: str = ""
     reply_to: int = 0
     response_us: float = 0.0
+    line: int = 0  # the LA channel the frame was on
     ok: bool = True
     error: str = ""
     _body: bytes = field(default=b"", repr=False)
@@ -97,7 +98,7 @@ def decode_modbus(words: Sequence[int], *, rx: int, baud: float, sample_rate_hz:
                                  data_bits=data_bits, parity=parity, stop_bits=stop_bits)
         except ValueError as e:
             raise ValueError(f"modbus: {e}") from None
-        raw.extend((f.value & 0xFF, f.start_us, f.end_us, f.error, i) for f in frames)
+        raw.extend((f.value & 0xFF, f.start_us, f.end_us, f.error, ch) for f in frames)
     # One time order (stable, as the Go insertion sort).
     raw.sort(key=lambda b: b[1])
     bits = 1 + data_bits + stop_bits + (1 if parity in ("even", "odd") else 0)
@@ -117,7 +118,7 @@ def decode_modbus(words: Sequence[int], *, rx: int, baud: float, sample_rate_hz:
 
 
 def _frame(bs: list, index: int) -> ModbusFrame:
-    f = ModbusFrame(index, bs[0][1], bs[-1][2])
+    f = ModbusFrame(index, bs[0][1], bs[-1][2], line=bs[0][4])
     raw = bytes(b[0] for b in bs)
     for b in bs:
         if b[3] and not f.error:

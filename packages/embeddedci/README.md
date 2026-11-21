@@ -1996,9 +1996,9 @@ about 0.44 times the returned rate.
 
   | Protocol | Arguments | Result |
   |---|---|---|
-  | `modbus` (RTU) | `rx`, `baud`; optional `tx` (two-line tap), `data_bits`, `parity` (default `even`), `stop_bits` | `ModbusFrame` list: `role` (request/response), `addr`, `function_name`, `start`, `quantity`, `values`, `exception`, `summary`, `reply_to`, `response_us`, CRC checked |
+  | `modbus` (RTU) | `rx`, `baud`; optional `tx` (two-line tap), `data_bits`, `parity` (default `even`), `stop_bits` | `ModbusFrame` list: `role` (request/response), `line` (the channel it was on), `addr`, `function_name`, `start`, `quantity`, `values`, `exception`, `summary`, `reply_to`, `response_us`, CRC checked |
   | `can` (CAN, CAN FD) | `can` (the transceiver's RXD), `bitrate`; optional `data_bitrate`, `sample_point`, `data_sample_point` | `CanFrame` list: `id_hex`, `extended`, `fd`, `brs`, `dlc`, `len`, `data_hex`, `ack`, `kind` (data/remote/error), CRC and stuffing checked |
-  | `pwm` | `channels` | `PwmDecode`: per channel `periods` (period, frequency, high, low, duty), `freq_hz` / `duty` / `high_us` min, max, mean, `jitter_us`, `glitches`, `servo` |
+  | `pwm` | `channels`; optional `servo` (read the high pulses as servo positions) | `PwmDecode`: per channel `periods` (period, frequency, high, low, duty), `freq_hz` / `duty` / `high_us` min, max, mean, `jitter_us`, `glitches`, `servo` (with `servo=True`) |
   | `onewire` | `onewire` | `OneWireTransaction` list: `reset`, `presence`, `overdrive`, `rom_command_name`, `rom`, `rom_crc_ok`, `function`, `bytes_hex`, `detail` (a temperature) |
   | `smbus`, `pmbus` | `sda`, `scl`; optional `pec` (`auto`, `on`, `off`) | `SmbusTransaction` list: `kind`, `command`, `command_name`, `data_hex`, `value` (PMBus: volts, amps, status bits), `pec` |
 

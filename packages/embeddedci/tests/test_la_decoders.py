@@ -23,7 +23,7 @@ TESTDATA = Path(__file__).resolve().parent / "testdata"
 NAMES = ["modbus", "can", "pwm", "onewire", "smbus"]
 #: vector option names -> Python keyword names
 KW = {"baud": "baud", "bitrate": "bitrate", "data_bitrate": "data_bitrate", "sample_point": "sample_point",
-      "data_sample_point": "data_sample_point", "channels": "channels", "pec": "pec"}
+      "data_sample_point": "data_sample_point", "channels": "channels", "pec": "pec", "servo": "servo"}
 
 
 def _cases():

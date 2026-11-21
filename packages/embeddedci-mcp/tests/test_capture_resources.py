@@ -133,7 +133,7 @@ def test_fieldbus_decoders_through_the_tool(connected):
 
     words, c = _vector("pwm", "fan_and_servo_1msps")
     SESSION.last_la = LaCapture(words=words, sample_rate_hz=c["sample_rate_hz"])
-    r = call("decode_la", protocol="pwm", channels=[1, 2])
+    r = call("decode_la", protocol="pwm", channels=[1, 2], servo=True)
     assert r["count"] == 2 and "servo" in r["items"][1]
     assert [ch["channel"] for ch in json.loads(capture_decode_resource())["channels"]] == [1, 2]
 

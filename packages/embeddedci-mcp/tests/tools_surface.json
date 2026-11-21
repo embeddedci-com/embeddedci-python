@@ -2177,6 +2177,12 @@
           "default": null,
           "title": "Sda"
         },
+        "servo": {
+          "default": false,
+          "description": "pwm: also read the high pulses as servo positions (1 ms = 0 %, 2 ms = 100 %).",
+          "title": "Servo",
+          "type": "boolean"
+        },
         "speed": {
           "default": "auto",
           "description": "usb: full (12 Mbit/s), low (1.5 Mbit/s) or auto (from the idle state).",
