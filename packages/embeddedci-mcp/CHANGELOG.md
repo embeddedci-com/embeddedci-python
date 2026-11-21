@@ -2,8 +2,12 @@
 
 ## 4.0.2
 
-Not released yet. Needs embeddedci 4.0.2.
+Needs embeddedci 4.0.2.
 
+- **`connect` by name is fast.** A `.local` name took about a minute on macOS (a 5 s IPv6 wait on
+  every command); the SDK now looks it up once, IPv4 first.
+- **A pod name works in `connect`:** `benchpod-c2f662` (or `c2f662`) finds the pod on the LAN,
+  else on USB.
 - **`decode_la` decodes USB** full and low speed: `protocol="usb"`, `dp`, `dm`, `speed`
   (`auto`, `full`, `low`). `items` are transactions, `transfers` the control transfers (an
   enumeration as a list), with `speed`, `errors` and `sof_count`. `benchpod://capture/decode`
