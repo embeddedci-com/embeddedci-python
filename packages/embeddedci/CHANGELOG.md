@@ -1,6 +1,8 @@
 # Changelog — `embeddedci`
 
-## 4.0.2, not released yet
+## 4.0.2
+
+Works with BenchPod firmware 4.0.0 and later. Firmware 4.0.2 also lets the pod's owner change pairing while another client holds the pod.
 
 - **Connecting by host name is fast again.** The SDK opens a new connection per command and
   looked the host name up every time. On macOS a default lookup of a `.local` name waits about
