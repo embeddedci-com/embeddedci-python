@@ -156,7 +156,7 @@ def decode_usb(words: Sequence[int], *, dp: int, dm: int, sample_rate_hz: float,
         raise ValueError(f"usb speed must be full, low or auto, got {speed!r}")
     bps = LOW_SPEED_BPS if sp == "low" else FULL_SPEED_BPS
     spb = sample_rate_hz / bps
-    if spb < 2:
+    if spb < 2.5:  # below ~2.7 samples a bit the run lengths round wrong
         need = "6 MS/s" if sp == "low" else "48 MS/s"
         raise ValueError(f"sample rate {sample_rate_hz:.0f} Hz is too low for {sp}-speed USB: "
                          f"capture at {need} or more")

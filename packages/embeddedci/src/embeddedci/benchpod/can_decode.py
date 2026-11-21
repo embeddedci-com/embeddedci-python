@@ -1,8 +1,8 @@
 """CAN 2.0 and ISO CAN FD decoding from one LA channel (the transceiver's RXD, low = dominant).
 
 The Python mirror of the EmbeddedCI server's ``decode/can.go`` (held to it by
-``can_decode_vectors.json``). Bits are sampled at the sample point and re-synchronized on edges
-near a bit boundary; a frame starts on a falling edge after 10 or more recessive bits. Dynamic
+``can_decode_vectors.json``). Bits are sampled at the sample point and re-synchronized on falling edges
+near a bit boundary; a frame starts on a falling edge after 9.5 or more recessive bits. Dynamic
 stuffing runs from SOF through the data field (classic: through the CRC); CAN FD switches to the
 data bit rate at the BRS sample point and back at the CRC delimiter's, and its CRC17/CRC21 covers
 the dynamic stuff bits and the stuff count (ISO 11898-1:2015).
@@ -59,10 +59,14 @@ class _Reader:
         self.last_sp = 0.0
 
     def bit(self) -> int:
+        # Only recessive-to-dominant edges re-synchronize: RXD stretches dominant bits.
         win = 0.35 * self.spb
         k = bisect.bisect_left(self.edges, int(math.ceil(self.pos - win)))
-        if k < len(self.edges) and self.edges[k] <= self.pos + win:
-            self.pos = float(self.edges[k])
+        while k < len(self.edges) and self.edges[k] <= self.pos + win:
+            if self.line[self.edges[k]] == 0:
+                self.pos = float(self.edges[k])
+                break
+            k += 1
         s = self.pos + self.sp * self.spb
         self.last_sp = s
         idx = int(s)
@@ -86,6 +90,9 @@ class _Stuffed:
         self.last = 0
         self.stuffed = 0
         self.err = ""
+        # For the bit just read: does it end the FD data field? Then no stuff bit follows it, the
+        # CRC field's fixed stuff bit stands instead (ISO 11898-1:2015, 10.5).
+        self.final = None
 
     def raw_bit(self) -> int:
         b = self.r.bit()
@@ -102,7 +109,7 @@ class _Stuffed:
         if self.run == 6:
             self.err = "stuff error"
         self.bits.append(b)
-        if self.run == 5:
+        if self.run == 5 and (self.final is None or not self.final(b)):
             s = self.raw_bit()
             if self.run == 6:
                 self.err = "stuff error"
@@ -166,7 +173,7 @@ def decode_can(words: Sequence[int], *, can: int, sample_rate_hz: float, bitrate
     edges = [i for i in range(1, len(line)) if line[i] != line[i - 1]]
     us = 1e6 / sample_rate_hz
     out: List[CanFrame] = []
-    idle_need = 10 * spb_n
+    idle_need = 9.5 * spb_n
     last_rec = 0.0
     if line and line[0] == 0:
         last_rec = math.inf
@@ -250,7 +257,11 @@ def _frame(r: _Reader, spb_n, spb_d, sp_n, sp_d) -> CanFrame:
         if f.brs:
             r.switch_rate(spb_d, sp_d)
         f.esi = c.field(1) == 1
-    f.dlc = c.field(4)
+    f.dlc = c.field(3) << 1
+    if f.fd and f.dlc == 0:
+        c.final = lambda b: b == 0
+    f.dlc |= c.field(1)
+    c.final = None
     if end():
         return fail(why())
     f.len = FD_LEN[f.dlc] if f.fd else min(f.dlc, 8)
@@ -258,9 +269,16 @@ def _frame(r: _Reader, spb_n, spb_d, sp_n, sp_d) -> CanFrame:
         f.kind = "remote"
         f.len = 0
     data = []
-    for _ in range(f.len):
+    for k in range(f.len):
         if end():
             break
+        if f.fd and k == f.len - 1:
+            v = c.field(7) << 1
+            c.final = lambda b: True
+            v |= c.field(1)
+            c.final = None
+            data.append(v)
+            continue
         data.append(c.field(8))
     if end():
         return fail(why())
@@ -309,8 +327,14 @@ def _frame(r: _Reader, spb_n, spb_d, sp_n, sp_d) -> CanFrame:
         f.error = _join(f.error, "CRC delimiter dominant")
     if f.brs:
         r.switch_rate(spb_n, sp_n)
+    # CAN FD: a second delimiter bit before the ACK, and an ACK up to two bits long.
     f.ack = r.bit() == 0
-    if r.bit() != 1:
+    if not f.ack and f.fd:
+        f.ack = r.bit() == 0
+    nxt = r.bit()
+    if f.ack and f.fd and nxt == 0:
+        nxt = r.bit()
+    if nxt != 1:
         f.error = _join(f.error, "ACK delimiter dominant")
     for _ in range(7):
         if r.ended:

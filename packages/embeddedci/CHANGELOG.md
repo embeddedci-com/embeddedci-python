@@ -17,6 +17,9 @@ Not released yet.
   ROM commands and search, CRC8, scratchpad temperature) and `smbus`/`pmbus` (SMBus protocols,
   PEC, PMBus command names, LINEAR11/LINEAR16 values, status bits). All locked to the server's
   decoders by shared vectors.
+- CAN FD follows ISO 11898-1:2015 at the end of the data field (no dynamic stuff bit where the
+  CRC field's fixed stuff bit stands), accepts a late or two-bit ACK, and re-synchronizes on
+  falling edges only, so a transceiver that stretches dominant bits still decodes.
 
 ## 4.0.1
 
