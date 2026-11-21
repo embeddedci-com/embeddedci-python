@@ -140,7 +140,7 @@ transparently, so an idle chat never blocks CI on that pod. `status` shows the p
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], serial device, `usb`, `usb:<name>`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
+| `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], a pod name (`benchpod-a1b2c3`: mDNS, else USB), serial device, `usb`, `usb:<name>`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
 | `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3; 5.0 on a digital v3r4 pod) applied on connect |
 | `--wiring-autosave` | `BENCHPOD_WIRING_AUTOSAVE` | off | `set_wiring` also stores the profile on the pod (not a change of the I/O voltage, power rail or SWD target: those need `save_wiring`) |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |

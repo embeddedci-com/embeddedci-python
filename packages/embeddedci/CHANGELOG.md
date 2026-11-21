@@ -1,9 +1,19 @@
 # Changelog — `embeddedci`
 
-## 4.0.2
+## 4.0.2, not released yet
 
-Not released yet.
-
+- **Connecting by host name is fast again.** The SDK opens a new connection per command and
+  looked the host name up every time. On macOS a default lookup of a `.local` name waits about
+  5 s for an IPv6 answer an IPv4-only pod never sends, so `BenchPod("benchpod-c2f662.local")` took
+  about 50 s (10 lookups) against 0.8 s by IP address. Now a transport looks a name up once,
+  IPv4 first (any address family only when there is no IPv4 answer), and reuses the address. A
+  connect that fails looks the name up again, so a pod that gets a new DHCP lease is still found.
+  The TLS pin in `known_pods.json` stays keyed by the name you gave, and the SNI is unchanged.
+- **A pod name works as a connection.** `BenchPod("benchpod-c2f662")` (or `"c2f662"`) finds the
+  pod on the LAN over mDNS (`[discovery]` extra), else on USB (`usb:benchpod-c2f662`), as the
+  `benchpod` CLI does. Without `[discovery]` it is the host name `benchpod-c2f662.local`.
+  `benchpod-c2f662.local` stays a host name. New: `discovery.find_pod(short)`, which stops
+  browsing as soon as that pod answers.
 - **USB decoding from the logic analyzer.** `bp.decode(la, "usb", dp=, dm=)` (and
   `LaCapture.decode`, `decode.decode_usb`) decodes full speed (12 Mbit/s, capture at 48 MS/s) and
   low speed (1.5 Mbit/s, 6 MS/s and more) from a passive D+/D- tap: packets with CRC5/CRC16,

@@ -6,10 +6,16 @@ firmware serves one client at a time), disables Nagle, sends one JSON line and
 reads the reply. ``dap_start`` is special — after its ack the same socket
 switches to a raw length-framed CMSIS-DAP stream, so the ack must be read one
 byte at a time so no DAP bytes are swallowed.
+
+A host name is resolved once per transport (IPv4 first, see :func:`resolve_host`) and the address
+is reused for the following connections; a connect that fails resolves the name again, so a pod
+that got a new DHCP lease is still found. TLS still uses the name as given: the certificate pin is
+keyed by it, and it is the SNI for a name.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import socket
@@ -52,6 +58,35 @@ def _io_errors(what: str, timeout: Optional[float]) -> Iterator[None]:
         raise ConnectionClosedError(f"{what}: the connection was lost ({exc})") from exc
     except OSError as exc:
         raise TransportError(f"{what}: {exc}") from exc
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_host(host: str, port: int) -> List[str]:
+    """The addresses of ``host``, IPv4 first: an ``AF_INET`` lookup, and an ``AF_UNSPEC`` one only
+    when that has no answer. A default lookup of a ``.local`` name waits about 5 s on macOS for an
+    AAAA answer an IPv4-only pod never sends; the ``AF_INET`` one takes milliseconds."""
+    try:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror:
+        infos = []
+    if not infos:
+        infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    out: List[str] = []
+    for info in infos:
+        ip = str(info[4][0])
+        if ip not in out:
+            out.append(ip)
+    if not out:
+        raise socket.gaierror(f"{host}: no address")
+    return out
+
 
 class _SocketRawLink:
     """Adapts a connected socket to :class:`RawLink` for the flash bridge."""
@@ -119,6 +154,8 @@ class TcpTransport(Transport):
         self.dial_timeout = dial_timeout
         self.tls = _tls.tls_mode(tls)
         self.tls_ca = tls_ca if tls_ca is not None else (os.environ.get("BENCHPOD_TLS_CA") or None)
+        #: Host name -> its resolved addresses, reused until a connect to them fails.
+        self._resolved: Dict[str, List[str]] = {}
 
     # -- connection helpers -------------------------------------------------
 
@@ -161,12 +198,14 @@ class TcpTransport(Transport):
     def _connect(self, addr: "tuple[str, int]", budget: float, io_timeout: Optional[float],
                  *, retry: bool = True,
                  attempt_timeout: float = _DIAL_ATTEMPT_TIMEOUT) -> socket.socket:
-        """A TCP connection to ``addr``, re-probing within ``budget`` seconds."""
+        """A TCP connection to ``addr``, re-probing within ``budget`` seconds. A host name is
+        resolved once (:meth:`_addresses`) and resolved again only after a failed connect."""
         deadline = time.monotonic() + budget
         last: Optional[Exception] = None
+        host, port = addr
         while True:
             try:
-                sock = socket.create_connection(addr, timeout=attempt_timeout)
+                sock = self._connect_resolved(host, port, attempt_timeout)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 sock.settimeout(io_timeout)
                 return sock
@@ -180,6 +219,34 @@ class TcpTransport(Transport):
             hint = ("; firmware 4.0 serves its API on the LAN over TLS only: connect without :8080 "
                     "(TLS on 8443), or over USB")
         raise TransportError(f"could not connect to {addr[0]}:{addr[1]}: {last}{hint}") from last
+
+    def _addresses(self, host: str) -> List[str]:
+        """The addresses to connect to for ``host``: the literal itself, else the cached
+        resolution, else a new one (IPv4 first, :func:`resolve_host`)."""
+        if _is_ip_literal(host):
+            return [host]
+        ips = self._resolved.get(host)
+        if ips is None:
+            ips = resolve_host(host, 0)
+            self._resolved[host] = ips
+        return ips
+
+    def _connect_resolved(self, host: str, port: int, attempt_timeout: float) -> socket.socket:
+        """One connect attempt to each address of ``host`` in turn. When none answers the cached
+        resolution is dropped, so the next attempt resolves the name again (a new DHCP lease)."""
+        last: Optional[OSError] = None
+        try:
+            for ip in self._addresses(host):
+                try:
+                    return socket.create_connection((ip, port), timeout=attempt_timeout)
+                except OSError as exc:
+                    last = exc
+        except OSError:  # the lookup itself failed
+            self._resolved.pop(host, None)
+            raise
+        self._resolved.pop(host, None)
+        assert last is not None
+        raise last
 
     @staticmethod
     def _recv_line(sock: socket.socket, buf: bytearray) -> bytes:

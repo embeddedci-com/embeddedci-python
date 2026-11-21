@@ -318,7 +318,9 @@ class BenchPod:
         """Open a BenchPod.
 
         ``connection`` is a host[:port], a serial device path, ``"usb"`` (auto-detect the USB
-        pod), ``"usb:<name>"`` (one of several USB pods, by name), ``"discover"`` (find one pod on the LAN via mDNS), or ``"embeddedci:<device>"``
+        pod), ``"usb:<name>"`` (one of several USB pods, by name), a pod name (``"benchpod-a1b2c3"``:
+        found on the LAN over mDNS, else on USB), ``"discover"`` (find one pod on the LAN via
+        mDNS), or ``"embeddedci:<device>"``
         to drive a named device through embeddedci.com. When omitted ``BENCHPOD_CONNECTION`` is
         used, else the default connection ``benchpod-cli`` saved (``benchpod set-connection``);
         ``"saved"`` names that one explicitly. Pass ``transport`` to inject a custom backend
