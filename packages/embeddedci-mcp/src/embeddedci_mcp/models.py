@@ -766,7 +766,8 @@ class DecodeResult(BaseModel):
     speed: Optional[str] = Field(None, description="USB only: full or low.")
     transfers: Optional[List[str]] = Field(None, description=(
         "USB only: one line per control transfer (request, status, descriptor read back)."))
-    errors: Optional[int] = Field(None, description="USB only: packets with an error (CRC, bit stuffing, PID).")
+    errors: Optional[int] = Field(None, description=(
+        "USB, Modbus, CAN, 1-Wire, SMBus/PMBus: packets, frames or transactions with an error."))
     sof_count: Optional[int] = Field(None, description="USB only: start-of-frame packets (left out of items).")
 
 

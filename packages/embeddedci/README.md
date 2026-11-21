@@ -1969,6 +1969,20 @@ about 0.44 times the returned rate.
   descriptors read back decoded). Tap D+ and D- on two LA channels at the 3.3 V I/O level. Full
   speed needs `sample_rate_hz=48_000_000`; low speed decodes from 6 MS/s. High speed is not
   visible to the LA. `decode.decode_usb(words, dp=, dm=, sample_rate_hz=)` decodes raw words.
+* More protocols through the same `bp.decode` / `LaCapture.decode`:
+
+  | Protocol | Arguments | Result |
+  |---|---|---|
+  | `modbus` (RTU) | `rx`, `baud`; optional `tx` (two-line tap), `data_bits`, `parity` (default `even`), `stop_bits` | `ModbusFrame` list: `role` (request/response), `addr`, `function_name`, `start`, `quantity`, `values`, `exception`, `summary`, `reply_to`, `response_us`, CRC checked |
+  | `can` (CAN, CAN FD) | `can` (the transceiver's RXD), `bitrate`; optional `data_bitrate`, `sample_point`, `data_sample_point` | `CanFrame` list: `id_hex`, `extended`, `fd`, `brs`, `dlc`, `len`, `data_hex`, `ack`, `kind` (data/remote/error), CRC and stuffing checked |
+  | `pwm` | `channels` | `PwmDecode`: per channel `periods` (period, frequency, high, low, duty), `freq_hz` / `duty` / `high_us` min, max, mean, `jitter_us`, `glitches`, `servo` |
+  | `onewire` | `onewire` | `OneWireTransaction` list: `reset`, `presence`, `overdrive`, `rom_command_name`, `rom`, `rom_crc_ok`, `function`, `bytes_hex`, `detail` (a temperature) |
+  | `smbus`, `pmbus` | `sda`, `scl`; optional `pec` (`auto`, `on`, `off`) | `SmbusTransaction` list: `kind`, `command`, `command_name`, `data_hex`, `value` (PMBus: volts, amps, status bits), `pec` |
+
+  Rates: CAN needs 6 samples per data bit (2 Mbit/s data: 12 MS/s), 1-Wire 1 MS/s (4 MS/s in
+  overdrive). The modules `modbus_decode`, `can_decode`, `pwm_decode`, `onewire_decode` and
+  `smbus_decode` hold the classes and the checksums (`modbus_crc`, `can_crc`, `crc8`, `pec8`,
+  `linear11`).
 
 | `Capture` | `LaCapture` |
 |---|---|

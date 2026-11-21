@@ -472,7 +472,7 @@
   "DacPinoutMismatchError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, digital: 'str' = '', module: 'str' = '') -> 'None'"
   },
-  "DecodeProtocol": "Literal['i2c', 'uart', 'spi', 'usb']",
+  "DecodeProtocol": "Literal['i2c', 'uart', 'spi', 'usb', 'modbus', 'can', 'pwm', 'onewire', 'smbus', 'pmbus']",
   "DefinitionError": {
     "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
   },

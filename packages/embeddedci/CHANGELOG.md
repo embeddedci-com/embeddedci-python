@@ -10,6 +10,13 @@ Not released yet.
   bit stuffing and PID checks flagged per packet, transactions (token, data, handshake, repeated
   NAKs merged) and control transfers with the SETUP request and the descriptors read back
   decoded. Returns a `UsbDecode`; locked to the server's decoder by shared vectors.
+- **Five more LA decoders:** `modbus` (RTU on the UART decoder: request/response pairing,
+  function codes, registers and coils, exceptions, CRC), `can` (CAN 2.0 and ISO CAN FD from one
+  channel: bit stuffing, CRC15/17/21, BRS, ACK, error frames), `pwm` (per-period frequency, duty
+  and widths, summary, jitter, glitches, servo pulses), `onewire` (reset/presence, overdrive,
+  ROM commands and search, CRC8, scratchpad temperature) and `smbus`/`pmbus` (SMBus protocols,
+  PEC, PMBus command names, LINEAR11/LINEAR16 values, status bits). All locked to the server's
+  decoders by shared vectors.
 
 - **`la_pins` reads a long listing in pages.** On firmware with the `la_pins_paged` feature
   (features table revision 12), a reply that cannot carry every pin says `next`; the SDK asks

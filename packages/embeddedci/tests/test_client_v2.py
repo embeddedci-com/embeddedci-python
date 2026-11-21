@@ -524,7 +524,7 @@ def test_command_needs_a_cmd():
 def test_decode_rejects_unknown_protocol():
     bp, _ = _bp()
     with pytest.raises(ValueError, match="protocol"):
-        bp.decode([0, 1], "can")  # type: ignore[arg-type]
+        bp.decode([0, 1], "lin")  # type: ignore[arg-type]
 
 
 def test_a_failed_status_read_does_not_cache_empty_capabilities():

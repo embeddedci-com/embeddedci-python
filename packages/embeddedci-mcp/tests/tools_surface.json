@@ -1875,6 +1875,37 @@
           "default": null,
           "title": "Baud"
         },
+        "bitrate": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 5000000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "can: nominal bit rate, bit/s.",
+          "title": "Bitrate"
+        },
+        "can": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "can: the transceiver's RXD (or the controller's TX/RX).",
+          "title": "Can"
+        },
         "capture": {
           "default": "last",
           "description": "last = decode the previous capture_la; new = capture first (needs samples/sample_rate_hz).",
@@ -1884,6 +1915,25 @@
           ],
           "title": "Capture",
           "type": "string"
+        },
+        "channels": {
+          "anyOf": [
+            {
+              "items": {
+                "description": "LA channel (1-14) the signal is wired to.",
+                "maximum": 14,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "pwm: the channels to measure.",
+          "title": "Channels"
         },
         "cs": {
           "anyOf": [
@@ -1899,6 +1949,21 @@
           ],
           "default": null,
           "title": "Cs"
+        },
+        "data_bitrate": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 12000000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "can: CAN FD data bit rate, bit/s (left out: the nominal rate).",
+          "title": "Data Bitrate"
         },
         "dm": {
           "anyOf": [
@@ -1980,12 +2045,45 @@
           "default": null,
           "title": "Mosi"
         },
+        "onewire": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "onewire: the bus line.",
+          "title": "Onewire"
+        },
+        "pec": {
+          "default": "auto",
+          "description": "smbus/pmbus: auto = a trailing byte that matches is a PEC; on = every transaction ends in one.",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Pec",
+          "type": "string"
+        },
         "protocol": {
           "enum": [
             "i2c",
             "uart",
             "spi",
-            "usb"
+            "usb",
+            "modbus",
+            "can",
+            "pwm",
+            "onewire",
+            "smbus",
+            "pmbus"
           ],
           "title": "Protocol",
           "type": "string"
@@ -2004,6 +2102,21 @@
           ],
           "default": null,
           "title": "Rx"
+        },
+        "sample_point": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 1,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "can: where a bit is read, as a fraction of it (default 0.75).",
+          "title": "Sample Point"
         },
         "sample_rate_hz": {
           "default": 1000000,
@@ -2074,6 +2187,22 @@
           ],
           "title": "Speed",
           "type": "string"
+        },
+        "tx": {
+          "anyOf": [
+            {
+              "description": "LA channel (1-14) the signal is wired to.",
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "modbus: the other direction on a two-line tap (rx alone for an RS-485 receive output).",
+          "title": "Tx"
         }
       },
       "required": [

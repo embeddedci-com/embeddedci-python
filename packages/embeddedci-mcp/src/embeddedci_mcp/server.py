@@ -2371,20 +2371,36 @@ async def decode_la(
     dm: Annotated[Optional[LaPin], Field(description="usb: the channel on D-.")] = None,
     speed: Annotated[Literal["auto", "full", "low"], Field(description=(
         "usb: full (12 Mbit/s), low (1.5 Mbit/s) or auto (from the idle state)."))] = "auto",
+    tx: Annotated[Optional[LaPin], Field(description=(
+        "modbus: the other direction on a two-line tap (rx alone for an RS-485 receive output)."))] = None,
+    can: Annotated[Optional[LaPin], Field(description="can: the transceiver's RXD (or the controller's TX/RX).")] = None,
+    bitrate: Annotated[Optional[float], Field(gt=0, le=5_000_000, description="can: nominal bit rate, bit/s.")] = None,
+    data_bitrate: Annotated[Optional[float], Field(gt=0, le=12_000_000, description=(
+        "can: CAN FD data bit rate, bit/s (left out: the nominal rate)."))] = None,
+    sample_point: Annotated[Optional[float], Field(gt=0, lt=1, description=(
+        "can: where a bit is read, as a fraction of it (default 0.75)."))] = None,
+    channels: Annotated[Optional[List[LaPin]], Field(description="pwm: the channels to measure.")] = None,
+    onewire: Annotated[Optional[LaPin], Field(description="onewire: the bus line.")] = None,
+    pec: Annotated[Literal["auto", "on", "off"], Field(description=(
+        "smbus/pmbus: auto = a trailing byte that matches is a PEC; on = every transaction ends in one."))] = "auto",
     capture: Annotated[Literal["last", "new"], Field(description=(
         "last = decode the previous capture_la; new = capture first (needs samples/sample_rate_hz)."))] = "last",
     samples: Samples = 16384,
     sample_rate_hz: Annotated[float, Field(gt=0, le=50_000_000)] = 1_000_000,
     max_items: Annotated[int, Field(ge=1, le=5000)] = 200,
 ) -> m.DecodeResult:
-    """Decode I2C (sda, scl), UART (rx, baud), SPI (sclk + mosi/miso/cs, mode) or USB (dp, dm,
-    speed) from LA data.
+    """Decode I2C (sda, scl), UART (rx, baud), SPI (sclk + mosi/miso/cs, mode), USB (dp, dm,
+    speed), Modbus RTU (rx, baud, tx), CAN/CAN FD (can, bitrate, data_bitrate), PWM (channels),
+    1-Wire (onewire) or SMBus/PMBus (sda, scl, pec) from LA data.
 
-    Sample at least ~10x the bit rate; USB full speed needs a 48 MS/s capture, low speed 6 MS/s.
+    Sample at least ~10x the bit rate; USB full speed needs a 48 MS/s capture, low speed 6 MS/s;
+    CAN 6 samples per data bit; 1-Wire 1 MS/s (4 MS/s in overdrive).
     USB items are transactions (token, data, handshake; repeated NAKs merged), transfers the
     control transfers with the SETUP request and descriptors decoded (an enumeration).
     Decoding the last capture again with other channels is free.
     """
+    channels_arg = channels or []
+
     def op() -> m.DecodeResult:
         pod = SESSION.require()
         if protocol == "i2c" and (sda is None or scl is None):
@@ -2395,6 +2411,16 @@ async def decode_la(
             raise ValueError("spi needs sclk")
         if protocol == "usb" and (dp is None or dm is None):
             raise ValueError("usb needs dp and dm")
+        if protocol == "modbus" and (rx is None or baud is None):
+            raise ValueError("modbus needs rx and baud")
+        if protocol == "can" and (can is None or bitrate is None):
+            raise ValueError("can needs can (the channel) and bitrate")
+        if protocol == "pwm" and not channels_arg:
+            raise ValueError("pwm needs channels")
+        if protocol == "onewire" and onewire is None:
+            raise ValueError("onewire needs onewire (the channel)")
+        if protocol in ("smbus", "pmbus") and (sda is None or scl is None):
+            raise ValueError(f"{protocol} needs sda and scl")
         if protocol == "usb":
             try:
                 from embeddedci.benchpod import usb_decode
@@ -2406,8 +2432,14 @@ async def decode_la(
             SESSION.last_la = la
         channels = {k: v for k, v in (("sda", sda), ("scl", scl), ("rx", rx), ("baud", baud),
                                       ("sclk", sclk), ("mosi", mosi), ("miso", miso), ("cs", cs),
-                                      ("dp", dp), ("dm", dm))
+                                      ("dp", dp), ("dm", dm), ("tx", tx), ("can", can),
+                                      ("bitrate", bitrate), ("data_bitrate", data_bitrate),
+                                      ("sample_point", sample_point), ("onewire", onewire))
                     if v is not None}
+        if protocol == "pwm":
+            channels["channels"] = list(channels_arg)
+        if protocol in ("smbus", "pmbus"):
+            channels["pec"] = pec
         if protocol == "spi":
             channels["mode"] = mode
         if protocol == "usb":
@@ -2425,6 +2457,12 @@ async def decode_la(
                                   truncated=len(items) > max_items, speed=frames.speed,
                                   transfers=transfers[:max_items], errors=frames.error_count,
                                   sof_count=frames.sof_count)
+        if protocol in _LA_FORMATTERS:
+            items = _LA_FORMATTERS[protocol](frames)
+            n = len(frames.channels) if protocol == "pwm" else len(frames)
+            errors = 0 if protocol == "pwm" else sum(1 for f in frames if not f.ok)
+            return m.DecodeResult(protocol=protocol, count=n, items=items[:max_items],
+                                  truncated=len(items) > max_items, errors=errors)
         if protocol == "i2c":
             items = i2c.format_transactions(frames).splitlines()
         elif protocol == "uart":
@@ -2437,6 +2475,72 @@ async def decode_la(
                               truncated=len(items) > max_items, text=text)
 
     return await _call(op)
+
+
+def _t(us: float) -> str:
+    return f"{us / 1e6:.6f}s"
+
+
+def _fmt_modbus(frames) -> List[str]:
+    return [f"{_t(f.start_us)} {f.role} addr {f.addr} {f.summary}" + ("" if f.ok else f" error={f.error}")
+            for f in frames]
+
+
+def _fmt_can(frames) -> List[str]:
+    out = []
+    for f in frames:
+        kind = "" if f.kind == "data" else f" {f.kind}"
+        fd = (" FD" + (" BRS" if f.brs else "")) if f.fd else ""
+        out.append(f"{_t(f.start_us)} {f.id_hex}{kind}{fd} [{f.len}] {f.data_hex}".rstrip()
+                   + ("" if f.ok else f" error={f.error}"))
+    return out
+
+
+def _fmt_pwm(res) -> List[str]:
+    out = []
+    for c in res.channels:
+        if not c.count:
+            out.append(f"LA{c.channel}: no full period (level {c.level})")
+            continue
+        line = (f"LA{c.channel}: {c.count} periods, {c.freq_hz.mean:.6g} Hz ({c.freq_hz.min:.6g}-{c.freq_hz.max:.6g}), "
+                f"duty {100 * c.duty.mean:.2f} % ({100 * c.duty.min:.2f}-{100 * c.duty.max:.2f}), "
+                f"high {c.high_us.mean:.4g} us, jitter {c.jitter_us:.3g} us")
+        if c.glitches:
+            line += f", {c.glitches} glitches"
+        if c.servo:
+            line += f", servo {c.servo.pulse_ms.mean:.3f} ms ({c.servo.position_pct.mean:.1f} %)"
+        out.append(line)
+    return out
+
+
+def _fmt_onewire(tx) -> List[str]:
+    out = []
+    for t in tx:
+        parts = [_t(t.start_us), "reset" if t.reset else "(no reset)"]
+        if t.reset:
+            parts.append("presence" if t.presence else "no presence")
+        if t.overdrive:
+            parts.append("overdrive")
+        parts += [p for p in (t.rom_command_name, t.rom, t.function, t.detail) if p]
+        if t.bytes_hex:
+            parts.append(f"[{t.bytes_hex}]")
+        out.append(" ".join(parts) + ("" if t.ok else f" error={t.error}"))
+    return out
+
+
+def _fmt_smbus(tx) -> List[str]:
+    out = []
+    for t in tx:
+        cmd = t.command_name or (f"cmd 0x{t.command:02X}" if t.command is not None else "")
+        parts = [p for p in (_t(t.start_us), t.addr_hex, t.kind, cmd, t.data_hex, t.value) if p]
+        if t.pec != "none":
+            parts.append(f"PEC {t.pec}")
+        out.append(" ".join(parts) + ("" if t.ok else f" error={t.error}"))
+    return out
+
+
+_LA_FORMATTERS = {"modbus": _fmt_modbus, "can": _fmt_can, "pwm": _fmt_pwm, "onewire": _fmt_onewire,
+                  "smbus": _fmt_smbus, "pmbus": _fmt_smbus}
 
 
 def _pulse_stats(widths: List[float]) -> m.PulseStats:
@@ -3031,8 +3135,12 @@ def _decode_view(la: Any, protocol: str, channels: Dict[str, Any], frames: Any) 
     frames (the EmbeddedCI web app's decode result)."""
     view: Dict[str, Any] = {"seq": SESSION.la_seq, "protocol": protocol,
                             "channels": {k: v for k, v in channels.items()}}
-    if protocol == "usb":
+    if protocol in ("usb", "pwm"):
         view.update({k: v for k, v in frames.as_dict().items() if k != "protocol"})
+    elif protocol in ("modbus", "can"):
+        view["frames"] = [f.as_dict() for f in frames]
+    elif protocol in ("onewire", "smbus", "pmbus"):
+        view["transactions"] = [t.as_dict() for t in frames]
     elif protocol == "i2c":
         view["transactions"] = i2c.timed_transactions(la.words, channels["sda"], channels["scl"],
                                                       la.sample_rate_hz)
@@ -3091,8 +3199,9 @@ def capture_adc_resource() -> str:
 @mcp.resource("benchpod://capture/decode", name="capture_decode_data", mime_type="application/json",
               title="Last decode, with timing",
               description=("The last decode_la in full: I2C transactions with timed segments, UART / "
-                           "SPI frames, or USB packets, transactions and transfers, for drawing on the "
-                           "capture. seq is the capture it decoded."))
+                           "SPI / Modbus / CAN frames, USB packets, transactions and transfers, 1-Wire and "
+                           "SMBus transactions, or PWM channels, for drawing on the capture. seq is the "
+                           "capture it decoded."))
 def capture_decode_resource() -> str:
     return json.dumps(SESSION.last_decode or {"seq": 0}, separators=(",", ":"))
 

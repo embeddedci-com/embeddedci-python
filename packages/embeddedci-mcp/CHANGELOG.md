@@ -8,6 +8,10 @@ Not released yet. Needs embeddedci 4.0.1.
   (`auto`, `full`, `low`). `items` are transactions, `transfers` the control transfers (an
   enumeration as a list), with `speed`, `errors` and `sof_count`. `benchpod://capture/decode`
   carries the packets, transactions and transfers.
+- **`decode_la` decodes Modbus RTU, CAN / CAN FD, PWM, 1-Wire and SMBus/PMBus:** new
+  arguments `tx` (Modbus two-line tap), `can`, `bitrate`, `data_bitrate`, `sample_point`,
+  `channels` (PWM), `onewire`, `pec`. `items` has one line per frame, transaction or channel;
+  `errors` counts the bad ones. `benchpod://capture/decode` carries the full results.
 
 ## 4.0.0
 
