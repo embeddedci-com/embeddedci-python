@@ -9,6 +9,10 @@ For BenchPod firmware with the `jtag` feature; JTAG flashing needs embeddedci 4.
   There is no transport argument: JTAG is used when the four JTAG pins are known and either no SWD
   pins are, or the target is JTAG only (`esp32`, `esp32s2`, `gd32vf103`, `fe310`, `k210`, names
   starting with `riscv`); otherwise SWD. `set_wiring` and `wiring` carry the new `jtag_*` fields.
+- **`debug_port` in the wiring profile** (`swd`, `jtag` or null: automatic) picks the port for a board
+  wired for both. `flash` decides in this order: JTAG pins passed in the call (and no SWD pins) mean
+  JTAG, SWD pins passed mean SWD; else the profile's `debug_port`; else the automatic rule above.
+  `set_wiring` takes the field and `wiring` shows it. `flash` has no new argument. Needs embeddedci 4.0.4.
 
 ## 4.0.3
 

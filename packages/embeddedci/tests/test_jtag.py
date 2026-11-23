@@ -227,10 +227,9 @@ def test_both_wired_uses_swd_for_arm_and_jtag_for_jtag_only_targets(fake_pod):
 
 def test_explicit_pins_override_the_wiring(fake_pod):
     bp = fake_pod.make({"swd_swclk": 11, "swd_swdio": 12})
-    # JTAG pins passed, SWD wired, ARM target: SWD still wins by the rule
-    fake_pod.flash(bp, target="target/stm32f4x.cfg", tck=1, tms=2, tdi=3, tdo=4)
-    assert "tck" not in fake_pod.t.calls[0]
-    # ... but a JTAG-only target picks JTAG with the passed pins
+    # JTAG pins passed, no SWD pins passed: JTAG, even with SWD wired and an ARM target
+    assert fake_pod.flash(bp, target="target/stm32f4x.cfg", tck=1, tms=2, tdi=3, tdo=4) == "jtag"
+    assert fake_pod.t.calls[0]["tck"] == 1
     fake_pod.flash(bp, target="target/riscv.cfg", tck=1, tms=2, tdi=3, tdo=4, trst=9)
     call = fake_pod.t.calls[1]
     assert (call["tck"], call["tms"], call["tdi"], call["tdo"], call["trst"]) == (1, 2, 3, 4, 9)
@@ -238,6 +237,113 @@ def test_explicit_pins_override_the_wiring(fake_pod):
     # swclk/swdio passed explicitly beat the wiring too
     fake_pod.flash(bp, target="target/stm32f4x.cfg", swclk=8, swdio=9)
     assert fake_pod.t.calls[2]["args"][:2] == (8, 9)
+
+
+# -- the profile's debug_port and pins passed in the call ------------------------------
+
+BOTH = {"swd_swclk": 11, "swd_swdio": 12, "jtag_tck": 11, "jtag_tms": 12, "jtag_tdi": 5, "jtag_tdo": 6}
+ARM = "target/stm32f4x.cfg"
+
+
+def test_debug_port_field_validation_and_round_trip():
+    assert Wiring().debug_port is None and Wiring().to_dict()["debug_port"] is None
+    for value in ("swd", "jtag"):
+        w = Wiring(debug_port=value)
+        assert Wiring.from_dict(w.to_dict()) == w
+    assert Wiring.from_dict({"version": 2, "debug_port": None}).debug_port is None
+    for bad in ("SWD", "usb", "", 1, True):
+        with pytest.raises(ValueError, match="debug_port must be 'swd' or 'jtag'"):
+            Wiring(debug_port=bad)
+
+
+def test_profile_debug_port_jtag_beats_automatic_swd(fake_pod):
+    bp = fake_pod.make({**BOTH, "debug_port": "jtag"})
+    assert fake_pod.flash(bp, target=ARM) == "jtag"
+    call = fake_pod.t.calls[0]
+    # both pin sets known: both are sent, shared TCK/TMS
+    assert call["args"][:2] == (11, 12) and call["port"] == "jtag" and call["tck"] == 11
+
+
+def test_profile_debug_port_swd_beats_jtag_only_target(fake_pod):
+    bp = fake_pod.make({**BOTH, "debug_port": "swd"})
+    assert fake_pod.flash(bp, target="target/esp32.cfg") == "swd"
+    assert "tck" not in fake_pod.t.calls[0]
+
+
+def test_profile_debug_port_swd_ignores_partial_jtag_pins(fake_pod):
+    bp = fake_pod.make({"swd_swclk": 11, "swd_swdio": 12, "jtag_tdi": 5, "debug_port": "swd"})
+    assert fake_pod.flash(bp, target=ARM) == "swd"
+
+
+def test_debug_port_jtag_with_incomplete_pins_names_the_profile_field(fake_pod):
+    bp = fake_pod.make({"swd_swclk": 11, "swd_swdio": 12, "jtag_tck": 3, "jtag_tms": 4,
+                        "jtag_tdi": 5, "debug_port": "jtag"})
+    with pytest.raises(ValueError, match="debug_port is jtag but jtag_tdo is not set"):
+        bp.flash(target=ARM, file="f")
+    partial = fake_pod.make({"swd_swclk": 11, "jtag_tdo": 6, "debug_port": "jtag"})
+    with pytest.raises(ValueError, match="debug_port is jtag but jtag_tck, jtag_tms, jtag_tdi is not set"):
+        partial.flash(target=ARM, file="f")
+    assert fake_pod.t.calls == []
+
+
+def test_debug_port_swd_with_incomplete_pins_names_the_profile_field(fake_pod):
+    bp = fake_pod.make({**JTAG, "swd_swclk": 11, "debug_port": "swd"})
+    with pytest.raises(ValueError, match="debug_port is swd but swd_swdio is not set"):
+        bp.flash(target=ARM, file="f")
+    bp = fake_pod.make({**JTAG, "debug_port": "swd"})
+    with pytest.raises(ValueError, match="debug_port is swd but swd_swclk, swd_swdio is not set"):
+        bp.flash(target=ARM, file="f")
+
+
+def test_jtag_pin_in_the_call_beats_debug_port_swd(fake_pod):
+    bp = fake_pod.make({**BOTH, "debug_port": "swd"})
+    assert fake_pod.flash(bp, target=ARM, tdo=9) == "jtag"       # the rest from the profile
+    call = fake_pod.t.calls[0]
+    assert (call["tck"], call["tms"], call["tdi"], call["tdo"]) == (11, 12, 5, 9)
+    assert fake_pod.flash(bp, target=ARM, trst=7) == "jtag"      # trst alone counts as a JTAG pin
+    assert fake_pod.t.calls[1]["trst"] == 7
+
+
+def test_swd_pin_in_the_call_beats_debug_port_jtag_and_jtag_only_target(fake_pod):
+    bp = fake_pod.make({**BOTH, "debug_port": "jtag"})
+    assert fake_pod.flash(bp, target=ARM, swclk=8) == "swd"
+    assert fake_pod.t.calls[0]["args"][:2] == (8, 12)
+    assert fake_pod.flash(bp, target="target/esp32.cfg", swdio=9) == "swd"
+    assert "tck" not in fake_pod.t.calls[1]
+
+
+def test_jtag_pin_in_the_call_with_incomplete_pins_is_the_missing_pins_error(fake_pod):
+    bp = fake_pod.make({"swd_swclk": 11, "swd_swdio": 12, "debug_port": "swd"})
+    with pytest.raises(ValueError, match="all of tck, tms, tdi and tdo: jtag_tms, jtag_tdi, jtag_tdo"):
+        bp.flash(target=ARM, file="f", tck=3)
+
+
+def test_both_kinds_of_pins_in_the_call_fall_through_to_the_profile(fake_pod):
+    bp = fake_pod.make({**BOTH, "debug_port": "jtag"})
+    assert fake_pod.flash(bp, target=ARM, swclk=8, swdio=9, tck=1, tms=2, tdi=3, tdo=4) == "jtag"
+    bp = fake_pod.make({**BOTH, "debug_port": "swd"})
+    assert fake_pod.flash(bp, target="target/esp32.cfg", swclk=11, swdio=12,
+                          tck=11, tms=12, tdi=3, tdo=4) == "swd"
+    bp = fake_pod.make(BOTH)  # no debug_port: automatic
+    assert fake_pod.flash(bp, target=ARM, swclk=11, swdio=12, tck=11, tms=12, tdi=3, tdo=4) == "swd"
+
+
+def test_no_debug_port_keeps_the_automatic_rule(fake_pod):
+    bp = fake_pod.make(BOTH)
+    assert fake_pod.flash(bp, target=ARM) == "swd"
+    assert fake_pod.flash(bp, target="target/esp32.cfg") == "jtag"
+
+
+@pytest.mark.parametrize("kw, want", [
+    (dict(swd=True, jtag=True, jtag_given=True), "jtag"),
+    (dict(swd=True, jtag=True, swd_given=True, target="target/esp32.cfg"), "swd"),
+    (dict(swd=True, jtag=True, swd_given=True, jtag_given=True, debug_port="jtag"), "jtag"),
+    (dict(swd=True, jtag=True, debug_port="jtag"), "jtag"),
+    (dict(swd=True, jtag=True, debug_port="swd", target="target/esp32.cfg"), "swd"),
+    (dict(swd=True, jtag=True), "swd"),
+])
+def test_select_port_order(kw, want):
+    assert flashmod.select_port(**kw) == want
 
 
 def test_jtag_without_the_feature_is_refused_before_arming(fake_pod):

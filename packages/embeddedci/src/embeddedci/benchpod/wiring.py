@@ -49,6 +49,8 @@ ROLE_KEYS: Tuple[str, ...] = ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl", "swd_s
 JTAG_SHARED_ROLES: Tuple[Tuple[str, str], ...] = (("swd_swclk", "jtag_tck"), ("swd_swdio", "jtag_tms"))
 #: The four pins JTAG needs (``jtag_trst`` is optional).
 JTAG_REQUIRED_ROLES: Tuple[str, ...] = ("jtag_tck", "jtag_tms", "jtag_tdi", "jtag_tdo")
+#: Valid :attr:`Wiring.debug_port` values (None: automatic).
+DEBUG_PORTS: Tuple[str, ...] = ("swd", "jtag")
 #: Valid :attr:`Signal.direction` values.
 SIGNAL_DIRECTIONS: Tuple[str, ...] = ("input", "output", "open_drain", "bidir")
 #: Valid :attr:`Wiring.dut_dirs` values: which way the DUT's signal goes.
@@ -153,6 +155,9 @@ class Wiring:
     jtag_tdi: Optional[int] = None
     jtag_tdo: Optional[int] = None
     jtag_trst: Optional[int] = None
+    #: Which debug port ``flash`` uses when the call passes no pins of either kind: ``"swd"``,
+    #: ``"jtag"`` or None (automatic: JTAG only when SWD is not wired or the target is JTAG only).
+    debug_port: Optional[str] = None
     spi_sclk: Optional[int] = None
     spi_mosi: Optional[int] = None
     spi_miso: Optional[int] = None
@@ -445,6 +450,8 @@ class Wiring:
         addr = _i2c_address(self.i2c_addr)
         if self.i2c_addr is not None and (addr is None or not 0x03 <= addr <= 0x77):
             errs.append(f"i2c_addr must be a 7-bit address 0x03..0x77, got {self.i2c_addr!r}")
+        if self.debug_port is not None and self.debug_port not in DEBUG_PORTS:
+            errs.append(f"debug_port must be 'swd' or 'jtag' (or None: automatic), got {self.debug_port!r}")
         if not isinstance(self.swd_nreset, bool):
             errs.append(f"swd_nreset must be true or false, got {self.swd_nreset!r}")
         if not isinstance(self.swd_target, str) or len(self.swd_target) > 128:

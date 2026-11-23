@@ -200,6 +200,8 @@ JTAG_PROFILE = {"jtag_tck": 3, "jtag_tms": 4, "jtag_tdi": 5, "jtag_tdo": 6, "jta
 # SDK the MCP supports, which may predate them.
 needs_jtag_sdk = pytest.mark.skipif(not hasattr(Wiring, "jtag_tck"),
                                     reason="the installed embeddedci SDK has no jtag_* wiring fields")
+needs_debug_port_sdk = pytest.mark.skipif(not hasattr(Wiring, "debug_port"),
+                                          reason="the installed embeddedci SDK has no debug_port wiring field")
 
 
 @needs_jtag_sdk
@@ -251,3 +253,37 @@ def test_flash_jtag_pins_need_a_new_sdk(connected, monkeypatch):
     monkeypatch.setattr(SESSION.require(), "flash", old_flash)
     with pytest.raises(ToolError, match="JTAG needs a newer embeddedci SDK"):
         call("flash", file="a.elf", tck=3, tms=4, tdi=5, tdo=6)
+
+
+@needs_debug_port_sdk
+def test_set_wiring_takes_and_shows_debug_port(connected):
+    assert call("set_wiring", profile={"version": 2, "la_mv": 3300})["debug_port"] is None
+    result = call("set_wiring", profile={"version": 2, "la_mv": 3300, "debug_port": "jtag"})
+    assert result["debug_port"] == "jtag" and result["profile"]["debug_port"] == "jtag"
+    assert SESSION.require().wiring.debug_port == "jtag"
+    assert call("wiring")["debug_port"] == "jtag"
+
+
+@needs_debug_port_sdk
+def test_set_wiring_validates_debug_port(connected):
+    with pytest.raises(ToolError, match="debug_port must be 'swd' or 'jtag'"):
+        call("set_wiring", profile={"version": 2, "debug_port": "usb"})
+
+
+@needs_debug_port_sdk
+def test_flash_adds_no_argument_for_debug_port(connected, monkeypatch):
+    from embeddedci.benchpod.flash import FlashResult
+
+    seen = {}
+
+    def fake_flash(**kwargs):
+        seen.update(kwargs)
+        return FlashResult(ok=True, returncode=0, stdout="", stderr="")
+
+    _set({**BENCH, "debug_port": "jtag"})
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    assert call("flash", file="a.elf")["ok"] is True
+    assert "debug_port" not in seen and "port" not in seen and "transport" not in seen
+    assert "flash" in mcp._tool_manager._tools
+    desc = mcp._tool_manager._tools["flash"].description
+    assert "debug_port" in desc

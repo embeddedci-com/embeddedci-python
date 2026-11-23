@@ -799,6 +799,7 @@ print(wiring.describe())                        # a pin table: bias resistor and
 | `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
 | `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | not wired, not wired, `False`, `""` (auto-detect) | flashing |
 | `jtag_tck`, `jtag_tms`, `jtag_tdi`, `jtag_tdo`, `jtag_trst` | not wired | JTAG flashing (firmware feature `jtag`); `jtag_trst` is optional. `jtag_tck` may share a channel with `swd_swclk` and `jtag_tms` with `swd_swdio` (the same pins on an ARM part); every other overlap is an error |
+| `debug_port` | `None` (automatic) | `"swd"` or `"jtag"`: which port `flash` uses when the call passes no pins of either kind. Automatic: JTAG only when SWD is not wired or the target is JTAG only. An incomplete pin set for the chosen port is an error naming the unset fields |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
 | `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
 | `dut_dirs` | `{}` | the DUT direction of a role or signal where its default is wrong: `{"uart_rx": "bidir", "READY": "dut_input"}` (role key or signal name to `dut_input`, `dut_output` or `bidir`); see [pin directions](#gpio-on-the-la-pins) |
@@ -996,7 +997,10 @@ assert result.ok, result.stderr     # also: returncode, stdout, target_unreachab
   JTAG when all four JTAG pins are known and either no SWD pins are, or the target is JTAG only:
   `esp32`, `esp32s2`, `gd32vf103`, `fe310`, `k210` and any name starting with `riscv` (the OpenOCD
   config's file name, so `target/esp32.cfg` counts). Otherwise it uses SWD. With both wired, an ARM
-  target keeps SWD (faster). JTAG needs the pod's `jtag` feature (firmware with features table
+  target keeps SWD (faster) unless the profile's `debug_port` says `"jtag"`. The order: pins passed
+  in the call win (JTAG pins only: JTAG, the rest from the profile; SWD pins only: SWD; both kinds
+  or neither: go on), then the profile's `debug_port` (`"swd"` or `"jtag"`; an incomplete pin set
+  raises, e.g. "debug_port is jtag but jtag_tdo is not set"), then the automatic rule above. JTAG needs the pod's `jtag` feature (firmware with features table
   revision 16, gateware v61 or later, not the emulation FPGA image) and raises
   `UnsupportedFeatureError` before anything is armed without it. A bare `"esp32"` target (no
   `target/` path) still flashes over the chip's UART bootloader. An uploaded build flashed by
