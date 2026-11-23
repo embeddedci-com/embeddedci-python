@@ -193,3 +193,55 @@ def test_wiring_draws_the_profile_on_the_pods_header(connected, monkeypatch):
     monkeypatch.setattr(type(pod), "board_header", lambda self: None)
     result = call("wiring")
     assert result["board_header"] is None and "both are shown" in result["header_map"]
+
+
+JTAG_PROFILE = {"jtag_tck": 3, "jtag_tms": 4, "jtag_tdi": 5, "jtag_tdo": 6, "jtag_trst": 7}
+
+
+def test_set_wiring_takes_and_returns_the_jtag_fields(connected):
+    result = call("set_wiring", profile={"version": 2, "la_mv": 3300, **JTAG_PROFILE})
+    for key, la in JTAG_PROFILE.items():
+        assert result["profile"][key] == la
+    assert {p["la"]: p["wired_to"] for p in result["pins"]}[5] == "jtag_tdi"
+    assert SESSION.require().wiring.jtag_tdo == 6
+
+
+def test_set_wiring_validates_the_jtag_fields(connected):
+    with pytest.raises(ToolError, match="jtag_tck must be an LA channel 1..14"):
+        call("set_wiring", profile={"version": 2, "jtag_tck": 15})
+    with pytest.raises(ToolError, match="LA3 is used by both jtag_tck and jtag_tdi"):
+        call("set_wiring", profile={"version": 2, "jtag_tck": 3, "jtag_tdi": 3})
+    # TCK/TMS may share the SWD pins
+    call("set_wiring", profile={"version": 2, "swd_swclk": 11, "swd_swdio": 12, "jtag_tck": 11,
+                                "jtag_tms": 12, "jtag_tdi": 5, "jtag_tdo": 6})
+
+
+def test_flash_passes_jtag_pins_and_leaves_the_choice_to_the_sdk(connected, monkeypatch):
+    from embeddedci.benchpod.flash import FlashResult
+
+    seen = {}
+
+    def fake_flash(*, swclk=None, swdio=None, tck=None, tms=None, tdi=None, tdo=None, trst=None,
+                   **kwargs):
+        seen.update(swclk=swclk, swdio=swdio, tck=tck, tms=tms, tdi=tdi, tdo=tdo, trst=trst, **kwargs)
+        return FlashResult(ok=True, returncode=0, stdout="", stderr="")
+
+    _set()
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    assert call("flash", file="a.elf", target="target/riscv.cfg", tck=3, tms=4, tdi=5, tdo=6,
+                trst=7)["ok"] is True
+    assert (seen["tck"], seen["tms"], seen["tdi"], seen["tdo"], seen["trst"]) == (3, 4, 5, 6, 7)
+    # nothing passed: the SDK reads the profile (the tool does not pick a port)
+    seen.clear()
+    call("flash", file="a.elf")
+    assert seen["swclk"] is None and seen["tck"] is None and "transport" not in seen
+
+
+def test_flash_jtag_pins_need_a_new_sdk(connected, monkeypatch):
+    def old_flash(**kwargs):
+        raise AssertionError("not reached")
+
+    _set()
+    monkeypatch.setattr(SESSION.require(), "flash", old_flash)
+    with pytest.raises(ToolError, match="JTAG needs a newer embeddedci SDK"):
+        call("flash", file="a.elf", tck=3, tms=4, tdi=5, tdo=6)
