@@ -370,6 +370,103 @@ class DacPinoutMismatchError(UnsupportedFeatureError):
         self.module = module
 
 
+class UsbHostError(BenchPodError):
+    """USB host mode is not in the state the call needs (off, or a board that never enumerated).
+    Raised by the SDK, not by the pod: ``bp.usb_host()`` starts it."""
+
+
+class UsbTimeout(UsbHostError, TimeoutError):
+    """No (matching) USB device mounted in time (``usb_wait_device``), or host mode did not start
+    (``usb_host``). The message says how far the board got: nothing connected, a pull-up but no
+    enumeration, or an enumeration that stuck."""
+
+
+class UsbHostUnavailableError(UnsupportedFeatureError):
+    """The pod cannot host USB now: the request came over the pod's own USB link (``BP0076``),
+    the pod has no such port (``BP0077``, :attr:`port`) or its crystal clock is not running
+    (``BP0078``). Start host mode over the LAN or the cloud, and name ``usb_c`` on a pod without
+    a USB-A host port. An :class:`UnsupportedFeatureError` (``feature="usb_host"``)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, port: str = "") -> None:
+        super().__init__(message, cmd=cmd, feature="usb_host")
+        self.port = port
+
+
+class UsbHostPortError(FirmwareError):
+    """Host mode already runs on the other port (``BP0079``): :attr:`port` is that port. Stop it
+    first (``usb_host(False)``)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, port: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.port = port
+
+
+class UsbFlashRefusedError(FirmwareError):
+    """The pod refused to start a USB flash (``BP0084``): :attr:`why` says why (host mode off, no
+    drive mounted, nothing staged, a bad mode, name or length)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbSerialUnavailableError(FirmwareError):
+    """The pod has no USB serial port to open (``BP0085``): :attr:`why` says which part is
+    missing (host mode off, no board attached, a board without a serial port). Start host mode
+    (``usb_host()``), wait for the board and open the UART with ``port="usb"`` again."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbSerialBusyError(PodBusyError):
+    """The board's USB port is in use (``BP0086``): a ``usb_flash`` or ``usb_check`` runs, and the
+    open USB serial port refuses both. :attr:`why` says which. Wait for it, or close the UART."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbCheckRefusedError(FirmwareError):
+    """The pod cannot run the USB check (``BP0087``): :attr:`why` says why (bad argument, host mode
+    off, no board enumerated, a USB flash, another check or a power profile running)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbCheckNoPowerError(FirmwareError):
+    """The board is not powered from target-power eFuse 1 (``BP0088``), which every USB check but
+    ``reset`` needs: wire the board's VBUS to eFuse 1 and switch it on (``power_on``)."""
+
+
+class XipUnavailableError(FirmwareError):
+    """The pod cannot run code from its W25Q (``BP0083``): :attr:`why`. The USB flash protocols
+    run from there, so install the blobs that go with the firmware (``benchpod install-blobs``)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbFlashError(FlashError):
+    """A USB flash did not succeed. :attr:`result` is the pod's outcome (``"aborted"``, or what
+    went wrong), :attr:`phase` where it stopped, :attr:`mode` the loader used and :attr:`state`
+    the pod's last ``usb_flash`` state (a :class:`~embeddedci.benchpod.UsbFlashState`, ``None``
+    when the SDK stopped before starting). Raised before starting when no mode fits the board."""
+
+    def __init__(self, message: str, *, result: str = "", phase: str = "", mode: str = "",
+                 state: Any = None) -> None:
+        super().__init__(message)
+        self.result = result
+        self.phase = phase
+        self.mode = mode
+        self.state = state
+
+
 # -- stable error codes ------------------------------------------------------------------------
 #
 # Firmware 4.0 sends {"status":"error","code":"BP0009","args":{...}} and no message (BP0030 alone
@@ -556,17 +653,27 @@ _BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
     "BP0073": (FirmwareError, _NO_FIELDS),                       # psram_bandwidth
     "BP0074": (FirmwareError, _NO_FIELDS),                       # signatures_always_required
     "BP0075": (PodLockedError, _NO_FIELDS),                      # lan_plaintext_off
-    "BP0076": (UnsupportedFeatureError,                          # usb_host_over_usb
-               lambda v, cmd: {"feature": "usb_host"}),
-    "BP0077": (UnsupportedFeatureError,                          # usb_host_port_unavailable {port}
-               lambda v, cmd: {"feature": "usb_host"}),
-    "BP0078": (UnsupportedFeatureError,                          # usb_host_no_crystal
-               lambda v, cmd: {"feature": "usb_host"}),
-    "BP0079": (FirmwareError, _NO_FIELDS),                       # usb_host_other_port {port}
+    "BP0076": (UsbHostUnavailableError, _NO_FIELDS),             # usb_host_over_usb
+    "BP0077": (UsbHostUnavailableError,                          # usb_host_port_unavailable {port}
+               lambda v, cmd: {"port": _str(v.get("port"))}),
+    "BP0078": (UsbHostUnavailableError, _NO_FIELDS),             # usb_host_no_crystal
+    "BP0079": (UsbHostPortError,                                 # usb_host_other_port {port}
+               lambda v, cmd: {"port": _str(v.get("port"))}),
     "BP0080": (DacPinoutMismatchError,                           # dac_pinout_mismatch
                lambda v, cmd: {"digital": _str(v.get("digital")), "module": _str(v.get("module"))}),
     "BP0081": (PodNotPairedError, _NO_FIELDS),                   # lan_not_paired {cmd}
     "BP0082": (FirmwareError, _NO_FIELDS),                       # lan_clients_full {max}
+    "BP0083": (XipUnavailableError,                              # xip_unavailable {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0084": (UsbFlashRefusedError,                             # usb_flash_refused {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0085": (UsbSerialUnavailableError,                        # usb_serial_no_port {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0086": (UsbSerialBusyError,                               # usb_serial_busy {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0087": (UsbCheckRefusedError,                             # usb_check_refused {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0088": (UsbCheckNoPowerError, _NO_FIELDS),                # usb_check_no_efuse_power
 }
 
 

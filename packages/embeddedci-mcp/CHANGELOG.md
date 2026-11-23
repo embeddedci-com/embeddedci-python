@@ -1,5 +1,32 @@
 # Changelog — `embeddedci-mcp`
 
+## 4.0.3
+
+For BenchPod firmware 4.0.3; needs embeddedci 4.0.3.
+
+- **`usb_host`:** start or stop the pod's USB host mode for the board under test (`usb_a` on digital
+  v3r4 and later, else `usb_c`; the server picks), or read the state: the device that enumerated
+  (IDs, strings, interfaces), `connected` and `line_speed`. `wait_s`, `vid` and `pid` wait for a
+  board to mount.
+- **`usb_flash`:** flash the board over USB from a file on this machine: UF2 and drag-and-drop
+  drives, DFU and STM32 ROM loaders, Teensy, Arduino AVR and SAMD, ESP32. The loader comes from the
+  file and the board (`reason` in the result says why); `.hex` and `.dfu` files are converted.
+  Starts host mode when it is off, reports progress while it runs, and a failed flash is a normal
+  result (`ok` false with `result`, `phase` and `note`).
+- **The board's USB serial port is a UART argument:** `uart_open` and `capture_uart` take
+  `port="usb"` (with `dtr` and `rts`) where you would give `rx` and `tx`. It reads the boot log over
+  the cable the board was flashed through. There are no separate USB serial tools. Needs
+  `uart_usb` (pod firmware 4.0.3, feature table revision 15).
+- **`usb_check`:** tests the board's own USB firmware with its VBUS on the internal 5 V (efuse 1)
+  rail: `enumerate`, `power`, `suspend`, `reset` and `replug`. Returns `passed` and the numbers.
+- **`usb_hid`:** lists the board's HID interfaces (report descriptors) and catches its input
+  reports (`start`, `read`, `stop`).
+- **`usb_flash`:** a Pico (RP2040 or RP2350) in BOOTSEL takes a `.bin` or `.hex` through PICOBOOT
+  with every page read back (`mode` `picoboot`); `verify` reads a drive back (`FAIL.TXT`,
+  `CURRENT.UF2`) and the result's `note` says what it found; a drive flash sets the file's date
+  from this computer's clock.
+- The server instructions describe the USB flow.
+
 ## 4.0.2
 
 Needs embeddedci 4.0.2.

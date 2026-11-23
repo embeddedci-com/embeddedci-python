@@ -542,11 +542,20 @@ class TcpTransport(Transport):
             req["wait_ms"] = wait_ms
         return self._raw_handshake(req, "dap_start", "flash")
 
-    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
+    def uart_proxy_start(self, rx: Optional[int], tx: Optional[int], baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
                          entry: Any = None, de: Optional[int] = None,
-                         de_active_low: bool = False) -> RawLink:
-        req: dict = {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud}
+                         de_active_low: bool = False, port: Optional[str] = None,
+                         dtr: bool = True, rts: bool = True,
+                         data_bits: Optional[int] = None) -> RawLink:
+        if port is not None:
+            # The board's USB serial port (firmware 4.0.3+): no LA channels, no half-duplex or entry.
+            req = {"cmd": "uart_proxy_start", "port": port, "baud": baud, "dtr": bool(dtr),
+                   "rts": bool(rts), "parity": parity, "stop_bits": stop_bits}
+            if data_bits is not None:
+                req["data_bits"] = data_bits
+            return self._raw_handshake(req, "uart_proxy_start", "uart")
+        req = {"cmd": "uart_proxy_start", "rx": rx, "tx": tx, "baud": baud}
         # Only a non-8N1 frame adds the fields (firmware 3.10.8+ / gateware v56 take them).
         if parity != "none":
             req["parity"] = parity

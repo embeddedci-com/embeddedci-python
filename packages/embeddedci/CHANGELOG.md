@@ -1,5 +1,47 @@
 # Changelog — `embeddedci`
 
+## 4.0.3
+
+For BenchPod firmware 4.0.3 (features `usb_host_mode`, `usb_flash`, `uart_usb`, `usb_check`, `usb_hid`,
+`usb_flash_picoboot` and `usb_flash_readback`, features table revision 15).
+Works with firmware 4.0.0 and later; the new calls raise `UnsupportedFeatureError` ("needs firmware
+4.0.3") on older firmware.
+
+- **USB host mode.** `bp.usb_host(enable=True, *, port=None, timeout_s=60)` makes the pod a USB host
+  for the board under test (`usb_a` on digital v3r4 and later, else `usb_c`; the SDK picks the
+  port) and waits until it hosts. `bp.usb_host_status()` returns a typed `UsbHostState` (mode, port,
+  attached, enumeration, connected, line speed, and the `UsbDevice` with its configuration and
+  interfaces). `bp.usb_wait_device(vid=None, pid=None, timeout=10)` waits for a (matching) device.
+- **USB flashing.** `bp.usb_flash(file, *, address=None, name=None, leave=True, mode=None, ...)`
+  flashes the board over USB and returns a `UsbFlashResult`. There is no mode to choose: the SDK
+  picks `uf2`, `file`, `dfu`, `teensy`, `avr`, `samd` or `esp` from the file and the device that
+  mounted, and says why (`result.reason`). `.hex` and `.dfu` files are converted to a binary with
+  their start address. It starts host mode if needed, stages the file in the pod, polls with a
+  `progress(done, total)` callback and raises `UsbFlashError` (with the pod's `result`) on failure.
+  `usb_flash_status()` and `usb_flash_abort()` read and stop a flash.
+- **Typed errors for BP0076 to BP0084:** `UsbHostUnavailableError` (BP0076 to BP0078, still an
+  `UnsupportedFeatureError`), `UsbHostPortError` (BP0079), `XipUnavailableError` (BP0083) and
+  `UsbFlashRefusedError` (BP0084). New client-side errors: `UsbHostError`, `UsbTimeout`,
+  `UsbFlashError`.
+- **The board's USB serial port is just another argument where you would give pins:**
+  `bp.open_uart(port="usb", baud=115200, dtr=True, rts=True)` and `bp.capture_uart(port="usb", ...)`
+  return the usual `UartSession` and `UartCapture` (feature `uart_usb`). No LA channel, wiring
+  profile or I/O voltage is involved; `rx`, `tx`, `half_duplex`, `entry` and `de` with it are a
+  `ValueError`, and a pod without the feature raises `UnsupportedFeatureError` before anything is
+  sent. Works over the LAN and the cloud (the serial console refuses, as for any UART).
+- **USB checks.** `bp.usb_check(test, ...)` runs one of `enumerate`, `power`, `suspend`, `reset`
+  and `replug` against the board's own USB firmware (its VBUS on eFuse 1) and returns a
+  `UsbCheckState` (`passed`, `error`, `result`); `usb_check_status()` and `usb_check_abort()`.
+- **USB HID.** `bp.usb_hid_interfaces()` (report descriptors, read in pages when long),
+  `bp.usb_hid_capture(enable=True)` and `bp.usb_hid_read(count, timeout, instance)`.
+- **`usb_flash` grows two loaders' worth of features, still with nothing to choose:** a Pico or
+  Pico 2 in BOOTSEL with a `.bin` or `.hex` is flashed through PICOBOOT (`mode` `picoboot`, every
+  page read back); `verify=True` reads a drive back (`FAIL.TXT`, `CURRENT.UF2`; `result.note`); a
+  `file` flash sends the computer's clock for the file's date; FAT32 and exFAT drives work.
+- **Typed errors for BP0085 to BP0088:** `UsbSerialUnavailableError`, `UsbSerialBusyError`
+  (a `PodBusyError`), `UsbCheckRefusedError` and `UsbCheckNoPowerError`.
+- Bundled features table synced to revision 15 and the error catalog to 88 codes.
+
 ## 4.0.2
 
 Works with BenchPod firmware 4.0.0 and later. Firmware 4.0.2 also lets the pod's owner change pairing while another client holds the pod.

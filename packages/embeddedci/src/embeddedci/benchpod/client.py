@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import codecs
+import dataclasses
 import json
 import logging
 import math
@@ -50,6 +51,7 @@ from . import i2c as _i2c
 from . import i2c_master as _i2c_master
 from . import motor_emulator as _motor_emulator
 from . import spi as _spi
+from . import usb_host as _usb
 from . import uart as _uart
 from .capabilities import (ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE,
                            AffineCal, Capabilities)
@@ -102,8 +104,8 @@ from .constants import (
 )
 from .connection import resolve_connection
 from .errors import (BenchPodError, ClientTooOldError, FirmwareError, FirmwareTooOldError,
-                     PullDirectionError, UnsupportedFeatureError, classify_firmware_error,
-                     firmware_error)
+                     FlashError, PullDirectionError, UnsupportedFeatureError,
+                     UsbHostUnavailableError, UsbTimeout, classify_firmware_error, firmware_error)
 from .flash import FlashResult
 from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
 from .lease import DEFAULT_LEASE_TTL, DEFAULT_LEASE_WAIT, DeviceLease
@@ -1305,6 +1307,361 @@ class BenchPod:
         data = self.command(req)
         return isinstance(data, dict) and data.get("enabled") is True
 
+    # -- USB host mode and USB flashing (firmware 4.0.3+) --------------------------------
+
+    def _require_usb(self, feature: str, what: str) -> None:
+        """Refuse ahead, in words, when the pod's firmware lacks the USB ``feature``."""
+        if self.supports(feature):
+            return
+        fw = self.capabilities.firmware_version or "unknown"
+        first = _feature_map.first_firmware(feature) or "4.0.3"
+        raise UnsupportedFeatureError(
+            f"{what} needs firmware {first} or later (this pod runs firmware {fw}): update the pod",
+            feature=feature, firmware_version=self.capabilities.firmware_version)
+
+    @staticmethod
+    def _has_usb_a(board_rev: str) -> Optional[bool]:
+        """Whether a ``status`` ``board_rev`` (``"v3r4"``) has the USB-A host port (digital v3r4 and
+        later); ``None`` when the pod does not say."""
+        m = re.fullmatch(r"v(\d+)r(\d+)", str(board_rev or "").strip().lower())
+        return None if m is None else (int(m.group(1)), int(m.group(2))) >= (3, 4)
+
+    def usb_host_status(self) -> "_usb.UsbHostState":
+        """The pod's USB host state: ``mode`` (``device``, ``starting``, ``host``, ``stopping``),
+        the ``port``, whether a device is ``attached``, how far its ``enumeration`` got,
+        ``connected`` and ``line_speed`` (a board that draws power but is not ``connected`` has
+        no D+/D- link to the pod) and the ``device`` that enumerated last with its configuration
+        and interfaces. Firmware 4.0.3 and later (feature ``usb_host_mode``)."""
+        self._require_usb("usb_host_mode", "USB host mode")
+        with _classified_errors():
+            return _usb.UsbHostState.from_reply(self.command({"cmd": "usb_host"}))
+
+    def usb_host(self, enable: bool = True, *, port: Optional[str] = None,
+                 timeout_s: int = 60) -> "_usb.UsbHostState":
+        """Start (``enable=True``) or stop USB host mode and return the :class:`UsbHostState`.
+
+        In host mode the pod's USB port becomes a full-speed host for the board under test, for
+        ``timeout_s`` seconds (1 to 3600; starting again renews it), and reports the device that
+        enumerates (:meth:`usb_host_status`, :meth:`usb_wait_device`). The pod then is **off the
+        computer's USB** (no USB console, no USB network adapter): start it over the LAN or the
+        cloud; over the pod's own USB link it raises
+        :class:`~embeddedci.benchpod.errors.UsbHostUnavailableError` (``BP0076``). When the timeout
+        runs out, or ``usb_host(False)`` is called, the pod is a USB device again.
+
+        ``port``: ``"usb_a"`` (the USB-A host port of digital v3r4 and later) or ``"usb_c"`` (the
+        pod's own USB-C connector through a breakout, on any pod). Left out, the SDK picks
+        ``"usb_a"`` on a board that has the port (``board_rev`` v3r4 or later), ``"usb_c"`` on an
+        older one, and tries ``"usb_a"`` first (falling back to ``"usb_c"``) when the pod does not
+        say. Waits until the pod is in host mode; raises
+        :class:`~embeddedci.benchpod.errors.UsbTimeout` when it is not within 10 s.
+        """
+        self._require_usb("usb_host_mode", "USB host mode")
+        with _classified_errors():
+            if not enable:
+                self.command({"cmd": "usb_host", "enabled": False})
+                return self._usb_wait_mode(("device",))
+            if not 1 <= int(timeout_s) <= 3600:
+                raise ValueError(f"timeout_s must be 1 to 3600 seconds, got {timeout_s!r}")
+            if port is not None:
+                check_choice(port, ("usb_a", "usb_c"), "port")
+                ports: Tuple[str, ...] = (port,)
+            else:
+                has_a = self._has_usb_a(self.capabilities.board_rev)
+                ports = ("usb_a", "usb_c") if has_a is None else (("usb_a",) if has_a else ("usb_c",))
+            last: Optional[BaseException] = None
+            for i, p in enumerate(ports):
+                try:
+                    self.command({"cmd": "usb_host", "enabled": True, "port": p, "timeout_s": int(timeout_s)})
+                    break
+                except FirmwareError as exc:
+                    last = classify_firmware_error(exc)
+                    # No such port (BP0077), or a pod that asks for the port (BP0006): next port.
+                    if i + 1 < len(ports) and (isinstance(last, UsbHostUnavailableError)
+                                               and last.code == "BP0077" or last.code == "BP0006"):
+                        continue
+                    raise last from None
+            else:  # pragma: no cover - the loop breaks or raises
+                raise last  # type: ignore[misc]
+            return self._usb_wait_mode(("host",))
+
+    def _usb_wait_mode(self, modes: Tuple[str, ...], timeout: float = 10.0) -> "_usb.UsbHostState":
+        """Poll the host state until its mode is one of ``modes``."""
+        deadline = time.monotonic() + timeout
+        while True:
+            st = _usb.UsbHostState.from_reply(self.command({"cmd": "usb_host"}))
+            if st.mode in modes:
+                return st
+            if time.monotonic() >= deadline:
+                raise UsbTimeout(f"USB host mode did not reach {modes[0]!r} within {timeout:g} s "
+                                 f"(it is {st.mode!r})")
+            time.sleep(_usb.POLL_INTERVAL)
+
+    def usb_wait_device(self, vid: Union[int, str, None] = None, pid: Union[int, str, None] = None,
+                        timeout: float = 10.0) -> "_usb.UsbDevice":
+        """Wait until a USB device is mounted on the pod's host port and return its
+        :class:`UsbDevice` (IDs, strings, speed, configuration, interfaces).
+
+        ``vid`` / ``pid`` (an int, or hex text like ``"16c0"``) wait for that device only. Raises
+        :class:`~embeddedci.benchpod.errors.UsbHostError` when host mode is off (:meth:`usb_host`
+        starts it) and :class:`~embeddedci.benchpod.errors.UsbTimeout` after ``timeout`` seconds;
+        its message says how far the board got (no pull-up, wrong speed, a stuck enumeration).
+        """
+        v, p = _usb._parse_id(vid, "vid"), _usb._parse_id(pid, "pid")
+        return _usb.wait_device(self.usb_host_status, vid=v, pid=p, timeout=timeout)
+
+    def usb_flash_status(self) -> "_usb.UsbFlashState":
+        """The running USB flash, or the last one's outcome (:class:`UsbFlashState`)."""
+        self._require_usb("usb_flash", "USB flashing")
+        with _classified_errors():
+            return _usb.UsbFlashState.from_reply(self.command({"cmd": "usb_flash"}))
+
+    def usb_flash_abort(self) -> "_usb.UsbFlashState":
+        """Stop a running USB flash and return its state (``result`` is ``"aborted"``)."""
+        self._require_usb("usb_flash", "USB flashing")
+        with _classified_errors():
+            return _usb.UsbFlashState.from_reply(self.command({"cmd": "usb_flash", "abort": True}))
+
+    def usb_flash(
+        self,
+        file: Union[str, "os.PathLike[str]", bytes],
+        *,
+        address: Union[int, str, None] = None,
+        name: Optional[str] = None,
+        leave: bool = True,
+        mode: Optional[str] = None,
+        port: Optional[str] = None,
+        timeout: Optional[float] = None,
+        device_timeout: float = 10.0,
+        progress: Optional[Callable[[int, int], None]] = None,
+        verify: bool = False,
+    ) -> "_usb.UsbFlashResult":
+        """Flash the board on the pod's USB host port from ``file`` and return a
+        :class:`UsbFlashResult` (a failure raises :class:`~embeddedci.benchpod.errors.UsbFlashError`
+        with the pod's ``result``). Firmware 4.0.3 and later (feature ``usb_flash``); works over
+        the LAN and the cloud.
+
+        The SDK picks the loader from the file and the device that mounted, so there is nothing
+        to choose (``result.reason`` says why):
+
+        - a Teensy loader (16C0:0478): ``teensy``; a DFU interface (STM32 ROM loader, Black Pill):
+          ``dfu``, at the address in the ``.hex`` / ``.dfu`` file, else 0x08000000 on an STM32;
+        - a drive (Pico, Adafruit, tinyuf2, DAPLink, micro:bit): ``uf2`` for a ``.uf2`` file, else
+          ``file``, copied onto the drive as ``name`` (default: the file's name in 8.3);
+        - an Arduino or Adafruit AVR board, or a USB-serial chip with a file that is not an ESP
+          image: ``avr``; an Arduino, Adafruit or Seeed SAMD board: ``samd`` (address from the
+          file, else where a sketch starts: 0x2000, 0x4000 on a SAMD51);
+        - an Espressif device, or a USB-serial chip with an ESP image (starts with 0xE9): ``esp``,
+          at ``address`` (default 0, a merged image);
+        - a Raspberry Pi Pico (RP2040) or Pico 2 (RP2350) in BOOTSEL with a ``.bin`` or ``.hex``
+          file: ``picoboot`` (feature ``usb_flash_picoboot``), at ``address`` (default
+          0x10000000): erase, write, read every page back and compare, then boot. A ``.uf2`` file
+          goes to the UF2 drive as for any board.
+
+        ``.hex`` and ``.dfu`` files are converted to a binary with their start address (gaps up to
+        64 KB filled with 0xFF); a ``.bin`` takes ``address`` (``int`` or ``"0x2000"``). ``leave``
+        ``False`` keeps a ``dfu``/``teensy``/``avr``/``samd``/``esp`` board in its loader at the
+        end. ``mode`` overrides the choice (one of :data:`~embeddedci.benchpod.usb_host.MODES`).
+        ``verify=True`` reads the drive back after a ``file`` or ``uf2`` flash (feature
+        ``usb_flash_readback``): the loader's ``FAIL.TXT`` is reported as the failure (a DAPLink
+        board says why it refused the file) and a UF2 file is compared with the loader's
+        ``CURRENT.UF2`` while the board stays in it; ``result.note`` says what was found, or that the
+        check was skipped. ``picoboot`` always reads every page back. A ``file`` flash also sends
+        the computer's clock, so the file on the drive has today's date.
+
+        Starts host mode itself when it is off (``port`` as in :meth:`usb_host`), waits up to
+        ``device_timeout`` s for a device, switches the pod to the deep-replay gateware image the
+        way ``flash()`` of an ESP32 does (~3 s), stages the file in the pod's PSRAM and polls the
+        flash. ``progress(done, total)`` is called as it goes (sectors, blocks or bytes, by mode).
+        The flash is aborted after ``timeout`` seconds (default: a minute plus the file size at
+        2.5 KB/s) or on Ctrl-C. While it runs the pod refuses captures, DAC playback and uploads.
+        Host mode stays on afterwards (it ends by its own timeout, or ``usb_host(False)``).
+        """
+        self._require_usb("usb_flash", "USB flashing")
+        self._require_usb("usb_host_mode", "USB host mode")
+        image = _usb.load_image(file)
+        addr = None if address is None else _esp.parse_address(address)
+        stage = getattr(self._transport, "stage_psram", None)
+        if stage is None:
+            raise FlashError("flashing over USB needs a network, USB or cloud connection (the file "
+                             "is uploaded into the pod's memory first), not the serial console")
+        self._yield_expansion_bus()
+        st = self.usb_host_status()
+        if not st.hosting or st.remaining_s < _usb.MIN_HOST_REMAINING_S:
+            st = self.usb_host(True, port=port if port is not None else (st.port if st.hosting else None),
+                               timeout_s=_usb.FLASH_HOST_TIMEOUT_S)
+        device = self.usb_wait_device(timeout=device_timeout)
+        plan = _usb.choose_mode(image, device, address=addr, mode=mode)
+        spec = _usb.MODES[plan.mode]
+        if plan.mode in _usb.MODE_FEATURES:
+            self._require_usb(_usb.MODE_FEATURES[plan.mode], f"USB flashing with {plan.mode}")
+        if spec.binary:
+            data, _file_addr = image.binary()
+        else:
+            data = image.raw
+        req: Dict[str, Any] = {"cmd": "usb_flash", "mode": plan.mode, "len": len(data)}
+        if plan.address is not None:
+            req["address"] = plan.address
+        if plan.mode == "file":
+            req["name"] = name or _usb.fat_name(image.path or "firmware.bin")
+        if spec.leave and not leave:
+            req["leave"] = False
+        if verify and plan.mode in ("file", "uf2"):
+            self._require_usb("usb_flash_readback", "Reading the drive back after a USB flash")
+            req["check_fail_txt" if plan.mode == "file" else "verify"] = True
+        if plan.mode == "file" and self.supports("usb_flash_readback"):
+            req["time"] = int(time.time())   # the pod has no clock: dates the file on the drive
+        # The file is staged in PSRAM, which only the deep-replay gateware image writes.
+        self._ensure_image(FpgaImage.DEEP_REPLAY, needed_for="USB flashing", switch=True)
+        with _classified_errors():
+            final = _usb.run_flash(self.command, stage, data, req,
+                                   timeout=timeout if timeout is not None else _usb.flash_timeout(len(data)),
+                                   progress=progress)
+        return _usb.UsbFlashResult(
+            ok=True, mode=plan.mode, reason=plan.reason, length=len(data), address=plan.address,
+            name=str(req.get("name") or ""), protocol=final.protocol, ms=final.ms, device=device,
+            state=final, note=final.note)
+
+    # -- checks of the board's USB firmware (firmware 4.0.3+) ----------------------------
+
+    def usb_check_status(self) -> "_usb.UsbCheckState":
+        """The running USB check, or the last one's outcome (:class:`UsbCheckState`)."""
+        self._require_usb("usb_check", "USB checks")
+        with _classified_errors():
+            return _usb.UsbCheckState.from_reply(self.command({"cmd": "usb_check"}))
+
+    def usb_check_abort(self) -> "_usb.UsbCheckState":
+        """Stop a running USB check and return its state (``error`` is ``"aborted"``). The pod puts
+        eFuse 1 and the bus back as they were."""
+        self._require_usb("usb_check", "USB checks")
+        with _classified_errors():
+            return _usb.UsbCheckState.from_reply(self.command({"cmd": "usb_check", "abort": True}))
+
+    def usb_check(
+        self,
+        test: str,
+        *,
+        count: Optional[int] = None,
+        off_ms: Union[int, Sequence[int], None] = None,
+        timeout_ms: Optional[int] = None,
+        duration_ms: Optional[int] = None,
+        settle_ms: Optional[int] = None,
+        port: Optional[str] = None,
+        device_timeout: float = 10.0,
+        timeout: Optional[float] = None,
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> "_usb.UsbCheckState":
+        """Check the USB firmware of the board on the pod's host port and return the
+        :class:`UsbCheckState` once it ended (``passed`` is the verdict, ``result`` the numbers; a
+        failing board is a result, not an exception). Firmware 4.0.3 and later (feature
+        ``usb_check``); the board's VBUS must come from target-power eFuse 1 and eFuse 1 must be on
+        (:meth:`power_on`), or the pod refuses with
+        :class:`~embeddedci.benchpod.errors.UsbCheckNoPowerError` (``BP0088``; every test but
+        ``reset``). ``test`` is one of :data:`~embeddedci.benchpod.usb_host.CHECKS`:
+
+        - ``"enumerate"``: power-cycles the board ``count`` times (eFuse 1 off for ``off_ms``) and
+          times power-on to pull-up, descriptor and mounted (``result["connect_ms"]`` and so on, each
+          ``min``/``avg``/``max``);
+        - ``"power"``: eFuse 1's current for ``duration_ms`` against the configuration's
+          ``bMaxPower`` (``result["verdict"]``);
+        - ``"suspend"``: suspends the bus (``settle_ms``, then ``duration_ms`` of measuring), checks
+          the current against the 2.5 mA a bus-powered device may draw, resumes and checks the board
+          still answers;
+        - ``"reset"``: ``count`` port resets and the time to enumerate again;
+        - ``"replug"``: VBUS dropouts of ``off_ms`` (one length or a list, ms) ``count`` times each:
+          does the board come back (``result["lengths"]``).
+
+        ``timeout_ms`` is how long each cycle waits for the board. Arguments left out take the pod's
+        defaults, and the pod checks their ranges (a bad one is a
+        :class:`~embeddedci.benchpod.errors.UsbCheckRefusedError`, ``BP0087``, as is a check with host
+        mode off). Starts host mode itself when it is off (``port`` as in :meth:`usb_host`) and
+        waits up to ``device_timeout`` s for the board. The check is aborted after ``timeout``
+        seconds (default: its worst case plus a margin) or on Ctrl-C; ``progress(done, total)``
+        counts cycles (milliseconds for ``power`` and ``suspend``). While it runs ``usb_flash`` and
+        the USB serial port are refused. Host mode stays on afterwards.
+        """
+        self._require_usb("usb_check", "USB checks")
+        self._require_usb("usb_host_mode", "USB host mode")
+        if test not in _usb.CHECKS:
+            raise ValueError(f"test must be one of {', '.join(_usb.CHECKS)}, got {test!r}")
+        args: Dict[str, Any] = {}
+        for key, value in (("count", count), ("timeout_ms", timeout_ms), ("duration_ms", duration_ms),
+                           ("settle_ms", settle_ms)):
+            if value is not None:
+                args[key] = int(value)
+        if off_ms is not None:
+            args["off_ms"] = int(off_ms) if isinstance(off_ms, (int, float)) else [int(x) for x in off_ms]
+        st = self.usb_host_status()
+        if not st.hosting or st.remaining_s < _usb.MIN_HOST_REMAINING_S:
+            st = self.usb_host(True, port=port if port is not None else (st.port if st.hosting else None),
+                               timeout_s=_usb.FLASH_HOST_TIMEOUT_S)
+        self.usb_wait_device(timeout=device_timeout)
+        req: Dict[str, Any] = {"cmd": "usb_check", "test": test, **args}
+        with _classified_errors():
+            return _usb.run_check(self.command, req,
+                                  timeout=timeout if timeout is not None else _usb.check_timeout(test, args),
+                                  progress=progress)
+
+    # -- HID interfaces and input reports (firmware 4.0.3+) ------------------------------
+
+    def usb_hid_interfaces(self) -> "_usb.UsbHidState":
+        """The HID interfaces of the board on the pod's host port (the first two), each with its
+        whole report descriptor (:class:`UsbHidState`; the SDK reads a long one in pages). Firmware
+        4.0.3 and later (feature ``usb_hid``). Refused when host mode is off, no HID interface is
+        mounted, or a ``usb_flash`` or ``usb_check`` runs."""
+        self._require_usb("usb_hid", "USB HID")
+        with _classified_errors():
+            st = _usb.UsbHidState.from_reply(self.command({"cmd": "usb_hid"}))
+            full = []
+            for itf in st.interfaces:
+                data = bytearray(itf.descriptor)
+                cut = itf.truncated
+                # The descriptors share one reply: a long one is cut and read on with ``offset``.
+                while cut and len(data) < itf.descriptor_len and len(data) < 4096:
+                    more = _usb.UsbHidState.from_reply(
+                        self.command({"cmd": "usb_hid", "instance": itf.instance, "offset": len(data)}))
+                    page = next((i for i in more.interfaces if i.instance == itf.instance), None)
+                    if page is None or not page.descriptor:
+                        break
+                    data += page.descriptor
+                    cut = page.truncated
+                full.append(dataclasses.replace(itf, descriptor=bytes(data),
+                                                truncated=len(data) < itf.descriptor_len))
+            return dataclasses.replace(st, interfaces=tuple(full))
+
+    def usb_hid_capture(self, enable: bool = True) -> "_usb.UsbHidCapture":
+        """Start (``enable=True``) or stop the capture of the board's HID input reports and return
+        its state (:class:`UsbHidCapture`). Every report of both interfaces goes into one ring of
+        64 on the pod, with its instance and time, until :meth:`usb_hid_read` drains it; stopping
+        frees the ring. The capture ends by itself when the board detaches (a board that resets
+        needs a new one) and when host mode ends. While it runs ``usb_flash`` and ``usb_check``
+        are refused. Firmware 4.0.3 and later (feature ``usb_hid``)."""
+        self._require_usb("usb_hid", "USB HID")
+        with _classified_errors():
+            return _usb.UsbHidCapture.from_reply(self.command({"cmd": "usb_hid", "capture": bool(enable)}))
+
+    def usb_hid_read(self, count: int = 1, timeout: float = 2.0,
+                     instance: Optional[int] = None) -> "_usb.UsbHidReports":
+        """Take up to ``count`` input reports (1 to 32) from the capture ring, waiting up to
+        ``timeout`` seconds (0.001 to 10) for one when it holds none, and return them
+        (:class:`UsbHidReports`: ``reports`` with ``ms``, ``instance`` and ``data``; possibly none).
+        ``instance`` takes only that interface's reports (0 or 1) and leaves the others in the ring.
+        A read while no capture runs starts one and leaves it running; stop it with
+        ``usb_hid_capture(False)``. ``capturing`` false in the result means the capture ended (the
+        board detached or host mode ended). Firmware 4.0.3 and later (feature ``usb_hid``)."""
+        self._require_usb("usb_hid", "USB HID")
+        if isinstance(count, bool) or not 1 <= int(count) <= _usb.HID_MAX_COUNT:
+            raise ValueError(f"count must be 1 to {_usb.HID_MAX_COUNT}, got {count!r}")
+        if not 0 < float(timeout) <= _usb.HID_MAX_TIMEOUT_S:
+            raise ValueError(f"timeout must be above 0 and at most {_usb.HID_MAX_TIMEOUT_S:g} seconds, got {timeout!r}")
+        req: Dict[str, Any] = {"cmd": "usb_hid", "read": True, "count": int(count),
+                               "timeout_ms": max(1, int(round(float(timeout) * 1000)))}
+        if instance is not None:
+            if isinstance(instance, bool) or instance not in (0, 1):
+                raise ValueError(f"instance must be 0 or 1, got {instance!r}")
+            req["instance"] = int(instance)
+        with _classified_errors():
+            return _usb.UsbHidReports.from_reply(self.command(req))
+
     # -- console log level --------------------------------------------------
 
     def log_level(self) -> str:
@@ -2309,6 +2666,9 @@ class BenchPod:
         entry: Optional[_uart.UartEntry] = None,
         de: Union[Pin, int, str, None] = None,
         de_active_low: bool = False,
+        port: Optional[str] = None,
+        dtr: Optional[bool] = None,
+        rts: Optional[bool] = None,
     ) -> _uart.UartCapture:
         """Capture the DUT's UART output for ``duration`` seconds.
 
@@ -2317,20 +2677,31 @@ class BenchPod:
         Omitted ``rx``, ``tx``, ``baud``, ``parity`` and ``stop_bits`` come from the wiring profile.
         ``parity`` (``"none"``, ``"even"``, ``"odd"``) and ``stop_bits`` (1 or 2) set the frame
         format, as in :meth:`open_uart`, and so do ``half_duplex`` and ``entry``.
+
+        ``port="usb"`` captures the serial port of the board the pod hosts over USB instead of LA
+        pins, as in :meth:`open_uart` (``baud``, ``parity``, ``stop_bits``, ``dtr`` and ``rts``
+        apply; ``rx`` and ``tx`` do not).
         """
         if duration <= 0:
             raise ValueError(f"duration must be > 0 seconds, got {duration!r}")
-        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low,
+                               port=port, dtr=dtr, rts=rts)
         return _uart.capture(link, duration=duration, until=until)
 
     def _uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: Optional[str] = None,
                    stop_bits: Optional[int] = None, half_duplex: bool = False,
                    entry: Optional[_uart.UartEntry] = None,
-                   de: Any = None, de_active_low: bool = False) -> Any:
+                   de: Any = None, de_active_low: bool = False, port: Optional[str] = None,
+                   dtr: Optional[bool] = None, rts: Optional[bool] = None) -> Any:
         if parity is not None and parity not in ("none", "even", "odd"):
             raise ValueError(f"parity must be 'none', 'even' or 'odd', got {parity!r}")
         if stop_bits is not None and (isinstance(stop_bits, bool) or stop_bits not in (1, 2)):
             raise ValueError(f"stop_bits must be 1 or 2, got {stop_bits!r}")
+        if port is not None:
+            return self._usb_uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de,
+                                       port, dtr, rts)
+        if dtr is not None or rts is not None:
+            raise ValueError("dtr and rts are the control lines of the USB serial port: pass port=\"usb\"")
         # Omitted: the wiring profile's frame (uart_parity, uart_stop_bits; 8N1 unless it says so).
         if parity is None:
             parity = getattr(self.wiring, "uart_parity", None) or "none"
@@ -2390,6 +2761,27 @@ class BenchPod:
         with _classified_errors():
             return self._transport.uart_proxy_start(rx_i, tx_i, b, **kw)
 
+    def _usb_uart_link(self, rx: Any, tx: Any, baud: Optional[int], parity: Optional[str],
+                       stop_bits: Optional[int], half_duplex: bool, entry: Any, de: Any,
+                       port: str, dtr: Optional[bool], rts: Optional[bool]) -> Any:
+        """The raw link of ``uart_proxy_start`` on the board's USB serial port: no LA channel, no
+        wiring profile (its frame and baud are for the DUT's UART pins) and no I/O voltage."""
+        if port != "usb":
+            raise ValueError(f"port must be \"usb\" (the board's USB serial port) or left out for LA "
+                             f"pins, got {port!r}")
+        if rx is not None or tx is not None:
+            raise ValueError("rx and tx are LA channels: with port=\"usb\" the UART is the board's USB "
+                             "serial port and has none")
+        if half_duplex or entry is not None or de is not None:
+            raise ValueError("half_duplex, entry and de are for UARTs on LA pins: they do not apply "
+                             "with port=\"usb\"")
+        self._require_usb("uart_usb", "The USB serial port")
+        kw: Dict[str, Any] = {"port": "usb", "parity": parity or "none", "stop_bits": stop_bits or 1,
+                              "dtr": True if dtr is None else bool(dtr),
+                              "rts": True if rts is None else bool(rts)}
+        with _classified_errors():
+            return self._transport.uart_proxy_start(None, None, int(115200 if baud is None else baud), **kw)
+
     def power_cycle_and_capture(
         self,
         *,
@@ -2434,6 +2826,9 @@ class BenchPod:
         entry: Optional[_uart.UartEntry] = None,
         de: Union[Pin, int, str, None] = None,
         de_active_low: bool = False,
+        port: Optional[str] = None,
+        dtr: Optional[bool] = None,
+        rts: Optional[bool] = None,
     ) -> _uart.UartSession:
         """Open an event-based UART session (a background reader buffers the DUT's output).
 
@@ -2493,9 +2888,28 @@ class BenchPod:
         ``half_duplex`` and ``entry`` need gateware v57 (capability ``uart_hd``); ``entry`` also needs the pod's reset pin
         (capability ``nrst_pin``). Older pods are refused with
         :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError` before anything is sent.
+
+        ``port="usb"`` opens the serial port of the board the pod hosts over USB
+        (:meth:`usb_host`) instead of LA pins: a CDC ACM port, or the FTDI, CP210x or CH34x chip of
+        a dev kit, so a test reads the boot log over the cable the board was flashed through. No LA
+        channel, pull-up or I/O voltage is used, and ``rx``, ``tx``, ``half_duplex``, ``entry`` and
+        ``de`` do not apply. ``baud`` (default 115200), ``parity``, ``stop_bits`` and the control
+        lines ``dtr`` and ``rts`` (both ``True`` by default: many boards reset or enter their loader
+        on them) are applied by the pod, and again when the board re-enumerates. Needs firmware
+        4.0.3+ (feature ``uart_usb``, else :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError`).
+        A pod without host mode or a serial port is refused with
+        :class:`~embeddedci.benchpod.errors.UsbSerialUnavailableError` (``BP0085``), and while a
+        :meth:`usb_flash` or :meth:`usb_check` runs with
+        :class:`~embeddedci.benchpod.errors.UsbSerialBusyError` (``BP0086``)::
+
+            bp.usb_host(timeout_s=300)
+            bp.usb_flash("build/app.bin", address=0x10000)
+            with bp.open_uart(port="usb", baud=115200) as uart:
+                uart.expect("ready", timeout=10)
         """
         codecs.lookup(encoding)  # an unknown encoding fails here, before the proxy starts
-        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low)
+        link = self._uart_link(rx, tx, baud, parity, stop_bits, half_duplex, entry, de, de_active_low,
+                               port=port, dtr=dtr, rts=rts)
         return _uart.UartSession(link, max_buffer=max_buffer, encoding=encoding)
 
     # -- SPI master / SPI flash ------------------------------------------------

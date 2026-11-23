@@ -26,7 +26,7 @@ def request_timeout(req: Mapping[str, Any], base: float) -> float:
         keys.append("duration_ms")
     if req.get("cmd") == "dap_start":
         keys.append("wait_ms")
-    if req.get("cmd") == "sensor_la":
+    if req.get("cmd") == "sensor_la" or (req.get("cmd") == "usb_hid" and req.get("read")):
         keys.append("timeout_ms")
     for key in keys:
         v = req.get(key)
@@ -90,10 +90,12 @@ class Transport(ABC):
         )
 
     @abstractmethod
-    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
+    def uart_proxy_start(self, rx: Optional[int], tx: Optional[int], baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
                          entry: Any = None, de: Optional[int] = None,
-                         de_active_low: bool = False) -> RawLink:
+                         de_active_low: bool = False, port: Optional[str] = None,
+                         dtr: bool = True, rts: bool = True,
+                         data_bits: Optional[int] = None) -> RawLink:
         """Enter transparent UART-proxy mode and return the raw byte link.
 
         ``rx``/``tx`` are LA channels: ``rx`` is sampled (wire the DUT's TX
@@ -104,6 +106,10 @@ class Transport(ABC):
         sent only when set (gateware v57), like ``de`` (an RS-485 transceiver's DE on that LA
         channel, driven by the pod) and ``de_active_low`` (gateware v58). The returned
         link carries raw bytes; ``close()`` leaves the proxy.
+
+        ``port="usb"`` (firmware 4.0.3+, feature ``uart_usb``) carries the serial port of the board
+        the pod hosts instead of LA channels: ``rx`` and ``tx`` are then ``None``, and ``dtr``,
+        ``rts`` and ``data_bits`` (the control lines and frame) apply. They are sent only for it.
         """
 
     @abstractmethod
