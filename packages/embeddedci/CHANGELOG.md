@@ -1,5 +1,29 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+For BenchPod firmware 4.0.3 (features `usb_host_mode` and `usb_flash`, features table revision 14).
+Works with firmware 4.0.0 and later; the new calls raise `UnsupportedFeatureError` ("needs firmware
+4.0.3") on older firmware.
+
+- **USB host mode.** `bp.usb_host(enable=True, *, port=None, timeout_s=60)` makes the pod a USB host
+  for the board under test (`usb_a` on digital v3r4 and later, else `usb_c`; the SDK picks the
+  port) and waits until it hosts. `bp.usb_host_status()` returns a typed `UsbHostState` (mode, port,
+  attached, enumeration, connected, line speed, and the `UsbDevice` with its configuration and
+  interfaces). `bp.usb_wait_device(vid=None, pid=None, timeout=10)` waits for a (matching) device.
+- **USB flashing.** `bp.usb_flash(file, *, address=None, name=None, leave=True, mode=None, ...)`
+  flashes the board over USB and returns a `UsbFlashResult`. There is no mode to choose: the SDK
+  picks `uf2`, `file`, `dfu`, `teensy`, `avr`, `samd` or `esp` from the file and the device that
+  mounted, and says why (`result.reason`). `.hex` and `.dfu` files are converted to a binary with
+  their start address. It starts host mode if needed, stages the file in the pod, polls with a
+  `progress(done, total)` callback and raises `UsbFlashError` (with the pod's `result`) on failure.
+  `usb_flash_status()` and `usb_flash_abort()` read and stop a flash.
+- **Typed errors for BP0076 to BP0084:** `UsbHostUnavailableError` (BP0076 to BP0078, still an
+  `UnsupportedFeatureError`), `UsbHostPortError` (BP0079), `XipUnavailableError` (BP0083) and
+  `UsbFlashRefusedError` (BP0084). New client-side errors: `UsbHostError`, `UsbTimeout`,
+  `UsbFlashError`.
+- Bundled features table synced to revision 14 and the error catalog to 84 codes.
+
 ## 4.0.2
 
 Works with BenchPod firmware 4.0.0 and later. Firmware 4.0.2 also lets the pod's owner change pairing while another client holds the pod.

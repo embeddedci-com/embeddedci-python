@@ -198,7 +198,13 @@
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
     "usb_cc": "(self) -> 'UsbCcStatus'",
+    "usb_flash": "(self, file: \"Union[str, 'os.PathLike[str]', bytes]\", *, address: 'Union[int, str, None]' = None, name: 'Optional[str]' = None, leave: 'bool' = True, mode: 'Optional[str]' = None, port: 'Optional[str]' = None, timeout: 'Optional[float]' = None, device_timeout: 'float' = 10.0, progress: 'Optional[Callable[[int, int], None]]' = None) -> \"'_usb.UsbFlashResult'\"",
+    "usb_flash_abort": "(self) -> \"'_usb.UsbFlashState'\"",
+    "usb_flash_status": "(self) -> \"'_usb.UsbFlashState'\"",
+    "usb_host": "(self, enable: 'bool' = True, *, port: 'Optional[str]' = None, timeout_s: 'int' = 60) -> \"'_usb.UsbHostState'\"",
+    "usb_host_status": "(self) -> \"'_usb.UsbHostState'\"",
     "usb_network": "(self, on: 'Optional[bool]' = None) -> 'bool'",
+    "usb_wait_device": "(self, vid: 'Union[int, str, None]' = None, pid: 'Union[int, str, None]' = None, timeout: 'float' = 10.0) -> \"'_usb.UsbDevice'\"",
     "wait_for_level": "(self, la: 'Union[Pin, int, str]', level: 'int', *, timeout: 'float', poll: 'float' = 0.005) -> 'bool'",
     "waveforms": "property",
     "wiring": "property",
@@ -1280,6 +1286,20 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'UsbCcStatus'\""
   },
+  "UsbConfig": {
+    "__fields__": [
+      "value",
+      "max_power_ma",
+      "self_powered",
+      "remote_wakeup",
+      "interface_count",
+      "truncated",
+      "malformed",
+      "interfaces",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbConfig'\""
+  },
   "UsbDecode": {
     "__fields__": [
       "speed",
@@ -1293,6 +1313,109 @@
     ],
     "as_dict": "(self) -> 'dict'"
   },
+  "UsbDevice": {
+    "__fields__": [
+      "vid",
+      "pid",
+      "speed",
+      "usb",
+      "release",
+      "device_class",
+      "subclass",
+      "protocol",
+      "ep0_size",
+      "configurations",
+      "manufacturer",
+      "product",
+      "serial",
+      "descriptor_ms",
+      "mounted_ms",
+      "config",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbDevice'\"",
+    "has_interface": "(self, interface_class: 'int', subclass: 'Optional[int]' = None) -> 'bool'",
+    "interfaces": "property",
+    "vid_pid": "property"
+  },
+  "UsbFlashError": {
+    "__init__": "(self, message: 'str', *, result: 'str' = '', phase: 'str' = '', mode: 'str' = '', state: 'Any' = None) -> 'None'"
+  },
+  "UsbFlashRefusedError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
+  },
+  "UsbFlashResult": {
+    "__fields__": [
+      "ok",
+      "mode",
+      "reason",
+      "length",
+      "address",
+      "name",
+      "protocol",
+      "ms",
+      "device",
+      "state"
+    ]
+  },
+  "UsbFlashState": {
+    "__fields__": [
+      "running",
+      "have_result",
+      "mode",
+      "name",
+      "length",
+      "address",
+      "protocol",
+      "phase",
+      "done",
+      "total",
+      "result",
+      "ok",
+      "ms",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbFlashState'\"",
+    "unit": "property"
+  },
+  "UsbHostError": {},
+  "UsbHostPortError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, port: 'str' = '') -> 'None'"
+  },
+  "UsbHostState": {
+    "__fields__": [
+      "mode",
+      "port",
+      "remaining_s",
+      "host_ms",
+      "enumerations",
+      "attached",
+      "enumeration",
+      "connected",
+      "line_speed",
+      "device",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbHostState'\"",
+    "hosting": "property",
+    "mounted": "property"
+  },
+  "UsbHostUnavailableError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, port: 'str' = '') -> 'None'"
+  },
+  "UsbInterface": {
+    "__fields__": [
+      "number",
+      "alt",
+      "interface_class",
+      "class_name",
+      "subclass",
+      "protocol",
+      "endpoints"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbInterface'\""
+  },
+  "UsbTimeout": {},
   "Waveform": {
     "__fields__": [
       "id",
@@ -1377,6 +1500,9 @@
   },
   "WiringError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, name: 'str' = '') -> 'None'"
+  },
+  "XipUnavailableError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
   },
   "__all__": [
     "AdcCompensation",
@@ -1538,12 +1664,25 @@
     "UartTimeout",
     "UnsupportedFeatureError",
     "UsbCcStatus",
+    "UsbConfig",
     "UsbDecode",
+    "UsbDevice",
+    "UsbFlashError",
+    "UsbFlashRefusedError",
+    "UsbFlashResult",
+    "UsbFlashState",
+    "UsbHostError",
+    "UsbHostPortError",
+    "UsbHostState",
+    "UsbHostUnavailableError",
+    "UsbInterface",
+    "UsbTimeout",
     "Waveform",
     "WaveformLibrary",
     "Waveshape",
     "Wiring",
     "WiringError",
+    "XipUnavailableError",
     "build_constant_curve",
     "build_linear_curve",
     "build_panel_curve",
@@ -1566,7 +1705,8 @@
     "resolve_connection",
     "sensor_library",
     "sensors",
-    "trust_lan_tls"
+    "trust_lan_tls",
+    "usb_host"
   ],
   "build_constant_curve": "(value_code: 'int', points: 'int' = 256) -> 'List[int]'",
   "build_linear_curve": "(max_code: 'int', rising: 'bool' = True, points: 'int' = 256) -> 'List[int]'",
@@ -1590,5 +1730,6 @@
   "resolve_connection": "(connection: \"'str | None'\" = None) -> 'ConnSpec'",
   "sensor_library": "(version: 'Optional[str]' = None, *, cache_dir: \"Union[str, 'os.PathLike[str]', None]\" = None, offline: 'bool' = False, refresh: 'bool' = False, timeout: 'float' = 30.0) -> 'SensorLibrary'",
   "sensors": "module",
-  "trust_lan_tls": "(host: 'str', port: 'int' = 8443, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'"
+  "trust_lan_tls": "(host: 'str', port: 'int' = 8443, *, sha256: 'Optional[str]' = None, timeout: 'float' = 10.0) -> 'str'",
+  "usb_host": "module"
 }

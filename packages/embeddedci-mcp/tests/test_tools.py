@@ -23,7 +23,7 @@ EXPECTED_TOOLS = {
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "expansion",
-    "flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
+    "flash", "usb_host", "usb_flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "i2c_open", "i2c_transfer", "i2c_scan", "i2c_close", "la_dir",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "sensor_library", "sensor_show", "sensor_format", "sensor_validate", "sensor_start",
@@ -397,6 +397,100 @@ def test_flash_an_esp32_target(connected, monkeypatch):
     assert seen["nreset"] is True and seen["reset"] is False and seen["check"] is False
     assert "swclk" not in seen and "build" not in seen
     assert result["ok"] is True and "ESP32-S3" in result["stdout_tail"]
+
+
+# -- USB host mode and USB flashing ------------------------------------------------------
+
+_USB_IFACE = {"number": 0, "alt": 0, "class": 8, "class_name": "msc", "subclass": 6, "protocol": 80,
+              "endpoints": 2}
+_USB_DEVICE = {"vid": 0x2E8A, "pid": 0x0003, "speed": "full", "manufacturer": "Raspberry Pi",
+               "product": "RP2 Boot", "serial": "E66", "config": {"max_power_ma": 100,
+                                                                 "interfaces": [_USB_IFACE]}}
+_HOST = {"mode": "host", "port": "usb_a", "remaining_s": 100, "enumerations": 1, "attached": True,
+         "enumeration": "done", "connected": True, "line_speed": "full", "device": _USB_DEVICE}
+
+needs_usb = pytest.mark.skipif(not hasattr(BenchPod, "usb_flash"),
+                               reason="needs embeddedci with USB host support")
+
+
+@needs_usb
+def test_usb_host_starts_waits_and_reports(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import UsbDevice, UsbHostState
+    pod = SESSION.require()
+    seen = []
+    monkeypatch.setattr(pod, "usb_host", lambda enable=True, **kw: seen.append(("host", enable, kw))
+                        or UsbHostState.from_reply(_HOST))
+    monkeypatch.setattr(pod, "usb_wait_device", lambda **kw: seen.append(("wait", kw))
+                        or UsbDevice.from_reply(_USB_DEVICE))
+    monkeypatch.setattr(pod, "usb_host_status", lambda: UsbHostState.from_reply(_HOST))
+    res = call("usb_host", enabled=True, port="usb_c", timeout_s=120, wait_s=5, vid="2e8a")
+    assert seen == [("host", True, {"port": "usb_c", "timeout_s": 120}),
+                    ("wait", {"vid": "2e8a", "pid": None, "timeout": 5.0})]
+    assert res["hosting"] and res["port"] == "usb_a" and res["connected"] and res["note"] == ""
+    dev = res["device"]
+    assert dev["vid_pid"] == "2e8a:0003" and dev["product"] == "RP2 Boot" and dev["max_power_ma"] == 100
+    assert dev["interfaces"][0]["class_name"] == "msc"
+    # No enabled: read only. enabled false: stop.
+    seen.clear()
+    assert call("usb_host")["mode"] == "host" and seen == []
+    call("usb_host", enabled=False)
+    assert seen == [("host", False, {})]
+
+
+@needs_usb
+def test_usb_host_wait_timeout_is_a_note(connected, monkeypatch):
+    from embeddedci.benchpod.errors import UsbTimeout
+    from embeddedci.benchpod.usb_host import UsbHostState
+    pod = SESSION.require()
+    monkeypatch.setattr(pod, "usb_host_status", lambda: UsbHostState.from_reply({"mode": "host"}))
+
+    def nobody(**kw):
+        raise UsbTimeout("no USB device mounted within 2 s: no device pull-up on the port")
+
+    monkeypatch.setattr(pod, "usb_wait_device", nobody)
+    res = call("usb_host", wait_s=2)
+    assert res["hosting"] and "no device pull-up" in res["note"] and res["device"] is None
+
+
+@needs_usb
+def test_usb_flash_reports_the_choice(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import UsbDevice, UsbFlashResult
+    pod = SESSION.require()
+    seen = {}
+
+    def fake(file, **kw):
+        seen.update(file=file, **kw)
+        return UsbFlashResult(ok=True, mode="dfu", reason="0483:df11 has a DFU interface",
+                              length=64, address=0x08000000, name="", protocol="", ms=900,
+                              device=UsbDevice.from_reply(_USB_DEVICE))
+
+    monkeypatch.setattr(pod, "usb_flash", fake)
+    res = call("usb_flash", file="app.hex", address="0x08000000", leave=False)
+    assert seen == {"file": "app.hex", "address": "0x08000000", "name": None, "leave": False,
+                    "mode": None, "port": None, "timeout": None}
+    assert res["ok"] and res["mode"] == "dfu" and "DFU" in res["reason"] and res["address"] == 0x08000000
+    assert res["result"] == "ok" and res["ms"] == 900 and res["device"]["vid"] == 0x2E8A
+
+
+@needs_usb
+def test_usb_flash_failure_is_a_normal_result(connected, monkeypatch):
+    from embeddedci.benchpod.errors import UsbFlashError
+    from embeddedci.benchpod.usb_host import UsbFlashState
+    pod = SESSION.require()
+
+    def fail(file, **kw):
+        raise UsbFlashError("the dfu flash failed in phase layout: the image does not fit",
+                            result="the image does not fit", phase="layout", mode="dfu",
+                            state=UsbFlashState.from_reply({"len": 64, "protocol": ""}))
+
+    monkeypatch.setattr(pod, "usb_flash", fail)
+    res = call("usb_flash", file="app.bin")
+    assert res["ok"] is False and res["mode"] == "dfu" and res["phase"] == "layout"
+    assert res["result"] == "the image does not fit" and "failed in phase layout" in res["note"]
+
+
+def test_usb_tools_are_in_the_instructions():
+    assert "usb_flash" in INSTRUCTIONS and "usb_host" in INSTRUCTIONS
 
 
 # -- UART ------------------------------------------------------------------------------

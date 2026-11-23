@@ -6118,6 +6118,202 @@
       "type": "object"
     }
   },
+  "usb_flash": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Flash over USB"
+    },
+    "input": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start address for a .bin (\"0x08000000\" for an STM32, \"0x2000\" for a SAMD sketch, \"0x10000\" for an ESP32 app). Omit: from a .hex or .dfu file, else the loader's usual one.",
+          "title": "Address"
+        },
+        "file": {
+          "description": "Firmware path on the machine running this server: .uf2, .bin, .hex or .dfu.",
+          "title": "File",
+          "type": "string"
+        },
+        "leave": {
+          "default": true,
+          "description": "false keeps a DFU, Teensy, AVR, SAMD or ESP board in its bootloader at the end.",
+          "title": "Leave",
+          "type": "boolean"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "uf2",
+                "file",
+                "dfu",
+                "teensy",
+                "avr",
+                "samd",
+                "esp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override the loader. Omit: the server picks it from the file and the board (see reason in the result).",
+          "title": "Mode"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a board that shows a drive: the file name on it (8.3). Omit: the file's name.",
+          "title": "Name"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "enum": [
+                "usb_a",
+                "usb_c"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Host port when host mode is off and has to be started; omit for the board's own.",
+          "title": "Port"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 3600,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Abort the flash after this long. Omit: a minute plus the file size at 2.5 KB/s.",
+          "title": "Timeout S"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "usb_flashArguments",
+      "type": "object"
+    }
+  },
+  "usb_host": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "USB host mode"
+    },
+    "input": {
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omit to read the state. true starts host mode (or renews its timeout), false stops it.",
+          "title": "Enabled"
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wait for this product ID only (hex, \"0478\").",
+          "title": "Pid"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "enum": [
+                "usb_a",
+                "usb_c"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "usb_a: the USB-A host port (digital v3r4 and later). usb_c: the pod's own USB-C connector through a breakout, on any pod. Omit to let the server pick from the board revision.",
+          "title": "Port"
+        },
+        "timeout_s": {
+          "default": 60,
+          "description": "Seconds until the pod goes back to being a USB device by itself.",
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Timeout S",
+          "type": "integer"
+        },
+        "vid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wait for this vendor ID only (hex, \"16c0\").",
+          "title": "Vid"
+        },
+        "wait_s": {
+          "default": 0.0,
+          "description": "With enabled true, or with it omitted while hosting: wait up to this long for a board to mount. 0 does not wait.",
+          "maximum": 60,
+          "minimum": 0,
+          "title": "Wait S",
+          "type": "number"
+        }
+      },
+      "title": "usb_hostArguments",
+      "type": "object"
+    }
+  },
   "usb_network": {
     "annotations": {
       "destructiveHint": true,

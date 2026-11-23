@@ -994,6 +994,60 @@ class LogLevelResult(BaseModel):
     level: str = Field(description='"error", "warn", "info" (the default) or "debug". Stored on the pod.')
 
 
+class UsbInterfaceInfo(BaseModel):
+    number: int
+    alt: int
+    interface_class: int = Field(description="USB interface class code (8 mass storage, 2 CDC, 254 DFU, ...).")
+    class_name: str = Field(description='The pod\'s name for the class: "msc", "cdc", "cdc_data", "hid", "dfu", ...')
+    subclass: int
+    protocol: int
+    endpoints: int
+
+
+class UsbDeviceInfo(BaseModel):
+    """The USB device that enumerated on the pod's host port."""
+    vid: int
+    pid: int
+    vid_pid: str = Field(description='"16c0:0478", as lsusb writes it.')
+    speed: str
+    manufacturer: str = ""
+    product: str = ""
+    serial: str = ""
+    max_power_ma: Optional[int] = Field(None, description="What the device declares it draws.")
+    interfaces: List[UsbInterfaceInfo] = Field(default_factory=list)
+
+
+class UsbHostResult(BaseModel):
+    """The pod's USB host state."""
+    mode: str = Field(description='"device" (normal), "starting", "host" or "stopping".')
+    port: str = Field(description='"usb_a", "usb_c", or "none" in device mode.')
+    hosting: bool
+    attached: bool = Field(description="A device is enumerated now.")
+    enumeration: str = Field(description='"none", "running", "done" or "stuck".')
+    connected: bool = Field(description="A device's pull-up is on the port. False while the board draws power: its USB lines do not reach the pod.")
+    line_speed: str = Field(description='"full", "low" (D+ and D- swapped on a full-speed board) or "none".')
+    enumerations: int
+    remaining_s: int = Field(description="Seconds until host mode ends by itself.")
+    device: Optional[UsbDeviceInfo] = None
+    note: str = ""
+
+
+class UsbFlashToolResult(BaseModel):
+    """A USB flash. ok=false is a normal result: read result, phase and note."""
+    ok: bool
+    mode: str = Field("", description="The loader used: uf2, file, dfu, teensy, avr, samd or esp.")
+    reason: str = Field("", description="Why the server chose that loader, in words.")
+    length: int = 0
+    address: Optional[int] = None
+    name: str = Field("", description="The drive file name (mode file).")
+    protocol: str = Field("", description="avr: the bootloader found; samd: sam-ba; esp: the chip.")
+    ms: int = 0
+    result: str = Field("", description="The pod's outcome: ok, aborted, or what went wrong.")
+    phase: str = Field("", description="Where a failed flash stopped.")
+    note: str = Field("", description="What to do next after a failure.")
+    device: Optional[UsbDeviceInfo] = None
+
+
 class UsbNetworkResult(BaseModel):
     """The pod's USB network setting."""
     enabled: bool = Field(description="Whether the pod's USB port is also a network adapter.")

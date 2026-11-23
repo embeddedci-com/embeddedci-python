@@ -1712,6 +1712,125 @@ async def usb_network(
     return await _call(op)
 
 
+def _usb_device(d: Any) -> m.UsbDeviceInfo:
+    cfg = d.config
+    return m.UsbDeviceInfo(
+        vid=d.vid, pid=d.pid, vid_pid=d.vid_pid, speed=d.speed, manufacturer=d.manufacturer,
+        product=d.product, serial=d.serial, max_power_ma=cfg.max_power_ma if cfg else None,
+        interfaces=[m.UsbInterfaceInfo(number=i.number, alt=i.alt, interface_class=i.interface_class,
+                                       class_name=i.class_name, subclass=i.subclass,
+                                       protocol=i.protocol, endpoints=i.endpoints)
+                    for i in d.interfaces])
+
+
+def _usb_host_result(st: Any, note: str = "") -> m.UsbHostResult:
+    return m.UsbHostResult(
+        mode=st.mode, port=st.port, hosting=st.hosting, attached=st.attached,
+        enumeration=st.enumeration, connected=st.connected, line_speed=st.line_speed,
+        enumerations=st.enumerations, remaining_s=st.remaining_s,
+        device=_usb_device(st.device) if st.device is not None else None, note=note)
+
+
+#: The SDK's USB flash error (an SDK before 4.0.3 has none: nothing raises it then).
+_UsbFlashError: Any = getattr(_errors, "UsbFlashError", None) or type("_NoUsbFlashError", (Exception,), {})
+
+
+def _need_usb_sdk(pod: Any) -> None:
+    if not hasattr(type(pod), "usb_flash"):
+        raise ValueError("USB host mode and flashing need a newer embeddedci SDK; upgrade embeddedci")
+
+
+@mcp.tool(annotations=_ann("USB host mode", destructive=True))
+async def usb_host(
+    enabled: Annotated[Optional[bool], Field(description=(
+        "Omit to read the state. true starts host mode (or renews its timeout), false stops it."))] = None,
+    port: Annotated[Optional[Literal["usb_a", "usb_c"]], Field(description=(
+        "usb_a: the USB-A host port (digital v3r4 and later). usb_c: the pod's own USB-C connector "
+        "through a breakout, on any pod. Omit to let the server pick from the board revision."))] = None,
+    timeout_s: Annotated[int, Field(ge=1, le=3600, description=(
+        "Seconds until the pod goes back to being a USB device by itself."))] = 60,
+    wait_s: Annotated[float, Field(ge=0, le=60, description=(
+        "With enabled true, or with it omitted while hosting: wait up to this long for a board to "
+        "mount. 0 does not wait."))] = 0.0,
+    vid: Annotated[Optional[str], Field(description='Wait for this vendor ID only (hex, "16c0").')] = None,
+    pid: Annotated[Optional[str], Field(description='Wait for this product ID only (hex, "0478").')] = None,
+) -> m.UsbHostResult:
+    """Make the pod a USB host for the board under test, or read what is on its host port.
+
+    Needs pod firmware 4.0.3 or later and a LAN or cloud connection: while the pod hosts it is off
+    the computer's USB (no console, no USB network), and over connection 'usb' it is refused
+    (BP0076). The report names the device that enumerated (IDs, strings, interfaces). A board
+    that draws power but shows connected=false has no D+/D- link to the pod; line_speed 'low' from
+    a full-speed board means D+ and D- are swapped. usb_flash starts host mode itself when needed.
+    Host mode ends by its timeout_s, or with enabled=false."""
+    def op() -> m.UsbHostResult:
+        pod = SESSION.require()
+        _need_usb_sdk(pod)
+        note = ""
+        if enabled is True:
+            st = pod.usb_host(True, port=port, timeout_s=timeout_s)
+        elif enabled is False:
+            st = pod.usb_host(False)
+        else:
+            st = pod.usb_host_status()
+        if wait_s > 0 and st.hosting:
+            try:
+                pod.usb_wait_device(vid=vid, pid=pid, timeout=wait_s)
+            except TimeoutError as exc:
+                note = str(exc)
+            st = pod.usb_host_status()
+        return _usb_host_result(st, note)
+
+    return await _call(op)
+
+
+@mcp.tool(annotations=_ann("Flash over USB", destructive=True))
+async def usb_flash(
+    file: Annotated[str, Field(description=(
+        "Firmware path on the machine running this server: .uf2, .bin, .hex or .dfu."))],
+    address: Annotated[Optional[str], Field(description=(
+        'Start address for a .bin ("0x08000000" for an STM32, "0x2000" for a SAMD sketch, "0x10000" '
+        "for an ESP32 app). Omit: from a .hex or .dfu file, else the loader's usual one."))] = None,
+    name: Annotated[Optional[str], Field(description=(
+        "For a board that shows a drive: the file name on it (8.3). Omit: the file's name."))] = None,
+    leave: Annotated[bool, Field(description=(
+        "false keeps a DFU, Teensy, AVR, SAMD or ESP board in its bootloader at the end."))] = True,
+    mode: Annotated[Optional[Literal["uf2", "file", "dfu", "teensy", "avr", "samd", "esp"]], Field(description=(
+        "Override the loader. Omit: the server picks it from the file and the board (see reason in "
+        "the result)."))] = None,
+    port: Annotated[Optional[Literal["usb_a", "usb_c"]], Field(description=(
+        "Host port when host mode is off and has to be started; omit for the board's own."))] = None,
+    timeout_s: Annotated[Optional[float], Field(gt=0, le=3600, description=(
+        "Abort the flash after this long. Omit: a minute plus the file size at 2.5 KB/s."))] = None,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.UsbFlashToolResult:
+    """Flash the board on the pod's USB host port, the way a computer would. Needs pod firmware
+    4.0.3 or later and a LAN or cloud connection. There is nothing to choose: the loader comes
+    from the file and the board that mounted (a UF2 or drag-and-drop drive, DFU or STM32 ROM
+    loader, Teensy, Arduino AVR or SAMD, ESP32), and `reason` says why. .hex and .dfu files are
+    converted to a binary with their address. Starts host mode when it is off; the board must be
+    in its bootloader where it needs a button (Pico BOOTSEL, STM32 BOOT0, Teensy). A failed flash is
+    a normal result (ok=false): read result, phase and note. While it runs the pod refuses
+    captures, DAC playback and uploads."""
+    def op() -> m.UsbFlashToolResult:
+        pod = SESSION.require()
+        _need_usb_sdk(pod)
+        try:
+            r = pod.usb_flash(file, address=address, name=name, leave=leave, mode=mode, port=port,
+                              timeout=timeout_s)
+        except _UsbFlashError as exc:
+            st = exc.state
+            return m.UsbFlashToolResult(
+                ok=False, mode=exc.mode, result=exc.result, phase=exc.phase, note=str(exc),
+                length=st.length if st else 0, protocol=st.protocol if st else "")
+        return m.UsbFlashToolResult(
+            ok=True, mode=r.mode, reason=r.reason, length=r.length, address=r.address, name=r.name,
+            protocol=r.protocol, ms=r.ms, result="ok",
+            device=_usb_device(r.device) if r.device is not None else None)
+
+    return await _call_reporting(ctx, "flashing over USB", op)
+
+
 @mcp.tool(annotations=_ann("Console log level", idempotent=True))
 async def log_level(
     level: Annotated[Optional[Literal["error", "warn", "info", "debug"]], Field(description=(

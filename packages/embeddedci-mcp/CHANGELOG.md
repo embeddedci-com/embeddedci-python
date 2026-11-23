@@ -1,5 +1,20 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+Needs embeddedci with USB host support (firmware 4.0.3).
+
+- **`usb_host`:** start or stop the pod's USB host mode for the board under test (`usb_a` on digital
+  v3r4 and later, else `usb_c`; the server picks), or read the state: the device that enumerated
+  (IDs, strings, interfaces), `connected` and `line_speed`. `wait_s`, `vid` and `pid` wait for a
+  board to mount.
+- **`usb_flash`:** flash the board over USB from a file on this machine: UF2 and drag-and-drop
+  drives, DFU and STM32 ROM loaders, Teensy, Arduino AVR and SAMD, ESP32. The loader comes from the
+  file and the board (`reason` in the result says why); `.hex` and `.dfu` files are converted.
+  Starts host mode when it is off, reports progress while it runs, and a failed flash is a normal
+  result (`ok` false with `result`, `phase` and `note`).
+- The server instructions describe the USB flow.
+
 ## 4.0.2
 
 Needs embeddedci 4.0.2.

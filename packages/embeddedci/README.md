@@ -1054,6 +1054,68 @@ bp.flash(target="esp32c3", file="build/app.bin", load_address="0x10000", boot=6,
   check power, the TX/RX crossing, the boot pin and EN); `check=False` returns the result.
 * Works over the LAN, USB and the cloud. Needs pod firmware with the `esp_flash` command.
 
+## USB host mode and USB flashing
+
+Firmware 4.0.3 and later. The pod's USB port becomes a full-speed USB host for the board under test,
+reports what enumerates, and flashes the board the way a computer would. Older firmware raises
+`UnsupportedFeatureError` ("needs firmware 4.0.3"). Works over the LAN and the cloud, not over the
+pod's own USB link: while the pod hosts it is off the computer's USB (no console, no USB network).
+
+| Pod | Port | How the board connects |
+|---|---|---|
+| digital v3r4 and later | `usb_a` | its normal USB cable in the pod's USB-A host port |
+| older pods | `usb_c` | the pod's USB-C connector through a breakout (D+, D-, GND to the board, 5 V into the pod's VBUS) |
+
+```python
+st = bp.usb_host(timeout_s=120)             # the port comes from board_rev; waits for mode "host"
+dev = bp.usb_wait_device()                  # or usb_wait_device(vid="16c0", pid="0478")
+print(dev.vid_pid, dev.product, [i.class_name for i in dev.interfaces])
+res = bp.usb_flash("build/app.hex", progress=lambda done, total: print(done, total))
+print(res.mode, res.reason)                 # which loader the SDK chose, and why
+bp.usb_host(False)                          # back to being a USB device
+```
+
+* `usb_host(enable=True, *, port=None, timeout_s=60)` starts or stops host mode and returns a
+  `UsbHostState`. `port` is `"usb_a"` or `"usb_c"`; left out, the SDK uses `usb_a` on a board whose
+  `board_rev` is v3r4 or later, `usb_c` on an older one, and tries `usb_a` then `usb_c` when the pod
+  does not say. When `timeout_s` runs out the pod is a USB device again.
+* `usb_host_status()` returns the `UsbHostState`: `mode`, `port`, `attached`, `enumeration`
+  (`none`, `running`, `done`, `stuck`), `connected` and `line_speed` (a board that draws power but is
+  not `connected` has no D+/D- link to the pod; `low` means D+ and D- are swapped), `enumerations`,
+  `remaining_s`, `host_ms`, `hosting`, `mounted` and the `device` (a `UsbDevice`: `vid`, `pid`,
+  `vid_pid`, `manufacturer`, `product`, `serial`, `speed`, `config` with `max_power_ma` and its
+  `interfaces`, `has_interface(class, subclass=None)`).
+* `usb_wait_device(vid=None, pid=None, timeout=10)` waits for a (matching) device and returns it.
+  `UsbHostError` when host mode is off, `UsbTimeout` when nothing mounts; the message says how far
+  the board got.
+* `usb_flash(file, *, address=None, name=None, leave=True, mode=None, port=None, timeout=None,
+  device_timeout=10, progress=None)` flashes the board and returns a `UsbFlashResult` (`mode`,
+  `reason`, `length`, `address`, `name`, `protocol`, `ms`, `device`). A failure raises
+  `UsbFlashError` with the pod's `result`, `phase` and `mode`. `usb_flash_status()` returns the
+  `UsbFlashState` (`running`, `have_result`, `phase`, `done`, `total`, `result`, `ok`, `ms`) and
+  `usb_flash_abort()` stops a flash.
+
+There is nothing to choose. The SDK picks the loader from the file and the device that mounted:
+
+| The board shows | File | Loader |
+|---|---|---|
+| Teensy loader (16C0:0478) | `.bin`, `.hex` | `teensy` |
+| a DFU interface (STM32 ROM loader, Black Pill) | `.bin`, `.hex`, `.dfu` | `dfu`, at the address in the file, else 0x08000000 on an STM32 |
+| a drive (Pico, Adafruit, tinyuf2, DAPLink, micro:bit) | `.uf2` | `uf2` |
+| a drive | anything else | `file`, copied as `name` (default: the file's name in 8.3) |
+| Arduino, Adafruit or SparkFun AVR board, or a USB-serial chip (CP210x, CH34x, FTDI) | `.bin`, `.hex` | `avr` |
+| Arduino, Adafruit or Seeed SAMD board | `.bin`, `.hex` | `samd`, at the address in the file, else 0x2000 (0x4000 on a SAMD51) |
+| Espressif device, or a USB-serial chip with an ESP image (starts with 0xE9) | `.bin` | `esp`, at `address` (default 0, a merged image) |
+
+`.hex` and `.dfu` files are converted to a binary with their start address (gaps up to 64 KB are
+filled with 0xFF). `leave=False` keeps a `dfu`, `teensy`, `avr`, `samd` or `esp` board in its
+loader. `mode=` overrides the choice (a name from `embeddedci.benchpod.usb_host.MODES`). `usb_flash`
+starts host mode itself when it is off, switches the pod to the deep-replay gateware image (about
+3 s, like an ESP32 flash), stages the file in the pod's memory and polls the flash; `progress` gets
+sectors, blocks or bytes (by loader). The flash is aborted after `timeout` seconds (default: a
+minute plus the file size at 2.5 KB/s) or on Ctrl-C. While it runs the pod refuses captures, DAC
+playback and uploads. Host mode stays on afterwards until its own timeout or `usb_host(False)`.
+
 ## SPI flash and SPI devices
 
 Pods with gateware v45+ (`bp.capabilities.spi_master`) run an SPI master on any four LA pins, up
@@ -2584,6 +2646,13 @@ Match a pod refusal on its code or class, not its text: see [Error codes](#error
 | `PodLeaseLostError` (a `FirmwareError`) | the pod's lease this session held was stopped from the web app or the cloud (`BP0026`); the command did not run | `by` |
 | `PermissionDeniedError` (a `FirmwareError` and `TransportError`) | the pod's `BP0045` (owner or admin only) on a cloud tunnel, or a server HTTP 403 (`ServerPermissionDeniedError`, also a `ServerApiError`, from `ServerApi`) | `status` |
 | `UnsupportedFeatureError` (a `FirmwareError`) | the pod lacks the feature: its capabilities say so (raised before anything is sent), it does not know the command (`BP0002`), its gateware is too old (`BP0017`; `feature` names it), or the digital-only board has no analog front end (`BP0046`, `feature="analog"`) | `feature`, `firmware_version`, `code`, `cmd` |
+| `UsbHostError` | USB host mode is off for a call that needs it (`usb_wait_device`) | |
+| `UsbTimeout` (a `UsbHostError` and a `TimeoutError`) | no (matching) USB device mounted in time, or host mode did not start | |
+| `UsbHostUnavailableError` (an `UnsupportedFeatureError`) | the pod cannot host USB: the request came over its own USB link (`BP0076`), it has no such port (`BP0077`), its crystal clock is not running (`BP0078`) | `port`, `feature` (`"usb_host"`) |
+| `UsbHostPortError` (a `FirmwareError`) | host mode already runs on the other port (`BP0079`) | `port` |
+| `UsbFlashRefusedError` (a `FirmwareError`) | the pod refused to start a USB flash (`BP0084`): host mode off, no drive mounted, nothing staged, a bad mode, name or length | `why` |
+| `XipUnavailableError` (a `FirmwareError`) | the pod cannot run the USB flash code from its W25Q (`BP0083`): install the blobs of its firmware | `why` |
+| `UsbFlashError` (a `FlashError`) | a USB flash failed, timed out or was aborted, or no loader fits the board | `result`, `phase`, `mode`, `state` |
 | `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
 | `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |
 | `FirmwareTooOldError` (an `UnsupportedFeatureError`) | the pod runs firmware 3.x (client API below 2), which this SDK does not drive (raised on connect). Update the pod: `benchpod flash-self`, or the firmware update in the web app; or use embeddedci 3.x with it | `api`, `firmware_version`, `feature` (`"client_api"`) |
@@ -2626,6 +2695,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 | Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
+| USB host and flashing | `usb_host(enable=True, *, port=None, timeout_s=60)`, `usb_host_status()`, `usb_wait_device(vid=None, pid=None, timeout=10)`, `usb_flash(file, *, address=None, name=None, leave=True, mode=None, port=None, timeout=None, device_timeout=10, progress=None)`, `usb_flash_status()`, `usb_flash_abort()` (see [USB host mode and USB flashing](#usb-host-mode-and-usb-flashing)) |
 | Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
 | I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
 | GPIO expanders | `expansion(chip="", *, addr=None, sda=None, scl=None, spi=None, load=None, count=None, hz=None, pullups=None, names=None)` (see [GPIO expanders](#gpio-expanders)) |
@@ -2660,6 +2730,12 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `MacAddresses` | `mac_addresses` | `eth_mac`, `wifi_mac` (None while not known), `has_wifi`, `source` (`pod`, `server` or empty) |
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `LanClients` | `lan_clients`, `pair` | `pairing` (computers on the LAN must be paired), `count`, `max`, `clients` (`LanClient`: `name`, `spki_sha256`, `this`), `has(spki_sha256)` |
+| `UsbHostState` | `usb_host`, `usb_host_status` | `mode`, `port`, `remaining_s`, `host_ms`, `enumerations`, `attached`, `enumeration`, `connected`, `line_speed`, `device`, `hosting`, `mounted` |
+| `UsbDevice` | `usb_wait_device`, `UsbHostState.device` | `vid`, `pid`, `vid_pid`, `speed`, `usb`, `release`, `device_class`, `subclass`, `protocol`, `ep0_size`, `configurations`, `manufacturer`, `product`, `serial`, `descriptor_ms`, `mounted_ms`, `config`, `interfaces`, `has_interface(interface_class, subclass=None)` |
+| `UsbConfig` | `UsbDevice.config` | `value`, `max_power_ma`, `self_powered`, `remote_wakeup`, `interface_count`, `truncated`, `malformed`, `interfaces` |
+| `UsbInterface` | `UsbConfig.interfaces` | `number`, `alt`, `interface_class`, `class_name`, `subclass`, `protocol`, `endpoints` |
+| `UsbFlashResult` | `usb_flash` | `ok`, `mode`, `reason`, `length`, `address`, `name`, `protocol`, `ms`, `device`, `state` |
+| `UsbFlashState` | `usb_flash_status`, `usb_flash_abort`, `UsbFlashError.state` | `running`, `have_result`, `mode`, `name`, `length`, `address`, `protocol`, `phase`, `done`, `total`, `result`, `ok`, `ms`, `unit` |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
 | `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available`, `supported`, `strength` (digital v3r4) |
 | `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `pull_dirs`, `dir`, `warn`, `warnings`, `in_use` |
@@ -2783,7 +2859,7 @@ timeout=60.0, lease_id=None)`. Errors raise `ServerApiError` (`status`), and an 
 | `encode_curve_b64url(codes)` | 16-bit DAC codes as little-endian base64url, the wire form of a curve |
 | `INTERNAL`, `EXTERNAL`, `PIN1` … `PIN14`, `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | named constants (see [API conventions](#api-conventions-and-stability)) |
 | `DacPath`, `DacOutputPath`, `AnalogPath`, `AdcSource`, `CalibrateSource` (`"current_in"`), `DacCalPath` (`"3v3"`, `"5v"`, `"12v"`), `AdcGainSource` (`"cal1"`, `"cal2"`, `"ext"`), `CalibrationPart` (`"offset"`, `"dac"`, `"adc"`), `LoopSource`, `Waveshape`, `ReplayMapping`, `DecodeProtocol`, `CanMode`, `FaultType`, `GpioMode`, `Edge`, `TriggerEdge` | the `Literal` string types |
-| `decode`, `i2c`, `sensors`, `can`, `control_loop`, `motor_emulator`, `dsp` | submodules: off-device decoders, I2C helpers, sensor definitions and the library, CAN types, curve helpers, the emulator's registers, and `dsp`, a pure-Python mirror of the server's record-to-replay processing |
+| `decode`, `i2c`, `sensors`, `can`, `control_loop`, `motor_emulator`, `dsp`, `usb_host` | submodules: off-device decoders, I2C helpers, sensor definitions and the library, CAN types, curve helpers, the emulator's registers, `dsp`, a pure-Python mirror of the server's record-to-replay processing, and `usb_host`, the USB loaders (`MODES`) and the file conversion |
 
 ## Examples
 

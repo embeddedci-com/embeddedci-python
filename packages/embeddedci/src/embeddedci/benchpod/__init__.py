@@ -95,6 +95,15 @@ from .control_loop import (
 )
 from .decode import SpiFrame, UartFrame
 from .usb_decode import UsbDecode
+from . import usb_host
+from .usb_host import (
+    UsbConfig,
+    UsbDevice,
+    UsbFlashResult,
+    UsbFlashState,
+    UsbHostState,
+    UsbInterface,
+)
 from .errors import (
     BenchPodError,
     CanTimeout,
@@ -126,7 +135,14 @@ from .errors import (
     UartLinkError,
     UartTimeout,
     UnsupportedFeatureError,
+    UsbFlashError,
+    UsbFlashRefusedError,
+    UsbHostError,
+    UsbHostPortError,
+    UsbHostUnavailableError,
+    UsbTimeout,
     WiringError,
+    XipUnavailableError,
 )
 from .flash import FlashResult
 from .expansion import (
@@ -383,6 +399,21 @@ __all__ = [
     "DirectionConflictError",
     "TriggerTimeout",
     "UnsupportedFeatureError",
+    "UsbHostError",
+    "UsbTimeout",
+    "UsbHostUnavailableError",
+    "UsbHostPortError",
+    "UsbFlashRefusedError",
+    "UsbFlashError",
+    "XipUnavailableError",
+    # USB host mode + USB flashing
+    "usb_host",
+    "UsbHostState",
+    "UsbDevice",
+    "UsbConfig",
+    "UsbInterface",
+    "UsbFlashState",
+    "UsbFlashResult",
     # device lease
     "DeviceLease",
     # CI build reporting
