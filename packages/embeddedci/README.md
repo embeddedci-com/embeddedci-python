@@ -1069,6 +1069,69 @@ bp.flash(target="esp32c3", file="build/app.bin", load_address="0x10000", boot=6,
   check power, the TX/RX crossing, the boot pin and EN); `check=False` returns the result.
 * Works over the LAN, USB and the cloud. Needs pod firmware with the `esp_flash` command.
 
+### Flashing a chip over its own programming pins (UPDI, PIC, C2, TPI, PDI)
+
+Some chips have neither SWD, JTAG nor a bootloader: they are programmed over a one- or two-wire
+protocol of their own. The pod runs that protocol itself, so there is no programmer, no OpenOCD and
+no USB cable to the chip. It is the same `flash()` call, with one of these `target` names:
+
+| `target` | Also accepted | Chips | Wiring |
+|---|---|---|---|
+| `avr-updi` | `updi` | AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD | UPDI on `data` |
+| `pic` | | PIC16F1xxx, PIC16F18xxx, PIC18F Q-series (low-voltage entry) | ICSPCLK on `clk`, ICSPDAT on `data`, MCLR on the pod's reset pin or `reset_pin` |
+| `efm8` | `c2` | Silicon Labs EFM8 and C8051F | C2CK on `clk`, C2D on `data` |
+| `attiny-tpi` | `tpi` | ATtiny4/5/9/10/20/40/102/104 | TPICLK on `clk`, TPIDATA on `data`, RESET on the pod's reset pin or `reset_pin` |
+| `xmega` | `pdi` | AVR XMEGA | PDI_CLK (the chip's RESET pin) on `clk`, PDI_DATA on `data` |
+
+```python
+bp.flash(target="avr-updi", file="build/app.hex", dry_run=True)   # wiring test: reads the chip's ID, writes nothing
+bp.flash(target="avr-updi", file="build/app.hex")                 # data from the profile's swd_swdio
+bp.flash(target="pic", file="build/app.hex", clk=3, data=4)       # MCLR on the pod's reset pin
+bp.flash(target="efm8", file="build/app.hex", device="EFM8BB10F8G", erase="page", reset=False)
+```
+
+* **The chip is found by its ID.** The SDK enters programming mode first and reads the chip's ID,
+  looks it up in its device table (`embeddedci/benchpod/prog_devices.json`, described in
+  `prog_devices.README.md` next to it: the chips, their memories and the hex-file address of each,
+  the protocol options and the voltage limits, every family with its datasheets) and cuts the image into the chip's memories. `device`
+  names the chip (`"ATtiny1616"`, `"PIC16F18446"`) when you want it checked: a different chip on
+  the board is an error before anything is erased, and so is a chip that is not in the table.
+* **`file`** is a `.hex` (Intel HEX), an `.elf` (32-bit) or a `.bin` (written at `load_address`
+  into the flash, default 0). The regions use the toolchains' usual addresses: avr-gcc puts the
+  flash at 0, the EEPROM at 0x810000, the fuses at 0x820000 and the user row at 0x850000; XC8 puts the
+  PIC's configuration words, user ID and EEPROM where the table says. Flash comes first, EEPROM and user row next, the
+  configuration (fuses) last. A partial flash page is padded with 0xFF. Lock bits and signature
+  rows in the image are left out (the result says so); data that fits none of the chip's memories is
+  an error.
+* **Pins.** `clk`, `data` and `reset_pin` are LA pins (`benchpod.PIN1`..`PIN14`, 1-14, or a profile
+  name); `avr-updi` takes `data` only. Omitted, a wiring-profile signal named for the protocol is
+  used (`UPDI`; `ICSPCLK`/`ICSPDAT` or `PGC`/`PGD`; `C2CK`/`C2D`; `TPICLK`/`TPIDATA`;
+  `PDI_CLK`/`PDI_DATA`; `MCLR` or `RESET` for the reset), else the profile's `swd_swclk` and `swd_swdio`. The reset of `pic` and `attiny-tpi` is
+  the pod's reset pin by default (`nreset=True`) or `reset_pin`.
+* **`erase`** is `"chip"` (the default: erase the chip before the first write when the image has flash; this
+  also unlocks a locked chip and erases its EEPROM on some families), `"page"` (only the pages written; the TPI chips
+  can only erase their whole code section, once) or `"none"`. **`reset`** (default `True`) lets the
+  chip start its program afterwards; `False` keeps it in programming mode or reset.
+* **`dry_run=True`** only enters programming mode and reads the ID: `FlashResult.stdout` names the chip.
+  Run it first on a new wiring.
+* Every page written is read back and compared. `FlashResult.stdout` lists the chip and every
+  region written.
+* **Voltage.** The pod's I/O is 1.8 or 3.3 V, the chip's supply. The ATtiny4/5/9/10/20/40 can be
+  programmed at 5 V only (4.75-5.5 V), which the pod cannot give: `flash()` raises
+  `ProgDeviceError` before anything is written. PIC bulk erase needs the supply above the chip's
+  brown-out level (about 2.7 V on most): `erase="chip"` at 1.8 V is refused for those chips.
+* A failure raises `ProgFlashError` (a `FlashError`) with `result` (the pod's outcome), `phase`,
+  `mem`, `addr` and `at_addr`, and a message that says what to check: `ProgNoAnswerError` (also a
+  `TargetUnreachableError`: wiring, power, I/O voltage, a programming pin disabled by fuses),
+  `ProgLockedError` (`erase="chip"` unlocks), `ProgVerifyError`, `ProgDeviceError` (chip not in the
+  table, not the `device` named, image does not fit, voltage). `check=False` returns the
+  `FlashResult` instead.
+* Works over the LAN, USB and the cloud. Needs pod firmware with the `prog_flash` feature
+  (`bp.supports("prog_flash")`; `UnsupportedFeatureError` otherwise) and the `xip_prog` blob,
+  installed with the other blobs (`benchpod install-blobs`): the pod refuses with a
+  `XipUnavailableError` without it. While a job runs the pod answers busy to captures, uploads
+  and DAP, SPI or I2C sessions, and a USB flash cannot start.
+
 ## USB host mode and USB flashing
 
 Firmware 4.0.3 and later. The pod's USB port becomes a full-speed USB host for the board under test,
@@ -2736,6 +2799,8 @@ Match a pod refusal on its code or class, not its text: see [Error codes](#error
 | `FirmwareError` | the pod replied with an error: a coded refusal (see [Error codes](#error-codes)), rendered from the catalog, or a refusal without a code, with the pod's text | `code`, `values`, `docs_url`, `firmware_message` (the pod's text, `""` for a coded refusal), `cmd` |
 | `FlashError` | OpenOCD failed, is missing, or lacks the TCP backend | |
 | `TargetUnreachableError` (a `FlashError`) | the probe worked but no target answered on SWD | |
+| `ProgFlashError` (a `FlashError`) | a flash over programming pins (UPDI, PIC, C2, TPI, PDI) failed | `result`, `phase`, `mem`, `addr`, `at_addr` |
+| `ProgNoAnswerError`, `ProgLockedError`, `ProgVerifyError`, `ProgDeviceError` (`ProgFlashError`s) | the chip did not answer (also a `TargetUnreachableError`), is locked, read back wrong, or is not in the table / not the `device` named / cannot be programmed at this voltage | as `ProgFlashError` |
 | `DeviceBusyError` | a device lease was not granted within `lease_wait` | |
 | `CloudAuthError` | no session token: API key rejected, OIDC unavailable, exchange failed | |
 | `ServerApiError` | an embeddedci server API call failed | `status` (HTTP) |
@@ -2756,7 +2821,7 @@ Match a pod refusal on its code or class, not its text: see [Error codes](#error
 | `UsbSerialBusyError` (a `PodBusyError`) | the board's USB port is in use (`BP0086`): a `usb_flash` or `usb_check` runs | `why` |
 | `UsbCheckRefusedError` (a `FirmwareError`) | the pod cannot run the USB check (`BP0087`) | `why` |
 | `UsbCheckNoPowerError` (a `FirmwareError`) | the board is not powered from eFuse 1 (`BP0088`) | |
-| `XipUnavailableError` (a `FirmwareError`) | the pod cannot run the USB flash code from its W25Q (`BP0083`): install the blobs of its firmware | `why` |
+| `XipUnavailableError` (a `FirmwareError`) | the pod cannot run the USB flash or pin-programmer code from its W25Q (`BP0083`): install the blobs of its firmware | `why` |
 | `UsbFlashError` (a `FlashError`) | a USB flash failed, timed out or was aborted, or no loader fits the board | `result`, `phase`, `mode`, `state` |
 | `WiringError` (a `FirmwareError`) | a wiring-profile operation was refused (`BP0007` to `BP0015`): no such profile, a bad name, a revision conflict, the store is full, too large, not a JSON object, the default cannot be deleted, an upload out of order, the storage failed | `name`, `code`, `values` |
 | `ClientTooOldError` (a `FirmwareError`) | this SDK is too old for the pod's firmware: the pod announces a client API level above `CLIENT_API` (raised on connect), or refuses the SDK's level (`BP0030`). Update the SDK: `pip install -U embeddedci` | `client_api`, `api`, `min_client_api`, `firmware_version` |

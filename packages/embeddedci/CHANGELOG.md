@@ -1,5 +1,33 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+For BenchPod firmware with the `prog_flash` feature (features table revision 17).
+
+- **Flash chips over their own programming pins.** `bp.flash(target=..., file=...)` now takes
+  `avr-updi` (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), `pic` (PIC16F1xxx, PIC16F18xxx, PIC18F
+  Q-series), `efm8` (Silicon Labs EFM8 and C8051F), `attiny-tpi` (ATtiny4/5/9/10/20/40/102/104) and
+  `xmega`; the protocol names `updi`, `pic`, `c2`, `tpi` and `pdi` are accepted too. The pod runs the
+  protocol itself: the SDK reads the chip's ID, finds it in the new device table
+  (`embeddedci/benchpod/prog_devices.json`, documented in `prog_devices.README.md`), cuts a `.hex`,
+  `.elf` or `.bin` into the chip's memories (flash, EEPROM, fuses or configuration words, user row or
+  user ID), writes them one after the other and reads every page back.
+- New `flash()` arguments for these targets: `device` (check against a named chip), `clk`, `data` and
+  `reset_pin` (LA pins; default a wiring-profile signal named for the protocol, else `swd_swclk` /
+  `swd_swdio`; the reset of `pic` and `attiny-tpi` is the pod's reset pin unless `reset_pin` or an `MCLR` /
+  `RESET` signal says otherwise), `erase` (`"chip"` by default, `"page"`, `"none"`) and `dry_run`
+  (enter programming mode and read the chip's ID, write nothing). `reset` lets the chip start its
+  program afterwards. No wiring-profile fields were added.
+- New errors, all `FlashError`s: `ProgFlashError` (with `result`, `phase`, `mem`, `addr`, `at_addr`) and
+  its subclasses `ProgNoAnswerError` (also a `TargetUnreachableError`), `ProgLockedError`,
+  `ProgVerifyError` and `ProgDeviceError` (chip not in the table, not the `device` named, image does
+  not fit, voltage). Each message says what to check. The ATtiny4/5/9/10/20/40 program at 5 V only,
+  which the pod cannot give: they fail with `ProgDeviceError` before anything is written.
+- `supports("prog_flash")` works; a pod without it raises `UnsupportedFeatureError`. The pin
+  programmers run from the pod's `xip_prog` blob, installed with the other blobs (`benchpod
+  install-blobs`); without it the pod refuses with `XipUnavailableError`.
+- The bundled feature table is revision 17.
+
 ## 4.0.4
 
 For BenchPod firmware with the `jtag` feature (features table revision 16, gateware v61 or later).

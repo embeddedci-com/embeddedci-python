@@ -444,8 +444,8 @@ class UsbCheckNoPowerError(FirmwareError):
 
 
 class XipUnavailableError(FirmwareError):
-    """The pod cannot run code from its W25Q (``BP0083``): :attr:`why`. The USB flash protocols
-    run from there, so install the blobs that go with the firmware (``benchpod install-blobs``)."""
+    """The pod cannot run code from its W25Q (``BP0083``): :attr:`why`. The USB flash protocols and
+    the pin programmers (``prog_flash``) run from there, so install the blobs that go with the firmware (``benchpod install-blobs``)."""
 
     def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
         super().__init__(message, cmd=cmd)

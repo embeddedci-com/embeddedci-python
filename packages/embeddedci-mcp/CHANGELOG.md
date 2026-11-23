@@ -1,5 +1,19 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+For BenchPod firmware with the `prog_flash` feature; needs the matching embeddedci (the tool says so on an older SDK).
+
+- **`flash` takes the pin-programmer targets** `avr-updi`, `pic`, `efm8`, `attiny-tpi` and `xmega`
+  (`updi`, `c2`, `tpi` and `pdi` work too): the pod flashes AVR tinyAVR/megaAVR/DA/DB/DD, PIC16F1xxx,
+  PIC16F18xxx and PIC18F Q-series, Silicon Labs EFM8 and C8051F, ATtiny4/5/9/10/20/40/102/104 and
+  XMEGA chips over their own programming pins from a `.hex`, `.elf` or `.bin`. New arguments: `device`
+  (name the chip; omitted, its ID decides), `clk`, `data` and `reset_pin` (LA pins or wiring names; default
+  a profile signal named for the protocol, else `swd_swclk` / `swd_swdio`), `erase` (`chip`, `page`,
+  `none`) and `dry_run` (only read the chip's ID: a wiring test). A failure is `ok=false` with
+  what to check in `stderr_tail`. The server instructions describe the flow. The ATtiny4/5/9/10/20/40
+  need 5 V, which the pod cannot give.
+
 ## 4.0.4
 
 For BenchPod firmware with the `jtag` feature; JTAG flashing needs embeddedci 4.0.4 (the tool says so on an older SDK).

@@ -131,7 +131,7 @@
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
     "expansion": "(self, chip: 'Optional[str]' = '', *, addr: 'Union[int, Sequence[int], None]' = None, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, spi: 'Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None]' = None, load: 'Union[Pin, int, str, None]' = None, count: 'Optional[int]' = None, hz: 'Optional[int]' = None, pullups: 'Optional[str]' = None, names: 'Union[Mapping[Any, str], Sequence[Optional[str]], None]' = None) -> \"'_expansion.ExpansionStatus'\"",
-    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, tck: 'Union[Pin, int, str, None]' = None, tms: 'Union[Pin, int, str, None]' = None, tdi: 'Union[Pin, int, str, None]' = None, tdo: 'Union[Pin, int, str, None]' = None, trst: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None) -> 'FlashResult'",
+    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, tck: 'Union[Pin, int, str, None]' = None, tms: 'Union[Pin, int, str, None]' = None, tdi: 'Union[Pin, int, str, None]' = None, tdo: 'Union[Pin, int, str, None]' = None, trst: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None, device: 'str' = '', clk: 'Union[Pin, int, str, None]' = None, data: 'Union[Pin, int, str, None]' = None, reset_pin: 'Union[Pin, int, str, None]' = None, erase: 'str' = 'chip', dry_run: 'bool' = False) -> 'FlashResult'",
     "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'Optional[DacPath]' = None, duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
     "get_la_voltage": "(self) -> 'LaVoltage'",
@@ -1007,6 +1007,13 @@
     "from_reply": "(cls, reply: 'Any') -> \"'PowerStatus'\"",
     "rail": "(self, efuse: \"'Efuse | int'\") -> 'RailPower'"
   },
+  "ProgDeviceError": {},
+  "ProgFlashError": {
+    "__init__": "(self, message: 'str', *, result: 'str' = '', phase: 'str' = '', mem: 'str' = '', addr: 'Optional[int]' = None, at_addr: 'Optional[int]' = None) -> 'None'"
+  },
+  "ProgLockedError": {},
+  "ProgNoAnswerError": {},
+  "ProgVerifyError": {},
   "PullConflictError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0) -> 'None'"
   },
@@ -1709,6 +1716,11 @@
     "PowerProfile",
     "PowerProfileSession",
     "PowerStatus",
+    "ProgDeviceError",
+    "ProgFlashError",
+    "ProgLockedError",
+    "ProgNoAnswerError",
+    "ProgVerifyError",
     "PullConflictError",
     "PullDirectionError",
     "PullState",

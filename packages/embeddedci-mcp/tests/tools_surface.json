@@ -2553,6 +2553,29 @@
           "title": "Build",
           "type": "string"
         },
+        "clk": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "pic, efm8, attiny-tpi, xmega: LA channel (or wiring name) wired to the chip's clock (ICSPCLK, C2CK, TPICLK, PDI_CLK); omit for a profile signal of that name, else swd_swclk.",
+          "title": "Clk"
+        },
         "connect_attempts": {
           "default": 5,
           "maximum": 20,
@@ -2571,6 +2594,52 @@
           ],
           "default": null,
           "title": "Connect Under Reset"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: LA channel (or wiring name) wired to the chip's data pin (UPDI, ICSPDAT, C2D, TPIDATA, PDI_DATA); omit for a profile signal of that name, else swd_swdio.",
+          "title": "Data"
+        },
+        "device": {
+          "default": "",
+          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: the chip, e.g. 'ATtiny1616' or 'PIC16F18446'. Omit: the chip's ID identifies it. Given, the ID must match.",
+          "title": "Device",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: only enter programming mode and read the chip's ID (a wiring test): stdout_tail names the chip, nothing is written.",
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "erase": {
+          "default": "chip",
+          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: 'chip' (default, before the first write when the image has flash; also unlocks a locked chip), 'page' (only the pages written; TPI chips erase their whole code section) or 'none'.",
+          "enum": [
+            "chip",
+            "page",
+            "none"
+          ],
+          "title": "Erase",
+          "type": "string"
         },
         "extra_args": {
           "anyOf": [
@@ -2604,7 +2673,7 @@
         },
         "file": {
           "default": "",
-          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool merge_bin) or an ESP-IDF build/flasher_args.json.",
+          "description": "Firmware image path on the machine running this server. Leave empty to flash an uploaded build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool merge_bin) or an ESP-IDF build/flasher_args.json. For avr-updi, pic, efm8, attiny-tpi and xmega: a .hex, .elf or .bin (a .bin goes at load_address into the flash). Empty is fine with dry_run.",
           "title": "File",
           "type": "string"
         },
@@ -2643,6 +2712,29 @@
           "default": true,
           "title": "Reset",
           "type": "boolean"
+        },
+        "reset_pin": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "pic and attiny-tpi: LA channel (or wiring name) wired to the chip's reset (MCLR, RESET), driven open drain; omit for the pod's reset pin (nreset) or a profile signal named MCLR or RESET.",
+          "title": "Reset Pin"
         },
         "rx": {
           "anyOf": [
@@ -2728,7 +2820,7 @@
         },
         "target": {
           "default": "",
-          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD.",
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD. 'avr-updi' (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), 'pic' (PIC16F1xxx, PIC16F18xxx, PIC18F Q), 'efm8' (Silicon Labs EFM8, C8051F), 'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104) and 'xmega' flash a chip over its own programming pins instead (updi, pic, c2, tpi and pdi work too).",
           "title": "Target",
           "type": "string"
         },
