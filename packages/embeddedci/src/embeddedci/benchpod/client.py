@@ -1843,6 +1843,11 @@ class BenchPod:
         *,
         swclk: Union[Pin, int, str, None] = None,
         swdio: Union[Pin, int, str, None] = None,
+        tck: Union[Pin, int, str, None] = None,
+        tms: Union[Pin, int, str, None] = None,
+        tdi: Union[Pin, int, str, None] = None,
+        tdo: Union[Pin, int, str, None] = None,
+        trst: Union[Pin, int, str, None] = None,
         nreset: Optional[bool] = None,
         target: str = "",
         file: str = "",
@@ -1867,9 +1872,15 @@ class BenchPod:
         tx: Union[Pin, int, str, None] = None,
         boot: Union[Pin, int, str, None] = None,
     ) -> FlashResult:
-        """Flash an SWD target through the pod's CMSIS-DAP probe and report the result.
+        """Flash a target over SWD or JTAG through the pod's CMSIS-DAP probe and report the result.
 
-        ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN14`` or 1-14). ``nreset`` is a
+        ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN14`` or 1-14). ``tck``, ``tms``,
+        ``tdi``, ``tdo`` and ``trst`` are the JTAG pins (``trst`` is optional). The port is chosen
+        for you: JTAG when the pins for it are known (given, else the wiring profile's ``jtag_*``)
+        and either no SWD pins are or the target is JTAG only (:data:`~embeddedci.benchpod.flash.
+        JTAG_ONLY_TARGETS`: ``esp32``, ``esp32s2``, the RISC-V names); otherwise SWD. JTAG needs
+        the ``jtag`` firmware feature (:class:`UnsupportedFeatureError` before anything is armed).
+        ``nreset`` is a
         flag, not a pin: pass ``True`` when the target's reset line is wired to the pod's reset
         pin (DUT header J1 pin 22). ``target`` is an OpenOCD target config
         (``target/stm32f4x.cfg``) and ``file`` the image. ``target_power`` of
@@ -1918,14 +1929,11 @@ class BenchPod:
 
                 raise FlashError(f"flash ({target or self.wiring.swd_target}): {result.stderr}")
             return result
-        swclk_i = self._wired(swclk, "swd_swclk")
-        swdio_i = self._wired(swdio, "swd_swdio")
-        if swclk_i == swdio_i:
-            raise ValueError("swclk and swdio must be different LA pins")
         if nreset is None:
             nreset = self.wiring.swd_nreset
         target = target or self.wiring.swd_target
         power = coerce_efuse(target_power) if target_power is not None else None
+        pins = self._flash_pins(swclk, swdio, tck, tms, tdi, tdo, trst, target)
 
         art: Optional[Dict[str, Any]] = None
         tmpdir = ""
@@ -1936,8 +1944,11 @@ class BenchPod:
                 target = str((art.get("wiring_defaults") or {}).get("target") or "")
             use_server = bool(self._device_name) if server_side is None else server_side
             if use_server:
+                if pins["port"] == "jtag":
+                    raise ValueError("embeddedci.com cannot flash over JTAG yet: pass server_side=False "
+                                     "to download the build and flash it with the local OpenOCD")
                 result = self._flash_build_on_server(
-                    api, art, swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset), target=target,
+                    api, art, swclk=pins["swclk"], swdio=pins["swdio"], nreset=bool(nreset), target=target,
                     load_address=load_address, power=power, verify=verify, reset=reset,
                     connect_under_reset=connect_under_reset, openocd_bin=openocd_bin,
                     extra_configs=extra_configs, extra_args=extra_args, timeout=timeout)
@@ -1955,7 +1966,7 @@ class BenchPod:
 
         try:
             result = self._flash_local(
-                swclk=swclk_i, swdio=swdio_i, nreset=bool(nreset), target=target, file=file,
+                pins=pins, nreset=bool(nreset), target=target, file=file,
                 load_address=load_address, power=power, verify=verify, reset=reset,
                 connect_under_reset=connect_under_reset, clear_reset_events=clear_reset_events,
                 openocd_bin=openocd_bin, extra_configs=extra_configs, extra_args=extra_args,
@@ -2049,7 +2060,71 @@ class BenchPod:
         return FlashResult(ok=r.ok, returncode=0 if r.ok else 1, stdout="\n".join(lines),
                            stderr=r.error)
 
-    def _flash_local(self, *, swclk: int, swdio: int, nreset: bool, target: str, file: str,
+    def _flash_pins(self, swclk: Any, swdio: Any, tck: Any, tms: Any, tdi: Any, tdo: Any,
+                    trst: Any, target: str) -> Dict[str, Any]:
+        """The pins and port of a flash: ``swclk``, ``swdio``, ``tck``, ``tms``, ``tdi``, ``tdo``,
+        ``trst`` (None: not used) and ``port`` (``"swd"``/``"jtag"``, :func:`flash.select_port`).
+        A pin the caller passes beats the wiring profile's."""
+        def optional(given: Sequence[Any], keys: Sequence[str]) -> List[Optional[int]]:
+            """The pins in ``given`` (else the profile's ``keys``); all None when none is set."""
+            if all(g is None for g in given) and all(getattr(self.wiring, k) is None for k in keys):
+                return [None] * len(keys)
+            return [self._wired(g, k) for g, k in zip(given, keys)]
+
+        swd_keys = ("swd_swclk", "swd_swdio")
+        jtag_keys = ("jtag_tck", "jtag_tms", "jtag_tdi", "jtag_tdo")
+        jtag_given = (tck, tms, tdi, tdo)
+        jtag_set = [g is not None or getattr(self.wiring, k) is not None
+                    for g, k in zip(jtag_given, jtag_keys)]
+        if any(jtag_set) and not all(jtag_set):
+            missing = ", ".join(k for k, ok in zip(jtag_keys, jtag_set) if not ok)
+            raise ValueError(f"JTAG needs all of tck, tms, tdi and tdo: {missing} is not set (pass it or "
+                             "set it in the wiring profile)")
+        swd = optional((swclk, swdio), swd_keys)
+        jtag = optional(jtag_given, jtag_keys)
+        have_swd, have_jtag = swd[0] is not None, jtag[0] is not None
+        if not have_swd and not have_jtag:
+            # name the pin like the SWD-only flash always did
+            self._wired(swclk, "swd_swclk")
+        port = _flash.select_port(swd=have_swd, jtag=have_jtag, target=target)
+        out: Dict[str, Any] = {"swclk": swd[0], "swdio": swd[1], "tck": None, "tms": None,
+                               "tdi": None, "tdo": None, "trst": None, "port": port}
+        if have_swd and swd[0] == swd[1]:
+            raise ValueError("swclk and swdio must be different LA pins")
+        if port == "jtag":
+            out.update(zip(("tck", "tms", "tdi", "tdo"), jtag))
+            out["trst"] = (self._resolve_la(trst, "jtag_trst")[0] if trst is not None
+                           else self.wiring.jtag_trst)
+            names = {"tck": "tck", "tms": "tms", "tdi": "tdi", "tdo": "tdo", "trst": "trst"}
+            used: Dict[int, str] = {}
+            for name in names:
+                la = out[name]
+                if la is None:
+                    continue
+                other = used.get(la)
+                # an ARM part's SWCLK/SWDIO are its TCK/TMS: the probe wires them once
+                if other is not None:
+                    raise ValueError(f"{other} and {name} must be different LA pins")
+                used[la] = name
+            for swd_name, jtag_name in (("swclk", "tck"), ("swdio", "tms")):
+                la = out[swd_name]
+                if la is not None and la in used and used[la] != jtag_name:
+                    raise ValueError(f"{swd_name} and {used[la]} must be different LA pins "
+                                     f"({swd_name} may only share a pin with {jtag_name})")
+            self._require_jtag()
+        return out
+
+    def _require_jtag(self) -> None:
+        """Refuse ahead, in words, when the pod has no JTAG (firmware feature ``jtag``)."""
+        if self.supports("jtag"):
+            return
+        fw = self.capabilities.firmware_version or "unknown"
+        raise UnsupportedFeatureError(
+            f"JTAG needs newer pod firmware with the 'jtag' feature (and gateware v61+; not the "
+            f"emulation FPGA image); this pod runs firmware {fw}: update the pod",
+            feature="jtag", firmware_version=self.capabilities.firmware_version)
+
+    def _flash_local(self, *, pins: Dict[str, Any], nreset: bool, target: str, file: str,
                      load_address: str, power: Optional[Efuse], verify: bool, reset: bool,
                      connect_under_reset: Optional[bool], clear_reset_events: bool,
                      openocd_bin: Optional[str], extra_configs: Sequence[str],
@@ -2057,7 +2132,9 @@ class BenchPod:
         with _classified_errors():
             return _flash.flash(
                 self._transport,
-                swclk=swclk, swdio=swdio, nreset=nreset,
+                swclk=pins["swclk"], swdio=pins["swdio"], tck=pins["tck"], tms=pins["tms"],
+                tdi=pins["tdi"], tdo=pins["tdo"], trst=pins["trst"], port=pins["port"],
+                nreset=nreset,
                 target=target, file=file, load_address=load_address,
                 target_power=power, verify=verify, reset=reset,
                 connect_under_reset=connect_under_reset,

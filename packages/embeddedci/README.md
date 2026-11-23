@@ -798,6 +798,7 @@ print(wiring.describe())                        # a pin table: bias resistor and
 | `uart_parity`, `uart_stop_bits` | `"none"`, `1` | The UART frame after the 8 data bits (`"even"`, `"odd"`; 2 stop bits). `open_uart`, `capture_uart` and `power_cycle_and_capture` use it when `parity` / `stop_bits` are omitted; anything but 8N1 needs firmware 3.10.8+ |
 | `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
 | `swd_swclk`, `swd_swdio`, `swd_nreset`, `swd_target` | not wired, not wired, `False`, `""` (auto-detect) | flashing |
+| `jtag_tck`, `jtag_tms`, `jtag_tdi`, `jtag_tdo`, `jtag_trst` | not wired | JTAG flashing (firmware feature `jtag`); `jtag_trst` is optional. `jtag_tck` may share a channel with `swd_swclk` and `jtag_tms` with `swd_swdio` (the same pins on an ARM part); every other overlap is an error |
 | `spi_sclk`, `spi_mosi`, `spi_miso`, `spi_cs` | not wired | decoder channels |
 | `signals` | `[]` | named signals: `Signal(name, la, direction="input"/"output"/"open_drain"/"bidir", active_low=False, description="")` |
 | `dut_dirs` | `{}` | the DUT direction of a role or signal where its default is wrong: `{"uart_rx": "bidir", "READY": "dut_input"}` (role key or signal name to `dut_input`, `dut_output` or `bidir`); see [pin directions](#gpio-on-the-la-pins) |
@@ -990,6 +991,16 @@ result = bp.flash(file="build/app.bin", load_address="0x08000000",
 assert result.ok, result.stderr     # also: returncode, stdout, target_unreachable, stalled, artifact
 ```
 
+* **SWD or JTAG is chosen for you** (there is no transport option). `tck`, `tms`, `tdi`, `tdo` and
+  `trst` are the JTAG pins; omitted ones come from the profile's `jtag_*` fields. The flash uses
+  JTAG when all four JTAG pins are known and either no SWD pins are, or the target is JTAG only:
+  `esp32`, `esp32s2`, `gd32vf103`, `fe310`, `k210` and any name starting with `riscv` (the OpenOCD
+  config's file name, so `target/esp32.cfg` counts). Otherwise it uses SWD. With both wired, an ARM
+  target keeps SWD (faster). JTAG needs the pod's `jtag` feature (firmware with features table
+  revision 16, gateware v61 or later, not the emulation FPGA image) and raises
+  `UnsupportedFeatureError` before anything is armed without it. A bare `"esp32"` target (no
+  `target/` path) still flashes over the chip's UART bootloader. An uploaded build flashed by
+  embeddedci.com cannot use JTAG yet: pass `server_side=False`.
 * `nreset` is a flag, not a pin. With it, `connect_under_reset` defaults to `True`; without it,
   connect-under-reset is forced off (the pod cannot hold a reset it isn't wired to).
 * `verify=True` and `reset=True` map to OpenOCD's `program … verify reset`. `verify=False` is
@@ -1550,8 +1561,8 @@ The connection never fails over it. The pod forgets the directions on a reboot; 
 sends them again.
 
 Every wired role and signal has a direction. The defaults: `uart_rx` and `spi_miso` are DUT
-outputs (the DUT drives them); `uart_tx`, `spi_sclk`, `spi_mosi`, `spi_cs` and `swd_swclk` DUT
-inputs; the I2C pins and `swd_swdio` `bidir`; a signal with direction `input` (the pod watches it)
+outputs (the DUT drives them); `uart_tx`, `spi_sclk`, `spi_mosi`, `spi_cs`, `swd_swclk`, `jtag_tck`, `jtag_tdi` and `jtag_trst` DUT
+inputs; `jtag_tdo` a DUT output; the I2C pins, `swd_swdio` and `jtag_tms` `bidir`; a signal with direction `input` (the pod watches it)
 is a DUT output, `output` a DUT input, `open_drain` and `bidir` are `bidir`. So a pin's direction
 follows from what it is used for: set a signal's `direction` to change it. `wiring.dut_dir(name)` is
 one role's or signal's direction, `wiring.pin_dut_dirs()` the per-channel map. Profiles from older

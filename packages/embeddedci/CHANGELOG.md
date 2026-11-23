@@ -1,5 +1,22 @@
 # Changelog — `embeddedci`
 
+## 4.0.4
+
+For BenchPod firmware with the `jtag` feature (features table revision 16, gateware v61 or later).
+SWD flashing is unchanged.
+
+- **JTAG flashing.** The wiring profile takes `jtag_tck`, `jtag_tms`, `jtag_tdi`, `jtag_tdo` and an
+  optional `jtag_trst` (LA channels 1-14). `jtag_tck` may share a channel with `swd_swclk` and
+  `jtag_tms` with `swd_swdio`; every other overlap is an error. `bp.flash()` takes `tck`, `tms`,
+  `tdi`, `tdo` and `trst` like `swclk` and `swdio` (omitted ones come from the profile).
+- **No transport option: the SDK picks SWD or JTAG.** JTAG when all four JTAG pins are known and
+  either no SWD pins are, or the target is JTAG only (`esp32`, `esp32s2`, `gd32vf103`, `fe310`,
+  `k210`, names starting with `riscv`); otherwise SWD. A pod without the `jtag` feature raises
+  `UnsupportedFeatureError` before anything is armed.
+- `Transport.dap_start()` takes `tck`, `tms`, `tdi`, `tdo`, `trst` and `port`; `swclk` and `swdio`
+  are optional when the JTAG pins are given.
+- The bundled feature table is revision 16.
+
 ## 4.0.3
 
 For BenchPod firmware 4.0.3 (features `usb_host_mode`, `usb_flash`, `uart_usb`, `usb_check`, `usb_hid`,

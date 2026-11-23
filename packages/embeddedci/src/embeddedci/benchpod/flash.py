@@ -35,7 +35,9 @@ TARGET_POWER_SETTLE = 0.25  # seconds for the target to boot after power-on
 TARGET_ANSWER_WAIT_MS = 5000
 
 # OpenOCD stderr substrings that mean the probe worked but no target answered.
-_SWD_CONNECT_MARKERS = (b"cannot read IDR", b"Error connecting DP")
+_SWD_CONNECT_MARKERS = (b"cannot read IDR", b"Error connecting DP",
+                        # JTAG: an empty or floating chain
+                        b"scan chain interrogation failed")
 
 # --- CMSIS-DAP-over-TCP framing (must match the firmware's PROTO_DAP frame and
 #     OpenOCD's cmsis_dap_tcp backend; mirrors the Go CLI's internal/openocd/dap.go).
@@ -168,11 +170,43 @@ def build_openocd_args(
     return args
 
 
+#: OpenOCD targets whose debug port is JTAG only (no SWD): the flash path picks JTAG for them
+#: whenever the wiring has JTAG pins. One place; a name is the target config's file name without
+#: ``target/`` and ``.cfg`` (``target/esp32.cfg`` -> ``esp32``). Any name starting with
+#: :data:`JTAG_ONLY_PREFIXES` counts too.
+JTAG_ONLY_TARGETS = frozenset({"esp32", "esp32s2", "gd32vf103", "fe310", "k210"})
+JTAG_ONLY_PREFIXES = ("riscv",)
+
+
+def target_is_jtag_only(target: str) -> bool:
+    """Whether the OpenOCD ``target`` config (``target/esp32.cfg``, ``esp32s2``) has JTAG only."""
+    name = str(target).strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name.endswith(".cfg"):
+        name = name[:-4]
+    return name in JTAG_ONLY_TARGETS or name.startswith(JTAG_ONLY_PREFIXES)
+
+
+def select_port(*, swd: bool, jtag: bool, target: str = "") -> str:
+    """``"jtag"`` or ``"swd"`` for a flash. JTAG when all four JTAG pins are available (``jtag``)
+    and either no SWD pins are (``swd`` False) or the target is JTAG only; otherwise SWD. With
+    neither, raises :class:`ValueError`."""
+    if not swd and not jtag:
+        raise ValueError("flash needs SWD pins (swclk, swdio) or JTAG pins (tck, tms, tdi, tdo): "
+                         "pass them or set them in the wiring profile")
+    return "jtag" if jtag and (not swd or target_is_jtag_only(target)) else "swd"
+
+
 def flash(
     transport: Transport,
     *,
-    swclk: int,
-    swdio: int,
+    swclk: Optional[int] = None,
+    swdio: Optional[int] = None,
+    tck: Optional[int] = None,
+    tms: Optional[int] = None,
+    tdi: Optional[int] = None,
+    tdo: Optional[int] = None,
+    trst: Optional[int] = None,
+    port: str = "swd",
     nreset: bool = False,
     target: str = "",
     file: str = "",
@@ -190,7 +224,10 @@ def flash(
 ) -> FlashResult:
     """Arm the CMSIS-DAP probe and run OpenOCD. Returns a :class:`FlashResult`.
 
-    ``swclk``/``swdio`` are LA channels 1-14 (already coerced by the caller).
+    ``swclk``/``swdio`` are LA channels 1-14 (already coerced by the caller). ``port="jtag"``
+    arms the probe with ``tck``/``tms``/``tdi``/``tdo`` (and ``trst``) and has OpenOCD use JTAG
+    (``transport select jtag``); the SWD pins may be given too. The caller chooses the port
+    (:func:`select_port`).
     ``target_power`` of 1/2 enables that eFuse first; ``None`` leaves power
     untouched.
 
@@ -210,6 +247,12 @@ def flash(
     """
     if file and not target:
         raise ValueError("file= requires target=")
+    if port not in ("swd", "jtag"):
+        raise ValueError(f"port must be 'swd' or 'jtag', not {port!r}")
+    if port == "jtag" and None in (tck, tms, tdi, tdo):
+        raise ValueError("JTAG needs tck, tms, tdi and tdo")
+    if port == "swd" and (swclk is None or swdio is None):
+        raise ValueError("SWD needs swclk and swdio")
     nreset = bool(nreset)
     if connect_under_reset is None:
         connect_under_reset = nreset
@@ -237,13 +280,18 @@ def flash(
     attempts = max(1, connect_attempts)
     result: Optional[FlashResult] = None
     for attempt in range(attempts):
+        pins: dict = {}
+        if port == "jtag":
+            pins = {"tck": tck, "tms": tms, "tdi": tdi, "tdo": tdo, "port": "jtag"}
+            if trst is not None:
+                pins["trst"] = trst
         pod_link = transport.dap_start(
-            swclk, swdio, packet_size=_DAP_MAX_PACKET, packet_count=_DAP_PACKET_COUNT,
+            swclk, swdio, packet_size=_DAP_MAX_PACKET, packet_count=_DAP_PACKET_COUNT, **pins,
             # Every attempt, not just the first: a retry after a target that answered too early
             # (a NUCLEO's ST-LINK still holding it) must wait for it to settle as well.
             wait_ms=TARGET_ANSWER_WAIT_MS if target_power is not None else None)
         try:
-            result = _run_bridge(bin_path, args, pod_link, timeout=timeout)
+            result = _run_bridge(bin_path, args, pod_link, timeout=timeout, transport=port)
         finally:
             pod_link.close()
         # Retry the transient, transport-level failures (no target on the wire,
@@ -288,6 +336,7 @@ def _run_bridge(
     *,
     timeout: float,
     stall_timeout: float = 60.0,
+    transport: str = "swd",
 ) -> FlashResult:
     """Stand up a loopback listener, run OpenOCD's cmsis-dap TCP backend against
     it, and translate the per-packet framing both ways until OpenOCD exits."""
@@ -306,7 +355,7 @@ def _run_bridge(
         "-c", "cmsis-dap backend tcp",
         "-c", "cmsis-dap tcp host 127.0.0.1",
         "-c", f"cmsis-dap tcp port {port}",
-        "-c", "transport select swd",
+        "-c", f"transport select {transport}",
         *args,
     ]
 
