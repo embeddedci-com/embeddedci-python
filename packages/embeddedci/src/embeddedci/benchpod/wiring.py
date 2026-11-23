@@ -42,7 +42,13 @@ PRESETS: Mapping[str, Mapping[str, Any]] = {"embeddedci-default": DEFAULT_PINS}
 
 #: Profile keys that name the LA channel of a DUT signal role.
 ROLE_KEYS: Tuple[str, ...] = ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl", "swd_swclk", "swd_swdio",
+                              "jtag_tck", "jtag_tms", "jtag_tdi", "jtag_tdo", "jtag_trst",
                               "spi_sclk", "spi_mosi", "spi_miso", "spi_cs")
+#: Role pairs that may share one LA channel: on an ARM part the JTAG TCK and TMS pins are the SWCLK
+#: and SWDIO pins, so the probe wires them once.
+JTAG_SHARED_ROLES: Tuple[Tuple[str, str], ...] = (("swd_swclk", "jtag_tck"), ("swd_swdio", "jtag_tms"))
+#: The four pins JTAG needs (``jtag_trst`` is optional).
+JTAG_REQUIRED_ROLES: Tuple[str, ...] = ("jtag_tck", "jtag_tms", "jtag_tdi", "jtag_tdo")
 #: Valid :attr:`Signal.direction` values.
 SIGNAL_DIRECTIONS: Tuple[str, ...] = ("input", "output", "open_drain", "bidir")
 #: Valid :attr:`Wiring.dut_dirs` values: which way the DUT's signal goes.
@@ -52,6 +58,9 @@ DUT_DIRS: Tuple[str, ...] = ("dut_input", "dut_output", "bidir")
 ROLE_DUT_DIRS: Mapping[str, str] = {
     "uart_rx": "dut_output", "uart_tx": "dut_input", "i2c_sda": "bidir", "i2c_scl": "bidir",
     "swd_swclk": "dut_input", "swd_swdio": "bidir",
+    # TMS is "bidir" because on an ARM part it is the SWDIO pin (see JTAG_SHARED_ROLES)
+    "jtag_tck": "dut_input", "jtag_tms": "bidir", "jtag_tdi": "dut_input", "jtag_tdo": "dut_output",
+    "jtag_trst": "dut_input",
     "spi_sclk": "dut_input", "spi_mosi": "dut_input", "spi_miso": "dut_output", "spi_cs": "dut_input",
 }
 #: The default DUT direction of a signal from its :attr:`Signal.direction` (seen from the pod): a
@@ -137,6 +146,13 @@ class Wiring:
     swd_swdio: Optional[int] = None
     swd_nreset: bool = False
     swd_target: str = ""
+    #: JTAG (firmware feature ``jtag``): the four LA channels and the optional nTRST. ``jtag_tck`` may
+    #: share a channel with ``swd_swclk`` and ``jtag_tms`` with ``swd_swdio``.
+    jtag_tck: Optional[int] = None
+    jtag_tms: Optional[int] = None
+    jtag_tdi: Optional[int] = None
+    jtag_tdo: Optional[int] = None
+    jtag_trst: Optional[int] = None
     spi_sclk: Optional[int] = None
     spi_mosi: Optional[int] = None
     spi_miso: Optional[int] = None
@@ -487,15 +503,17 @@ class Wiring:
                     errs.append(f"dut_dirs.{k}: {k!r} is not a wiring role or a signal name")
                 elif d not in DUT_DIRS:
                     errs.append(f"dut_dirs.{k} must be one of {', '.join(DUT_DIRS)}, got {d!r}")
-        users: Dict[int, str] = {}
+        users: Dict[int, List[str]] = {}
         for name, la in self.assignments():
             if not 1 <= la <= 14:
                 continue
-            if la in users:
-                errs.append(f"LA{la} is used by both {users[la]} and {name} (move one to a free channel, "
+            others = users.setdefault(la, [])
+            clash = [o for o in others
+                     if (o, name) not in JTAG_SHARED_ROLES and (name, o) not in JTAG_SHARED_ROLES]
+            if clash:
+                errs.append(f"LA{la} is used by both {clash[0]} and {name} (move one to a free channel, "
                             "or set a role that isn't wired to None)")
-            else:
-                users[la] = name
+            others.append(name)
         return errs
 
 

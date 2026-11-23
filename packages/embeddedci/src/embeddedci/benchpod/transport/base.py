@@ -69,8 +69,11 @@ class Transport(ABC):
         connection can move on to e.g. UART capture meanwhile.
         """
 
-    def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
-                  packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
+    def dap_start(self, swclk: Optional[int] = None, swdio: Optional[int] = None,
+                  packet_size: Optional[int] = None, packet_count: Optional[int] = None,
+                  wait_ms: Optional[int] = None, *, tck: Optional[int] = None,
+                  tms: Optional[int] = None, tdi: Optional[int] = None, tdo: Optional[int] = None,
+                  trst: Optional[int] = None, port: Optional[str] = None) -> RawLink:
         """Arm the SWD engine and return a raw link carrying length-framed
         CMSIS-DAP packets — the batched flash path that OpenOCD's cmsis-dap TCP
         backend drives (see :mod:`embeddedci.benchpod.flash`). This is the only
@@ -81,6 +84,11 @@ class Transport(ABC):
         256 x 1; OpenOCD reads what the pod advertises either way). ``wait_ms`` makes the pod
         wait (up to that long) for the target to answer SWD before it acks, for a target whose
         rail was just switched on.
+
+        JTAG (firmware feature ``jtag``): ``tck``, ``tms``, ``tdi`` and ``tdo`` (and optionally
+        ``trst``) are LA channels; pass them with or instead of ``swclk``/``swdio`` (give at least
+        one complete set). ``port="jtag"`` arms JTAG first when both sets are given (the default is
+        SWD); it only matters then.
 
         Target reset is not a parameter: since pod rev3 the pod drives NRST from
         its own pin (DUT header J1 pin 22) whenever CMSIS-DAP asks, so there is

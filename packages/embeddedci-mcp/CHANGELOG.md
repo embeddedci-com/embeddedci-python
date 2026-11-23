@@ -1,5 +1,15 @@
 # Changelog — `embeddedci-mcp`
 
+## 4.0.4
+
+For BenchPod firmware with the `jtag` feature; JTAG flashing needs embeddedci 4.0.4 (the tool says so on an older SDK).
+
+- **JTAG flashing.** `flash` takes `tck`, `tms`, `tdi`, `tdo` and `trst` (LA channels or wiring names;
+  omitted ones come from the profile's `jtag_tck`, `jtag_tms`, `jtag_tdi`, `jtag_tdo`, `jtag_trst`).
+  There is no transport argument: JTAG is used when the four JTAG pins are known and either no SWD
+  pins are, or the target is JTAG only (`esp32`, `esp32s2`, `gd32vf103`, `fe310`, `k210`, names
+  starting with `riscv`); otherwise SWD. `set_wiring` and `wiring` carry the new `jtag_*` fields.
+
 ## 4.0.3
 
 For BenchPod firmware 4.0.3; needs embeddedci 4.0.3.

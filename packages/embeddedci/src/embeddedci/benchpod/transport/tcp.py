@@ -531,9 +531,32 @@ class TcpTransport(Transport):
             raise
         return _SocketRawLink(sock)
 
-    def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
-                  packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
-        req: dict = {"cmd": "dap_start", "swclk": swclk, "swdio": swdio}
+    def dap_start(self, swclk: Optional[int] = None, swdio: Optional[int] = None,
+                  packet_size: Optional[int] = None, packet_count: Optional[int] = None,
+                  wait_ms: Optional[int] = None, *, tck: Optional[int] = None,
+                  tms: Optional[int] = None, tdi: Optional[int] = None, tdo: Optional[int] = None,
+                  trst: Optional[int] = None, port: Optional[str] = None) -> RawLink:
+        req: dict = {"cmd": "dap_start"}
+        if swclk is not None or swdio is not None:
+            if swclk is None or swdio is None:
+                raise ValueError("dap_start needs both swclk and swdio, or neither")
+            req["swclk"] = swclk
+            req["swdio"] = swdio
+        jtag = {"tck": tck, "tms": tms, "tdi": tdi, "tdo": tdo}
+        if any(v is not None for v in jtag.values()) or trst is not None:
+            missing = [k for k, v in jtag.items() if v is None]
+            if missing:
+                raise ValueError("dap_start JTAG needs tck, tms, tdi and tdo: missing " + ", ".join(missing))
+            req.update(jtag)
+            if trst is not None:
+                req["trst"] = trst
+        if "swclk" not in req and "tck" not in req:
+            raise ValueError("dap_start needs swclk/swdio or tck/tms/tdi/tdo")
+        if port is not None:
+            if port not in ("swd", "jtag"):
+                raise ValueError(f"dap_start port must be 'swd' or 'jtag', not {port!r}")
+            if "swclk" in req and "tck" in req:
+                req["port"] = port
         if packet_size:
             req["packet_size"] = packet_size
         if packet_count:

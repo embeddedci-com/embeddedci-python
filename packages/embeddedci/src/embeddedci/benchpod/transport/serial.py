@@ -480,8 +480,11 @@ class SerialTransport(Transport):
     def target_power(self, efuse: int, on: bool, delay_ms: int = 0) -> None:
         raise self._needs_network("target power")
 
-    def dap_start(self, swclk: int, swdio: int, packet_size: Optional[int] = None,
-                  packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
+    def dap_start(self, swclk: Optional[int] = None, swdio: Optional[int] = None,
+                  packet_size: Optional[int] = None, packet_count: Optional[int] = None,
+                  wait_ms: Optional[int] = None, *, tck: Optional[int] = None,
+                  tms: Optional[int] = None, tdi: Optional[int] = None, tdo: Optional[int] = None,
+                  trst: Optional[int] = None, port: Optional[str] = None) -> RawLink:
         raise self._needs_network("SWD (flashing)")
 
     def uart_proxy_start(self, rx: Optional[int], tx: Optional[int], baud: int, parity: str = "none",

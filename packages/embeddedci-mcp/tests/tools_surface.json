@@ -2514,7 +2514,7 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
-      "title": "Flash firmware over SWD"
+      "title": "Flash firmware over SWD or JTAG"
     },
     "input": {
       "properties": {
@@ -2749,12 +2749,127 @@
           "description": "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2).",
           "title": "Target Power"
         },
+        "tck": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JTAG: LA channel (or wiring name) wired to the DUT's TCK; omit for the profile's jtag_tck.",
+          "title": "Tck"
+        },
+        "tdi": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JTAG: LA channel (or wiring name) wired to the DUT's TDI; omit for the profile's jtag_tdi.",
+          "title": "Tdi"
+        },
+        "tdo": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JTAG: LA channel (or wiring name) wired to the DUT's TDO; omit for the profile's jtag_tdo.",
+          "title": "Tdo"
+        },
         "timeout_s": {
           "default": 300.0,
           "exclusiveMinimum": 0,
           "maximum": 3600,
           "title": "Timeout S",
           "type": "number"
+        },
+        "tms": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JTAG: LA channel (or wiring name) wired to the DUT's TMS; omit for the profile's jtag_tms.",
+          "title": "Tms"
+        },
+        "trst": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "maximum": 14,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "LA channel 1-14, or a name from the wiring profile \u2014 a signal ('READY') or a role ('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also take expander pins ('EXT1') once one is attached (expansion)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JTAG: LA channel (or wiring name) wired to the DUT's nTRST (optional); omit for the profile's jtag_trst.",
+          "title": "Trst"
         },
         "tx": {
           "anyOf": [
@@ -5274,7 +5389,7 @@
       "properties": {
         "profile": {
           "additionalProperties": true,
-          "description": "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals [{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: power_on leaves the pulls as they are). What it leaves out is undefined (not wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins.",
+          "description": "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, spi_*, and signals [{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: power_on leaves the pulls as they are). What it leaves out is undefined (not wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins.",
           "title": "Profile",
           "type": "object"
         },

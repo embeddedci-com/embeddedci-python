@@ -34,12 +34,14 @@ HEADER_PINS: Dict[str, List[Tuple[int, str]]] = {
 _ROLE_LABELS = {
     "uart_rx": "UART RX", "uart_tx": "UART TX", "i2c_sda": "I2C SDA", "i2c_scl": "I2C SCL",
     "swd_swclk": "SWCLK", "swd_swdio": "SWDIO", "spi_sclk": "SPI SCLK", "spi_mosi": "SPI MOSI",
-    "spi_miso": "SPI MISO", "spi_cs": "SPI CS",
+    "spi_miso": "SPI MISO", "spi_cs": "SPI CS", "jtag_tck": "TCK", "jtag_tms": "TMS",
+    "jtag_tdi": "TDI", "jtag_tdo": "TDO", "jtag_trst": "TRST",
 }
 _ROLE_CONNECT = {
     "uart_rx": "board TX", "uart_tx": "board RX", "i2c_sda": "SDA", "i2c_scl": "SCL",
     "swd_swclk": "SWCLK", "swd_swdio": "SWDIO", "spi_sclk": "SCLK", "spi_mosi": "MOSI (board SDI)",
-    "spi_miso": "MISO (board SDO)", "spi_cs": "CS",
+    "spi_miso": "MISO (board SDO)", "spi_cs": "CS", "jtag_tck": "TCK", "jtag_tms": "TMS",
+    "jtag_tdi": "TDI", "jtag_tdo": "TDO", "jtag_trst": "TRST (nTRST)",
 }
 _SIGNAL_USE = {"input": "the pod reads it", "output": "the pod drives it", "open_drain": "open drain",
                "bidir": "open drain"}

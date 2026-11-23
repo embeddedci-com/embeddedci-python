@@ -581,7 +581,9 @@ def _pod_wiring_state(pod: Any, result: m.WiringResult) -> m.WiringResult:
                        "Once the user confirms this wiring is right on the board, ask whether to save it: "
                        "save_wiring() for this profile, save_wiring(name=...) for another board.")
         roles = [k for k in result.unsaved_changes if k in ("uart_rx", "uart_tx", "i2c_sda", "i2c_scl",
-                                                             "swd_swclk", "swd_swdio", "spi_sclk", "spi_mosi",
+                                                             "swd_swclk", "swd_swdio", "jtag_tck", "jtag_tms",
+                                                             "jtag_tdi", "jtag_tdo", "jtag_trst",
+                                                             "spi_sclk", "spi_mosi",
                                                              "spi_miso", "spi_cs", "signals")]
         if any(k in _NEVER_AUTOSAVE for k in result.unsaved_changes) or len(roles) >= 4:
             result.hint += (" This looks like a different board (I/O voltage, power rail, SWD target or "
@@ -621,7 +623,7 @@ async def wiring() -> m.WiringResult:
 async def set_wiring(
     profile: Annotated[Dict[str, Any], Field(description=(
         "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
-        "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, spi_*, and signals "
+        "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, spi_*, and signals "
         "[{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches "
         "on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels "
         "that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: "
@@ -1066,12 +1068,23 @@ async def i2c_close() -> m.I2cSessionResult:
 
 # -- flash ------------------------------------------------------------------------------
 
-@mcp.tool(annotations=_ann("Flash firmware over SWD", destructive=True))
+@mcp.tool(annotations=_ann("Flash firmware over SWD or JTAG", destructive=True))
 async def flash(
     swclk: Annotated[Optional[LaRef], Field(description=(
         "LA channel (or wiring name) wired to the DUT's SWCLK; omit for the profile's swd_swclk."))] = None,
     swdio: Annotated[Optional[LaRef], Field(description=(
         "LA channel (or wiring name) wired to the DUT's SWDIO; omit for the profile's swd_swdio."))] = None,
+    tck: Annotated[Optional[LaRef], Field(description=(
+        "JTAG: LA channel (or wiring name) wired to the DUT's TCK; omit for the profile's jtag_tck."))] = None,
+    tms: Annotated[Optional[LaRef], Field(description=(
+        "JTAG: LA channel (or wiring name) wired to the DUT's TMS; omit for the profile's jtag_tms."))] = None,
+    tdi: Annotated[Optional[LaRef], Field(description=(
+        "JTAG: LA channel (or wiring name) wired to the DUT's TDI; omit for the profile's jtag_tdi."))] = None,
+    tdo: Annotated[Optional[LaRef], Field(description=(
+        "JTAG: LA channel (or wiring name) wired to the DUT's TDO; omit for the profile's jtag_tdo."))] = None,
+    trst: Annotated[Optional[LaRef], Field(description=(
+        "JTAG: LA channel (or wiring name) wired to the DUT's nTRST (optional); omit for the "
+        "profile's jtag_trst."))] = None,
     target: Annotated[str, Field(description=(
         "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. "
         "'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM "
@@ -1117,7 +1130,13 @@ async def flash(
         "omit for a profile signal named BOOT, IO0 or IO9."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
-    """Program the DUT over SWD through the pod's CMSIS-DAP probe.
+    """Program the DUT over SWD or JTAG through the pod's CMSIS-DAP probe.
+
+    SWD or JTAG is chosen for you, there is no transport argument: JTAG when the four JTAG pins
+    (`tck`, `tms`, `tdi`, `tdo`, from the arguments or the profile's jtag_*) are known and either
+    no SWD pins are, or the target is JTAG only (esp32, esp32s2, gd32vf103, fe310, k210 and riscv*
+    OpenOCD configs, e.g. target/esp32.cfg); otherwise SWD. JTAG needs the pod's `jtag` feature
+    (newer firmware): without it the call fails before anything is armed.
 
     Give either `file` (a path on this server's host) or an uploaded build (`build`, or
     `repo`/`ref` for the newest build of a branch). OpenOCD runs on this server's host, except for
@@ -1156,8 +1175,19 @@ async def flash(
         if from_build and "build" not in inspect.signature(pod.flash).parameters:
             raise ValueError("flashing an uploaded build (build/repo/ref/artifact) needs a newer "
                              "embeddedci SDK; upgrade embeddedci, or pass file= with a local image")
+        jtag_args = {k: _la(pod, v) for k, v in (("tck", tck), ("tms", tms), ("tdi", tdi),
+                                                 ("tdo", tdo), ("trst", trst)) if v is not None}
+        if jtag_args and "tck" not in inspect.signature(pod.flash).parameters:
+            raise ValueError("flashing over JTAG needs a newer embeddedci SDK; upgrade embeddedci")
+        if "tck" in inspect.signature(pod.flash).parameters:
+            # the SDK picks SWD or JTAG from the pins and the target
+            pins: Dict[str, Any] = {"swclk": None if swclk is None else _la(pod, swclk),
+                                    "swdio": None if swdio is None else _la(pod, swdio), **jtag_args}
+        else:
+            pins = {"swclk": _channel(pod, swclk, "swd_swclk"),
+                    "swdio": _channel(pod, swdio, "swd_swdio")}
         result = pod.flash(
-            swclk=_channel(pod, swclk, "swd_swclk"), swdio=_channel(pod, swdio, "swd_swdio"),
+            **pins,
             nreset=pod.wiring.swd_nreset if nreset is None else nreset,
             target=target or pod.wiring.swd_target, file=file,
             load_address=load_address, target_power=target_power, verify=verify, reset=reset,
