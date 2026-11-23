@@ -1876,9 +1876,12 @@ class BenchPod:
 
         ``swclk``/``swdio`` are LA pins (``benchpod.PIN1``..``PIN14`` or 1-14). ``tck``, ``tms``,
         ``tdi``, ``tdo`` and ``trst`` are the JTAG pins (``trst`` is optional). The port is chosen
-        for you: JTAG when the pins for it are known (given, else the wiring profile's ``jtag_*``)
-        and either no SWD pins are or the target is JTAG only (:data:`~embeddedci.benchpod.flash.
-        JTAG_ONLY_TARGETS`: ``esp32``, ``esp32s2``, the RISC-V names); otherwise SWD. JTAG needs
+        for you (:func:`~embeddedci.benchpod.flash.select_port`): JTAG pins passed in the call (and
+        no SWD pins) mean JTAG, SWD pins passed (and no JTAG pins) mean SWD; else the wiring
+        profile's ``debug_port`` (``"swd"``/``"jtag"``) decides; else JTAG when the pins for it are
+        known (given, else the profile's ``jtag_*``) and either no SWD pins are or the target is
+        JTAG only (:data:`~embeddedci.benchpod.flash.JTAG_ONLY_TARGETS`: ``esp32``, ``esp32s2``,
+        the RISC-V names), otherwise SWD. JTAG needs
         the ``jtag`` firmware feature (:class:`UnsupportedFeatureError` before anything is armed).
         ``nreset`` is a
         flag, not a pin: pass ``True`` when the target's reset line is wired to the pod's reset
@@ -2065,28 +2068,32 @@ class BenchPod:
         """The pins and port of a flash: ``swclk``, ``swdio``, ``tck``, ``tms``, ``tdi``, ``tdo``,
         ``trst`` (None: not used) and ``port`` (``"swd"``/``"jtag"``, :func:`flash.select_port`).
         A pin the caller passes beats the wiring profile's."""
-        def optional(given: Sequence[Any], keys: Sequence[str]) -> List[Optional[int]]:
-            """The pins in ``given`` (else the profile's ``keys``); all None when none is set."""
-            if all(g is None for g in given) and all(getattr(self.wiring, k) is None for k in keys):
-                return [None] * len(keys)
-            return [self._wired(g, k) for g, k in zip(given, keys)]
-
         swd_keys = ("swd_swclk", "swd_swdio")
         jtag_keys = ("jtag_tck", "jtag_tms", "jtag_tdi", "jtag_tdo")
-        jtag_given = (tck, tms, tdi, tdo)
-        jtag_set = [g is not None or getattr(self.wiring, k) is not None
-                    for g, k in zip(jtag_given, jtag_keys)]
-        if any(jtag_set) and not all(jtag_set):
-            missing = ", ".join(k for k, ok in zip(jtag_keys, jtag_set) if not ok)
-            raise ValueError(f"JTAG needs all of tck, tms, tdi and tdo: {missing} is not set (pass it or "
-                             "set it in the wiring profile)")
-        swd = optional((swclk, swdio), swd_keys)
-        jtag = optional(jtag_given, jtag_keys)
-        have_swd, have_jtag = swd[0] is not None, jtag[0] is not None
-        if not have_swd and not have_jtag:
+        jtag_given = (tck, tms, tdi, tdo, trst)
+        swd_given = (swclk, swdio)
+
+        def unset(given: Sequence[Any], keys: Sequence[str]) -> List[str]:
+            return [k for g, k in zip(given, keys) if g is None and getattr(self.wiring, k) is None]
+
+        swd_missing, jtag_missing = unset(swd_given, swd_keys), unset(jtag_given, jtag_keys)
+        debug_port = getattr(self.wiring, "debug_port", None)
+        if (debug_port is None and len(swd_missing) == 2 and len(jtag_missing) == 4
+                and all(g is None for g in swd_given + jtag_given)):
             # name the pin like the SWD-only flash always did
             self._wired(swclk, "swd_swclk")
-        port = _flash.select_port(swd=have_swd, jtag=have_jtag, target=target)
+        port = _flash.select_port(
+            swd=not swd_missing, jtag=not jtag_missing, target=target,
+            swd_given=any(g is not None for g in swd_given),
+            jtag_given=any(g is not None for g in jtag_given), debug_port=debug_port,
+            swd_missing=swd_missing, jtag_missing=jtag_missing)
+        swd: List[Optional[int]] = [None, None]
+        if port == "swd" or len(swd_missing) < 2 or any(g is not None for g in swd_given):
+            swd = [self._wired(g, k) for g, k in zip(swd_given, swd_keys)]
+        jtag: List[Optional[int]] = [None] * 4
+        if port == "jtag":
+            jtag = [self._wired(g, k) for g, k in zip(jtag_given[:4], jtag_keys)]
+        have_swd = swd[0] is not None
         out: Dict[str, Any] = {"swclk": swd[0], "swdio": swd[1], "tck": None, "tms": None,
                                "tdi": None, "tdo": None, "trst": None, "port": port}
         if have_swd and swd[0] == swd[1]:

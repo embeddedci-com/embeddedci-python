@@ -186,10 +186,43 @@ def target_is_jtag_only(target: str) -> bool:
     return name in JTAG_ONLY_TARGETS or name.startswith(JTAG_ONLY_PREFIXES)
 
 
-def select_port(*, swd: bool, jtag: bool, target: str = "") -> str:
-    """``"jtag"`` or ``"swd"`` for a flash. JTAG when all four JTAG pins are available (``jtag``)
-    and either no SWD pins are (``swd`` False) or the target is JTAG only; otherwise SWD. With
-    neither, raises :class:`ValueError`."""
+def select_port(*, swd: bool, jtag: bool, target: str = "", swd_given: bool = False,
+                jtag_given: bool = False, debug_port: Optional[str] = None,
+                swd_missing: Sequence[str] = (), jtag_missing: Sequence[str] = ()) -> str:
+    """``"jtag"`` or ``"swd"`` for a flash (the one place the rule lives).
+
+    ``swd`` / ``jtag``: all the pins of that port are known (given, else the wiring profile's).
+    ``swd_given`` / ``jtag_given``: the caller passed at least one pin of that port.
+    ``debug_port``: the wiring profile's ``debug_port`` (None: automatic).
+    ``swd_missing`` / ``jtag_missing``: the profile fields still unset, for the error messages.
+
+    In order:
+
+    1. Pins in the call win: JTAG pins only -> JTAG (the rest from the profile, else
+       :class:`ValueError`); SWD pins only -> SWD. Both kinds or neither: go on.
+    2. The profile's ``debug_port``, when set: its port, or :class:`ValueError` naming the unset
+       profile fields.
+    3. Automatic: JTAG when all four JTAG pins are known and either no SWD pins are or the target
+       is JTAG only; otherwise SWD. With neither, :class:`ValueError`.
+    """
+    if jtag_given and not swd_given:
+        if not jtag:
+            raise ValueError("JTAG needs all of tck, tms, tdi and tdo: " + ", ".join(jtag_missing)
+                             + " is not set (pass it or set it in the wiring profile)")
+        return "jtag"
+    if swd_given and not jtag_given:
+        return "swd"
+    if debug_port is not None:
+        if debug_port not in ("swd", "jtag"):
+            raise ValueError(f"debug_port must be 'swd' or 'jtag', got {debug_port!r}")
+        have, missing = (jtag, jtag_missing) if debug_port == "jtag" else (swd, swd_missing)
+        if not have:
+            raise ValueError(f"debug_port is {debug_port} but " + ", ".join(missing)
+                             + " is not set (set it in the wiring profile or pass the pin)")
+        return debug_port
+    if 0 < len(jtag_missing) < 4:  # some JTAG pins wired, not all
+        raise ValueError("JTAG needs all of tck, tms, tdi and tdo: " + ", ".join(jtag_missing)
+                         + " is not set (pass it or set it in the wiring profile)")
     if not swd and not jtag:
         raise ValueError("flash needs SWD pins (swclk, swdio) or JTAG pins (tck, tms, tdi, tdo): "
                          "pass them or set them in the wiring profile")

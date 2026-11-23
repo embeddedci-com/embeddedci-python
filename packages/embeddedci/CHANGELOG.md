@@ -13,6 +13,12 @@ SWD flashing is unchanged.
   either no SWD pins are, or the target is JTAG only (`esp32`, `esp32s2`, `gd32vf103`, `fe310`,
   `k210`, names starting with `riscv`); otherwise SWD. A pod without the `jtag` feature raises
   `UnsupportedFeatureError` before anything is armed.
+- **`debug_port` in the wiring profile** (`"swd"`, `"jtag"` or `None`, the default: automatic) picks the
+  port for a board wired for both. `bp.flash()` decides in this order: pins passed in the call
+  win (JTAG pins only: JTAG; SWD pins only: SWD; both kinds or neither: go on), then the profile's
+  `debug_port` (an incomplete pin set raises, naming the unset profile fields, e.g. "debug_port is
+  jtag but jtag_tdo is not set"), then the automatic rule above. `flash` takes no new argument.
+  Passing only JTAG pins now means JTAG even when SWD is wired and the target is an ARM part.
 - `Transport.dap_start()` takes `tck`, `tms`, `tdi`, `tdo`, `trst` and `port`; `swclk` and `swdio`
   are optional when the JTAG pins are given.
 - The bundled feature table is revision 16.
