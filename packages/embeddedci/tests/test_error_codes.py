@@ -29,9 +29,13 @@ from embeddedci.benchpod.errors import (
     ReplyTooLargeError,
     TriggerTimeout,
     UnsupportedFeatureError,
+    UsbCheckNoPowerError,
+    UsbCheckRefusedError,
     UsbFlashRefusedError,
     UsbHostPortError,
     UsbHostUnavailableError,
+    UsbSerialBusyError,
+    UsbSerialUnavailableError,
     WiringError,
     XipUnavailableError,
     classify_firmware_error,
@@ -99,6 +103,10 @@ CODED: Dict[str, Any] = {
     "BP0082": (FirmwareError, {}),
     "BP0083": (XipUnavailableError, {"why": "v_why"}),
     "BP0084": (UsbFlashRefusedError, {"why": "v_why"}),
+    "BP0085": (UsbSerialUnavailableError, {"why": "v_why"}),
+    "BP0086": (UsbSerialBusyError, {"why": "v_why"}),
+    "BP0087": (UsbCheckRefusedError, {"why": "v_why"}),
+    "BP0088": (UsbCheckNoPowerError, {}),
 }
 
 

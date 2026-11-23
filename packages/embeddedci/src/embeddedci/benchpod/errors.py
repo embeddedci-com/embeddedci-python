@@ -410,6 +410,39 @@ class UsbFlashRefusedError(FirmwareError):
         self.why = why
 
 
+class UsbSerialUnavailableError(FirmwareError):
+    """The pod has no USB serial port to open (``BP0085``): :attr:`why` says which part is
+    missing (host mode off, no board attached, a board without a serial port). Start host mode
+    (``usb_host()``), wait for the board and open the UART with ``port="usb"`` again."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbSerialBusyError(PodBusyError):
+    """The board's USB port is in use (``BP0086``): a ``usb_flash`` or ``usb_check`` runs, and the
+    open USB serial port refuses both. :attr:`why` says which. Wait for it, or close the UART."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbCheckRefusedError(FirmwareError):
+    """The pod cannot run the USB check (``BP0087``): :attr:`why` says why (bad argument, host mode
+    off, no board enumerated, a USB flash, another check or a power profile running)."""
+
+    def __init__(self, message: str, *, cmd: Optional[str] = None, why: str = "") -> None:
+        super().__init__(message, cmd=cmd)
+        self.why = why
+
+
+class UsbCheckNoPowerError(FirmwareError):
+    """The board is not powered from target-power eFuse 1 (``BP0088``), which every USB check but
+    ``reset`` needs: wire the board's VBUS to eFuse 1 and switch it on (``power_on``)."""
+
+
 class XipUnavailableError(FirmwareError):
     """The pod cannot run code from its W25Q (``BP0083``): :attr:`why`. The USB flash protocols
     run from there, so install the blobs that go with the firmware (``benchpod install-blobs``)."""
@@ -634,6 +667,13 @@ _BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
                lambda v, cmd: {"why": _str(v.get("why"))}),
     "BP0084": (UsbFlashRefusedError,                             # usb_flash_refused {why}
                lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0085": (UsbSerialUnavailableError,                        # usb_serial_no_port {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0086": (UsbSerialBusyError,                               # usb_serial_busy {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0087": (UsbCheckRefusedError,                             # usb_check_refused {why}
+               lambda v, cmd: {"why": _str(v.get("why"))}),
+    "BP0088": (UsbCheckNoPowerError, _NO_FIELDS),                # usb_check_no_efuse_power
 }
 
 

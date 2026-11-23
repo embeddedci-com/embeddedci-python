@@ -97,10 +97,16 @@ from .decode import SpiFrame, UartFrame
 from .usb_decode import UsbDecode
 from . import usb_host
 from .usb_host import (
+    UsbCheckState,
     UsbConfig,
     UsbDevice,
     UsbFlashResult,
     UsbFlashState,
+    UsbHidCapture,
+    UsbHidInterface,
+    UsbHidReport,
+    UsbHidReports,
+    UsbHidState,
     UsbHostState,
     UsbInterface,
 )
@@ -139,7 +145,11 @@ from .errors import (
     UsbFlashRefusedError,
     UsbHostError,
     UsbHostPortError,
+    UsbCheckNoPowerError,
+    UsbCheckRefusedError,
     UsbHostUnavailableError,
+    UsbSerialBusyError,
+    UsbSerialUnavailableError,
     UsbTimeout,
     WiringError,
     XipUnavailableError,
@@ -405,6 +415,10 @@ __all__ = [
     "UsbHostPortError",
     "UsbFlashRefusedError",
     "UsbFlashError",
+    "UsbSerialUnavailableError",
+    "UsbSerialBusyError",
+    "UsbCheckRefusedError",
+    "UsbCheckNoPowerError",
     "XipUnavailableError",
     # USB host mode + USB flashing
     "usb_host",
@@ -414,6 +428,12 @@ __all__ = [
     "UsbInterface",
     "UsbFlashState",
     "UsbFlashResult",
+    "UsbCheckState",
+    "UsbHidState",
+    "UsbHidInterface",
+    "UsbHidReport",
+    "UsbHidReports",
+    "UsbHidCapture",
     # device lease
     "DeviceLease",
     # CI build reporting

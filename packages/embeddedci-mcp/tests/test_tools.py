@@ -23,7 +23,7 @@ EXPECTED_TOOLS = {
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "expansion",
-    "flash", "usb_host", "usb_flash", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
+    "flash", "usb_host", "usb_flash", "usb_check", "usb_hid", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "i2c_open", "i2c_transfer", "i2c_scan", "i2c_close", "la_dir",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "sensor_library", "sensor_show", "sensor_format", "sensor_validate", "sensor_start",
@@ -489,8 +489,187 @@ def test_usb_flash_failure_is_a_normal_result(connected, monkeypatch):
     assert res["result"] == "the image does not fit" and "failed in phase layout" in res["note"]
 
 
+needs_usb_features = pytest.mark.skipif(not hasattr(BenchPod, "usb_check"),
+                                        reason="needs embeddedci with the 4.0.3 USB checks")
+
+
+@needs_usb_features
+def test_usb_flash_picoboot_verify_and_note(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import UsbDevice, UsbFlashResult
+    pod = SESSION.require()
+    seen = {}
+
+    def fake(file, **kw):
+        seen.update(file=file, **kw)
+        return UsbFlashResult(ok=True, mode="file", reason="drive", length=64, address=None,
+                              name="APP.BIN", protocol="", ms=900, device=UsbDevice.from_reply(_USB_DEVICE),
+                              note="verified 4 blocks")
+
+    monkeypatch.setattr(pod, "usb_flash", fake)
+    res = call("usb_flash", file="app.bin", mode="picoboot", verify=True)
+    assert seen["mode"] == "picoboot" and seen["verify"] is True
+    assert res["ok"] and res["note"] == "verified 4 blocks"
+    seen.clear()
+    call("usb_flash", file="app.bin")
+    assert "verify" not in seen      # not sent unless asked for
+
+
+@needs_usb_features
+def test_usb_check_runs_and_reports(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import UsbCheckState
+    pod = SESSION.require()
+    seen = {}
+
+    def fake(test, **kw):
+        seen.update(test=test, **kw)
+        return UsbCheckState.from_reply({
+            "running": False, "have_result": True, "test": test, "phase": "done", "done": 10,
+            "total": 10, "ms": 5200, "pass": True, "error": "",
+            "result": {"vid": 0x2E8A, "pid": 3, "mount_ms": {"min": 80, "avg": 90, "max": 100}}})
+
+    monkeypatch.setattr(pod, "usb_check", fake)
+    res = call("usb_check", test="enumerate", count=10, off_ms=300)
+    assert seen == {"test": "enumerate", "count": 10, "off_ms": 300, "timeout_ms": None,
+                    "duration_ms": None, "settle_ms": None, "port": None, "timeout": None}
+    assert res["passed"] is True and res["ran"] is True and res["error"] == "" and res["ms"] == 5200
+    assert res["result"]["mount_ms"]["avg"] == 90 and res["result"]["vid"] == 0x2E8A
+    call("usb_check", test="replug", off_ms=[5, 20])
+    assert seen["off_ms"] == [5, 20]
+
+
+@needs_usb_features
+def test_usb_check_that_stopped_early_is_a_result(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import UsbCheckState
+    pod = SESSION.require()
+    monkeypatch.setattr(pod, "usb_check", lambda test, **kw: UsbCheckState.from_reply({
+        "have_result": True, "test": test, "pass": False, "error": "not_powered_by_efuse1", "result": {}}))
+    res = call("usb_check", test="enumerate")
+    assert res["passed"] is False and res["ran"] is False and res["error"] == "not_powered_by_efuse1"
+
+
+@needs_usb_features
+def test_usb_check_refusal_is_a_tool_error(connected, monkeypatch):
+    from embeddedci.benchpod.errors import firmware_error
+    pod = SESSION.require()
+
+    def refuse(test, **kw):
+        raise firmware_error("", cmd="usb_check", code="BP0088", values={})
+
+    monkeypatch.setattr(pod, "usb_check", refuse)
+    with pytest.raises(ToolError, match="BP0088"):
+        call("usb_check", test="power")
+
+
+@needs_usb_features
+def test_usb_check_rejects_bad_arguments(connected):
+    with pytest.raises(ToolError):
+        call("usb_check", test="speed")
+    with pytest.raises(ToolError):
+        call("usb_check", test="reset", count=0)
+
+
+@needs_usb_features
+def test_usb_hid_actions(connected, monkeypatch):
+    from embeddedci.benchpod.usb_host import (UsbHidCapture, UsbHidReports, UsbHidState)
+    pod = SESSION.require()
+    seen = []
+    monkeypatch.setattr(pod, "usb_hid_interfaces", lambda: UsbHidState.from_reply(
+        {"attached": True, "interfaces": [{"instance": 0, "interface": 1, "protocol": "keyboard",
+                                           "descriptor_len": 4, "descriptor": "05010906"}]}))
+    monkeypatch.setattr(pod, "usb_hid_capture", lambda enable=True: seen.append(("capture", enable))
+                        or UsbHidCapture.from_reply({"capturing": enable, "buffered": 0, "dropped": 0}))
+    monkeypatch.setattr(pod, "usb_hid_read", lambda count=1, timeout=2.0, instance=None: seen.append(
+        ("read", count, timeout, instance)) or UsbHidReports.from_reply({
+            "reports": [{"ms": 812, "instance": 0, "data": "0000040000000000"}], "dropped": 1,
+            "capturing": True}))
+    listing = call("usb_hid")
+    assert listing["action"] == "list" and listing["attached"] is True
+    assert listing["interfaces"][0]["descriptor_hex"] == "05010906" and listing["interfaces"][0]["protocol"] == "keyboard"
+    started = call("usb_hid", action="start")
+    assert started["capturing"] is True and started["buffered"] == 0
+    got = call("usb_hid", action="read", count=8, timeout_s=5, instance=1)
+    assert got["reports"] == [{"ms": 812, "instance": 0, "data_hex": "0000040000000000"}]
+    assert got["capturing"] is True and got["dropped"] == 1
+    assert call("usb_hid", action="stop")["capturing"] is False
+    assert seen == [("capture", True), ("read", 8, 5.0, 1), ("capture", False)]
+
+
+@needs_usb_features
+def test_usb_hid_rejects_bad_arguments(connected):
+    for kw in ({"action": "dump"}, {"action": "read", "count": 33}, {"action": "read", "timeout_s": 11},
+               {"action": "read", "instance": 2}):
+        with pytest.raises(ToolError):
+            call("usb_hid", **kw)
+
+
+def _usb_serial_pod(connected):
+    connected.features_rev = 15
+    SESSION.require().refresh_capabilities()
+
+
+@needs_usb_features
+def test_uart_open_on_the_usb_serial_port(connected):
+    _usb_serial_pod(connected)
+    res = call("uart_open", port="usb", baud=921600, dtr=False)
+    assert res["open"] is True and res["port"] == "usb" and res["baud"] == 921600
+    assert res["rx"] is None and res["tx"] is None and res["dtr"] is False and res["rts"] is True
+    assert connected.uart_usb == [{"rx": None, "tx": None, "baud": 921600, "port": "usb",
+                                   "parity": "none", "stop_bits": 1, "dtr": False, "rts": True}]
+    assert connected.uart_frames == []      # no pin UART was started
+    assert call("uart_read", until_regex="APP_OK", timeout=2)["matched"] is True
+    assert call("uart_write", text="help")["written"] == 5
+    assert call("status")["session"]["uart_open"] is True
+    assert call("uart_close")["open"] is False
+    # Defaults: 115200, both lines up; no wiring lookup.
+    call("uart_open", port="usb")
+    assert connected.uart_usb[-1]["baud"] == 115200 and connected.uart_usb[-1]["dtr"] is True
+
+
+@needs_usb_features
+def test_capture_uart_on_the_usb_serial_port(connected):
+    _usb_serial_pod(connected)
+    res = call("capture_uart", port="usb", duration_s=1.0, until_regex="APP_OK", rts=False)
+    assert res["matched"] is True and "boot" in res["text"]
+    assert connected.uart_usb[-1]["port"] == "usb" and connected.uart_usb[-1]["rts"] is False
+    assert connected.uart_usb[-1]["rx"] is None
+
+
+@needs_usb_features
+@pytest.mark.parametrize("kw", [{"rx": 5}, {"tx": 4}, {"half_duplex": True}, {"de": 9}])
+def test_usb_serial_port_refuses_pin_arguments(connected, kw):
+    _usb_serial_pod(connected)
+    with pytest.raises(ToolError):
+        call("uart_open", port="usb", **kw)
+    with pytest.raises(ToolError):
+        call("capture_uart", port="usb", duration_s=1.0, **kw)
+    assert connected.uart_usb == []
+
+
+@needs_usb_features
+def test_dtr_without_the_usb_port_is_refused(connected):
+    with pytest.raises(ToolError, match="port"):
+        call("uart_open", rx=5, tx=4, dtr=True)
+    with pytest.raises(ToolError, match="port"):
+        call("capture_uart", rx=5, tx=4, duration_s=1.0, rts=True)
+
+
+@needs_usb_features
+def test_usb_serial_port_on_a_pod_without_the_feature(connected):
+    with pytest.raises(ToolError, match="needs firmware 4.0.3"):
+        call("uart_open", port="usb")
+    assert connected.uart_usb == []
+
+
+def test_usb_serial_has_no_tool_of_its_own():
+    import anyio
+    from embeddedci_mcp.server import mcp as server
+    names = {t.name for t in anyio.run(server.list_tools)}
+    assert not {n for n in names if "usb_serial" in n} and {"usb_check", "usb_hid"} <= names
+
+
 def test_usb_tools_are_in_the_instructions():
     assert "usb_flash" in INSTRUCTIONS and "usb_host" in INSTRUCTIONS
+    assert "usb_check" in INSTRUCTIONS and "usb_hid" in INSTRUCTIONS and "port='usb'" in INSTRUCTIONS
 
 
 # -- UART ------------------------------------------------------------------------------

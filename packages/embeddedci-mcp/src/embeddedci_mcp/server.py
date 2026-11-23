@@ -1246,6 +1246,34 @@ def _uart_de(pod: Any, method: str, de: Any, de_active_low: bool) -> Dict[str, A
     return {"de": de, "de_active_low": True} if de_active_low else {"de": de}
 
 
+UartPort = Annotated[Optional[Literal["usb"]], Field(description=(
+    "usb: the serial port of the board the pod hosts over USB (usb_host; a CDC ACM port, or the "
+    "FTDI, CP210x or CH34x chip of a dev kit) instead of LA pins: the boot log over the cable the "
+    "board was flashed through. No LA channel, wiring profile or I/O voltage is used; rx, tx, "
+    "half_duplex, entry and de do not apply. Needs pod firmware 4.0.3+ and host mode on with the "
+    "board mounted. Omit for the UART on LA pins."))]
+UartDtr = Annotated[Optional[bool], Field(description=(
+    "port usb only: the DTR line (default true). Many boards reset or enter their loader on DTR "
+    "and RTS: set them to what the board expects."))]
+UartRts = Annotated[Optional[bool], Field(description="port usb only: the RTS line (default true).")]
+
+
+def _uart_usb(pod: Any, method: str, port: Optional[str], dtr: Optional[bool],
+              rts: Optional[bool]) -> Dict[str, Any]:
+    """The USB serial port keyword arguments for an SDK UART call: none when unused; refused when
+    the SDK predates them."""
+    if port is None and dtr is None and rts is None:
+        return {}
+    if "port" not in inspect.signature(getattr(type(pod), method)).parameters:
+        raise ValueError("the USB serial port needs a newer embeddedci SDK; upgrade embeddedci")
+    kw: Dict[str, Any] = {"port": port}
+    if dtr is not None:
+        kw["dtr"] = dtr
+    if rts is not None:
+        kw["rts"] = rts
+    return kw
+
+
 def _uart_line(pod: Any, method: str, half_duplex: bool, entry: Optional[UartEntryArg]) -> Dict[str, Any]:
     """The one-wire and boot-mode entry keyword arguments for an SDK UART call: none when unused,
     so an older SDK still works; refused when the SDK predates them."""
@@ -1274,6 +1302,9 @@ async def capture_uart(
     entry: UartEntryOpt = None,
     de: UartDe = None,
     de_active_low: UartDeActiveLow = False,
+    port: UartPort = None,
+    dtr: UartDtr = None,
+    rts: UartRts = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UartCaptureResult:
     """Record the DUT's UART output for a fixed window (or until until_regex matches).
@@ -1283,6 +1314,7 @@ async def capture_uart(
     half_duplex runs it on one wire, and entry runs a pod-timed boot-mode entry first (reset
     with TX low, release, first bytes).
     de: the pod switches an RS-485 transceiver's DE on that LA channel while it sends.
+    port usb captures the hosted board's USB serial port instead (baud default 115200, dtr, rts).
     """
     pattern = _compile(until_regex)
 
@@ -1291,7 +1323,8 @@ async def capture_uart(
         return _uart_result(pod.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration_s, until=pattern,
                                              **_uart_frame(pod, "capture_uart", parity, stop_bits),
                                              **_uart_line(pod, "capture_uart", half_duplex, entry),
-                                             **_uart_de(pod, "capture_uart", de, de_active_low)))
+                                             **_uart_de(pod, "capture_uart", de, de_active_low),
+                                             **_uart_usb(pod, "capture_uart", port, dtr, rts)))
 
     return await _call_reporting(ctx, "capturing UART", op)
 
@@ -1337,6 +1370,9 @@ async def uart_open(
     entry: UartEntryOpt = None,
     de: UartDe = None,
     de_active_low: UartDeActiveLow = False,
+    port: UartPort = None,
+    dtr: UartDtr = None,
+    rts: UartRts = None,
 ) -> m.UartSessionResult:
     """Start buffering the DUT's UART in the background (replacing any open session).
 
@@ -1349,9 +1385,25 @@ async def uart_open(
     entry runs a pod-timed boot-mode entry before it starts (reset with TX held low, release, the
     first bytes), for boot-ROM programming such as RL78 TOOL0. de puts an RS-485 transceiver's
     DE on an LA channel the pod switches itself while it sends.
+    port usb opens the serial port of the board the pod hosts over USB instead of LA pins (usb_host
+    first; baud default 115200, parity, stop_bits, dtr and rts apply; the result has no rx or tx).
     """
     def op() -> m.UartSessionResult:
         pod = SESSION.require()
+        if port is not None:
+            if rx is not None or tx is not None or half_duplex or entry is not None or de is not None:
+                raise ValueError("port usb is the board's USB serial port: rx, tx, half_duplex, entry "
+                                 "and de are for UARTs on LA pins")
+            rate_usb = 115200 if baud is None else int(baud)
+            kw = _uart_usb(pod, "open_uart", port, dtr, rts)
+            SESSION.close_uart()
+            SESSION.uart = pod.open_uart(baud=rate_usb, **_uart_frame(pod, "open_uart", parity, stop_bits), **kw)
+            SESSION.uart_port = None
+            return m.UartSessionResult(open=True, baud=rate_usb, parity=parity or "none",
+                                       stop_bits=stop_bits or 1, port="usb",
+                                       dtr=True if dtr is None else dtr, rts=True if rts is None else rts)
+        if dtr is not None or rts is not None:
+            raise ValueError("dtr and rts are the control lines of the USB serial port: pass port usb")
         rx_i = _channel(pod, rx, "uart_rx")
         tx_i = rx_i if half_duplex and tx is None else _channel(pod, tx, "uart_tx")
         rate = int(pod.wiring.uart_baud if baud is None else baud)
@@ -1795,29 +1847,41 @@ async def usb_flash(
         "For a board that shows a drive: the file name on it (8.3). Omit: the file's name."))] = None,
     leave: Annotated[bool, Field(description=(
         "false keeps a DFU, Teensy, AVR, SAMD or ESP board in its bootloader at the end."))] = True,
-    mode: Annotated[Optional[Literal["uf2", "file", "dfu", "teensy", "avr", "samd", "esp"]], Field(description=(
+    mode: Annotated[Optional[Literal["uf2", "file", "dfu", "teensy", "avr", "samd", "esp", "picoboot"]], Field(description=(
         "Override the loader. Omit: the server picks it from the file and the board (see reason in "
         "the result)."))] = None,
     port: Annotated[Optional[Literal["usb_a", "usb_c"]], Field(description=(
         "Host port when host mode is off and has to be started; omit for the board's own."))] = None,
     timeout_s: Annotated[Optional[float], Field(gt=0, le=3600, description=(
         "Abort the flash after this long. Omit: a minute plus the file size at 2.5 KB/s."))] = None,
+    verify: Annotated[bool, Field(description=(
+        "Read the drive back after a drive flash: the loader's FAIL.TXT is reported as the failure "
+        "(a DAPLink board says why it refused the file), and a UF2 file is compared with the "
+        "loader's CURRENT.UF2 while the board stays in it. The result's note says what was found. "
+        "A Pico flashed through picoboot always reads every page back."))] = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.UsbFlashToolResult:
     """Flash the board on the pod's USB host port, the way a computer would. Needs pod firmware
     4.0.3 or later and a LAN or cloud connection. There is nothing to choose: the loader comes
     from the file and the board that mounted (a UF2 or drag-and-drop drive, DFU or STM32 ROM
-    loader, Teensy, Arduino AVR or SAMD, ESP32), and `reason` says why. .hex and .dfu files are
-    converted to a binary with their address. Starts host mode when it is off; the board must be
-    in its bootloader where it needs a button (Pico BOOTSEL, STM32 BOOT0, Teensy). A failed flash is
+    loader, Teensy, Arduino AVR or SAMD, ESP32, a Pico in BOOTSEL: a .uf2 goes to its drive, a
+    .bin or .hex through PICOBOOT with every page read back), and `reason` says why. .hex and .dfu
+    files are converted to a binary with their address. Starts host mode when it is off; the board
+    must be in its bootloader where it needs a button (Pico BOOTSEL, STM32 BOOT0, Teensy). A drive
+    flash sets the file's date from this computer's clock. A failed flash is
     a normal result (ok=false): read result, phase and note. While it runs the pod refuses
     captures, DAC playback and uploads."""
     def op() -> m.UsbFlashToolResult:
         pod = SESSION.require()
         _need_usb_sdk(pod)
         try:
+            extra: Dict[str, Any] = {}
+            if verify:
+                if "verify" not in inspect.signature(type(pod).usb_flash).parameters:
+                    raise ValueError("verify needs a newer embeddedci SDK; upgrade embeddedci")
+                extra["verify"] = True
             r = pod.usb_flash(file, address=address, name=name, leave=leave, mode=mode, port=port,
-                              timeout=timeout_s)
+                              timeout=timeout_s, **extra)
         except _UsbFlashError as exc:
             st = exc.state
             return m.UsbFlashToolResult(
@@ -1825,10 +1889,98 @@ async def usb_flash(
                 length=st.length if st else 0, protocol=st.protocol if st else "")
         return m.UsbFlashToolResult(
             ok=True, mode=r.mode, reason=r.reason, length=r.length, address=r.address, name=r.name,
-            protocol=r.protocol, ms=r.ms, result="ok",
+            protocol=r.protocol, ms=r.ms, result="ok", note=getattr(r, "note", ""),
             device=_usb_device(r.device) if r.device is not None else None)
 
     return await _call_reporting(ctx, "flashing over USB", op)
+
+
+@mcp.tool(annotations=_ann("Check the board's USB firmware", destructive=True))
+async def usb_check(
+    test: Annotated[Literal["enumerate", "power", "suspend", "reset", "replug"], Field(description=(
+        "enumerate: power-cycles the board through the internal 5 V (efuse 1) rail and times power-on to pull-up, descriptor "
+        "and mounted. power: the board's current (internal 5 V, efuse 1) against the configuration's bMaxPower. suspend: the "
+        "suspended current against the 2.5 mA a bus-powered device may draw, resume, and the board "
+        "still answers. reset: port resets and the time to enumerate again. replug: VBUS dropouts "
+        "of off_ms: does the board come back."))],
+    count: Annotated[Optional[int], Field(ge=1, le=200, description=(
+        "enumerate (default 10) and reset (default 20): cycles. replug (default 10, up to 100): "
+        "cycles per dropout length."))] = None,
+    off_ms: Annotated[Union[int, List[int], None], Field(description=(
+        "enumerate: how long the rail stays off, 50 to 10000 (default 500). replug: a dropout length "
+        "or a list of up to 6, 1 to 5000 ms (default [5, 20, 100, 500])."))] = None,
+    timeout_ms: Annotated[Optional[int], Field(ge=500, le=30000, description=(
+        "enumerate, reset, replug: how long to wait for the board after each cycle (default 5000)."))] = None,
+    duration_ms: Annotated[Optional[int], Field(ge=200, le=60000, description=(
+        "power (default 3000) and suspend (default 1000): the measuring time."))] = None,
+    settle_ms: Annotated[Optional[int], Field(ge=20, le=5000, description=(
+        "suspend: the wait after the bus is suspended before measuring (default 200)."))] = None,
+    port: Annotated[Optional[Literal["usb_a", "usb_c"]], Field(description=(
+        "Host port when host mode is off and has to be started; omit for the board's own."))] = None,
+    timeout_s: Annotated[Optional[float], Field(gt=0, le=3600, description=(
+        "Abort the check after this long. Omit: its worst case plus a margin."))] = None,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.UsbCheckToolResult:
+    """Check the USB firmware of the board on the pod's host port, with numbers a computer cannot
+    get. Needs pod firmware 4.0.3 or later, a LAN or cloud connection, and the board's USB power
+    (VBUS) wired to the internal 5 V (efuse 1) target power and switched on (power_on; every test
+    but reset). Starts host mode when it is off. The check runs in the background of the
+    pod and this call returns when it ends: passed is the verdict, result the numbers. A board that
+    fails is a normal result (passed false). While it runs, usb_flash and the USB serial port are
+    refused. A refusal says why (host mode off, no board, the rail off or not powering the board)."""
+    def op() -> m.UsbCheckToolResult:
+        pod = SESSION.require()
+        if not hasattr(type(pod), "usb_check"):
+            raise ValueError("USB checks need a newer embeddedci SDK; upgrade embeddedci")
+        st = pod.usb_check(test, count=count, off_ms=off_ms, timeout_ms=timeout_ms,
+                           duration_ms=duration_ms, settle_ms=settle_ms, port=port, timeout=timeout_s)
+        return m.UsbCheckToolResult(
+            test=st.test or test, ran=st.error == "", passed=st.passed, error=st.error, phase=st.phase,
+            done=st.done, total=st.total, ms=st.ms, result=st.result)
+
+    return await _call_reporting(ctx, "checking the board's USB firmware", op)
+
+
+@mcp.tool(annotations=_ann("USB HID interfaces and input reports"))
+async def usb_hid(
+    action: Annotated[Literal["list", "start", "stop", "read"], Field(description=(
+        "list: the HID interfaces of the board (the first two) with their report descriptors. "
+        "start: begin catching input reports (keyboard keys, mouse, gamepad, custom HID) into a "
+        "ring of 64 on the pod. read: take reports from the ring. stop: end the capture and free "
+        "the ring."))] = "list",
+    count: Annotated[int, Field(ge=1, le=32, description="read: at most this many reports.")] = 1,
+    timeout_s: Annotated[float, Field(gt=0, le=10, description=(
+        "read: when the ring holds no report, wait up to this long for one. The result holds what "
+        "is there, possibly none."))] = 2.0,
+    instance: Annotated[Optional[Literal[0, 1]], Field(description=(
+        "read: only the reports of this HID interface (the others stay in the ring)."))] = None,
+) -> m.UsbHidResult:
+    """Read the HID interfaces of the board on the pod's USB host port and its input reports (a
+    keyboard's keys, a mouse, a gamepad). Needs pod firmware 4.0.3 or later and usb_host on with
+    the board mounted. Typical: usb_hid(list), usb_hid(start), press a key or drive the device,
+    usb_hid(read, count, timeout_s), usb_hid(stop). A read without a start starts the capture and
+    leaves it running. The capture ends by itself when the board detaches or host mode ends
+    (capturing false in a read). While it runs, usb_flash and usb_check are refused. Reports are
+    hex: with several report IDs the first byte is the ID."""
+    def op() -> m.UsbHidResult:
+        pod = SESSION.require()
+        if not hasattr(type(pod), "usb_hid_read"):
+            raise ValueError("USB HID needs a newer embeddedci SDK; upgrade embeddedci")
+        if action == "list":
+            st = pod.usb_hid_interfaces()
+            return m.UsbHidResult(action=action, attached=st.attached, interfaces=[
+                m.UsbHidInterfaceInfo(instance=i.instance, interface=i.interface, protocol=i.protocol,
+                                      descriptor_len=i.descriptor_len, descriptor_hex=i.descriptor.hex(),
+                                      truncated=i.truncated) for i in st.interfaces])
+        if action in ("start", "stop"):
+            cap = pod.usb_hid_capture(action == "start")
+            return m.UsbHidResult(action=action, capturing=cap.capturing, buffered=cap.buffered,
+                                  dropped=cap.dropped)
+        got = pod.usb_hid_read(count=count, timeout=timeout_s, instance=instance)
+        return m.UsbHidResult(action=action, capturing=got.capturing, dropped=got.dropped, reports=[
+            m.UsbHidReportInfo(ms=r.ms, instance=r.instance, data_hex=r.data.hex()) for r in got.reports])
+
+    return await _call(op)
 
 
 @mcp.tool(annotations=_ann("Console log level", idempotent=True))

@@ -3,7 +3,11 @@
 The pod's USB port becomes a full-speed USB host for the board under test, reports what
 enumerates, and can flash the board the way a computer would: a UF2 drive, a drag-and-drop drive
 (DAPLink), DFU and STM32 DfuSe, the Teensy loader, the Arduino AVR and SAMD bootloaders and an
-ESP32 ROM loader. Firmware 4.0.3 and later (features ``usb_host_mode`` and ``usb_flash``).
+ESP32 ROM loader and the PICOBOOT interface of an RP2040 or RP2350. Firmware 4.0.3 and later
+(features ``usb_host_mode`` and ``usb_flash``). The same host port also carries the board's HID
+interfaces (:meth:`~embeddedci.benchpod.BenchPod.usb_hid_interfaces`, feature ``usb_hid``), the
+checks of the board's own USB firmware (:meth:`~embeddedci.benchpod.BenchPod.usb_check`, feature
+``usb_check``) and its serial port (``open_uart(port="usb")``, feature ``uart_usb``).
 
 Use it through :meth:`BenchPod.usb_host <embeddedci.benchpod.BenchPod.usb_host>`,
 :meth:`~embeddedci.benchpod.BenchPod.usb_host_status`,
@@ -29,7 +33,7 @@ from .errors import UsbFlashError, UsbHostError, UsbTimeout
 from .state import _d, _opt_int, _raw
 
 #: Progress callback of a flash: units done and total (sectors for ``uf2`` and ``file``, blocks
-#: for ``dfu``, ``teensy`` and ``esp``, bytes for ``avr`` and ``samd``).
+#: for ``dfu``, ``teensy`` and ``esp``, bytes for ``avr`` and ``samd``, steps for ``picoboot``).
 Progress = Callable[[int, int], None]
 
 POLL_INTERVAL = 0.25
@@ -473,8 +477,8 @@ class UsbMode:
     unit: str
 
 
-#: The loaders firmware 4.0.3 has. A loader added later (``picoboot``) is one more entry here and
-#: one more rule in :func:`choose_mode`.
+#: The loaders firmware 4.0.3 has. A loader added later is one more entry here and one more rule
+#: in :func:`choose_mode`.
 MODES: Dict[str, UsbMode] = {m.name: m for m in (
     UsbMode("uf2", binary=False, leave=False, unit="sectors"),
     UsbMode("file", binary=False, leave=False, unit="sectors"),
@@ -483,7 +487,10 @@ MODES: Dict[str, UsbMode] = {m.name: m for m in (
     UsbMode("avr", binary=True, leave=True, unit="bytes"),
     UsbMode("samd", binary=True, leave=True, unit="bytes"),
     UsbMode("esp", binary=True, leave=True, unit="blocks"),
+    UsbMode("picoboot", binary=True, leave=True, unit="steps"),
 )}
+#: The loader a feature gates (the others are in ``usb_flash`` itself).
+MODE_FEATURES: Dict[str, str] = {"picoboot": "usb_flash_picoboot"}
 
 VID_TEENSY, PID_TEENSY = 0x16C0, 0x0478
 VID_ST = 0x0483
@@ -491,6 +498,10 @@ VID_ST = 0x0483
 DFUSE_VIDS = {0x0483, 0x28E9, 0x2E3C}
 STM32_FLASH = 0x08000000
 VID_ESPRESSIF = 0x303A
+#: A Raspberry Pi RP2040 (0003) or RP2350 (000F) in BOOTSEL: a UF2 drive plus the PICOBOOT interface.
+VID_RPI = 0x2E8A
+PICOBOOT_PIDS = {0x0003, 0x000F}
+PICO_FLASH = 0x10000000
 VID_ARDUINO, VID_ARDUINO_ORG, VID_SPARKFUN, VID_ADAFRUIT, VID_SEEED = 0x2341, 0x2A03, 0x1B4F, 0x239A, 0x2886
 #: USB-serial chips: CP210x, CH34x, FTDI. An ESP32 dev kit or an Arduino clone sits behind one.
 SERIAL_CHIPS = {0x10C4: "CP210x", 0x1A86: "CH34x", 0x0403: "FTDI"}
@@ -537,6 +548,7 @@ def choose_mode(image: UsbImage, device: UsbDevice, *, address: Optional[int] = 
     """Pick the ``usb_flash`` loader for ``image`` on ``device``, and the address for it.
 
     Rules, first match wins: a Teensy loader (16C0:0478) is ``teensy``; a DFU interface is ``dfu``;
+    a Pico in BOOTSEL (2E8A:0003 or 000F) is ``uf2`` for a UF2 file, else ``picoboot``;
     a mass-storage drive is ``uf2`` for a UF2 file, ``esp`` for an ESP image on an Espressif
     device, else ``file``; an Espressif device, or a USB-serial chip with an ESP image (starts with
     0xE9), is ``esp``; an Arduino AVR board or a USB-serial chip is ``avr``; a SAMD board is
@@ -570,6 +582,8 @@ def _rule(image: UsbImage, dev: UsbDevice) -> Tuple[str, str]:
         return "teensy", f"{name} is the Teensy loader"
     if dev.has_interface(CLASS_DFU, 1):
         return "dfu", f"{name} has a DFU interface"
+    if vid == VID_RPI and pid in PICOBOOT_PIDS and not image.is_uf2:
+        return "picoboot", f"{name} is a Pico in BOOTSEL and the file is not UF2: written through PICOBOOT"
     if dev.has_interface(CLASS_MSC):
         if image.is_uf2:
             return "uf2", f"{name} shows a drive and the file is UF2"
@@ -621,6 +635,8 @@ def _address(mode: str, dev: UsbDevice, file_address: Optional[int],
         return start, f"address 0x{start:x} (where a sketch starts on this SAMD board; pass address= to change)"
     if mode in ("avr", "esp"):
         return 0, "address 0"
+    if mode == "picoboot":
+        return PICO_FLASH, f"address 0x{PICO_FLASH:x} (the start of the Pico's flash)"
     return None, ""
 
 
@@ -653,6 +669,9 @@ class UsbFlashState:
     result: str
     ok: bool
     ms: int
+    #: What the read-back found: ``FAIL.TXT``'s first line, ``verified N blocks``, ``verify
+    #: skipped: ...``; empty when there is nothing to say.
+    note: str = ""
     raw: Dict[str, Any] = _raw()
 
     @classmethod
@@ -664,7 +683,7 @@ class UsbFlashState:
                    protocol=str(d.get("protocol") or ""), phase=str(d.get("phase") or ""),
                    done=_opt_int(d, "done") or 0, total=_opt_int(d, "total") or 0,
                    result=str(d.get("result") or ""), ok=d.get("ok") is True,
-                   ms=_opt_int(d, "ms") or 0, raw=d)
+                   ms=_opt_int(d, "ms") or 0, note=str(d.get("note") or ""), raw=d)
 
     @property
     def unit(self) -> str:
@@ -692,10 +711,14 @@ class UsbFlashResult:
     ms: int
     device: Optional[UsbDevice] = None
     state: Optional[UsbFlashState] = None
+    #: What the read-back found (``verified N blocks``, ``verify skipped: ...``); empty without one.
+    note: str = ""
 
     def __str__(self) -> str:
         proto = f" ({self.protocol})" if self.protocol else ""
-        return f"flashed {self.length} bytes with the {self.mode} loader{proto} in {self.ms / 1000:.1f} s: {self.reason}"
+        note = f" [{self.note}]" if self.note else ""
+        return (f"flashed {self.length} bytes with the {self.mode} loader{proto} in "
+                f"{self.ms / 1000:.1f} s: {self.reason}{note}")
 
 
 def flash_timeout(length: int) -> float:
@@ -749,9 +772,242 @@ def run_flash(
         return st
     where = f" in phase {st.phase}" if st.phase else ""
     proto = f" ({st.protocol})" if st.protocol else ""
-    raise UsbFlashError(f"the {mode} flash{proto} failed{where}: {st.result or 'no result'}",
+    note = f" ({st.note})" if st.note else ""
+    raise UsbFlashError(f"the {mode} flash{proto} failed{where}: {st.result or 'no result'}{note}",
                         result=st.result, phase=st.phase, mode=mode, state=st)
 
 
-__all__: List[str] = ["UsbConfig", "UsbDevice", "UsbFlashResult", "UsbFlashState", "UsbHostState",
-                      "UsbInterface"]
+# -- HID interfaces and input reports (usb_hid) -------------------------------------------------
+
+#: The most reports one ``usb_hid`` read returns, and how long it may wait (the pod's limits).
+HID_MAX_COUNT = 32
+HID_MAX_TIMEOUT_S = 10.0
+
+
+@dataclass(frozen=True)
+class UsbHidInterface:
+    """One HID interface of the board on the host port (:meth:`BenchPod.usb_hid_interfaces
+    <embeddedci.benchpod.BenchPod.usb_hid_interfaces>`)."""
+
+    #: The number to pass back (``instance=``): 0 or 1, the first two HID interfaces.
+    instance: int
+    #: The USB interface number.
+    interface: int
+    #: ``"keyboard"``, ``"mouse"`` or ``"none"``.
+    protocol: str
+    #: Bytes the report descriptor has (0 when the pod could not read it).
+    descriptor_len: int
+    #: The whole report descriptor (the SDK reads a long one in pages).
+    descriptor: bytes
+    #: The descriptor is still cut (only when a page could not be read).
+    truncated: bool = False
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, d: Mapping[str, Any]) -> "UsbHidInterface":
+        return cls(instance=_opt_int(d, "instance") or 0, interface=_opt_int(d, "interface") or 0,
+                   protocol=str(d.get("protocol") or "none"), descriptor_len=_opt_int(d, "descriptor_len") or 0,
+                   descriptor=_hex_bytes(d.get("descriptor")), truncated=d.get("truncated") is True,
+                   raw=dict(d))
+
+
+def _hex_bytes(value: Any) -> bytes:
+    try:
+        return bytes.fromhex(str(value or ""))
+    except ValueError:
+        return b""
+
+
+@dataclass(frozen=True)
+class UsbHidReport:
+    """One input report: when it arrived, from which interface, and its bytes (with several report
+    IDs the first byte is the ID)."""
+
+    #: Milliseconds since the capture started.
+    ms: int
+    instance: int
+    data: bytes
+
+    @classmethod
+    def from_reply(cls, d: Mapping[str, Any]) -> "UsbHidReport":
+        return cls(ms=_opt_int(d, "ms") or 0, instance=_opt_int(d, "instance") or 0,
+                   data=_hex_bytes(d.get("data")))
+
+
+@dataclass(frozen=True)
+class UsbHidState:
+    """The board's HID interfaces (:meth:`BenchPod.usb_hid_interfaces
+    <embeddedci.benchpod.BenchPod.usb_hid_interfaces>`)."""
+
+    attached: bool
+    interfaces: Tuple[UsbHidInterface, ...] = ()
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "UsbHidState":
+        d = _d(reply)
+        items = d.get("interfaces")
+        return cls(attached=d.get("attached") is True,
+                   interfaces=tuple(UsbHidInterface.from_reply(i) for i in items
+                                    if isinstance(i, Mapping)) if isinstance(items, list) else (),
+                   raw=d)
+
+
+@dataclass(frozen=True)
+class UsbHidCapture:
+    """The state of the input report capture (:meth:`BenchPod.usb_hid_capture
+    <embeddedci.benchpod.BenchPod.usb_hid_capture>`)."""
+
+    capturing: bool
+    #: Reports waiting in the pod's ring of 64.
+    buffered: int
+    #: Reports that arrived while the ring was full, since the capture started.
+    dropped: int
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "UsbHidCapture":
+        d = _d(reply)
+        return cls(capturing=d.get("capturing") is True, buffered=_opt_int(d, "buffered") or 0,
+                   dropped=_opt_int(d, "dropped") or 0)
+
+
+@dataclass(frozen=True)
+class UsbHidReports:
+    """What :meth:`BenchPod.usb_hid_read <embeddedci.benchpod.BenchPod.usb_hid_read>` returned."""
+
+    reports: Tuple[UsbHidReport, ...]
+    #: Reports lost to a full ring since the capture started.
+    dropped: int
+    #: ``False`` when the capture had ended (the board detached or host mode ended).
+    capturing: bool
+
+    def __len__(self) -> int:
+        return len(self.reports)
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "UsbHidReports":
+        d = _d(reply)
+        items = d.get("reports")
+        return cls(reports=tuple(UsbHidReport.from_reply(i) for i in items
+                                 if isinstance(i, Mapping)) if isinstance(items, list) else (),
+                   dropped=_opt_int(d, "dropped") or 0, capturing=d.get("capturing") is True)
+
+
+# -- checks of the board's USB firmware (usb_check) ---------------------------------------------
+
+#: The checks of ``usb_check`` and what each measures.
+CHECKS: Dict[str, str] = {
+    "enumerate": "power-on to pull-up, descriptor and mounted over count power cycles",
+    "power": "eFuse 1's current against the configuration's bMaxPower",
+    "suspend": "the suspended current against 2.5 mA, resume, and the board still answers",
+    "reset": "count port resets and the time to enumerate again",
+    "replug": "VBUS dropouts of several lengths: does the board come back",
+}
+CHECK_POLL_INTERVAL = 0.5
+
+
+@dataclass(frozen=True)
+class UsbCheckState:
+    """The pod's ``usb_check`` state: the running check, or the last one's outcome."""
+
+    running: bool
+    have_result: bool
+    test: str
+    #: The step (``power_off``, ``power_on``, ``gap``, ``reset``, ``sample``, ``suspend``,
+    #: ``settle``, ``measure``, ``resume``, ``check``, ``recover``, ``done``).
+    phase: str
+    #: Cycles done and in all (milliseconds for ``power`` and ``suspend``).
+    done: int
+    total: int
+    ms: int
+    #: The verdict once it ended; ``None`` while it runs or before the first check.
+    passed: Optional[bool]
+    #: Why the check stopped early (``aborted``, ``host_stopped``, ``not_powered_by_efuse1``,
+    #: ``no_device``, ``monitor_error``, ``efuse_error``, ``bus_busy``, ``bus_timeout``); empty when it
+    #: ran to its end.
+    error: str
+    #: The numbers of the test, as the pod reports them (docs/API.md, ``usb_check``), with the
+    #: board's ``vid`` and ``pid``. Currents are in uA, times in ms.
+    result: Dict[str, Any]
+    raw: Dict[str, Any] = _raw()
+
+    @classmethod
+    def from_reply(cls, reply: Any) -> "UsbCheckState":
+        d = _d(reply)
+        res = d.get("result")
+        return cls(running=d.get("running") is True, have_result=d.get("have_result") is True,
+                   test=str(d.get("test") or ""), phase=str(d.get("phase") or ""),
+                   done=_opt_int(d, "done") or 0, total=_opt_int(d, "total") or 0,
+                   ms=_opt_int(d, "ms") or 0,
+                   passed=d["pass"] if isinstance(d.get("pass"), bool) else None,
+                   error=str(d.get("error") or ""), result=dict(res) if isinstance(res, Mapping) else {},
+                   raw=d)
+
+    @property
+    def ended(self) -> bool:
+        return not self.running and self.have_result
+
+
+def check_timeout(test: str, args: Mapping[str, Any]) -> float:
+    """How long a check may take before the SDK aborts it: its own worst case (every cycle at its
+    timeout) plus slack for the recovery at the end."""
+    def num(key: str, default: float) -> float:
+        v = args.get(key)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
+    count, wait = num("count", 20.0 if test == "reset" else 10.0), num("timeout_ms", 5000.0)
+    if test == "enumerate":
+        ms = count * (num("off_ms", 500.0) + wait)
+    elif test == "power":
+        ms = num("duration_ms", 3000.0)
+    elif test == "suspend":
+        ms = num("settle_ms", 200.0) + num("duration_ms", 1000.0) + 20000.0
+    elif test == "reset":
+        ms = count * wait
+    else:
+        off = args.get("off_ms")
+        lengths = [float(x) for x in off] if isinstance(off, (list, tuple)) and off else \
+            [float(off)] if isinstance(off, (int, float)) and not isinstance(off, bool) else [5.0, 20.0, 100.0, 500.0]
+        ms = count * (sum(lengths) + wait * len(lengths))
+    return 20.0 + ms / 1000.0
+
+
+def run_check(
+    command: Callable[[Dict[str, Any]], Any],
+    request: Mapping[str, Any],
+    *,
+    timeout: float,
+    progress: Optional[Progress] = None,
+    poll_interval: float = CHECK_POLL_INTERVAL,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> UsbCheckState:
+    """Start ``request`` (a ``usb_check`` command) and poll until the check ends; returns its final
+    state (whatever the verdict). Aborts the check on a timeout (:class:`UsbHostError`) or an
+    interrupt."""
+    command(dict(request))
+    test = str(request.get("test") or "")
+    deadline = clock() + timeout
+    try:
+        while True:
+            sleep(poll_interval)
+            st = UsbCheckState.from_reply(command({"cmd": "usb_check"}))
+            if progress and st.total:
+                progress(min(st.done, st.total), st.total)
+            if st.ended:
+                return st
+            if clock() > deadline:
+                command({"cmd": "usb_check", "abort": True})
+                raise UsbHostError(f"the {test} check did not finish within {timeout:g} s (stopped in "
+                                   f"phase {st.phase or '?'}) and was aborted")
+    except KeyboardInterrupt:
+        try:
+            command({"cmd": "usb_check", "abort": True})
+        except Exception:   # the interrupt is what the caller needs to see
+            pass
+        raise
+
+
+__all__: List[str] = ["UsbCheckState", "UsbConfig", "UsbDevice", "UsbFlashResult", "UsbFlashState",
+                      "UsbHidCapture", "UsbHidInterface", "UsbHidReport", "UsbHidReports",
+                      "UsbHidState", "UsbHostState", "UsbInterface"]

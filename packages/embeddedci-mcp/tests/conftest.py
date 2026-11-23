@@ -102,6 +102,7 @@ class FakeTransport(Transport):
         self.dirs: Dict[int, str] = {}
         self.power_efuse = 1
         self.uart_frames: List[Tuple[str, int]] = []   # (parity, stop_bits) per uart_proxy_start
+        self.uart_usb: List[Dict[str, Any]] = []       # uart_proxy_start on the USB serial port
         self.uart_lines: List[Tuple[int, int, bool, Any]] = []   # (rx, tx, half_duplex, entry)
         self.uart_des: List[Tuple[Any, bool]] = []               # (de, de_active_low)
         #: The bin-averaged trace a power_profile reply carries (µA / mV, µs since the start).
@@ -129,7 +130,8 @@ class FakeTransport(Transport):
             gw = 34
         image = {0: "loop", 1: "deep"}.get(self.image, "unknown") if self.image is not None else "unknown"
         return {"version": getattr(self, "version", "4.0.0"), "board": "stm32h563", "adc_bits": 16,
-                "adc_fullscale_mv": 4096, "api": 2, "min_client_api": 2, "features_rev": 10,
+                "adc_fullscale_mv": 4096, "api": 2, "min_client_api": 2,
+                "features_rev": getattr(self, "features_rev", 10),
                 "gateware": getattr(self, "gateware", None) or gw, "fpga_image": image,
                 "nrst_pin": "nrst_pin" in caps, "hw": [], "analog": getattr(self, "analog", True)}
 
@@ -145,7 +147,14 @@ class FakeTransport(Transport):
 
     def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none", stop_bits: int = 1,
                          half_duplex: bool = False, entry: Any = None, de: Any = None,
-                         de_active_low: bool = False):
+                         de_active_low: bool = False, port: Any = None, dtr: bool = True,
+                         rts: bool = True, data_bits: Any = None):
+        if port is not None:     # the board's USB serial port: no LA channel is involved
+            self.uart_usb.append({"rx": rx, "tx": tx, "baud": baud, "port": port, "parity": parity,
+                                  "stop_bits": stop_bits, "dtr": dtr, "rts": rts})
+            link = FakeRawLink(self.uart_data)
+            self.uart_links.append(link)
+            return link
         self.uart_frames.append((parity, stop_bits))
         self.uart_des.append((de, de_active_low))
         self.uart_lines.append((rx, tx, half_duplex, entry))

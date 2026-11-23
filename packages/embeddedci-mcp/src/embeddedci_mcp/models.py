@@ -478,12 +478,15 @@ class UartCaptureResult(BaseModel):
 
 class UartSessionResult(BaseModel):
     open: bool
-    rx: Optional[int] = None
+    rx: Optional[int] = None          # None with port "usb"
     tx: Optional[int] = None
     baud: Optional[int] = None
     parity: Optional[str] = None      # "none" / "even" / "odd" (open sessions)
     stop_bits: Optional[int] = None
     half_duplex: bool = False         # one wire (rx == tx)
+    port: Optional[str] = Field(None, description='"usb": the board\'s USB serial port (firmware 4.0.3+). Omitted for LA pins.')
+    dtr: Optional[bool] = Field(None, description="The DTR line of the USB serial port (port usb only).")
+    rts: Optional[bool] = Field(None, description="The RTS line of the USB serial port (port usb only).")
 
 
 class UartWriteResult(BaseModel):
@@ -1035,7 +1038,7 @@ class UsbHostResult(BaseModel):
 class UsbFlashToolResult(BaseModel):
     """A USB flash. ok=false is a normal result: read result, phase and note."""
     ok: bool
-    mode: str = Field("", description="The loader used: uf2, file, dfu, teensy, avr, samd or esp.")
+    mode: str = Field("", description="The loader used: uf2, file, dfu, teensy, avr, samd, esp or picoboot.")
     reason: str = Field("", description="Why the server chose that loader, in words.")
     length: int = 0
     address: Optional[int] = None
@@ -1044,8 +1047,60 @@ class UsbFlashToolResult(BaseModel):
     ms: int = 0
     result: str = Field("", description="The pod's outcome: ok, aborted, or what went wrong.")
     phase: str = Field("", description="Where a failed flash stopped.")
-    note: str = Field("", description="What to do next after a failure.")
+    note: str = Field("", description=(
+        "After a failure: what went wrong and where. After a success with verify: what the read-back "
+        "found (\"verified 4 blocks\", \"verify skipped: the board left its bootloader\")."))
     device: Optional[UsbDeviceInfo] = None
+
+
+class UsbCheckToolResult(BaseModel):
+    """A check of the board's own USB firmware. passed=false is a normal result: read result."""
+    test: str
+    ran: bool = Field(description="The check ran to its end (error is empty). False: it stopped early, see error.")
+    passed: Optional[bool] = Field(None, description="The verdict. Null when the check did not end.")
+    error: str = Field("", description=(
+        "Why it stopped early: aborted, host_stopped, not_powered_by_efuse1, no_device, monitor_error, "
+        "efuse_error, bus_busy, bus_timeout. Empty when it ran to its end."))
+    phase: str = ""
+    done: int = Field(0, description="Cycles done (milliseconds for power and suspend).")
+    total: int = 0
+    ms: int = Field(0, description="Milliseconds the check took.")
+    result: Dict[str, Any] = Field(default_factory=dict, description=(
+        "The numbers of the test, with the board's vid and pid. Currents in uA, times in ms. "
+        "enumerate: cycles, ok, no_connect, stuck, timeout and connect_ms, descriptor_ms, mount_ms "
+        "(min, avg, max). power: samples, avg_ua, min_ua, peak_ua, limit_ma, verdict "
+        "(ok, avg_over, peak_over, no_limit). suspend: avg_ua, limit_ua, current, suspend_ok, resume "
+        "(signaling or failed), answers, recovered_by_reset, port_reinit, reinit_ok. reset: cycles, ok, "
+        "stuck, timeout, identity_changed, reenumerate_ms. replug: lengths, one {off_ms, stayed, "
+        "reenumerated, failed} per dropout length."))
+
+
+class UsbHidInterfaceInfo(BaseModel):
+    instance: int = Field(description="The number to pass back as instance (0 or 1).")
+    interface: int = Field(description="The USB interface number.")
+    protocol: str = Field(description='"keyboard", "mouse" or "none".')
+    descriptor_len: int = Field(description="Bytes of the report descriptor (0: the pod could not read it).")
+    descriptor_hex: str = Field(description="The whole report descriptor as hex.")
+    truncated: bool = False
+
+
+class UsbHidReportInfo(BaseModel):
+    ms: int = Field(description="Milliseconds since the capture started.")
+    instance: int
+    data_hex: str = Field(description="The report as hex (with several report IDs the first byte is the ID).")
+
+
+class UsbHidResult(BaseModel):
+    """The board's HID interfaces, the capture state or input reports, by action."""
+    action: str
+    attached: Optional[bool] = Field(None, description="list: a device is attached.")
+    interfaces: List[UsbHidInterfaceInfo] = Field(default_factory=list, description="list: the HID interfaces.")
+    capturing: Optional[bool] = Field(None, description=(
+        "start, stop, read: whether the capture runs. False after a read means it ended (the board "
+        "detached or host mode ended)."))
+    buffered: Optional[int] = Field(None, description="start, stop: reports waiting in the pod's ring of 64.")
+    dropped: Optional[int] = Field(None, description="Reports lost to a full ring since the capture started.")
+    reports: List[UsbHidReportInfo] = Field(default_factory=list, description="read: the reports taken from the ring.")
 
 
 class UsbNetworkResult(BaseModel):

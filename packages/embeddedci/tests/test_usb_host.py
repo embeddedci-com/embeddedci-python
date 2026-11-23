@@ -465,7 +465,9 @@ def dev(d: Dict[str, Any]) -> usb_host.UsbDevice:
 
 @pytest.mark.parametrize("image, d, mode, address", [
     (UF2, PICO, "uf2", None),
-    (BIN, PICO, "file", None),
+    (BIN, PICO, "picoboot", 0x10000000),
+    (BIN, device(0x2E8A, 0x000F, iface(8, "msc")), "picoboot", 0x10000000),
+    (UF2, device(0x2E8A, 0x000F, iface(8, "msc")), "uf2", None),
     (HEX, NUCLEO, "file", None),
     (ESP, device(0x303A, 0x0002, iface(8, "msc")), "esp", 0),
     (BIN, TEENSY, "teensy", 0),

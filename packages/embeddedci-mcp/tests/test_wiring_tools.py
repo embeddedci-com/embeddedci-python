@@ -110,7 +110,7 @@ def test_uart_tools_take_channels_and_baud_from_the_profile(connected):
     _set()
     result = call("uart_open")
     assert result == {"open": True, "rx": 7, "tx": 8, "baud": 9600, "parity": "none", "stop_bits": 1,
-                      "half_duplex": False}
+                      "half_duplex": False, "port": None, "dtr": None, "rts": None}
     call("uart_close")
     call("capture_uart", duration_s=0.2)
     assert connected.uart_links[-1] is not None

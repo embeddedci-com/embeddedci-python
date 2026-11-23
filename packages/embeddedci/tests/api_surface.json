@@ -112,7 +112,7 @@
     "capture_adc": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, source: 'Optional[AdcSource]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, range: 'Optional[AdcRange]' = None, oversample: 'bool' = False) -> 'Capture'",
     "capture_correlated": "(self, *, adc_samples: 'int' = 4096, adc_sample_rate_hz: 'Optional[float]' = None, la_samples: 'int' = 4096, la_sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, source: 'Optional[AdcSource]' = None) -> 'CorrelatedCapture'",
     "capture_la": "(self, samples: 'int' = 4096, *, sample_rate_hz: 'Optional[float]' = None, stop_dac_after: 'Optional[float]' = None, trigger: 'Optional[Trigger]' = None, trigger_timeout: 'float' = 10.0, send: 'Optional[_i2c_master.Send]' = None) -> 'LaCapture'",
-    "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None, half_duplex: 'bool' = False, entry: 'Optional[_uart.UartEntry]' = None, de: 'Union[Pin, int, str, None]' = None, de_active_low: 'bool' = False) -> '_uart.UartCapture'",
+    "capture_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, duration: 'float', until: 'Optional[_uart.Until]' = None, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None, half_duplex: 'bool' = False, entry: 'Optional[_uart.UartEntry]' = None, de: 'Union[Pin, int, str, None]' = None, de_active_low: 'bool' = False, port: 'Optional[str]' = None, dtr: 'Optional[bool]' = None, rts: 'Optional[bool]' = None) -> '_uart.UartCapture'",
     "clear_calibration": "(self, part: 'Optional[CalibrationPart]' = None) -> 'Calibration'",
     "close": "(self) -> 'None'",
     "command": "(self, req: 'Dict[str, Any]') -> 'Any'",
@@ -155,7 +155,7 @@
     "open_i2c": "(self, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, *, hz: 'int' = 100000, pullups: 'str' = 'pod') -> '_i2c_master.I2CMaster'",
     "open_motor_emulator": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, programn: 'Union[Pin, int, str, None]' = None, done: 'Union[Pin, int, str, None]' = None, hz: 'int' = 6000000, calibration: 'Optional[_motor_emulator.EmulatorCalibration]' = None) -> '_motor_emulator.MotorEmulator'",
     "open_spi": "(self, *, sck: 'Union[Pin, int, str, None]' = None, mosi: 'Union[Pin, int, str, None]' = None, miso: 'Union[Pin, int, str, None]' = None, cs: 'Union[Pin, int, str, None]' = None, hz: 'int' = 1000000, mode: 'int' = 0) -> '_spi.SpiSession'",
-    "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None, encoding: 'str' = 'utf-8', half_duplex: 'bool' = False, entry: 'Optional[_uart.UartEntry]' = None, de: 'Union[Pin, int, str, None]' = None, de_active_low: 'bool' = False) -> '_uart.UartSession'",
+    "open_uart": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, baud: 'Optional[int]' = None, max_buffer: 'int' = 1048576, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None, encoding: 'str' = 'utf-8', half_duplex: 'bool' = False, entry: 'Optional[_uart.UartEntry]' = None, de: 'Union[Pin, int, str, None]' = None, de_active_low: 'bool' = False, port: 'Optional[str]' = None, dtr: 'Optional[bool]' = None, rts: 'Optional[bool]' = None) -> '_uart.UartSession'",
     "pair": "(self, name: 'Optional[str]' = None) -> \"'LanClients'\"",
     "pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'Dict[int, str]'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
@@ -198,9 +198,15 @@
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
     "usb_cc": "(self) -> 'UsbCcStatus'",
-    "usb_flash": "(self, file: \"Union[str, 'os.PathLike[str]', bytes]\", *, address: 'Union[int, str, None]' = None, name: 'Optional[str]' = None, leave: 'bool' = True, mode: 'Optional[str]' = None, port: 'Optional[str]' = None, timeout: 'Optional[float]' = None, device_timeout: 'float' = 10.0, progress: 'Optional[Callable[[int, int], None]]' = None) -> \"'_usb.UsbFlashResult'\"",
+    "usb_check": "(self, test: 'str', *, count: 'Optional[int]' = None, off_ms: 'Union[int, Sequence[int], None]' = None, timeout_ms: 'Optional[int]' = None, duration_ms: 'Optional[int]' = None, settle_ms: 'Optional[int]' = None, port: 'Optional[str]' = None, device_timeout: 'float' = 10.0, timeout: 'Optional[float]' = None, progress: 'Optional[Callable[[int, int], None]]' = None) -> \"'_usb.UsbCheckState'\"",
+    "usb_check_abort": "(self) -> \"'_usb.UsbCheckState'\"",
+    "usb_check_status": "(self) -> \"'_usb.UsbCheckState'\"",
+    "usb_flash": "(self, file: \"Union[str, 'os.PathLike[str]', bytes]\", *, address: 'Union[int, str, None]' = None, name: 'Optional[str]' = None, leave: 'bool' = True, mode: 'Optional[str]' = None, port: 'Optional[str]' = None, timeout: 'Optional[float]' = None, device_timeout: 'float' = 10.0, progress: 'Optional[Callable[[int, int], None]]' = None, verify: 'bool' = False) -> \"'_usb.UsbFlashResult'\"",
     "usb_flash_abort": "(self) -> \"'_usb.UsbFlashState'\"",
     "usb_flash_status": "(self) -> \"'_usb.UsbFlashState'\"",
+    "usb_hid_capture": "(self, enable: 'bool' = True) -> \"'_usb.UsbHidCapture'\"",
+    "usb_hid_interfaces": "(self) -> \"'_usb.UsbHidState'\"",
+    "usb_hid_read": "(self, count: 'int' = 1, timeout: 'float' = 2.0, instance: 'Optional[int]' = None) -> \"'_usb.UsbHidReports'\"",
     "usb_host": "(self, enable: 'bool' = True, *, port: 'Optional[str]' = None, timeout_s: 'int' = 60) -> \"'_usb.UsbHostState'\"",
     "usb_host_status": "(self) -> \"'_usb.UsbHostState'\"",
     "usb_network": "(self, on: 'Optional[bool]' = None) -> 'bool'",
@@ -1286,6 +1292,27 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'UsbCcStatus'\""
   },
+  "UsbCheckNoPowerError": {},
+  "UsbCheckRefusedError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
+  },
+  "UsbCheckState": {
+    "__fields__": [
+      "running",
+      "have_result",
+      "test",
+      "phase",
+      "done",
+      "total",
+      "ms",
+      "passed",
+      "error",
+      "result",
+      "raw"
+    ],
+    "ended": "property",
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbCheckState'\""
+  },
   "UsbConfig": {
     "__fields__": [
       "value",
@@ -1355,7 +1382,8 @@
       "protocol",
       "ms",
       "device",
-      "state"
+      "state",
+      "note"
     ]
   },
   "UsbFlashState": {
@@ -1373,10 +1401,55 @@
       "result",
       "ok",
       "ms",
+      "note",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'UsbFlashState'\"",
     "unit": "property"
+  },
+  "UsbHidCapture": {
+    "__fields__": [
+      "capturing",
+      "buffered",
+      "dropped"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbHidCapture'\""
+  },
+  "UsbHidInterface": {
+    "__fields__": [
+      "instance",
+      "interface",
+      "protocol",
+      "descriptor_len",
+      "descriptor",
+      "truncated",
+      "raw"
+    ],
+    "from_reply": "(cls, d: 'Mapping[str, Any]') -> \"'UsbHidInterface'\""
+  },
+  "UsbHidReport": {
+    "__fields__": [
+      "ms",
+      "instance",
+      "data"
+    ],
+    "from_reply": "(cls, d: 'Mapping[str, Any]') -> \"'UsbHidReport'\""
+  },
+  "UsbHidReports": {
+    "__fields__": [
+      "reports",
+      "dropped",
+      "capturing"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbHidReports'\""
+  },
+  "UsbHidState": {
+    "__fields__": [
+      "attached",
+      "interfaces",
+      "raw"
+    ],
+    "from_reply": "(cls, reply: 'Any') -> \"'UsbHidState'\""
   },
   "UsbHostError": {},
   "UsbHostPortError": {
@@ -1414,6 +1487,12 @@
       "endpoints"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'UsbInterface'\""
+  },
+  "UsbSerialBusyError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
+  },
+  "UsbSerialUnavailableError": {
+    "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
   },
   "UsbTimeout": {},
   "Waveform": {
@@ -1664,6 +1743,9 @@
     "UartTimeout",
     "UnsupportedFeatureError",
     "UsbCcStatus",
+    "UsbCheckNoPowerError",
+    "UsbCheckRefusedError",
+    "UsbCheckState",
     "UsbConfig",
     "UsbDecode",
     "UsbDevice",
@@ -1671,11 +1753,18 @@
     "UsbFlashRefusedError",
     "UsbFlashResult",
     "UsbFlashState",
+    "UsbHidCapture",
+    "UsbHidInterface",
+    "UsbHidReport",
+    "UsbHidReports",
+    "UsbHidState",
     "UsbHostError",
     "UsbHostPortError",
     "UsbHostState",
     "UsbHostUnavailableError",
     "UsbInterface",
+    "UsbSerialBusyError",
+    "UsbSerialUnavailableError",
     "UsbTimeout",
     "Waveform",
     "WaveformLibrary",

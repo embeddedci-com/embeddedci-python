@@ -484,10 +484,12 @@ class SerialTransport(Transport):
                   packet_count: Optional[int] = None, wait_ms: Optional[int] = None) -> RawLink:
         raise self._needs_network("SWD (flashing)")
 
-    def uart_proxy_start(self, rx: int, tx: int, baud: int, parity: str = "none",
+    def uart_proxy_start(self, rx: Optional[int], tx: Optional[int], baud: int, parity: str = "none",
                          stop_bits: int = 1, half_duplex: bool = False,
                          entry: Any = None, de: Optional[int] = None,
-                         de_active_low: bool = False) -> RawLink:
+                         de_active_low: bool = False, port: Optional[str] = None,
+                         dtr: bool = True, rts: bool = True,
+                         data_bits: Optional[int] = None) -> RawLink:
         raise self._needs_network("the UART proxy")
 
     def close(self) -> None:

@@ -1154,6 +1154,19 @@
           "title": "De Active Low",
           "type": "boolean"
         },
+        "dtr": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "port usb only: the DTR line (default true). Many boards reset or enter their loader on DTR and RTS: set them to what the board expects.",
+          "title": "Dtr"
+        },
         "duration_s": {
           "description": "Capture window in seconds.",
           "exclusiveMinimum": 0,
@@ -1196,6 +1209,33 @@
           "default": null,
           "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "title": "Parity"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "const": "usb",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "usb: the serial port of the board the pod hosts over USB (usb_host; a CDC ACM port, or the FTDI, CP210x or CH34x chip of a dev kit) instead of LA pins: the boot log over the cable the board was flashed through. No LA channel, wiring profile or I/O voltage is used; rx, tx, half_duplex, entry and de do not apply. Needs pod firmware 4.0.3+ and host mode on with the board mounted. Omit for the UART on LA pins.",
+          "title": "Port"
+        },
+        "rts": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "port usb only: the RTS line (default true).",
+          "title": "Rts"
         },
         "rx": {
           "anyOf": [
@@ -5946,6 +5986,19 @@
           "title": "De Active Low",
           "type": "boolean"
         },
+        "dtr": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "port usb only: the DTR line (default true). Many boards reset or enter their loader on DTR and RTS: set them to what the board expects.",
+          "title": "Dtr"
+        },
         "entry": {
           "anyOf": [
             {
@@ -5981,6 +6034,33 @@
           "default": null,
           "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "title": "Parity"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "const": "usb",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "usb: the serial port of the board the pod hosts over USB (usb_host; a CDC ACM port, or the FTDI, CP210x or CH34x chip of a dev kit) instead of LA pins: the boot log over the cable the board was flashed through. No LA channel, wiring profile or I/O voltage is used; rx, tx, half_duplex, entry and de do not apply. Needs pod firmware 4.0.3+ and host mode on with the board mounted. Omit for the UART on LA pins.",
+          "title": "Port"
+        },
+        "rts": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "port usb only: the RTS line (default true).",
+          "title": "Rts"
         },
         "rx": {
           "anyOf": [
@@ -6118,6 +6198,147 @@
       "type": "object"
     }
   },
+  "usb_check": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Check the board's USB firmware"
+    },
+    "input": {
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "enumerate (default 10) and reset (default 20): cycles. replug (default 10, up to 100): cycles per dropout length.",
+          "title": "Count"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "maximum": 60000,
+              "minimum": 200,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "power (default 3000) and suspend (default 1000): the measuring time.",
+          "title": "Duration Ms"
+        },
+        "off_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "enumerate: how long the rail stays off, 50 to 10000 (default 500). replug: a dropout length or a list of up to 6, 1 to 5000 ms (default [5, 20, 100, 500]).",
+          "title": "Off Ms"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "enum": [
+                "usb_a",
+                "usb_c"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Host port when host mode is off and has to be started; omit for the board's own.",
+          "title": "Port"
+        },
+        "settle_ms": {
+          "anyOf": [
+            {
+              "maximum": 5000,
+              "minimum": 20,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "suspend: the wait after the bus is suspended before measuring (default 200).",
+          "title": "Settle Ms"
+        },
+        "test": {
+          "description": "enumerate: power-cycles the board through the internal 5 V (efuse 1) rail and times power-on to pull-up, descriptor and mounted. power: the board's current (internal 5 V, efuse 1) against the configuration's bMaxPower. suspend: the suspended current against the 2.5 mA a bus-powered device may draw, resume, and the board still answers. reset: port resets and the time to enumerate again. replug: VBUS dropouts of off_ms: does the board come back.",
+          "enum": [
+            "enumerate",
+            "power",
+            "suspend",
+            "reset",
+            "replug"
+          ],
+          "title": "Test",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "anyOf": [
+            {
+              "maximum": 30000,
+              "minimum": 500,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "enumerate, reset, replug: how long to wait for the board after each cycle (default 5000).",
+          "title": "Timeout Ms"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 3600,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Abort the check after this long. Omit: its worst case plus a margin.",
+          "title": "Timeout S"
+        }
+      },
+      "required": [
+        "test"
+      ],
+      "title": "usb_checkArguments",
+      "type": "object"
+    }
+  },
   "usb_flash": {
     "annotations": {
       "destructiveHint": true,
@@ -6162,7 +6383,8 @@
                 "teensy",
                 "avr",
                 "samd",
-                "esp"
+                "esp",
+                "picoboot"
               ],
               "type": "string"
             },
@@ -6218,12 +6440,78 @@
           "default": null,
           "description": "Abort the flash after this long. Omit: a minute plus the file size at 2.5 KB/s.",
           "title": "Timeout S"
+        },
+        "verify": {
+          "default": false,
+          "description": "Read the drive back after a drive flash: the loader's FAIL.TXT is reported as the failure (a DAPLink board says why it refused the file), and a UF2 file is compared with the loader's CURRENT.UF2 while the board stays in it. The result's note says what was found. A Pico flashed through picoboot always reads every page back.",
+          "title": "Verify",
+          "type": "boolean"
         }
       },
       "required": [
         "file"
       ],
       "title": "usb_flashArguments",
+      "type": "object"
+    }
+  },
+  "usb_hid": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "USB HID interfaces and input reports"
+    },
+    "input": {
+      "properties": {
+        "action": {
+          "default": "list",
+          "description": "list: the HID interfaces of the board (the first two) with their report descriptors. start: begin catching input reports (keyboard keys, mouse, gamepad, custom HID) into a ring of 64 on the pod. read: take reports from the ring. stop: end the capture and free the ring.",
+          "enum": [
+            "list",
+            "start",
+            "stop",
+            "read"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "count": {
+          "default": 1,
+          "description": "read: at most this many reports.",
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "instance": {
+          "anyOf": [
+            {
+              "enum": [
+                0,
+                1
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "read: only the reports of this HID interface (the others stay in the ring).",
+          "title": "Instance"
+        },
+        "timeout_s": {
+          "default": 2.0,
+          "description": "read: when the ring holds no report, wait up to this long for one. The result holds what is there, possibly none.",
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Timeout S",
+          "type": "number"
+        }
+      },
+      "title": "usb_hidArguments",
       "type": "object"
     }
   },
