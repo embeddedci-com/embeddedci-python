@@ -196,8 +196,13 @@ def test_wiring_draws_the_profile_on_the_pods_header(connected, monkeypatch):
 
 
 JTAG_PROFILE = {"jtag_tck": 3, "jtag_tms": 4, "jtag_tdi": 5, "jtag_tdo": 6, "jtag_trst": 7}
+# The wiring fields are validated by the SDK: the mcp-min-sdk job runs these against the oldest
+# SDK the MCP supports, which may predate them.
+needs_jtag_sdk = pytest.mark.skipif(not hasattr(Wiring, "jtag_tck"),
+                                    reason="the installed embeddedci SDK has no jtag_* wiring fields")
 
 
+@needs_jtag_sdk
 def test_set_wiring_takes_and_returns_the_jtag_fields(connected):
     result = call("set_wiring", profile={"version": 2, "la_mv": 3300, **JTAG_PROFILE})
     for key, la in JTAG_PROFILE.items():
@@ -206,6 +211,7 @@ def test_set_wiring_takes_and_returns_the_jtag_fields(connected):
     assert SESSION.require().wiring.jtag_tdo == 6
 
 
+@needs_jtag_sdk
 def test_set_wiring_validates_the_jtag_fields(connected):
     with pytest.raises(ToolError, match="jtag_tck must be an LA channel 1..14"):
         call("set_wiring", profile={"version": 2, "jtag_tck": 15})
