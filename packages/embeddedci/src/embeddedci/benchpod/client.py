@@ -1959,13 +1959,17 @@ class BenchPod:
             if from_build:
                 raise ValueError(f"{target} is flashed from a file (a .hex, .elf or .bin), not an "
                                  "uploaded build")
-            result = self._flash_prog(
-                target, file, device=device, clk=clk, data=data, reset_pin=reset_pin, nreset=nreset,
-                load_address=load_address, erase=erase, dry_run=dry_run, run_after=reset,
-                power=coerce_efuse(target_power) if target_power is not None else None)
-            if check and not result.ok:
-                raise FlashError(f"flash ({target}): {result.stderr}")
-            return result
+            try:
+                return self._flash_prog(
+                    target, file, device=device, clk=clk, data=data, reset_pin=reset_pin,
+                    nreset=nreset, load_address=load_address, erase=erase, dry_run=dry_run,
+                    run_after=reset,
+                    power=coerce_efuse(target_power) if target_power is not None else None)
+            except _prog.ProgFlashError as exc:
+                if check:
+                    raise
+                return FlashResult(ok=False, returncode=1, stdout="", stderr=str(exc),
+                                   target_unreachable=isinstance(exc, _prog.ProgNoAnswerError))
         if _esp.is_esp_target(target or self.wiring.swd_target):
             if from_build:
                 raise ValueError("an ESP32 target is flashed from a file (a .bin or flasher_args.json), "
