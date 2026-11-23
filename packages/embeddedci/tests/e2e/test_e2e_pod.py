@@ -108,7 +108,7 @@ def test_reset_line_and_usb_cc(pod, rev3):
     lambda p: p.fpga_image(3),
     lambda p: p.la_step(9, steps=0, delay=0.001),
     lambda p: p.can_write(0x10, list(range(65))),
-    lambda p: p.decode([0, 1], "can"),
+    lambda p: p.decode([0, 1], "jtag"),     # not a decoder (can, usb, modbus... are)
     lambda p: p.control_loop(vmin=50000, vmax=1000),
 ], ids=["analog_path alias", "volts on off", "adc source", "pullup on LA7", "pulldown on LA1",
         "la voltage", "zero amplitude", "zero samples", "zero rate", "dac path", "fpga image",
