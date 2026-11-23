@@ -134,6 +134,7 @@ def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
         profile_rev=wiring.profile_rev, la_voltage=wiring.la_voltage,
         efuse=wiring.efuse, uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
         swd_nreset=wiring.swd_nreset, swd_target=wiring.swd_target,
+        debug_port=getattr(wiring, "debug_port", None),
         pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la), dut_dir=dirs.get(la))
               for la in range(1, 15)],
         signals=[m.WiringSignal(name=s.name, la=s.la, direction=s.direction,

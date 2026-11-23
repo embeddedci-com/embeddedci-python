@@ -211,6 +211,9 @@ class WiringResult(BaseModel):
     i2c_address: Optional[int] = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer; null when unset.")
     swd_nreset: bool
     swd_target: str
+    debug_port: Optional[str] = Field(None, description=(
+        "The profile's debug_port: 'swd' or 'jtag' (what flash uses when the call passes no pins); "
+        "null: automatic."))
     pins: List[WiringPin] = Field(description="LA1-LA14 with what is wired to each and its bias resistor.")
     signals: List[WiringSignal] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list,

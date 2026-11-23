@@ -623,7 +623,8 @@ async def wiring() -> m.WiringResult:
 async def set_wiring(
     profile: Annotated[Dict[str, Any], Field(description=(
         "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
-        "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, spi_*, and signals "
+        "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, debug_port (\"swd\" or \"jtag\": what flash uses when "
+        "the call passes no pins; null: automatic), spi_*, and signals "
         "[{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches "
         "on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels "
         "that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: "
@@ -1135,7 +1136,8 @@ async def flash(
     SWD or JTAG is chosen for you, there is no transport argument: JTAG when the four JTAG pins
     (`tck`, `tms`, `tdi`, `tdo`, from the arguments or the profile's jtag_*) are known and either
     no SWD pins are, or the target is JTAG only (esp32, esp32s2, gd32vf103, fe310, k210 and riscv*
-    OpenOCD configs, e.g. target/esp32.cfg); otherwise SWD. JTAG needs the pod's `jtag` feature
+    OpenOCD configs, e.g. target/esp32.cfg); otherwise SWD. JTAG pins passed in the call mean JTAG,
+    SWD pins passed mean SWD, else the profile's debug_port (swd or jtag) decides. JTAG needs the pod's `jtag` feature
     (newer firmware): without it the call fails before anything is armed.
 
     Give either `file` (a path on this server's host) or an uploaded build (`build`, or
