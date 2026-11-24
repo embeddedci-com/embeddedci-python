@@ -487,6 +487,11 @@ def test_lowlevel_controls():
         bp.lowlevel.cal_switch(cal1=True, cal2=True)
     with pytest.raises(ValueError):
         bp.lowlevel.dac_set(256)
+    bp.lowlevel.dac_set(code16=40000)
+    assert t.commands[-1] == {"cmd": "dac_set", "code16": 40000, "value": 156}
+    for bad in ({"code16": 65536}, {"code16": -1}, {}, {"code": 1, "code16": 1}):
+        with pytest.raises(ValueError):
+            bp.lowlevel.dac_set(**bad)
 
 
 def test_deep_replay_refused_on_an_image_without_it():

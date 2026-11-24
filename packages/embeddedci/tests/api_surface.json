@@ -855,7 +855,7 @@
     "cal_switch_status": "(self) -> 'Dict[str, Any]'",
     "dac_mux": "(self, *, ctrl1: 'Optional[str]' = None, ctrl2: 'Optional[str]' = None) -> 'Dict[str, Any]'",
     "dac_mux_status": "(self) -> 'Dict[str, Any]'",
-    "dac_set": "(self, code: 'int', *, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
+    "dac_set": "(self, code: 'Optional[int]' = None, *, code16: 'Optional[int]' = None, divider: 'Optional[int]' = None) -> 'Dict[str, Any]'"
   },
   "MacAddresses": {
     "__fields__": [

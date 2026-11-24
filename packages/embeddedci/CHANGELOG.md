@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## 4.0.5
+
+- **`bp.lowlevel.dac_set(code16=...)` holds a 16-bit DAC code** (0..65535). The 8-bit
+  `dac_set(code)` still works. With `code16` the request also carries the 8-bit level, so firmware
+  before 4.0.5 holds the nearest one.
+- `Capabilities.dac_bits` reads 16 from firmware 4.0.5 (it reported 8, the old generator depth).
+
 ## 4.0.4
 
 For BenchPod firmware 4.0.4 (features table revision 17).

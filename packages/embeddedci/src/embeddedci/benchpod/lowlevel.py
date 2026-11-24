@@ -82,15 +82,33 @@ class LowLevel:
         """Report the calibration-relay (U58) state without changing it."""
         return _dict(self._pod.command({"cmd": "cal_switch"}))
 
-    def dac_set(self, code: int, *, divider: Optional[int] = None) -> Dict[str, Any]:
-        """Hold a raw 8-bit DAC code (0..255) on whatever path is routed, uncalibrated.
+    def dac_set(
+        self,
+        code: Optional[int] = None,
+        *,
+        code16: Optional[int] = None,
+        divider: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Hold a raw DAC code on whatever path is routed, uncalibrated.
 
+        ``code16`` is the 16-bit code (0..65535). ``code`` is the older 8-bit level (0..255), held
+        as ``code * 256``. Give one of the two. With ``code16`` the request also carries its 8-bit
+        level, so firmware before 4.0.5 (no ``code16``) holds the nearest 8-bit level.
         ``divider`` is the DAC sequencer clock divider. Prefer
         :meth:`~embeddedci.benchpod.client.BenchPod.dac_output`, which takes calibrated volts.
         """
-        if not 0 <= int(code) <= 255:
-            raise ValueError(f"code must be 0..255, got {code!r}")
-        req: Dict[str, Any] = {"cmd": "dac_set", "value": int(code)}
+        if (code is None) == (code16 is None):
+            raise ValueError("give code (0..255) or code16 (0..65535)")
+        req: Dict[str, Any] = {"cmd": "dac_set"}
+        if code16 is not None:
+            if not 0 <= int(code16) <= 65535:
+                raise ValueError(f"code16 must be 0..65535, got {code16!r}")
+            req["code16"] = int(code16)
+            req["value"] = int(code16) >> 8
+        else:
+            if not 0 <= int(code) <= 255:  # type: ignore[arg-type]
+                raise ValueError(f"code must be 0..255, got {code!r}")
+            req["value"] = int(code)  # type: ignore[arg-type]
         if divider is not None:
             req["divider"] = int(divider)
         return _dict(self._pod.command(req))
