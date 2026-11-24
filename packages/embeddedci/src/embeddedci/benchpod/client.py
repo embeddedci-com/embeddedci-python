@@ -50,6 +50,7 @@ from . import flash as _flash
 from . import i2c as _i2c
 from . import i2c_master as _i2c_master
 from . import motor_emulator as _motor_emulator
+from . import prog as _prog
 from . import spi as _spi
 from . import usb_host as _usb
 from . import uart as _uart
@@ -103,7 +104,7 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, ClientTooOldError, FirmwareError, FirmwareTooOldError,
+from .errors import (BenchPodError, ClientTooOldError, DirectionConflictError, FirmwareError, FirmwareTooOldError,
                      FlashError, PullDirectionError, UnsupportedFeatureError,
                      UsbHostUnavailableError, UsbTimeout, classify_firmware_error, firmware_error)
 from .flash import FlashResult
@@ -1871,6 +1872,12 @@ class BenchPod:
         rx: Union[Pin, int, str, None] = None,
         tx: Union[Pin, int, str, None] = None,
         boot: Union[Pin, int, str, None] = None,
+        device: str = "",
+        clk: Union[Pin, int, str, None] = None,
+        data: Union[Pin, int, str, None] = None,
+        reset_pin: Union[Pin, int, str, None] = None,
+        erase: str = "chip",
+        dry_run: bool = False,
     ) -> FlashResult:
         """Flash a target over SWD or JTAG through the pod's CMSIS-DAP probe and report the result.
 
@@ -1912,6 +1919,33 @@ class BenchPod:
         each region against the chip's MD5 and, with ``reset``, starts the new image; ``stdout``
         names the chip and every region written. Needs firmware with the ``esp_flash`` command.
 
+        A chip with its own programming pins and no SWD, JTAG or bootloader is flashed by the pod
+        itself: ``target="avr-updi"`` (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), ``"pic"``
+        (PIC16F1xxx, PIC16F18xxx, PIC18F Q-series, low-voltage entry), ``"efm8"`` (Silicon Labs EFM8
+        and C8051F, C2), ``"attiny-tpi"`` (ATtiny4/5/9/10/20/40/102/104) or ``"xmega"`` (XMEGA, PDI);
+        the protocol names ``updi``, ``pic``, ``c2``, ``tpi`` and ``pdi`` work too. ``file`` is a
+        ``.hex``, ``.elf`` or ``.bin`` (a ``.bin`` goes at ``load_address``, default 0, into the
+        flash). The SDK reads the chip's ID first, finds it in its device table
+        (:mod:`embeddedci.benchpod.prog`), cuts the image into the chip's memories (flash, EEPROM,
+        fuses or configuration words, user row or user ID: a ``.hex`` from avr-gcc or XC8 already
+        has them at their usual addresses), writes and reads back every page. ``device`` names the
+        chip (``"ATtiny1616"``) when its ID is shared or you want the check; omitted, the ID decides.
+        ``erase`` is ``"chip"`` (the default, before the first write when the image has flash; it
+        also unlocks a locked chip), ``"page"`` (only the pages written; the TPI chips erase their
+        whole code section instead) or ``"none"``. ``reset`` says whether the chip runs its program
+        afterwards. Pins: ``clk`` and ``data`` are LA pins (``data`` only for ``avr-updi``; default:
+        a wiring-profile signal named for the protocol, ``ICSPCLK`` / ``ICSPDAT``, ``C2CK`` /
+        ``C2D``, ``TPICLK`` / ``TPIDATA``, ``PDI_CLK`` / ``PDI_DATA`` or ``UPDI``, else the profile's
+        ``swd_swclk`` / ``swd_swdio``). ``pic`` and ``attiny-tpi`` also drive the chip's reset
+        (MCLR, RESET): the pod's reset pin by default (``nreset=True``), or an LA pin as
+        ``reset_pin`` (default: a profile signal named ``MCLR`` or ``RESET``). ``dry_run=True``
+        only enters programming mode and reads the chip's ID (a wiring test): ``stdout`` names the
+        chip, nothing is written. The ATtiny4/5/9/10/20/40 program at 5 V only, which the pod's I/O
+        cannot give (:class:`~embeddedci.benchpod.prog.ProgDeviceError`). A failure raises
+        :class:`~embeddedci.benchpod.prog.ProgFlashError` (or a subclass) with what to check.
+        Needs firmware with the ``prog_flash`` feature and the ``xip_prog`` blob (``benchpod
+        install-blobs``).
+
         Local OpenOCD runs on THIS machine and needs the ``cmsis_dap_tcp`` backend (newer than
         0.12.0). By default (``check=True``) a failed flash raises :class:`FlashError` /
         :class:`TargetUnreachableError`; pass ``check=False`` to get the :class:`FlashResult` and
@@ -1921,6 +1955,21 @@ class BenchPod:
         self._yield_expansion_bus()
         if from_build and file:
             raise ValueError("pass either file or a build (build/repo/ref/artifact), not both")
+        if _prog.is_prog_target(target):
+            if from_build:
+                raise ValueError(f"{target} is flashed from a file (a .hex, .elf or .bin), not an "
+                                 "uploaded build")
+            try:
+                return self._flash_prog(
+                    target, file, device=device, clk=clk, data=data, reset_pin=reset_pin,
+                    nreset=nreset, load_address=load_address, erase=erase, dry_run=dry_run,
+                    run_after=reset,
+                    power=coerce_efuse(target_power) if target_power is not None else None)
+            except _prog.ProgFlashError as exc:
+                if check:
+                    raise
+                return FlashResult(ok=False, returncode=1, stdout="", stderr=str(exc),
+                                   target_unreachable=isinstance(exc, _prog.ProgNoAnswerError))
         if _esp.is_esp_target(target or self.wiring.swd_target):
             if from_build:
                 raise ValueError("an ESP32 target is flashed from a file (a .bin or flasher_args.json), "
@@ -2060,6 +2109,132 @@ class BenchPod:
         r = _esp.run(self.command, stage, regions, pins=pins, flash_size=size, run_after=reset)
         lines = [f"{r.chip or 'ESP32'}: {len(r.regions)} region(s) at {r.baud} baud in {r.seconds:.1f} s"]
         lines += [f"0x{g.offset:06x} {g.length} bytes {g.result} md5 {g.md5}" for g in r.regions]
+        return FlashResult(ok=r.ok, returncode=0 if r.ok else 1, stdout="\n".join(lines),
+                           stderr=r.error)
+
+    # -- chips with their own programming pins (UPDI, PIC, C2, TPI, PDI) -----------------------
+
+    def _require_prog(self) -> None:
+        """Refuse ahead, in words, when the pod's firmware lacks ``prog_flash``."""
+        if self.supports("prog_flash"):
+            return
+        fw = self.capabilities.firmware_version or "unknown"
+        raise UnsupportedFeatureError(
+            f"flashing a chip over its programming pins needs newer pod firmware with the "
+            f"'prog_flash' feature (this pod runs firmware {fw}): update the pod and install its "
+            f"blobs (benchpod install-blobs)", feature="prog_flash",
+            firmware_version=self.capabilities.firmware_version)
+
+    def _prog_pins(self, proto: str, clk: Any, data: Any, reset_pin: Any,
+                   nreset: Optional[bool]) -> Tuple[Dict[str, Any], str]:
+        """The ``prog_flash`` pins of a flash and the same in words for error messages. A pin the
+        caller passes beats a wiring-profile signal named for the protocol, which beats the
+        profile's SWD pins."""
+        def by_signal(names: Sequence[str]) -> Optional[int]:
+            for s in self.wiring.signals:
+                if s.name.upper() in names:
+                    return s.la
+            return None
+
+        def pick(value: Any, names: Sequence[str], role: str, what: str) -> int:
+            if value is not None:
+                return self._resolve_la(value, what)[0]
+            la = by_signal(tuple(names))
+            if la is not None:
+                return la
+            la = getattr(self.wiring, role)
+            if la is None:
+                raise ValueError(
+                    f"{what} was not given and the wiring profile has neither a signal named "
+                    f"{' / '.join(names) if names else what.upper()} nor {role}: pass {what}= "
+                    "(an LA pin)")
+            return la
+
+        uart = proto == "updi"
+        pins: Dict[str, Any] = {}
+        pins["data"] = pick(data, _prog.DATA_SIGNALS[proto], "swd_swdio", "data")
+        text = [f"data on LA{pins['data']}"]
+        if not uart:
+            pins["clk"] = pick(clk, _prog.CLK_SIGNALS[proto], "swd_swclk", "clk")
+            text.insert(0, f"clk on LA{pins['clk']}")
+            if pins["clk"] == pins["data"]:
+                raise ValueError("clk and data must be different LA pins")
+        elif clk is not None:
+            raise ValueError("avr-updi uses one pin: pass data=, not clk=")
+        if proto in ("pic", "tpi"):
+            if reset_pin is not None:
+                pins["reset"] = self._resolve_la(reset_pin, "reset_pin")[0]
+            elif nreset is False or (nreset is None and by_signal(_prog.RESET_SIGNALS) is not None):
+                la = by_signal(_prog.RESET_SIGNALS)
+                if la is None:
+                    raise ValueError(
+                        f"the chip's reset needs the pod's reset pin (nreset=True) or an LA pin "
+                        f"(reset_pin=, or a wiring-profile signal named MCLR or RESET)")
+                pins["reset"] = la
+            else:
+                pins["reset"] = "nrst"
+            if pins["reset"] in (pins.get("clk"), pins["data"]):
+                raise ValueError("reset_pin must be another pin than clk and data")
+            text.append("reset on " + ("the pod's reset pin" if pins["reset"] == "nrst"
+                                       else f"LA{pins['reset']}"))
+        return pins, ", ".join(text)
+
+    def _flash_prog(self, target: str, file: str, *, device: str, clk: Any, data: Any,
+                    reset_pin: Any, nreset: Optional[bool], load_address: str, erase: str,
+                    dry_run: bool, run_after: bool, power: Optional[Efuse]) -> FlashResult:
+        """flash() for a chip with its own programming pins: the pod's prog_flash, see
+        :mod:`embeddedci.benchpod.prog`."""
+        proto = _prog.protocol_for(target)
+        if erase not in ("chip", "page", "none"):
+            raise ValueError(f"erase must be 'chip', 'page' or 'none', not {erase!r}")
+        if not file and not dry_run:
+            raise ValueError(f"{target} needs file: a .hex, .elf or .bin (or pass dry_run=True to only "
+                             "read the chip's ID)")
+        pins, pin_text = self._prog_pins(proto, clk, data, reset_pin, nreset)
+        fam = _prog.families()[proto]
+        segments: List[_prog.Segment] = []
+        if file:
+            segments = _prog.load_image(file, load_address=_esp.parse_address(load_address))
+        self._require_prog()
+        stage = getattr(self._transport, "stage_psram", None)
+        # The image is staged in PSRAM, which only the deep-replay gateware image writes (as for
+        # ESP32 flashing): a pod left on the emulation (or loop) image is switched first (~3 s).
+        self._ensure_image(FpgaImage.DEEP_REPLAY, needed_for="flashing over programming pins",
+                           switch=True)
+        if power is not None:
+            self._transport.target_power(power, True)
+            time.sleep(_flash.TARGET_POWER_SETTLE)
+        try:
+            volts = self.get_la_voltage().voltage
+        except BenchPodError:
+            volts = None
+        vtext = f"{volts:g} V" if volts else "not set"
+        try:
+            chip_id = _prog.read_info(self.command, proto, pins, pin_text=pin_text, volts=vtext)
+        except DirectionConflictError as exc:
+            raise _prog.direction_error(exc, pin_text) from exc
+        dev = _prog.find_device(proto, chip_id=chip_id, name=device)
+        lines = [f"{dev.name} ({fam.title}), ID {chip_id}"]
+        _prog.check_voltage(dev, volts, erase=erase if file else "none")
+        if file:
+            _prog.check_erase(dev, erase)
+        if dry_run:
+            lines.append("dry run: nothing was written")
+            return FlashResult(ok=True, returncode=0, stdout="\n".join(lines), stderr="")
+        regions, notes = _prog.split_regions(segments, dev, ignore=fam.ignore)
+        if erase == "chip" and not any(r.mem == "flash" for r in regions):
+            erase = "page"  # an image without flash must not wipe the chip's program
+            notes.append("the image has no flash: no chip erase, only the pages written are erased")
+        try:
+            r = _prog.run(self.command, stage, proto, dev, regions, pins=pins, erase=erase,
+                          run_after=run_after, pin_text=pin_text, volts=vtext, chip_id=chip_id)
+        except DirectionConflictError as exc:
+            raise _prog.direction_error(exc, pin_text) from exc
+        lines += [f"{g.mem} at 0x{g.addr:x}: {g.length} bytes written and verified in "
+                  f"{g.seconds:.1f} s" for g in r.regions]
+        lines += notes
+        lines.append(f"{len(r.regions)} region(s) in {r.seconds:.1f} s"
+                     + ("; the chip runs its program" if run_after else "; the chip is held in reset"))
         return FlashResult(ok=r.ok, returncode=0 if r.ok else 1, stdout="\n".join(lines),
                            stderr=r.error)
 

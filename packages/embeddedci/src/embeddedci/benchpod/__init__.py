@@ -155,6 +155,7 @@ from .errors import (
     XipUnavailableError,
 )
 from .flash import FlashResult
+from .prog import ProgDeviceError, ProgFlashError, ProgLockedError, ProgNoAnswerError, ProgVerifyError
 from .expansion import (
     EXPANSION_CHIPS,
     ExpansionChip,
@@ -415,6 +416,11 @@ __all__ = [
     "UsbHostPortError",
     "UsbFlashRefusedError",
     "UsbFlashError",
+    "ProgDeviceError",
+    "ProgFlashError",
+    "ProgLockedError",
+    "ProgNoAnswerError",
+    "ProgVerifyError",
     "UsbSerialUnavailableError",
     "UsbSerialBusyError",
     "UsbCheckRefusedError",

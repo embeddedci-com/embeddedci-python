@@ -344,6 +344,14 @@ def _is_esp_target(target: str) -> bool:
     return bool(re.fullmatch(r"esp32(-?(s2|s3|c2|c3|c5|c6|h2|p4))?", str(target).strip().lower()))
 
 
+#: ``flash(target=...)`` names for chips with their own programming pins (the SDK's prog.TARGETS).
+_PROG_TARGETS = frozenset({"avr-updi", "updi", "pic", "efm8", "c2", "attiny-tpi", "tpi", "xmega", "pdi"})
+
+
+def _is_prog_target(target: str) -> bool:
+    return str(target).strip().lower() in _PROG_TARGETS
+
+
 def _channel(pod: Any, value: Any, key: str) -> int:
     """Like :func:`_la`, but an omitted channel comes from the profile's ``key`` role."""
     if value is not None:
@@ -1089,11 +1097,16 @@ async def flash(
     target: Annotated[str, Field(description=(
         "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. "
         "'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM "
-        "bootloader instead of SWD."))] = "",
+        "bootloader instead of SWD. 'avr-updi' (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), 'pic' "
+        "(PIC16F1xxx, PIC16F18xxx, PIC18F Q), 'efm8' (Silicon Labs EFM8, C8051F), 'attiny-tpi' "
+        "(ATtiny4/5/9/10/20/40/102/104) and 'xmega' flash a chip over its own programming pins "
+        "instead (updi, pic, c2, tpi and pdi work too)."))] = "",
     file: Annotated[str, Field(description=(
         "Firmware image path on the machine running this server. Leave empty to flash an uploaded "
         "build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool "
-        "merge_bin) or an ESP-IDF build/flasher_args.json."))] = "",
+        "merge_bin) or an ESP-IDF build/flasher_args.json. For avr-updi, pic, efm8, attiny-tpi and "
+        "xmega: a .hex, .elf or .bin (a .bin goes at load_address into the flash). Empty is fine "
+        "with dry_run."))] = "",
     nreset: Annotated[Optional[bool], Field(description=(
         "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
         "Omit for the profile's swd_nreset."))] = None,
@@ -1129,6 +1142,27 @@ async def flash(
     boot: Annotated[Optional[LaRef], Field(description=(
         "ESP32 only: LA channel (or wiring name) wired to the target's IO0 (IO9 on the C3/C6); "
         "omit for a profile signal named BOOT, IO0 or IO9."))] = None,
+    device: Annotated[str, Field(description=(
+        "avr-updi, pic, efm8, attiny-tpi, xmega: the chip, e.g. 'ATtiny1616' or 'PIC16F18446'. "
+        "Omit: the chip's ID identifies it. Given, the ID must match."))] = "",
+    clk: Annotated[Optional[LaRef], Field(description=(
+        "pic, efm8, attiny-tpi, xmega: LA channel (or wiring name) wired to the chip's clock "
+        "(ICSPCLK, C2CK, TPICLK, PDI_CLK); omit for a profile signal of that name, else swd_swclk."))] = None,
+    data: Annotated[Optional[LaRef], Field(description=(
+        "avr-updi, pic, efm8, attiny-tpi, xmega: LA channel (or wiring name) wired to the chip's "
+        "data pin (UPDI, ICSPDAT, C2D, TPIDATA, PDI_DATA); omit for a profile signal of that name, "
+        "else swd_swdio."))] = None,
+    reset_pin: Annotated[Optional[LaRef], Field(description=(
+        "pic and attiny-tpi: LA channel (or wiring name) wired to the chip's reset (MCLR, RESET), "
+        "driven open drain; omit for the pod's reset pin (nreset) or a profile signal named MCLR "
+        "or RESET."))] = None,
+    erase: Annotated[Literal["chip", "page", "none"], Field(description=(
+        "avr-updi, pic, efm8, attiny-tpi, xmega: 'chip' (default, before the first write when the "
+        "image has flash; also unlocks a locked chip), 'page' (only the pages written; TPI chips "
+        "erase their whole code section) or 'none'."))] = "chip",
+    dry_run: Annotated[bool, Field(description=(
+        "avr-updi, pic, efm8, attiny-tpi, xmega: only enter programming mode and read the chip's "
+        "ID (a wiring test): stdout_tail names the chip, nothing is written."))] = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
     """Program the DUT over SWD or JTAG through the pod's CMSIS-DAP probe.
@@ -1152,6 +1186,21 @@ async def flash(
     (`nreset`); `file` is a .bin written at `load_address` (default 0) or an ESP-IDF
     flasher_args.json. No OpenOCD or esptool needed; works over the cloud too. stdout_tail names
     the chip and each region written; `reset` false leaves the target in its loader.
+
+    A chip with its own programming pins and no SWD, JTAG or bootloader is flashed by the pod:
+    target 'avr-updi' (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD, one pin), 'pic' (PIC16F1xxx,
+    PIC16F18xxx, PIC18F Q-series, low-voltage entry), 'efm8' (Silicon Labs EFM8 and C8051F, C2),
+    'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104) or 'xmega' (XMEGA, PDI). `file` is a .hex, .elf or
+    .bin; the tool reads the chip's ID, finds it in its device table, cuts the image into the
+    chip's memories (flash, EEPROM, fuses or configuration words, user row or user ID) at their
+    usual hex addresses and writes and reads back each page. Pins come from `clk`, `data` and
+    `reset_pin`, else from wiring-profile signals named for the protocol (ICSPCLK, C2CK, UPDI, ...),
+    else the profile's swd_swclk and swd_swdio; pic and attiny-tpi also use the pod's reset pin
+    (`nreset`, the default) for MCLR or RESET. `erase` is 'chip' by default; `dry_run` only reads
+    the chip's ID (check the wiring first). ATtiny4/5/9/10/20/40 need 5 V, which the pod's 1.8 and
+    3.3 V I/O cannot give: the call fails before anything is written. A failure is ok=false with
+    stderr_tail saying what to check (wiring, power, locked chip: erase 'chip' unlocks it). Needs
+    firmware with the `prog_flash` feature and the xip_prog blob (`benchpod install-blobs`).
     """
     from_build = {k: v for k, v in (("build", build), ("repo", repo), ("ref", ref),
                                     ("artifact", artifact)) if v}
@@ -1160,6 +1209,23 @@ async def flash(
 
     def op() -> m.FlashResult:
         pod = SESSION.require()
+        if _is_prog_target(target):
+            if from_build:
+                raise ValueError(f"{target} is flashed from a file (a .hex, .elf or .bin), not an "
+                                 "uploaded build")
+            if "dry_run" not in inspect.signature(type(pod).flash).parameters:
+                raise ValueError(f"flashing with target {target} needs a newer embeddedci SDK; "
+                                 "upgrade embeddedci")
+            r = pod.flash(target=target, file=file, load_address=load_address, nreset=nreset,
+                          reset=reset, check=False, target_power=target_power, device=device,
+                          clk=None if clk is None else _la(pod, clk),
+                          data=None if data is None else _la(pod, data),
+                          reset_pin=None if reset_pin is None else _la(pod, reset_pin),
+                          erase=erase, dry_run=dry_run)
+            return m.FlashResult(ok=r.ok, returncode=r.returncode,
+                                 target_unreachable=r.target_unreachable, stalled=False,
+                                 stdout_tail=clip(r.stdout, 4000)[-4000:],
+                                 stderr_tail=clip(r.stderr, 4000)[-4000:])
         if _is_esp_target(target or pod.wiring.swd_target):
             if from_build:
                 raise ValueError("an ESP32 target is flashed from a file (a .bin or "

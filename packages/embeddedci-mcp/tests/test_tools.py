@@ -399,6 +399,62 @@ def test_flash_an_esp32_target(connected, monkeypatch):
     assert result["ok"] is True and "ESP32-S3" in result["stdout_tail"]
 
 
+@pytest.mark.skipif("dry_run" not in inspect.signature(BenchPod.flash).parameters,
+                    reason="needs embeddedci with the pin-programmer flash targets")
+@pytest.mark.parametrize("target", ["avr-updi", "pic", "efm8", "attiny-tpi", "xmega", "updi", "c2", "tpi", "pdi"])
+def test_flash_a_pin_programmer_target(connected, monkeypatch, target):
+    seen = {}
+
+    def fake_flash(**kwargs):
+        seen.update(kwargs)
+        return FlashResult(ok=True, returncode=0, stdout="ATtiny1616 (AVR UPDI), ID 1e9421\nflash at 0x0: 128 bytes",
+                           stderr="")
+
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    result = call("flash", target=target, file="build/app.hex", device="ATtiny1616", clk=3, data=4,
+                  reset_pin=5, erase="page", reset=False, dry_run=True, target_power=1)
+    assert seen["target"] == target and seen["file"] == "build/app.hex"
+    assert (seen["device"], seen["clk"], seen["data"], seen["reset_pin"]) == ("ATtiny1616", 3, 4, 5)
+    assert seen["erase"] == "page" and seen["dry_run"] is True and seen["reset"] is False
+    assert seen["check"] is False and seen["target_power"] == 1
+    assert "swclk" not in seen and "build" not in seen and "tck" not in seen
+    assert result["ok"] is True and "ATtiny1616" in result["stdout_tail"]
+
+
+@pytest.mark.skipif("dry_run" not in inspect.signature(BenchPod.flash).parameters,
+                    reason="needs embeddedci with the pin-programmer flash targets")
+def test_pin_programmer_defaults_and_failures(connected, monkeypatch):
+    seen = {}
+
+    def fake_flash(**kwargs):
+        seen.update(kwargs)
+        return FlashResult(ok=False, returncode=1, stdout="", target_unreachable=True,
+                           stderr="avr-updi flash failed: no answer\nthe chip did not answer. Check the wiring")
+
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    result = call("flash", target="avr-updi", file="app.hex")
+    assert seen["clk"] is None and seen["data"] is None and seen["reset_pin"] is None
+    assert seen["erase"] == "chip" and seen["dry_run"] is False and seen["device"] == ""
+    assert result["ok"] is False and result["target_unreachable"] is True
+    assert "Check the wiring" in result["stderr_tail"]
+
+
+def test_pin_programmer_target_names_match_the_sdk():
+    from embeddedci_mcp import server
+    try:
+        from embeddedci.benchpod import prog
+    except ImportError:
+        pytest.skip("needs embeddedci with the pin-programmer flash targets")
+    assert server._PROG_TARGETS == frozenset(prog.TARGETS)
+
+
+def test_pin_programmer_refuses_a_build(connected):
+    if "dry_run" not in inspect.signature(BenchPod.flash).parameters:
+        pytest.skip("needs embeddedci with the pin-programmer flash targets")
+    with pytest.raises(Exception, match="not an uploaded build"):
+        call("flash", target="avr-updi", build="latest")
+
+
 # -- USB host mode and USB flashing ------------------------------------------------------
 
 _USB_IFACE = {"number": 0, "alt": 0, "class": 8, "class_name": "msc", "subclass": 6, "protocol": 80,

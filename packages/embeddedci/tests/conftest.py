@@ -23,6 +23,9 @@ def pytest_configure(config):
         "LA channels and the like, e2e/e2e_bench.py NEEDS); it skips when the bench sets them to "
         "'none'")
     config.addinivalue_line(
+        "markers", "prog: the e2e test flashes a chip over its programming pins (UPDI, PIC, C2, TPI, "
+        "PDI; needs BENCHPOD_E2E_PROG and firmware with the prog_flash feature, else it skips)")
+    config.addinivalue_line(
         "markers", "firmware_3: the test's fake pod is firmware 3.x on purpose (no api in its "
         "status): conftest does not read it as firmware 4.0")
 
