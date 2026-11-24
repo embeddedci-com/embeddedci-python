@@ -18,7 +18,7 @@ import os
 
 import pytest
 
-from embeddedci.benchpod import FirmwareError, PinConflictError
+from embeddedci.benchpod import FirmwareError, FpgaImage, PinConflictError
 
 pytestmark = pytest.mark.hardware
 
@@ -31,6 +31,12 @@ def spi_pins(pod, bench):
         pytest.skip("set BENCHPOD_E2E_SPI=sck,mosi,miso,cs to run the SPI flash tier")
     if not pod.capabilities.spi_master:
         pytest.skip("the pod has no SPI master (gateware v45+, capability spi_master)")
+    # The sensor tests before this module leave the emulation image loaded, which has no SPI
+    # master from gateware v65: stop the sensors and go back to the loop image.
+    if pod.has_bus_masters() is False:
+        if pod.supports("sensors"):
+            pod.sensors.stop()
+        pod.fpga_image(FpgaImage.LOOP)
     sck, mosi, miso, cs = bench.spi
     return dict(sck=sck, mosi=mosi, miso=miso, cs=cs)
 
