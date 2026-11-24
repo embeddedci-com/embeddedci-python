@@ -1,8 +1,8 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 4.0.4
 
-For BenchPod firmware with the `prog_flash` feature (features table revision 17).
+For BenchPod firmware 4.0.4 (features table revision 17).
 
 - **Flash chips over their own programming pins.** `bp.flash(target=..., file=...)` now takes
   `avr-updi` (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), `pic` (PIC16F1xxx, PIC16F18xxx, PIC18F
