@@ -133,6 +133,9 @@ class ProgDevice:
     vnote: str = ""
     aliases: Tuple[str, ...] = ()
     notes: str = ""
+    #: The chip writes fewer words than it erases (PIC16F1827 and 193x: 8 latches, 32-word rows), so
+    #: a page erase of a part of a row would erase its neighbours: only ``erase="chip"`` is allowed.
+    chip_erase_only: bool = False
 
     def matches_id(self, chip_id: str) -> bool:
         """Whether ``chip_id`` (the pod's ``status.id`` hex) is this chip's. The table's ``id`` is
@@ -201,7 +204,8 @@ def _device(raw: Mapping[str, Any], proto: str) -> ProgDevice:
         mem=mems, opts={k: int(v) for k, v in (raw.get("opts") or {}).items()},
         vmin_mv=int(raw.get("vmin_mv", 0)), vmax_mv=int(raw.get("vmax_mv", 0)),
         erase_vmin_mv=int(raw.get("erase_vmin_mv", 0)), vnote=str(raw.get("vnote", "")),
-        aliases=tuple(raw.get("aliases", ())), notes=str(raw.get("notes", "")))
+        aliases=tuple(raw.get("aliases", ())), notes=str(raw.get("notes", "")),
+        chip_erase_only=bool(raw.get("chip_erase_only", False)))
 
 
 @lru_cache(maxsize=None)
@@ -263,6 +267,15 @@ def find_device(proto: str, *, chip_id: str = "", name: str = "") -> ProgDevice:
             f"ID {chip_id} fits {', '.join(d.name for d in found)}, which differ: pass device= with "
             "the one on the board", result="ambiguous chip")
     return first
+
+
+def check_erase(dev: ProgDevice, erase: str) -> None:
+    """Refuse ``erase="page"`` on a chip that can only be chip-erased. Raises :class:`ProgDeviceError`."""
+    if dev.chip_erase_only and erase == "page":
+        raise ProgDeviceError(
+            f"the {dev.name} erases 32-word rows but writes 8 words at a time, so erasing single pages "
+            "would wipe their neighbours: use erase=\"chip\" (the default) or erase=\"none\" on an "
+            "erased chip", result="erase mode")
 
 
 def check_voltage(dev: ProgDevice, volts: Optional[float], *, erase: str = "none") -> None:

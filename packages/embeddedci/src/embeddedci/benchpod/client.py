@@ -2213,6 +2213,8 @@ class BenchPod:
         dev = _prog.find_device(proto, chip_id=chip_id, name=device)
         lines = [f"{dev.name} ({fam.title}), ID {chip_id}"]
         _prog.check_voltage(dev, volts, erase=erase if file else "none")
+        if file:
+            _prog.check_erase(dev, erase)
         if dry_run:
             lines.append("dry run: nothing was written")
             return FlashResult(ok=True, returncode=0, stdout="\n".join(lines), stderr="")

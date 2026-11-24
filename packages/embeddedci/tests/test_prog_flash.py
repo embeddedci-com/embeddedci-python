@@ -180,8 +180,9 @@ def test_table_entries_are_consistent():
                 assert m.size > 0 and m.page > 0 and m.addr >= 0 and m.hex >= 0, (d.name, name)
                 assert m.size <= 0x400000, (d.name, name)
                 if name == "flash":
-                    assert m.size % m.page == 0, d.name
-                    assert m.align == m.page or proto == "c2", d.name
+                    if proto != "c2":   # C2 flash stops below the lock byte
+                        assert m.size % m.page == 0, d.name
+                        assert m.align % m.page == 0 or m.page % m.align == 0, d.name
                 spans.append((m.hex, m.hex + m.size * m.stride, name))
             spans.sort()
             for (a0, a1, n0), (b0, _b1, n1) in zip(spans, spans[1:]):
@@ -516,7 +517,7 @@ def test_flash_unknown_chip_wrong_device_and_ambiguous(tmp_path):
         make_pod(FakePod(chip_id="1effff")).flash(target="avr-updi", file=f)
     with pytest.raises(prog.ProgDeviceError, match="not a ATtiny1614"):
         make_pod(FakePod()).flash(target="avr-updi", file=f, device="ATtiny1614")
-    with pytest.raises(prog.ProgDeviceError, match="is not in the AVR UPDI table"):
+    with pytest.raises(prog.ProgDeviceError, match="not in the AVR UPDI"):
         make_pod(FakePod()).flash(target="avr-updi", file=f, device="ATtiny0")
     pod = FakePod()
     with pytest.raises(FlashError):
@@ -705,3 +706,78 @@ def test_table_json_is_valid_and_documented():
     import pathlib
     readme = pathlib.Path(prog.__file__).with_name("prog_devices.README.md")
     assert readme.exists() and "prog_devices.json" in readme.read_text()
+
+
+# -- PIC and C2 ------------------------------------------------------------------------------
+
+def test_pic_ids_and_flags():
+    pic = prog.families()["pic"]
+    d = prog.find_device("pic", chip_id="a4000102")        # PIC16F1847: DEV<8:0> of the packed word, then REV
+    assert d.name == "PIC16F1847" and d.expect_id == "a400"
+    assert d.opts["flags"] & 4 and (d.opts["flags"] >> 8) & 15 == 7 and d.opts["baud"] == 0x1000E
+    f18 = prog.find_device("pic", chip_id="d430")          # PIC16F18446: separate 8-bit set
+    assert f18.name == "PIC16F18446" and f18.opts["flags"] == 1 and f18.opts["baud"] == 0x800B * 2
+    q = prog.find_device("pic", name="PIC18F27Q43")
+    assert q.id == "8074" and q.opts["flags"] == 3 and q.opts["baud"] == 0x300009
+    assert q.mem["eeprom"].addr == 0x380000 == q.mem["eeprom"].hex
+    q10 = prog.find_device("pic", name="PIC18F26Q10")
+    assert q10.opts["flags"] == 3 | 16 and q10.erase_vmin_mv == 1900
+    six = prog.find_device("pic", name="PIC16F18313")
+    assert six.opts["flags"] & 1 == 0 and six.opts["flags"] & 32       # the 6-bit set, separate REVID
+    assert prog.find_device("pic", name="PIC16LF1847").id != d.id      # LF parts have their own IDs
+    assert len({x.id for x in pic.devices}) == len(pic.devices)
+
+
+def test_pic_split_config_user_and_chip_erase_only(tmp_path):
+    dev = prog.find_device("pic", name="PIC16F1847")
+    regions, _ = prog.split_regions(
+        [(0, b"\x01\x02" * 40), (0x1000E, b"\xff\x3f\xff\x3f"), (0x10000, b"\x01\x00")], dev)
+    assert [(r.mem, r.addr, len(r.data)) for r in regions] == [
+        ("flash", 0, 128), ("user", 0x10000, 2), ("config", 0x1000E, 4)]
+    low = prog.find_device("pic", name="PIC16F1827")
+    assert low.chip_erase_only
+    with pytest.raises(prog.ProgDeviceError, match='erase="chip"'):
+        prog.check_erase(low, "page")
+    prog.check_erase(low, "chip")
+    prog.check_erase(dev, "page")
+    pod = FakePod(chip_id="3d01")
+    pod.mv = 3300
+    f = write(tmp_path, "p.hex", ihex((0, b"\x01" * 4)))
+    with pytest.raises(prog.ProgDeviceError, match="wipe their neighbours"):
+        make_pod(pod).flash(target="pic", file=f, device="PIC16F1827", erase="page", clk=3, data=4)
+
+
+def test_pic_flash_flow_sends_flags_and_cp_address(tmp_path):
+    pod = FakePod(chip_id="a400")
+    pod.mv = 3300
+    f = write(tmp_path, "p.hex", ihex((0, b"\x01\x02" * 8), (0x1000E, b"\xff\x3f\xff\x3f")))
+    assert make_pod(pod).flash(target="pic", file=f, clk=3, data=4).ok
+    s0, s1 = pod.starts()
+    assert s0["flags"] == 4 | (7 << 8) and s0["baud"] == 0x1000E and s0["reset"] == "nrst"
+    assert (s0["mem"], s0["page"], s0["erase"]) == ("flash", 64, "chip")
+    assert (s1["mem"], s1["addr"], s1["len"], s1["erase"]) == ("config", 0x1000E, 4, "none")
+
+
+def test_pic_chip_erase_below_brownout_is_refused(tmp_path):
+    pod = FakePod(chip_id="8071")      # PIC18F26Q10: programs at 1.8 V, its bulk erase needs 1.9 V
+    pod.mv = 1800
+    f = write(tmp_path, "p.hex", ihex((0, b"\x01\x02")))
+    with pytest.raises(prog.ProgDeviceError, match="chip erase needs the supply above 1.9 V"):
+        make_pod(pod).flash(target="pic", file=f, clk=3, data=4)
+    assert make_pod(pod).flash(target="pic", file=f, clk=3, data=4, erase="none").ok
+
+
+def test_c2_family_never_writes_the_lock_byte(tmp_path):
+    bb1 = prog.find_device("c2", name="EFM8BB10F8G")
+    assert bb1.mem["flash"].size == 0x1FFF
+    with pytest.raises(prog.ProgDeviceError, match="not in any memory"):
+        prog.split_regions([(0x1FFF, b"\x00")], bb1)
+    with pytest.raises(prog.ProgDeviceError, match="differ: pass device="):
+        prog.find_device("c2", chip_id="3001")             # BB1 F8G, F4G and F2G share ID 0x30
+    regions, _ = prog.split_regions([(0, b"\x01" * 600)], bb1)
+    assert [(r.addr, len(r.data), r.page) for r in regions] == [(0, 600, 512)]
+    pod = FakePod(chip_id="300201")
+    f = write(tmp_path, "c.hex", ihex((0, b"\x01" * 600)))
+    assert make_pod(pod).flash(target="efm8", file=f, clk=3, data=4, device="EFM8BB10F8G").ok
+    st = pod.starts()[0]
+    assert st["proto"] == "c2" and st["expect_id"] == "30" and "flags" not in st and "reset" not in st

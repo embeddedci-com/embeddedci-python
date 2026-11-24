@@ -93,6 +93,67 @@ cross-check, that is said. Nothing here was run on hardware yet.
 * Voltage: 1.8 to 3.6 V as the table says; the pod's 3.3 V is fine, 1.8 V works when BODLEVEL is
   below VCC (datasheet), which the chip's fuses decide.
 
-### PIC (`pic`) and Silicon Labs C2 (`c2`)
+### PIC (`pic`)
 
-See the sections below.
+Every value was read from Microchip's memory programming specifications (not from memory); most PDFs
+came from third-party mirrors, none was cross-checked against an MPLAB DFP or gputils.
+
+| Family | Specification | Command set (`opts.flags`) |
+|---|---|---|
+| PIC16F150x | DS41573 | 6-bit, DEV in bits 13:5 of the word at 0x8006 |
+| PIC16F151x/152x | DS41442 | 6-bit, packed ID |
+| PIC16F170x | DS40001683 | 6-bit, separate REVID word (`id` is the whole DEVID word) |
+| PIC16F171x | DS40001714 | 6-bit, separate REVID word |
+| PIC16F182x, PIC16F1847 | DS41390 (182x), DS41439 (1847) | 6-bit, packed ID, data EEPROM |
+| PIC16F193x | DS41397 | 6-bit, packed ID, data EEPROM |
+| PIC16F183xx | DS40001738 | 6-bit (not the 8-bit set), separate REVID word |
+| PIC16F184xx | DS40001970 | 8-bit, MSb first |
+| PIC16F188xx | DS40001753 | 8-bit |
+| PIC18F Q10 | DS40001874 | 8-bit, byte PC, Q10 erase and config words |
+| PIC18F Q40 | DS40002185 | 8-bit, byte PC |
+| PIC18F Q43 | DS40002079 | 8-bit, byte PC |
+| PIC18F Q83, Q84 | DS40002137 | 8-bit, byte PC |
+
+The LF parts have their own device IDs and are separate entries. `flags` bit values are in
+`stm32h563/src/prog_pic.h` of benchpod-firmware. `opts.baud` is the byte address of the
+configuration word that holds the code-protect bit (the pod reads it to tell a locked chip), and bits
+8..11 of `flags` its bit number; the polarity is 0 = protected on every chip here.
+Addresses: flash, configuration words and user ID are the spec's absolute word address times 2
+(PIC16: word 0x8007 is 0x1000E, user ID 0x10000); PIC18 uses the spec's byte addresses (0x200000 user
+ID, 0x300000 configuration, 0x380000 EEPROM, 0x310000 on Q10). `hex` equals `addr` for all of them.
+
+`id` is what the pod reports in `status.id`: the device ID little endian (2 bytes); on the packed 6-bit
+chips DEV<8:0> (the DEVID word shifted right by 5) because the revision shares the word.
+
+Known gaps, so that nothing is written wrongly:
+
+* **No data EEPROM for PIC16F18xxx and the PIC16F1xxx that have one** (`notes` says so): where an
+  XC8 `.hex` puts it (0x1E000, two hex bytes per EEPROM byte on PIC16F1xxx per DS41439/41390/41397; not
+  stated for 184xx/188xx) is not verified, and a wrong layout would be written without any error.
+  PIC18 EEPROM (hex address = programming address, one byte each) is included.
+* **PIC16F1827 and PIC16F193x write 8 words per row but erase 32:** `chip_erase_only` is set and
+  `page` is the write size, so `erase="page"` is refused.
+* **PIC18F Q41, PIC16F150x/151x/152x/170x/171x high-endurance flash and calibration words** are not
+  covered. PIC18 Q43/Q83/Q84 user ID size is 32 bytes (the spec's range end is inconsistent: 0x20001F
+  or 0x20003F).
+* The LVP key bit order of the 6-bit chips follows the spec text (LSb first, 33 clocks); the firmware
+  review flagged the same, and it is the first thing to check on a first 6-bit chip.
+* `erase_vmin_mv`: bulk erase needs the supply above the chip's brown-out level (2.7 V on the 6-bit
+  chips and the F18 specs, about 1.9 V on Q10 and Q40, 2.85 V on Q43/Q83/Q84).
+
+### Silicon Labs C2 (`c2`)
+
+From the EFM8 reference manuals (BB1, BB2, SB1, SB2, UB1, UB2: Memory Map, Device Identification
+Registers, Security Options), read on a Keil-hosted mirror, and the BB1/BB2/UB2 datasheets (flash
+table: VPROG 2.2-3.6 V, UB2 2.7-3.6 V). AN127 itself could not be read (silabs.com refused the fetch), so
+its device table rows are second-hand.
+
+* Covered: EFM8BB1 (ID 0x30: BB10F8G, F4G, F2G), BB2 (0x32), SB1 (0x25), SB2 (0x16), UB1 (0x32), UB2
+  (0x28). Chips that share an ID differ in size, so the SDK asks for `device=` (BB1's three sizes, BB2
+  against UB1). The pod's derivative-ID read is not documented in the reference manuals, so the
+  derivative ID is not used.
+* `flash.size` stops below the flash lock byte (0x1FFF on an 8 KB BB1, 0xFBFF on 64 KB parts): the
+  lock byte, the lock page's neighbours and the reserved area are never written, and an image with data there is refused.
+  There is no `config` memory.
+* Not covered, because their IDs or maps could not be confirmed: EFM8BB3, LB1 (both read 0x34), UB3, and all C8051F parts.
+* FPDAT (0xB4, or 0xAD on EFM8UB2) is picked by the pod from the device ID; the table does not set it.
