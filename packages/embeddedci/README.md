@@ -652,6 +652,8 @@ nothing changes.
   `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources`, `dac_cotrig`, …). For the
   image-bound `dac_control_loop` and `dac_deep_replay` it switches the pod's gateware image instead
   of skipping, when the pod carries both images (see [Gateware images](#gateware-images)).
+  `spi_master` and `i2c_master` leave the emulation image (gateware v65+, no bus masters) for the
+  loop image, and skip while emulated sensors run.
   `benchpod_capability("analog")` skips only on the digital-only board (no DAC, ADC or 4-20 mA);
   firmware that does not announce the flag ran on analog boards only and counts as analog, like
   `BenchPod.can_analog`.
@@ -983,6 +985,12 @@ bp.flash(
 )
 ```
 
+SWD and JTAG flashing need the pod's bus masters, which the emulation image lacks from gateware v65
+(see [Gateware images](#gateware-images)): flash first, then start the sensors. With sensors
+already running, `flash()` raises `UnsupportedFeatureError` (`BP0059`: stop them with
+`bp.sensors.stop()` first); with none running the SDK switches the pod to the loop image itself
+(~3 s).
+
 By default a failed flash raises `FlashError` (or `TargetUnreachableError` when nothing answers on
 SWD) carrying OpenOCD's output. Pass `check=False` to get the `FlashResult` and assert yourself:
 
@@ -1285,7 +1293,10 @@ bp.usb_hid_capture(False)                            # stop and free the ring
 
 Pods with gateware v45+ (`bp.capabilities.spi_master`) run an SPI master on any four LA pins, up
 to 6 MHz, modes 0 and 3. Gateware v55+ also runs modes 1 and 2 (`open_spi(mode=1)`); on older
-gateware they raise `UnsupportedFeatureError` before anything is sent. Wire a 25-series SPI NOR flash (W25Q, MX25, GD25, ...) with its SCK, DI,
+gateware they raise `UnsupportedFeatureError` before anything is sent. From gateware v65 the
+emulation image has no SPI master: with emulated sensors running `open_spi()` and `spi_flash()`
+raise `UnsupportedFeatureError` (`BP0059`; stop the sensors first), with none running the SDK
+switches the pod to the loop image itself. Wire a 25-series SPI NOR flash (W25Q, MX25, GD25, ...) with its SCK, DI,
 DO and CS on LA channels (power it at the LA voltage, tie /WP and /HOLD high) and program it:
 
 ```python
@@ -1321,6 +1332,10 @@ on any two LA pins, 10 kHz to 1 MHz: read and write registers of a chip on the D
 the bus. The pins are open drain, so the bus needs pull-ups: the pod's own on LA1-LA6 (switch them
 on first; they pull to the LA voltage, at 1.8 V on firmware newer than 3.10.12), or the board's with
 `pullups="external"`.
+
+From gateware v65 the emulation image has no I2C master: with emulated sensors running `open_i2c()`
+raises `UnsupportedFeatureError` (`BP0059`; stop the sensors first), with none running the SDK
+switches the pod to the loop image itself.
 
 ```python
 from embeddedci.benchpod import I2CNackError
@@ -1730,7 +1745,10 @@ on the first EXT access and keeps it open; it closes it on its own before `flash
 `spi_flash()`, `open_i2c()`, `open_spi()` and `close()`, and opens it again when an EXT pin is next
 used. An `open_i2c()` session on the same two pins is used as it is, so the DUT and the expander
 share one bus; on other pins, or while an `open_spi()` session is open, EXT calls raise
-`ExpansionError` naming the session to close.
+`ExpansionError` naming the session to close. The expander runs on that engine, so from gateware v65
+it needs the loop or deep-replay image: `expansion()` and EXT access raise
+`UnsupportedFeatureError` (`BP0059`) while emulated sensors run, and switch the pod to the loop
+image when none do.
 
 `EXPANSION_CHIPS` lists every chip the SDK drives as `ExpansionChip` entries (`name`, `bus`,
 `pins` per chip, `la_pins` it uses, `addrs`, `voltages`, `directions`, `max_hz`, `since`,
@@ -2309,7 +2327,9 @@ holds the samples up to that point and `truncated` says why (`"busy"` or `"memor
 `capture_la(..., send=...)` (gateware v55+) runs one transaction right after the capture arms, in the
 same command, so a trigger on the bus line catches it. It works over the cloud too, which runs one
 command at a time. Trigger on the line the transaction starts with: SDA falling (I2C START), CS
-falling (SPI), or the GPIO pin's edge.
+falling (SPI), or the GPIO pin's edge. `send` with an I2C or SPI transaction needs the bus master
+the emulation image lacks from gateware v65: it raises `UnsupportedFeatureError` (`BP0059`) while
+emulated sensors run and switches to the loop image when none do.
 
 ```python
 from embeddedci.benchpod import GpioSend, I2CSend, SpiSend, Trigger
@@ -2455,6 +2475,18 @@ flag, `sensors_digital` set; `fpga_image` says which runs) they switch back when
 sensor runs and raise naming `bp.sensors.stop()` otherwise: the pod never switches back by itself.
 A pod that reports neither flag nor `sensors_digital` has a single image and is never switched.
 
+**Bus masters.** From gateware v65 the emulation image has no SWD, JTAG, SPI master or I2C master
+(they are in the loop and deep-replay images; before v65 every image has them).
+`bp.has_bus_masters()` says whether the running image does (`None` when the pod does not say).
+`flash()` over SWD or JTAG, `open_spi()`, `spi_flash()`, `open_i2c()`, `expansion()` and
+`capture_la(send=I2CSend/SpiSend)` check it first:
+
+* On the emulation image with no I2C, SPI or UART sensor running, the SDK switches the pod to the
+  loop image (logged, ~3 s) and goes on. The pod's firmware does the same.
+* With such a sensor running, they raise `UnsupportedFeatureError` (`BP0059`, `feature` names what
+  was asked for): `bp.sensors.stop()` first, or do the flash and the bus work before
+  `bp.sensors.start()`. Flashing first costs one image switch (the sensor start loads emulation).
+
 What a switch does:
 
 * It reprograms the FPGA from the pod's config flash and cold-boots it, which takes **~2-3 s**.
@@ -2469,7 +2501,9 @@ What a switch does:
 * The selection is written to the config flash, so the pod normally stays on that image after a
   power cycle.
 * In pytest, `@pytest.mark.benchpod_capability("dac_control_loop")` (or `"dac_deep_replay"`)
-  switches the image for the test instead of skipping it.
+  switches the image for the test instead of skipping it. `"spi_master"` and `"i2c_master"` switch
+  from the emulation image to the loop image (gateware v65+) and skip the test while emulated
+  sensors run.
 
 ## In-fabric DAC control loop
 
@@ -2863,7 +2897,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 
 | Area | Methods and properties |
 |---|---|
-| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
+| Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `has_bus_masters()` (the running gateware image has SWD, JTAG, the SPI and I2C masters: gateware before v65, or the loop and deep-replay images), `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | USB host and flashing | `usb_host(enable=True, *, port=None, timeout_s=60)`, `usb_host_status()`, `usb_wait_device(vid=None, pid=None, timeout=10)`, `usb_flash(file, *, address=None, name=None, leave=True, mode=None, port=None, timeout=None, device_timeout=10, progress=None, verify=False)`, `usb_flash_status()`, `usb_flash_abort()`, `usb_check(test, *, count=None, off_ms=None, timeout_ms=None, duration_ms=None, settle_ms=None, port=None, device_timeout=10, timeout=None, progress=None)`, `usb_check_status()`, `usb_check_abort()`, `usb_hid_interfaces()`, `usb_hid_capture(enable=True)`, `usb_hid_read(count=1, timeout=2.0, instance=None)` (see [USB host mode and USB flashing](#usb-host-mode-and-usb-flashing)) |

@@ -1,5 +1,16 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+For gateware v65 (features table revision 18): the emulation image has no SWD, JTAG, SPI master or I2C master.
+
+- `bp.has_bus_masters()` says whether the running image has them.
+- `flash()` over SWD or JTAG, `open_spi()`, `spi_flash()`, `open_i2c()`, `expansion()` and
+  `capture_la(send=I2CSend/SpiSend)` switch the pod from the emulation image to the loop image (logged,
+  about 3 s) when no I2C, SPI or UART sensor runs, and raise `UnsupportedFeatureError` (`BP0059`) while
+  one does: stop the sensors first, or flash before starting them.
+- The `benchpod_capability("spi_master")` and `("i2c_master")` markers do the same switch.
+
 ## 4.0.4
 
 For BenchPod firmware 4.0.4 (features table revision 17).
