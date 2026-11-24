@@ -14,15 +14,20 @@ When the lease is stopped from the web app the pod answers ``BP0026`` to anythin
 the session raises :class:`~embeddedci.benchpod.errors.PodLeaseLostError` once, stops tagging and
 renewing, and never takes the lease again.
 
+A process that ends without calling ``close()`` releases its leases at exit (``atexit``, and on
+SIGTERM when nothing else handles it), so the next client does not wait for the TTL.
+
 Several :class:`~embeddedci.benchpod.BenchPod` objects of one process on the same pod share one
 lease (a test opening its own pod next to the session's), so they never wait for each other.
 """
 
 from __future__ import annotations
 
+import atexit
 import getpass
 import logging
 import os
+import signal
 import socket
 import threading
 import time
@@ -43,6 +48,8 @@ HEARTBEAT_S = 40.0
 POLL_S = 2.0
 HOLDER_MAX = 40
 PURPOSE_MAX = 64
+#: Longest an exit-time release may take per lease (connect + reply), and for the heartbeat join.
+EXIT_RELEASE_TIMEOUT_S = 1.0
 
 _registry: Dict[str, "PodLease"] = {}
 _registry_lock = threading.Lock()
@@ -172,10 +179,19 @@ class PodLease:
 
     # -- acquire, heartbeat, release -------------------------------------------------------------
 
-    def _command(self, req: Dict[str, Any]) -> Any:
+    def _command(self, req: Dict[str, Any], timeout: Optional[float] = None) -> Any:
         """One ``lease_*`` command on its own connection."""
         transport = self._transport
-        sock = transport._dial(transport.timeout)
+        if timeout is None:
+            sock = transport._dial(transport.timeout)
+        else:
+            # Short budget (exit time): the connect retries for ``dial_timeout`` otherwise.
+            dial = transport.dial_timeout
+            transport.dial_timeout = min(dial, timeout)
+            try:
+                sock = transport._dial(timeout)
+            finally:
+                transport.dial_timeout = dial
         try:
             sock.sendall(encode_request(req))
             reply = parse_reply(transport._recv_line_exact(sock))
@@ -250,18 +266,61 @@ class PodLease:
             except PodLeaseLostError as lost:
                 self.pending_lost = lost
 
-    def release(self) -> None:
-        """Stop the heartbeat and free the lease (not a joined one). Never raises."""
+    def release(self, timeout: Optional[float] = None) -> None:
+        """Stop the heartbeat and free the lease (not a joined one). Never raises.
+        ``timeout`` (seconds) caps the heartbeat join and the release command."""
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=2.0 if timeout is None else timeout)
             self._thread = None
         if self.held and not self.joined and not self.lost and self._transport is not None:
             try:
-                self._command({"cmd": "lease_release", "id": self.lease_id})
+                self._command({"cmd": "lease_release", "id": self.lease_id}, timeout)
             except Exception as exc:  # noqa: BLE001 - best effort; it runs out on its own
                 _log.debug("pod lease release failed: %s", exc)
         self.held = False
+
+
+def release_all_at_exit() -> None:
+    """Release every lease this process still holds (not joined ones). Quick and never raises:
+    a dead transport or an unplugged pod costs at most ``EXIT_RELEASE_TIMEOUT_S`` per lease."""
+    try:
+        with _registry_lock:
+            leases = list(_registry.values())
+            _registry.clear()
+    except Exception:  # noqa: BLE001
+        return
+    for lease in leases:
+        try:
+            if lease.active and not lease.joined:
+                lease.release(timeout=EXIT_RELEASE_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 - never hang or fail interpreter exit
+            _log.debug("pod lease release at exit failed: %s", exc)
+
+
+_exit_hooks_installed = False
+
+
+def _on_sigterm(signum: int, frame: Any) -> None:
+    release_all_at_exit()
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)       # die of SIGTERM as before, so the exit status is unchanged
+
+
+def _install_exit_hooks() -> None:
+    """Once per process: the atexit release, and a SIGTERM release when SIGTERM still has its
+    default action (a handler the application installed is never replaced)."""
+    global _exit_hooks_installed
+    if _exit_hooks_installed:
+        return
+    _exit_hooks_installed = True
+    atexit.register(release_all_at_exit)
+    try:
+        if (threading.current_thread() is threading.main_thread()
+                and signal.getsignal(signal.SIGTERM) == signal.SIG_DFL):
+            signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError, AttributeError):
+        pass
 
 
 def lease_key(transport: Any) -> str:
@@ -300,6 +359,8 @@ def open_pod_lease(transport: Any, *, supported: bool, purpose: Optional[str], t
             return None
         lease._users = 1
         _registry[key] = lease
+        if not lease.joined:
+            _install_exit_hooks()
         transport.pod_lease = lease
         return lease
 

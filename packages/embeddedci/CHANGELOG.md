@@ -1,5 +1,14 @@
 # Changelog — `embeddedci`
 
+## 4.0.5
+
+- **The pod's lease is released when the process exits.** A script that ends without `close()` (for
+  example `bp = BenchPod(...); bp.generate(...)`) used to leave the pod's lease held for its full TTL,
+  so every other client got `BP0025` for about two minutes. An `atexit` hook now releases the leases
+  the process still holds (quick, best effort, never blocks exit), and so does SIGTERM when the
+  application has not installed its own handler. A lease joined from `BENCHPOD_LEASE` is still the
+  runner's and is not released.
+
 ## 4.0.4
 
 For BenchPod firmware 4.0.4 (features table revision 17).
