@@ -1,8 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 4.0.4
 
-For BenchPod firmware with the `prog_flash` feature; needs the matching embeddedci (the tool says so on an older SDK).
+For BenchPod firmware 4.0.4 (the `prog_flash` feature); needs the matching embeddedci (the tool says so on an older SDK).
 
 - **`flash` takes the pin-programmer targets** `avr-updi`, `pic`, `efm8`, `attiny-tpi` and `xmega`
   (`updi`, `c2`, `tpi` and `pdi` work too): the pod flashes AVR tinyAVR/megaAVR/DA/DB/DD, PIC16F1xxx,
