@@ -536,6 +536,17 @@ _FIXES = (
 )
 
 
+def direction_error(exc: Exception, pins: str) -> ProgFlashError:
+    """A refusal to drive a pin the wiring profile marks as a DUT output (``BP0034``), in words."""
+    la = getattr(exc, "la", 0)
+    return ProgFlashError(
+        f"the pod refused to drive LA{la or '?'}: the wiring profile marks it as an output of the "
+        f"chip ({pins}), and a programming pin is driven by the pod. If the pin is wired to the "
+        "chip's programming pin, mark it bidirectional (bp.la_dir(..., 'bidir') or the profile's "
+        "dut_dirs); otherwise fix the wiring (clk, data, reset_pin). The SDK does not override "
+        "pin directions.", result="direction conflict")
+
+
 def result_error(res: str, *, st: Mapping[str, Any], region: Optional[Region], proto: str,
                  pins: str, volts: str, id_hex: str) -> ProgFlashError:
     """The exception for a failed ``result`` of the pod's status."""
@@ -595,7 +606,7 @@ def start_request(proto: str, pins: Mapping[str, Any], *, region: Region, dev: P
                            "page": region.page, "erase": erase, "run": bool(run_after)}
     if dev.expect_id:
         req["expect_id"] = dev.expect_id
-    for key in ("flags", "baud"):
+    for key in ("flags", "cp_addr"):
         if dev.opts.get(key):
             req[key] = dev.opts[key]
     return req

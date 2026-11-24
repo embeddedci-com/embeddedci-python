@@ -1123,7 +1123,8 @@ bp.flash(target="efm8", file="build/app.hex", device="EFM8BB10F8G", erase="page"
 * A failure raises `ProgFlashError` (a `FlashError`) with `result` (the pod's outcome), `phase`,
   `mem`, `addr` and `at_addr`, and a message that says what to check: `ProgNoAnswerError` (also a
   `TargetUnreachableError`: wiring, power, I/O voltage, a programming pin disabled by fuses),
-  `ProgLockedError` (`erase="chip"` unlocks), `ProgVerifyError`, `ProgDeviceError` (chip not in the
+  `ProgLockedError` (`erase="chip"` unlocks), `ProgVerifyError`, a pin the wiring profile marks as a chip output
+  (the pod refuses to drive it, `BP0034`: mark it `bidir` with `la_dir` or fix the wiring; the SDK never overrides directions), `ProgDeviceError` (chip not in the
   table, not the `device` named, image does not fit, voltage). `check=False` returns the
   `FlashResult` instead.
 * Works over the LAN, USB and the cloud. Needs pod firmware with the `prog_flash` feature

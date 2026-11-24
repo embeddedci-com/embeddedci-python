@@ -714,11 +714,11 @@ def test_pic_ids_and_flags():
     pic = prog.families()["pic"]
     d = prog.find_device("pic", chip_id="a4000102")        # PIC16F1847: DEV<8:0> of the packed word, then REV
     assert d.name == "PIC16F1847" and d.expect_id == "a400"
-    assert d.opts["flags"] & 4 and (d.opts["flags"] >> 8) & 15 == 7 and d.opts["baud"] == 0x1000E
+    assert d.opts["flags"] & 4 and (d.opts["flags"] >> 8) & 15 == 7 and d.opts["cp_addr"] == 0x1000E
     f18 = prog.find_device("pic", chip_id="d430")          # PIC16F18446: separate 8-bit set
-    assert f18.name == "PIC16F18446" and f18.opts["flags"] == 1 and f18.opts["baud"] == 0x800B * 2
+    assert f18.name == "PIC16F18446" and f18.opts["flags"] == 1 and f18.opts["cp_addr"] == 0x800B * 2
     q = prog.find_device("pic", name="PIC18F27Q43")
-    assert q.id == "8074" and q.opts["flags"] == 3 and q.opts["baud"] == 0x300009
+    assert q.id == "8074" and q.opts["flags"] == 3 and q.opts["cp_addr"] == 0x300009
     assert q.mem["eeprom"].addr == 0x380000 == q.mem["eeprom"].hex
     q10 = prog.find_device("pic", name="PIC18F26Q10")
     assert q10.opts["flags"] == 3 | 16 and q10.erase_vmin_mv == 1900
@@ -753,7 +753,7 @@ def test_pic_flash_flow_sends_flags_and_cp_address(tmp_path):
     f = write(tmp_path, "p.hex", ihex((0, b"\x01\x02" * 8), (0x1000E, b"\xff\x3f\xff\x3f")))
     assert make_pod(pod).flash(target="pic", file=f, clk=3, data=4).ok
     s0, s1 = pod.starts()
-    assert s0["flags"] == 4 | (7 << 8) and s0["baud"] == 0x1000E and s0["reset"] == "nrst"
+    assert s0["flags"] == 4 | (7 << 8) and s0["cp_addr"] == 0x1000E and "baud" not in s0 and s0["reset"] == "nrst"
     assert (s0["mem"], s0["page"], s0["erase"]) == ("flash", 64, "chip")
     assert (s1["mem"], s1["addr"], s1["len"], s1["erase"]) == ("config", 0x1000E, 4, "none")
 
@@ -781,3 +781,21 @@ def test_c2_family_never_writes_the_lock_byte(tmp_path):
     assert make_pod(pod).flash(target="efm8", file=f, clk=3, data=4, device="EFM8BB10F8G").ok
     st = pod.starts()[0]
     assert st["proto"] == "c2" and st["expect_id"] == "30" and "flags" not in st and "reset" not in st
+
+
+def test_direction_conflict_becomes_a_message(tmp_path):
+    from embeddedci.benchpod.errors import DirectionConflictError
+
+    for when in ("info", "start"):
+        pod = FakePod()
+        orig = pod.command
+
+        def command(req, orig=orig, when=when, pod=pod):
+            if req.get("cmd") == "prog_flash" and req.get("op") == when:
+                raise DirectionConflictError("la_dut_output", cmd="prog_flash", la=12)
+            return orig(req)
+
+        pod.command = command
+        with pytest.raises(prog.ProgFlashError, match="LA12.*bidirectional.*fix the wiring") as ei:
+            make_pod(pod).flash(target="avr-updi", file=app_hex(tmp_path))
+        assert isinstance(ei.value.__cause__, DirectionConflictError)

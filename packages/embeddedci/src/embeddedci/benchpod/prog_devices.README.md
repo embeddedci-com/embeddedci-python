@@ -29,7 +29,7 @@ A device:
 | `id` | Hex bytes, in the order of the pod's `status.id`. `??` is a byte that varies (a revision). The ID is matched as a prefix of what the pod reports: the pod's `expect_id` is `id` up to its first `??`. |
 | `family` | Free text, for messages. |
 | `mem` | The chip's memories, keys `flash`, `eeprom`, `config` (AVR fuses, PIC configuration words, C2 lock byte) and `user` (AVR user row, PIC user ID); each omitted when the chip has none or the pod cannot write it. |
-| `opts` | Extra fields of every `start` command: `flags` (protocol options) and `baud` (PIC: byte address of the configuration word that holds the code-protect bit). |
+| `opts` | Extra fields of every `start` command: `flags` (protocol options) and `cp_addr` (PIC only: the byte address, as `addr` counts, of the configuration word that holds the code-protect bit; the bit number is in `flags`). |
 | `vmin_mv`, `vmax_mv` | The supply range the chip can be programmed in, in millivolts, at the pod's I/O voltage (1800 or 3300). A chip whose `vmin_mv` is above the pod's voltage is refused with `vnote` as the reason. |
 | `erase_vmin_mv` | (optional) the supply the chip erase needs: below it the erase can be ignored, so a `chip` erase is refused. |
 | `vnote` | (optional) the voltage remark of the datasheet. |
@@ -115,7 +115,7 @@ came from third-party mirrors, none was cross-checked against an MPLAB DFP or gp
 | PIC18F Q83, Q84 | DS40002137 | 8-bit, byte PC |
 
 The LF parts have their own device IDs and are separate entries. `flags` bit values are in
-`stm32h563/src/prog_pic.h` of benchpod-firmware. `opts.baud` is the byte address of the
+`stm32h563/src/prog_pic.h` of benchpod-firmware. `opts.cp_addr` is the byte address of the
 configuration word that holds the code-protect bit (the pod reads it to tell a locked chip), and bits
 8..11 of `flags` its bit number; the polarity is 0 = protected on every chip here.
 Addresses: flash, configuration words and user ID are the spec's absolute word address times 2

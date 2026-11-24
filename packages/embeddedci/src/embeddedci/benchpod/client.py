@@ -104,7 +104,7 @@ from .constants import (
     coerce_pin,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, ClientTooOldError, FirmwareError, FirmwareTooOldError,
+from .errors import (BenchPodError, ClientTooOldError, DirectionConflictError, FirmwareError, FirmwareTooOldError,
                      FlashError, PullDirectionError, UnsupportedFeatureError,
                      UsbHostUnavailableError, UsbTimeout, classify_firmware_error, firmware_error)
 from .flash import FlashResult
@@ -2209,7 +2209,10 @@ class BenchPod:
         except BenchPodError:
             volts = None
         vtext = f"{volts:g} V" if volts else "not set"
-        chip_id = _prog.read_info(self.command, proto, pins, pin_text=pin_text, volts=vtext)
+        try:
+            chip_id = _prog.read_info(self.command, proto, pins, pin_text=pin_text, volts=vtext)
+        except DirectionConflictError as exc:
+            raise _prog.direction_error(exc, pin_text) from exc
         dev = _prog.find_device(proto, chip_id=chip_id, name=device)
         lines = [f"{dev.name} ({fam.title}), ID {chip_id}"]
         _prog.check_voltage(dev, volts, erase=erase if file else "none")
@@ -2222,8 +2225,11 @@ class BenchPod:
         if erase == "chip" and not any(r.mem == "flash" for r in regions):
             erase = "page"  # an image without flash must not wipe the chip's program
             notes.append("the image has no flash: no chip erase, only the pages written are erased")
-        r = _prog.run(self.command, stage, proto, dev, regions, pins=pins, erase=erase,
-                      run_after=run_after, pin_text=pin_text, volts=vtext, chip_id=chip_id)
+        try:
+            r = _prog.run(self.command, stage, proto, dev, regions, pins=pins, erase=erase,
+                          run_after=run_after, pin_text=pin_text, volts=vtext, chip_id=chip_id)
+        except DirectionConflictError as exc:
+            raise _prog.direction_error(exc, pin_text) from exc
         lines += [f"{g.mem} at 0x{g.addr:x}: {g.length} bytes written and verified in "
                   f"{g.seconds:.1f} s" for g in r.regions]
         lines += notes
