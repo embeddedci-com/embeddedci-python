@@ -1,5 +1,11 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- Tool descriptions and the server guide say that from gateware v65 the emulation image has no SWD,
+  JTAG, SPI master or I2C master: `flash`, `spi_*`, `i2c_*`, `expansion` and `capture_la` with `send`
+  switch to the loop image themselves when no sensor runs, and refuse (`BP0059`) while sensors run.
+
 ## 4.0.4
 
 For BenchPod firmware 4.0.4 (the `prog_flash` feature); needs the matching embeddedci (the tool says so on an older SDK).

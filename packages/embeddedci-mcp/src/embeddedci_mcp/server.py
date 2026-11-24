@@ -909,6 +909,8 @@ async def spi_flash_info(
 
     present=false means the ID read all 00 or all FF: nothing is answering (wiring, power, or /WP
     and /HOLD not tied high). The pins are released again afterwards.
+
+    Gateware v65+: the emulation image (loaded by sensor_start) has no SPI master. With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     def op() -> m.SpiFlashInfoResult:
         pod = SESSION.require()
@@ -941,6 +943,8 @@ async def spi_flash_program(
     25-series parts, first 16 MB. Throughput is roughly 30 KB/s over the LAN (erase is extra) and
     slower over the cloud. Fails with the pod's message when nothing answers, the part is
     write-protected, or a chunk does not verify.
+
+    Gateware v65+: the emulation image (loaded by sensor_start) has no SPI master. With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     def op() -> m.SpiFlashProgramResult:
         pod = SESSION.require()
@@ -996,6 +1000,8 @@ async def spi_transfer(
     """One full-duplex SPI transaction (CS asserted for all of tx) with any SPI device on the SPI pins.
 
     Returns what came back on MISO. The SPI master is armed for the call and released after it.
+
+    Gateware v65+: the emulation image (loaded by sensor_start) has no SPI master. With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     data = bytes.fromhex(tx_hex.replace(" ", ""))
     if not data or len(data) > 4096:
@@ -1025,6 +1031,8 @@ async def i2c_open(
     Then i2c_transfer, i2c_scan, or capture_la with send. SWD, SPI and I2C exclude each other.
     "i2c busy" means another connection (the desktop app, the web app, a script) holds the
     pod's I2C master: close it there.
+
+    Gateware v65+: the emulation image (loaded by sensor_start) has no I2C master. With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     def op() -> m.I2cSessionResult:
         pod = SESSION.require()
@@ -1173,6 +1181,12 @@ async def flash(
     OpenOCD configs, e.g. target/esp32.cfg); otherwise SWD. JTAG pins passed in the call mean JTAG,
     SWD pins passed mean SWD, else the profile's debug_port (swd or jtag) decides. JTAG needs the pod's `jtag` feature
     (newer firmware): without it the call fails before anything is armed.
+
+    Gateware v65+: SWD and JTAG are not in the emulation image (loaded by sensor_start). Flash
+    first, then start the sensors (one image switch). With no I2C/SPI/UART sensor running the pod
+    switches to the loop image by itself (~3 s); with sensors running the flash refuses (BP0059):
+    sensor_stop first. Flashing over UART or USB, or with the pod's own programming pins, switches
+    images on its own as before.
 
     Give either `file` (a path on this server's host) or an uploaded build (`build`, or
     `repo`/`ref` for the newest build of a branch). OpenOCD runs on this server's host, except for
@@ -2379,6 +2393,8 @@ async def expansion(
     EXT pins are not FPGA-timed: gpio_pulse, la_step, capture triggers and la_dir refuse them.
     The expander's bus closes on its own before flash, i2c_open and SPI tools; i2c_open on the same
     two pins shares the bus with it.
+
+    Gateware v65+: the emulation image (loaded by sensor_start) has no I2C or SPI master (the expander runs on it). With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     def op() -> m.ExpansionResult:
         pod = SESSION.require()
@@ -2643,6 +2659,10 @@ async def capture_la(
     sample_rate_hz goes up to 12 MS/s, or 48 MS/s on gateware v50+ (48, 24 or 16 MS/s); above
     12 MS/s a signal changing over ~6 million times per second for long stops early (truncated);
     retry at 12 MS/s.
+
+    send i2c or spi needs the pod's bus master, which the emulation image (gateware v65+) lacks:
+    with no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with
+    sensors running it refuses (BP0059): sensor_stop first, or capture before sensor_start.
     """
     def op() -> m.LaCaptureResult:
         pod = SESSION.require()
@@ -3316,6 +3336,10 @@ async def fpga_image(
     the emulation image once no I2C/SPI/UART sensor runs). The pod never switches back by itself,
     and refuses to leave the emulation image while I2C/SPI/UART sensors run (sensor_stop first).
     The switch resets the FPGA (any DAC output or UART session stops).
+
+    Gateware v65+: SWD, JTAG, the SPI master and the I2C master are not in the emulation image.
+    flash, spi_*, i2c_*, expansion and capture_la with send i2c/spi switch from it to the loop image
+    by themselves when no sensor runs, and refuse (BP0059) while sensors run.
     """
     img = {"loop": FpgaImage.LOOP, "deep_replay": FpgaImage.DEEP_REPLAY,
            "emulation": FpgaImage.EMULATION}[image]

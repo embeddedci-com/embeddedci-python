@@ -185,7 +185,7 @@ def fake_pod(monkeypatch):
             bp = BenchPod(transport=self.t, lease=False, wiring=Wiring(la_mv=3300, **wiring))
             monkeypatch.setattr(BenchPod, "supports", lambda s, f: jtag if f == "jtag" else False)
             monkeypatch.setattr(BenchPod, "capabilities",
-                                types.SimpleNamespace(firmware_version="3.10.0"))
+                                types.SimpleNamespace(firmware_version="3.10.0", gateware=64))
             return bp
 
         def flash(self, bp: BenchPod, **kw: Any) -> str:

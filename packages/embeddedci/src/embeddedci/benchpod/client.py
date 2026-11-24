@@ -188,6 +188,12 @@ _IMAGE_FLAG = {FpgaImage.LOOP: "dac_control_loop", FpgaImage.DEEP_REPLAY: "dac_d
                FpgaImage.EMULATION: "sensors_digital"}
 _IMAGE_FEATURE = {FpgaImage.LOOP: 0x01, FpgaImage.DEEP_REPLAY: 0x02, FpgaImage.EMULATION: 0x04}
 
+#: The first gateware whose emulation image has no bus masters (SWD, JTAG, SPI master, I2C
+#: master), and the FPGA_FEATURES bit that says an image has them (loop and deep do, emulation
+#: does not). Older gateware has them in every image.
+BUS_MASTERS_SPLIT_GATEWARE = 65
+_FEATURE_BUS_MASTERS = 0x20
+
 #: Pre-trigger samples a capture with a ``send`` keeps, so the decoder sees the first START (an
 #: edge trigger fires on that START itself; without them the first message is lost).
 _SEND_PRE_SAMPLES = 64
@@ -1986,6 +1992,7 @@ class BenchPod:
         target = target or self.wiring.swd_target
         power = coerce_efuse(target_power) if target_power is not None else None
         pins = self._flash_pins(swclk, swdio, tck, tms, tdi, tdo, trst, target)
+        self._ensure_bus_masters("JTAG" if pins["port"] == "jtag" else "SWD")
 
         art: Optional[Dict[str, Any]] = None
         tmpdir = ""
@@ -3212,6 +3219,7 @@ class BenchPod:
                    mode: int) -> _spi.SpiSession:
         """``spi_start`` on four resolved channels (open_spi, and an expander's own session)."""
         self._require_capability("spi_master", "the SPI master")
+        self._ensure_bus_masters("the SPI master")
         req = {"cmd": "spi_start", "sck": sck, "mosi": mosi, "miso": miso, "cs": cs,
                "clock_hz": int(hz), "mode": int(mode)}
         stage = getattr(self._transport, "stage_psram", None)
@@ -3257,6 +3265,7 @@ class BenchPod:
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= int(hz) <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
         self._require_gateware(BUS_MASTER_GATEWARE, "the I2C master")
+        self._ensure_bus_masters("the I2C master")
         req = {"cmd": "i2c_start", "sda": sda, "scl": scl, "clock_hz": int(hz), "pullups": pullups}
         if req["sda"] == req["scl"]:
             raise ValueError("sda and scl must be different LA pins")
@@ -3508,6 +3517,9 @@ class BenchPod:
             raise ValueError(f"send must be an I2CSend, SpiSend or GpioSend, got {send!r}")
         req = send.to_request()
         self._require_gateware(BUS_MASTER_GATEWARE, "send and capture")
+        if not isinstance(send, _i2c_master.GpioSend):
+            self._ensure_bus_masters("the I2C master" if isinstance(send, _i2c_master.I2CSend)
+                                     else "the SPI master")
         return req
 
     def capture_correlated(self, *, adc_samples: int = 4096,
@@ -3883,6 +3895,53 @@ class BenchPod:
                 f"switched the FPGA to the {image.name} image for {needed_for}, but the image that "
                 f"booted does not carry it (features=0x{info.features:02x})")
         self._wait_for_server_caps(flag)
+        return info
+
+    # -- bus masters (not in the emulation image from gateware v65) ------------
+
+    def has_bus_masters(self) -> Optional[bool]:
+        """Whether the running gateware image has the bus masters (SWD, JTAG, the SPI master and
+        the I2C master): always on gateware before v65; from v65 on the loop and deep-replay
+        images have them and the emulation image does not. ``None`` when the pod does not say."""
+        caps = self.capabilities
+        if 0 < caps.gateware < BUS_MASTERS_SPLIT_GATEWARE:
+            return True
+        if caps.gateware >= BUS_MASTERS_SPLIT_GATEWARE and caps.fpga_image in ("loop", "deep"):
+            return True
+        running = self._running_image()
+        if running is None or running.version <= 0:
+            return None
+        if running.version < BUS_MASTERS_SPLIT_GATEWARE:
+            return True
+        return bool(running.features & _FEATURE_BUS_MASTERS)
+
+    def _ensure_bus_masters(self, feature: str) -> Optional[FpgaImageInfo]:
+        """Before ``feature`` (``"SWD"``, ``"JTAG"``, ``"the SPI master"``, ``"the I2C master"``)
+        runs: make sure the running gateware image has the bus masters.
+
+        Nothing to do on gateware before v65 or on the loop and deep-replay images. On the
+        emulation image of gateware v65+ with digital sensors running, raises the
+        ``BP0059`` :class:`~embeddedci.benchpod.errors.UnsupportedFeatureError` (stop the sensors
+        first, or do this before starting them); with none running, switches the pod to the loop
+        image (~3 s, logged) and returns that switch's :class:`FpgaImageInfo`.
+        """
+        if self.has_bus_masters() is not False:
+            return None
+        digital = self.sensors.running_digital()
+        if digital:
+            from .errors import firmware_error
+
+            exc = firmware_error("", cmd=feature, code="BP0059",
+                                 values={"feature": feature, "image": "loop"})
+            exc.args = (f"{exc}; the emulated sensors running now are {', '.join(digital)} "
+                        f"(or do this before starting them)",)
+            raise exc
+        info = self._ensure_image(FpgaImage.LOOP, needed_for=feature, switch=True)
+        if info is None:   # a single-image pod: nothing to switch to
+            return None
+        if not info.features & _FEATURE_BUS_MASTERS and info.version >= BUS_MASTERS_SPLIT_GATEWARE:
+            raise BenchPodError(f"switched the FPGA to the loop image for {feature}, but the image "
+                                f"that booted has no bus masters (features=0x{info.features:02x})")
         return info
 
     def _running_image(self) -> Optional[FpgaImageInfo]:
@@ -4684,6 +4743,7 @@ class BenchPod:
                                      f"{info.name} addresses with addr=[...] instead")
                 n_chips = 1
                 addrs = self._expansion_addrs(info, addr if addr is not None else block.get("addr"))
+        self._ensure_bus_masters("the I2C master" if info.bus == "i2c" else "the SPI master")
         self._detach_expansion()
         new = _expansion.Expansion(self, info, addrs=addrs, count=n_chips, la=la_map,
                                    hz=hz_i, pullups=pull, names={})
