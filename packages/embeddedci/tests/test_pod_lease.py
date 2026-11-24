@@ -223,6 +223,33 @@ def test_takes_tags_every_request_and_releases(pod):
     assert pod.lease is None and not bp.leased
 
 
+def test_exit_hook_releases_active_lease_and_skips_joined(pod, monkeypatch):
+    bp = _open(pod)                       # never closed: the process "ends"
+    lid = pod.lease["id"]
+    pod_lease.release_all_at_exit()
+    assert pod.cmds()[-1] == "lease_release" and pod.log[-1]["id"] == lid
+    assert pod.lease is None and not pod_lease._registry
+    pod_lease.release_all_at_exit()       # twice is fine
+    assert pod.cmds().count("lease_release") == 1
+    bp.close()
+
+    monkeypatch.setenv("BENCHPOD_LEASE", "L-runner")
+    joined = _open(pod)
+    before = len(pod.log)
+    pod_lease.release_all_at_exit()
+    assert "lease_release" not in pod.cmds()[before:] and pod.lease["id"] == "L-runner"
+    joined.close()
+
+
+def test_exit_hook_survives_a_dead_transport(pod):
+    bp = _open(pod)
+    pod.close()                           # the pod went away
+    t0 = time.monotonic()
+    pod_lease.release_all_at_exit()       # must not raise or hang
+    assert time.monotonic() - t0 < 3.0 and not pod_lease._registry
+    bp.close()
+
+
 def test_busy_waits_then_raises_with_the_holder(pod):
     pod.hold("L-other", "benchpod ci: ward", "process-node-hil")
     with pytest.raises(PodLeasedError) as info:

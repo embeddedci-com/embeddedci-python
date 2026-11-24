@@ -137,6 +137,7 @@
     "get_la_voltage": "(self) -> 'LaVoltage'",
     "gpio": "(self, la: 'Union[Pin, int, str]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'GpioPin'",
     "gpio_pins": "(self, las: 'Sequence[Union[Pin, int, str]]', mode: 'GpioMode' = 'output', *, level: 'Optional[int]' = None) -> 'List[GpioPin]'",
+    "has_bus_masters": "(self) -> 'Optional[bool]'",
     "la_dir": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]], None]' = None, dir: 'Optional[str]' = None) -> 'List[LaPinState]'",
     "la_pins": "(self, la: 'Union[Pin, int, str, Sequence[Union[Pin, int, str]], None]' = None) -> 'List[LaPinState]'",
     "la_step": "(self, la: 'Union[Pin, int]', *, steps: 'int', delay: 'float', dir_la: 'Optional[Union[Pin, int]]' = None, direction: 'int' = 0) -> 'Dict[str, Any]'",

@@ -2,10 +2,25 @@
 
 ## 4.0.5
 
+For BenchPod firmware 4.0.5 (features table revision 18, gateware v66).
+
+- **The emulation image has no SWD, JTAG, SPI master or I2C master** (gateware v65).
+  - `bp.has_bus_masters()` says whether the running image has them.
+  - `flash()` over SWD or JTAG, `open_spi()`, `spi_flash()`, `open_i2c()`, `expansion()` and
+    `capture_la(send=I2CSend/SpiSend)` switch the pod from the emulation image to the loop image (logged,
+    about 3 s) when no I2C, SPI or UART sensor runs, and raise `UnsupportedFeatureError` (`BP0059`) while
+    one does: stop the sensors first, or flash before starting them.
+  - The `benchpod_capability("spi_master")` and `("i2c_master")` markers do the same switch.
 - **`bp.lowlevel.dac_set(code16=...)` holds a 16-bit DAC code** (0..65535). The 8-bit
   `dac_set(code)` still works. With `code16` the request also carries the 8-bit level, so firmware
   before 4.0.5 holds the nearest one.
 - `Capabilities.dac_bits` reads 16 from firmware 4.0.5 (it reported 8, the old generator depth).
+- **The pod's lease is released when the process exits.** A script that ends without `close()` (for
+  example `bp = BenchPod(...); bp.generate(...)`) used to leave the pod's lease held for its full TTL,
+  so every other client got `BP0025` for about two minutes. An `atexit` hook now releases the leases
+  the process still holds (quick, best effort, never blocks exit), and so does SIGTERM when the
+  application has not installed its own handler. A lease joined from `BENCHPOD_LEASE` is still the
+  runner's and is not released.
 
 ## 4.0.4
 
