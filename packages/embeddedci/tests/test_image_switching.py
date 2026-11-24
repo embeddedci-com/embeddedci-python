@@ -335,3 +335,83 @@ def test_esp_flash_on_the_deep_replay_image_does_not_switch(tmp_path, monkeypatc
     pod = EspImagePod(1)
     assert _flash_esp(pod, tmp_path).ok
     assert not any(c["cmd"] == "fpga_image" and "image" in c for c in pod.commands)
+
+
+# -- bus masters (gateware v65: not in the emulation image) --------------------------------
+
+class SplitPod(ImagePod):
+    """An ImagePod whose gateware is ``gateware``; from v65 only loop (0x29) and deep (0x2a)
+    have the bus masters (feature bit 0x20), emulation (0x04) does not."""
+
+    def __init__(self, image: int, gateware: int) -> None:
+        super().__init__(image=image)
+        self.gateware = gateware
+
+    def status(self) -> Dict[str, Any]:
+        return dict(super().status(), gateware=self.gateware)
+
+    def command(self, req: dict) -> Any:
+        if req["cmd"] == "fpga_image":
+            out = super().command(req)
+            if isinstance(out, dict):
+                loops = {0: 0x29, 1: 0x2A, 2: 0x04}
+                out = dict(out, version=self.gateware,
+                           features=loops[self.image] if self.gateware >= 65 else 1 << self.image)
+            return out
+        if req["cmd"] == "spi_start":
+            self.commands.append(req)
+            return {"active": True}
+        return super().command(req)
+
+
+def test_has_bus_masters_by_gateware_and_image():
+    assert _bp(SplitPod(2, 64)).has_bus_masters() is True
+    assert _bp(SplitPod(2, 65)).has_bus_masters() is False
+    assert _bp(SplitPod(0, 65)).has_bus_masters() is True
+    assert _bp(SplitPod(1, 65)).has_bus_masters() is True
+
+
+def test_bus_master_use_on_the_emulation_image_with_sensors_running_is_refused():
+    from embeddedci.benchpod.errors import UnsupportedFeatureError
+
+    pod = SplitPod(2, 65)
+    pod.sensors = [{"instance": "env", "kind": "i2c", "running": True}]
+    with pytest.raises(UnsupportedFeatureError, match=r"the SPI master.*env") as info:
+        _bp(pod)._ensure_bus_masters("the SPI master")
+    assert info.value.code == "BP0059" and info.value.feature == "the SPI master"
+    assert "bp.sensors.stop()" in str(info.value)
+    assert {"cmd": "fpga_image", "image": 0} not in pod.commands
+
+
+def test_bus_master_use_on_the_emulation_image_without_sensors_switches_to_loop_once(caplog):
+    pod = SplitPod(2, 65)
+    bp = _bp(pod)
+    with caplog.at_level(logging.WARNING, logger="embeddedci.benchpod"):
+        info = bp._ensure_bus_masters("SWD")
+        assert info is not None and info.image == FpgaImage.LOOP
+        assert bp._ensure_bus_masters("SWD") is None
+    assert pod.commands.count({"cmd": "fpga_image", "image": 0}) == 1
+    assert "switching the FPGA to the LOOP gateware image" in caplog.text
+
+
+def test_bus_master_use_on_the_loop_or_deep_image_does_nothing():
+    for image in (0, 1):
+        pod = SplitPod(image, 65)
+        assert _bp(pod)._ensure_bus_masters("SWD") is None
+        assert not [c for c in pod.commands if "image" in c]
+
+
+def test_bus_master_use_on_gateware_64_emulation_does_nothing():
+    pod = SplitPod(2, 64)
+    pod.sensors = [{"instance": "env", "kind": "i2c", "running": True}]
+    assert _bp(pod)._ensure_bus_masters("SWD") is None
+    assert not [c for c in pod.commands if "image" in c]
+
+
+def test_open_spi_switches_the_emulation_image_before_spi_start():
+    pod = SplitPod(2, 65)
+    bp = _bp(pod)
+    bp.open_spi(sck=1, mosi=2, miso=3, cs=4)
+    cmds = pod.cmds()
+    assert cmds.index("fpga_image") < cmds.index("spi_start")
+    assert {"cmd": "fpga_image", "image": 0} in pod.commands
