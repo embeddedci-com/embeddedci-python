@@ -243,13 +243,19 @@ def pytest_configure(config: "pytest.Config") -> None:
         "markers",
         "benchpod_capability(name): skip the test unless the connected device advertises the "
         "given capability (e.g. 'scope', 'analyzer', 'dac_replay'); 'dac_control_loop' and "
-        "'dac_deep_replay' switch the gateware image when the pod carries both; 'analog' skips "
+        "'dac_deep_replay' switch the gateware image when the pod carries both; 'spi_master' and "
+        "'i2c_master' switch from the emulation image to the loop image (gateware v65+: "
+        "it has no bus masters) and skip while emulated sensors run; 'analog' skips "
         "on the digital-only board (firmware that does not say counts as analog).",
     )
 
 
 #: Capabilities that come with one gateware image, and that image.
 _IMAGE_CAPABILITIES = {"dac_control_loop": "LOOP", "dac_deep_replay": "DEEP_REPLAY"}
+
+#: Capabilities that need the bus masters, which the emulation image lacks from gateware v65, and
+#: the name the SDK gives the feature in its refusal.
+_BUS_MASTER_CAPABILITIES = {"spi_master": "the SPI master", "i2c_master": "the I2C master"}
 
 
 @pytest.fixture(autouse=True)
@@ -261,6 +267,8 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
     ``benchpod`` device and skips on any capability it lacks — except an image-bound one
     (``dac_control_loop`` / ``dac_deep_replay``) on a pod that carries both gateware images, which
     is switched to the right image instead, as the SDK does for ``control_loop`` / ``replay``.
+    ``spi_master`` and ``i2c_master`` switch the emulation image (gateware v65+, no bus
+    masters) to the loop image, and skip when emulated sensors run.
     ``analog`` follows :attr:`BenchPod.can_analog`: only the digital-only board skips it.
     """
     if request.node.get_closest_marker("hardware") and not _resolve_connection(request.config):
@@ -279,6 +287,14 @@ def _benchpod_capability_gate(request: "pytest.FixtureRequest") -> None:
                     pytest.skip("digital-only board: no analog front end (DAC, ADC, 4-20 mA)")
                 continue
             if getattr(caps, name, False):
+                feature = _BUS_MASTER_CAPABILITIES.get(name)
+                if feature is not None:
+                    from .errors import UnsupportedFeatureError
+
+                    try:
+                        pod._ensure_bus_masters(feature)
+                    except UnsupportedFeatureError as exc:
+                        pytest.skip(f"{exc}")
                 continue
             image = _IMAGE_CAPABILITIES.get(name)
             if image is not None and (caps.dac_control_loop or caps.dac_deep_replay
