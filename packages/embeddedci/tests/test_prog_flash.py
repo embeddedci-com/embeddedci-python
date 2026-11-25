@@ -799,3 +799,55 @@ def test_direction_conflict_becomes_a_message(tmp_path):
         with pytest.raises(prog.ProgFlashError, match="LA12.*bidirectional.*fix the wiring") as ei:
             make_pod(pod).flash(target="avr-updi", file=app_hex(tmp_path))
         assert isinstance(ei.value.__cause__, DirectionConflictError)
+
+
+class StyleFakePod(FakePod):
+    """A PIC that only answers an ``info`` carrying its entry ``flags`` (as the 8-bit sets do)."""
+
+    def __init__(self, need_flags: int, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.need_flags = need_flags
+
+    def command(self, req: Dict[str, Any]) -> Any:
+        if req.get("cmd") == "prog_flash" and req.get("op") == "info":
+            ok = (req.get("flags", 0) & prog.PIC_ENTRY_MASK) == self.need_flags
+            self.info_result = "ok" if ok else "no answer (wiring, power or I/O voltage)"
+        return super().command(req)
+
+
+def test_pic_info_named_8bit_device_carries_flags():
+    pod = StyleFakePod(1, chip_id="d430")
+    pod.mv = 3300
+    res = make_pod(pod).flash(target="pic", device="PIC16F18446", dry_run=True, clk=3, data=4)
+    assert res.ok and "PIC16F18446" in res.stdout
+    (info,) = pod.infos()
+    assert info["flags"] == 1 and info["cp_addr"] == 0x800B * 2
+
+
+def test_pic_info_unnamed_tries_each_entry_style():
+    pod = StyleFakePod(1, chip_id="d430")
+    pod.mv = 3300
+    res = make_pod(pod).flash(target="pic", dry_run=True, clk=3, data=4)
+    assert res.ok and "PIC16F18446" in res.stdout
+    first, second = pod.infos()
+    assert "flags" not in first and second["flags"] == 1
+
+
+def test_pic_info_unnamed_q_series_and_nothing_answers():
+    pod = StyleFakePod(3, chip_id="8074")
+    pod.mv = 3300
+    assert make_pod(pod).flash(target="pic", dry_run=True, clk=3, data=4).ok
+    assert [i.get("flags", 0) for i in pod.infos()] == [0, 1, 3]
+    dead = StyleFakePod(0x7f, chip_id="8074")
+    dead.mv = 3300
+    with pytest.raises(prog.ProgNoAnswerError):
+        make_pod(dead).flash(target="pic", dry_run=True, clk=3, data=4)
+    assert len(dead.infos()) == len(prog.pic_entry_styles())
+
+
+def test_pic_info_6bit_chip_sends_no_flags():
+    pod = StyleFakePod(0, chip_id="a400")
+    pod.mv = 3300
+    assert make_pod(pod).flash(target="pic", dry_run=True, clk=3, data=4).ok
+    (info,) = pod.infos()
+    assert "flags" not in info and "cp_addr" not in info

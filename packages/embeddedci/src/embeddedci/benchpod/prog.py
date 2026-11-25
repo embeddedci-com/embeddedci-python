@@ -615,11 +615,18 @@ def start_request(proto: str, pins: Mapping[str, Any], *, region: Region, dev: P
 def read_info(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mapping[str, Any], *,
               poll_interval: float = POLL_INTERVAL, sleep: Callable[[float], None] = time.sleep,
               clock: Callable[[], float] = time.monotonic, pin_text: str = "",
-              volts: str = "") -> str:
+              volts: str = "", flags: int = 0, cp_addr: int = 0) -> str:
     """Enter programming mode and read the chip's ID (nothing is written): the pod's ``info``.
-    Returns the ID as hex. Raises :class:`ProgNoAnswerError` and the other
-    :class:`ProgFlashError` subclasses on a failure."""
-    command({"cmd": "prog_flash", "op": "info", "proto": proto, **pins})
+    Returns the ID as hex. ``flags`` and ``cp_addr`` are the device table's ``opts`` of the chip:
+    a PIC with the 8-bit command set (PIC16F18xxx, PIC18 Q) does not answer the 6-bit entry the pod
+    uses without them. Raises :class:`ProgNoAnswerError` and the other :class:`ProgFlashError`
+    subclasses on a failure."""
+    req: Dict[str, Any] = {"cmd": "prog_flash", "op": "info", "proto": proto, **pins}
+    if flags:
+        req["flags"] = flags
+    if cp_addr:
+        req["cp_addr"] = cp_addr
+    command(req)
     deadline = clock() + INFO_TIMEOUT
     while True:
         sleep(poll_interval)
@@ -636,6 +643,52 @@ def read_info(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mappin
     if res != "ok":
         raise result_error(res, st=st, region=None, proto=proto, pins=pin_text, volts=volts, id_hex=cid)
     return cid
+
+
+#: The PIC ``flags`` bits that change how the chip is entered and its ID read: SET8 (0), BYTEPC (1),
+#: Q10 (4), ID_SPLIT (5) and KEY_FLIP (6) of ``prog_pic.h``.
+PIC_ENTRY_MASK = 0x73
+
+
+def pic_entry_styles() -> List[int]:
+    """The distinct entry styles of the PIC table (its ``flags`` masked to :data:`PIC_ENTRY_MASK`),
+    the plain 6-bit command set (0) first."""
+    styles = {int(d.opts.get("flags", 0)) & PIC_ENTRY_MASK for d in families()["pic"].devices}
+    styles.add(0)
+    return sorted(styles)
+
+
+def identify(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mapping[str, Any], *,
+             name: str = "", **kw: Any) -> Tuple[str, ProgDevice]:
+    """Read the chip's ID and find it in the table: ``(id hex, device)``.
+
+    A PIC needs its entry style (``flags``) to answer at all. With a ``name`` the table's chip gives
+    it. Without one every style of the table is tried in turn until one answers and its ID is in
+    the table; the chip found must be of that style, else the ID is read again with its own
+    ``flags``. Other protocols read the ID once. Raises :class:`ProgFlashError`."""
+    if proto != "pic":
+        chip_id = read_info(command, proto, pins, **kw)
+        return chip_id, find_device(proto, chip_id=chip_id, name=name)
+    if name:
+        dev = find_device(proto, name=name)
+        chip_id = read_info(command, proto, pins, flags=int(dev.opts.get("flags", 0)),
+                            cp_addr=int(dev.opts.get("cp_addr", 0)), **kw)
+        return chip_id, find_device(proto, chip_id=chip_id, name=name)
+    first: Optional[ProgFlashError] = None
+    for style in pic_entry_styles():
+        try:
+            chip_id = read_info(command, proto, pins, flags=style, **kw)
+            dev = find_device(proto, chip_id=chip_id)
+        except (ProgNoAnswerError, ProgDeviceError) as exc:
+            first = first or exc
+            continue
+        if int(dev.opts.get("flags", 0)) & PIC_ENTRY_MASK != style:
+            chip_id = read_info(command, proto, pins, flags=int(dev.opts.get("flags", 0)),
+                                cp_addr=int(dev.opts.get("cp_addr", 0)), **kw)
+            dev = find_device(proto, chip_id=chip_id, name=dev.name)
+        return chip_id, dev
+    assert first is not None
+    raise first
 
 
 def run(
