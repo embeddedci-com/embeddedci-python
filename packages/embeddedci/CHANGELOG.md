@@ -2,7 +2,7 @@
 
 ## 4.0.5
 
-For BenchPod firmware 4.0.5 (features table revision 18, gateware v66).
+For BenchPod firmware 4.0.5 (features table revision 19, gateware v68).
 
 - **`bp.detect()` finds out which chip is wired to the pod.** It tries every probe the wiring
   profile makes possible and returns a `DetectResult` (`powered`, `findings`, `skipped`, `notes`,
