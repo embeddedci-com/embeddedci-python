@@ -2310,6 +2310,7 @@
                   "c2",
                   "tpi",
                   "pdi",
+                  "sbw",
                   "esp32",
                   "usb"
                 ],
@@ -2322,7 +2323,7 @@
             }
           ],
           "default": null,
-          "description": "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, esp32, usb. Omit for every probe the wiring profile makes possible. A named probe the profile does not wire is reported in skipped.",
+          "description": "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, sbw, esp32, usb. Omit for every probe the wiring profile makes possible. A named probe the profile does not wire is reported in skipped.",
           "title": "Methods"
         }
       },
