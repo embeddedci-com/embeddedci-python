@@ -2281,6 +2281,54 @@
       "type": "object"
     }
   },
+  "detect": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Detect the chip on the board"
+    },
+    "input": {
+      "properties": {
+        "invasive": {
+          "default": true,
+          "description": "true (default): also run the probes that reset the chip (programming-mode ID read, ESP32 ROM loader). false: only swd, jtag and usb, which never reset or write the chip.",
+          "title": "Invasive",
+          "type": "boolean"
+        },
+        "methods": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "swd",
+                  "jtag",
+                  "updi",
+                  "pic",
+                  "c2",
+                  "tpi",
+                  "pdi",
+                  "esp32",
+                  "usb"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, esp32, usb. Omit for every probe the wiring profile makes possible. A named probe the profile does not wire is reported in skipped.",
+          "title": "Methods"
+        }
+      },
+      "title": "detectArguments",
+      "type": "object"
+    }
+  },
   "disconnect": {
     "annotations": {
       "destructiveHint": false,
@@ -2626,7 +2674,7 @@
         },
         "dry_run": {
           "default": false,
-          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: only enter programming mode and read the chip's ID (a wiring test): stdout_tail names the chip, nothing is written.",
+          "description": "avr-updi, pic, efm8, attiny-tpi, xmega: only enter programming mode and read the chip's ID (a wiring test): stdout_tail names the chip, nothing is written. Other targets (SWD, JTAG, ESP32) have no dry run and refuse it: use the detect tool to read their IDs.",
           "title": "Dry Run",
           "type": "boolean"
         },

@@ -23,7 +23,7 @@ EXPECTED_TOOLS = {
     "measure_power", "power_profile_start", "power_profile_stop",
     "la_pins", "gpio_mode", "gpio_write", "gpio_read", "gpio_wait", "gpio_pulse", "gpio_release",
     "expansion",
-    "flash", "usb_host", "usb_flash", "usb_check", "usb_hid", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
+    "flash", "detect", "usb_host", "usb_flash", "usb_check", "usb_hid", "spi_flash_info", "spi_flash_program", "spi_flash_read", "spi_transfer",
     "i2c_open", "i2c_transfer", "i2c_scan", "i2c_close", "la_dir",
     "capture_uart", "power_cycle_and_capture", "uart_open", "uart_write", "uart_read", "uart_close",
     "sensor_library", "sensor_show", "sensor_format", "sensor_validate", "sensor_start",
@@ -437,6 +437,81 @@ def test_pin_programmer_defaults_and_failures(connected, monkeypatch):
     assert seen["erase"] == "chip" and seen["dry_run"] is False and seen["device"] == ""
     assert result["ok"] is False and result["target_unreachable"] is True
     assert "Check the wiring" in result["stderr_tail"]
+
+
+@pytest.mark.skipif("dry_run" not in inspect.signature(BenchPod.flash).parameters,
+                    reason="needs embeddedci with the pin-programmer flash targets")
+@pytest.mark.parametrize("kwargs", [
+    {"target": "target/stm32f4x.cfg", "file": "app.elf"},
+    {"target": "esp32s3", "file": "app.bin"},
+    {"file": "app.elf"},
+])
+def test_flash_dry_run_is_refused_outside_the_pin_programmers(connected, monkeypatch, kwargs):
+    def fake_flash(**kw):  # pragma: no cover - must not run
+        raise AssertionError("flash must not run for a dry run it cannot honor")
+
+    monkeypatch.setattr(SESSION.require(), "flash", fake_flash)
+    with pytest.raises(Exception, match="dry_run only applies to the pin-programmer targets"):
+        call("flash", dry_run=True, **kwargs)
+
+
+needs_detect = pytest.mark.skipif(not hasattr(BenchPod, "detect"),
+                                  reason="needs embeddedci with BenchPod.detect")
+
+
+@needs_detect
+def test_detect_tool_returns_the_sdk_result(connected, monkeypatch):
+    from embeddedci.benchpod.detect import DetectFinding, DetectResult
+
+    seen = {}
+
+    def fake_detect(*, invasive=True, methods=None):
+        seen.update(invasive=invasive, methods=methods)
+        return DetectResult(
+            powered=True,
+            findings=[DetectFinding(method="swd", chip="STM32F446", vendor="STMicroelectronics",
+                                    core="Cortex-M4", id="0x10006421", confidence="high",
+                                    pins={"swclk": 11, "swdio": 12}, raw={"found": True})],
+            skipped=[("pic", "invasive probe (it resets the chip): run detect with invasive=True")],
+            notes=["not tried (the profile does not wire them): jtag"])
+
+    monkeypatch.setattr(SESSION.require(), "detect", fake_detect)
+    out = call("detect", invasive=False, methods=["swd", "pic"])
+    assert seen == {"invasive": False, "methods": ["swd", "pic"]}
+    assert out["powered"] is True
+    f = out["findings"][0]
+    assert (f["method"], f["chip"], f["core"], f["id"], f["confidence"]) == (
+        "swd", "STM32F446", "Cortex-M4", "0x10006421", "high")
+    assert f["pins"] == {"swclk": 11, "swdio": 12} and f["invasive"] is False
+    assert out["skipped"] == [{"method": "pic",
+                               "reason": "invasive probe (it resets the chip): run detect with invasive=True"}]
+    assert out["notes"]
+    call("detect")
+    assert seen == {"invasive": True, "methods": None}
+
+
+@needs_detect
+def test_detect_tool_powered_off_and_bad_method(connected, monkeypatch):
+    from embeddedci.benchpod.detect import DetectResult
+
+    monkeypatch.setattr(SESSION.require(), "detect",
+                        lambda **kw: DetectResult(powered=False, notes=["target power is off"]))
+    out = call("detect")
+    assert out["powered"] is False and out["findings"] == [] and out["notes"] == ["target power is off"]
+    with pytest.raises(Exception):
+        call("detect", methods=["spi"])
+
+
+def test_detect_tool_is_not_read_only_and_not_destructive():
+    import anyio
+
+    tool = next(t for t in anyio.run(mcp.list_tools) if t.name == "detect")
+    ann = tool.annotations
+    assert ann.readOnlyHint is False and ann.destructiveHint is False and ann.idempotentHint is True
+
+
+def test_detect_is_in_the_server_instructions():
+    assert "detect()" in INSTRUCTIONS and "invasive" in INSTRUCTIONS
 
 
 def test_pin_programmer_target_names_match_the_sdk():

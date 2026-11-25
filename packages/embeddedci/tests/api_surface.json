@@ -124,6 +124,7 @@
     "dac_stop": "(self) -> 'None'",
     "decode": "(self, source: 'Union[LaCapture, Sequence[int]]', protocol: 'DecodeProtocol' = 'i2c', *, sample_rate_hz: 'Optional[float]' = None, **channels: 'Any') -> 'Any'",
     "delete_wiring": "(self, name: 'str') -> 'None'",
+    "detect": "(self, *, invasive: 'bool' = True, methods: 'Optional[Sequence[str]]' = None) -> \"'_detect.DetectResult'\"",
     "diag": "(self) -> 'Dict[str, Any]'",
     "disable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "disable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
@@ -491,6 +492,30 @@
   "DecodeProtocol": "Literal['i2c', 'uart', 'spi', 'usb', 'modbus', 'can', 'pwm', 'onewire', 'smbus', 'pmbus']",
   "DefinitionError": {
     "__init__": "(self, message: 'str', *, path: 'Optional[str]' = None) -> 'None'"
+  },
+  "DetectFinding": {
+    "__fields__": [
+      "method",
+      "chip",
+      "vendor",
+      "core",
+      "id",
+      "confidence",
+      "pins",
+      "raw",
+      "invasive"
+    ],
+    "summary": "property",
+    "to_dict": "(self) -> 'Dict[str, Any]'"
+  },
+  "DetectResult": {
+    "__fields__": [
+      "powered",
+      "findings",
+      "skipped",
+      "notes"
+    ],
+    "to_dict": "(self) -> 'Dict[str, Any]'"
   },
   "DeviceBusyError": {},
   "DeviceLease": {
@@ -1641,6 +1666,8 @@
     "DacPinoutMismatchError",
     "DecodeProtocol",
     "DefinitionError",
+    "DetectFinding",
+    "DetectResult",
     "DeviceBusyError",
     "DeviceLease",
     "DirectionConflictError",
@@ -1798,6 +1825,7 @@
     "control_loop",
     "curve_output_at",
     "decode",
+    "detect",
     "dsp",
     "encode_curve_b64url",
     "expansion_chip",
@@ -1823,6 +1851,7 @@
   "control_loop": "module",
   "curve_output_at": "(curve: 'Sequence[int]', input_code: 'int') -> 'int'",
   "decode": "module",
+  "detect": "module",
   "dsp": "module",
   "encode_curve_b64url": "(codes: 'Sequence[int]') -> 'str'",
   "expansion_chip": "(name: 'str') -> 'ExpansionChip'",

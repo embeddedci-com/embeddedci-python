@@ -1038,6 +1038,40 @@ class UsbHostResult(BaseModel):
     note: str = ""
 
 
+class DetectFindingInfo(BaseModel):
+    """One thing that answered a detect probe."""
+    method: str = Field(description="The probe: swd, jtag, updi, pic, c2, tpi, pdi, esp32 or usb.")
+    chip: Optional[str] = Field(None, description=(
+        'The part ("STM32F446"). None when only the vendor or the debug port is known; for a debug '
+        "port alone it names the port."))
+    vendor: Optional[str] = None
+    core: Optional[str] = Field(None, description='For example "Cortex-M4".')
+    id: Optional[str] = Field(None, description=(
+        'The number the match rests on: the STM32 DBGMCU_IDCODE ("0x10006421"), a JTAG IDCODE, the '
+        'programming-mode ID bytes, or "vid:pid" for USB.'))
+    confidence: Literal["high", "medium", "low"] = Field(description=(
+        "high: an exact table match. medium: vendor and core known, part not. low: only a debug "
+        "port answered."))
+    pins: Dict[str, Any] = Field(default_factory=dict, description=(
+        'The LA channels used by role ("swclk": 11); "nrst" is the pod\'s reset pin.'))
+    raw: Dict[str, Any] = Field(default_factory=dict, description="The pod's reply.")
+    invasive: bool = Field(description="The probe reset the chip or drove its programming pins.")
+
+
+class DetectSkipped(BaseModel):
+    """A probe that was wired but not run, or got no answer."""
+    method: str
+    reason: str
+
+
+class DetectToolResult(BaseModel):
+    """What is wired to the pod. An empty findings list with skipped reasons is a normal result."""
+    powered: bool = Field(description="The target's power rail is on; when false nothing was probed.")
+    findings: List[DetectFindingInfo] = Field(default_factory=list)
+    skipped: List[DetectSkipped] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+
+
 class UsbFlashToolResult(BaseModel):
     """A USB flash. ok=false is a normal result: read result, phase and note."""
     ok: bool

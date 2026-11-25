@@ -1141,6 +1141,61 @@ bp.flash(target="efm8", file="build/app.hex", device="EFM8BB10F8G", erase="page"
   `XipUnavailableError` without it. While a job runs the pod answers busy to captures, uploads
   and DAP, SPI or I2C sessions, and a USB flash cannot start.
 
+## Detecting the chip on the board
+
+`bp.detect()` finds out which chip is wired to the pod and reports every probe's answer. Nothing
+needs to be named: it uses the wiring profile.
+
+```python
+res = bp.detect()                      # all probes the profile wires
+res = bp.detect(invasive=False)        # SWD, JTAG and USB only: nothing resets the chip
+res = bp.detect(methods=["swd", "esp32"])
+for f in res.findings:
+    print(f.summary)                   # STM32F446 (STMicroelectronics, Cortex-M4) by swd, high
+print(res.skipped, res.notes)
+res.to_dict()                          # {"powered", "findings", "skipped", "notes"}
+```
+
+`detect(*, invasive=True, methods=None)` returns a `DetectResult`: `powered`, `findings` (a list of
+`DetectFinding`), `skipped` (a list of `(method, reason)`) and `notes`. A `DetectFinding` has
+`method`, `chip` (`"STM32F446"`, or `None` when only the vendor or the debug port is known), `vendor`,
+`core` (`"Cortex-M4"`), `id` (the number the match rests on, for example the STM32's DBGMCU_IDCODE
+`"0x10006421"`), `confidence`, `pins` (the LA channels used), `raw` (the pod's reply) and `invasive`,
+and a `summary` line. `confidence` is `"high"` for an exact table match (an STM32 DEV_ID at its
+family's address, an ID of the programming device table, an ESP chip name, a known VID:PID),
+`"medium"` when the vendor and the core are known but not the part, and `"low"` when only a debug
+port answered (`chip` then names the port).
+
+| `method` | What it reads | Needs in the wiring profile | Resets the chip |
+|---|---|---|---|
+| `swd` | the debug port (DPIDR, TARGETID, the AP's CPUID), then the vendor's ID register for that core | `swd_swclk`, `swd_swdio` | no |
+| `jtag` | the IDCODEs of the JTAG chain | `jtag_tck`, `jtag_tms`, `jtag_tdi`, `jtag_tdo` | no |
+| `usb` | the device already mounted on the pod's USB host port | host mode on (detect never turns it on) | no |
+| `updi`, `pic`, `c2`, `tpi`, `pdi` | the ID the chip answers in programming mode (the `prog_flash` `info` op, as `flash(..., dry_run=True)`) | signals named for the protocol: `UPDI`; `ICSPCLK` and `ICSPDAT`; `C2CK` and `C2D`; `TPICLK` and `TPIDATA`; `PDI_CLK` and `PDI_DATA` | yes |
+| `esp32` | the chip name the ROM loader reports (the `esp_flash` `sync` op) | `uart_rx`, `uart_tx` and a `BOOT`, `IO0` or `IO9` signal | yes |
+
+* **Power first.** With the target's rail (the profile's `efuse`, else either rail) off, nothing is
+  probed: `powered` is `False` and a note says so. The LA voltage must be set (the profile's `la_mv`).
+* **Pins owned by something else** (a UART, GPIO, sensor or an open SPI/I2C session) are not
+  probed: the method is in `skipped` with the owner. A probe that errors or gets no answer is a
+  `skipped` entry too; only a lost connection raises.
+* **A probe runs only when the profile wires its pins.** The programming protocols never fall back
+  to the SWD pins (unlike `flash()`): detect does not know the chip, so it only drives a pin
+  the profile names for that protocol. `pic` and `tpi` also need the chip's reset: a profile signal
+  named `MCLR` or `RESET`, else the pod's reset pin only when the profile sets `swd_nreset`; the
+  ESP32's EN likewise (a signal named `EN`, else the reset pin under `swd_nreset`). Methods the
+  profile does not wire are one line in `notes`; name them in `methods=` to see them in `skipped`.
+* **SWD and JTAG** need pod firmware with the `dap_id` feature (`bp.supports("dap_id")`); on older
+  firmware they are `skipped` with "needs pod firmware with dap_id (update the pod)". The pod reads
+  the IDs itself without halting, resetting or writing the chip (the first read waits up to 3 s for the target to answer, `SWD_ANSWER_WAIT_MS`). SWD is two calls: the debug port
+  and CPUID first, then the ID registers that fit that core.
+* **Invasive probes** (`invasive=True`, the default) reset the chip: the programming protocols
+  enter programming mode, and the ESP32 is reset into its ROM loader (reset or power-cycle it to
+  run its program again). `invasive=False` runs only `swd`, `jtag` and `usb`.
+* **The ID table** is `embeddedci/benchpod/detect_ids.json` (STM32 DEV_IDs per family, Nordic parts,
+  Arm cores, JTAG IDCODEs, USB VID:PIDs); `embeddedci.benchpod.detect` has the pure mapping
+  functions (`finding_from_swd`, `findings_from_jtag`, `finding_from_usb`).
+
 ## USB host mode and USB flashing
 
 Firmware 4.0.3 and later. The pod's USB port becomes a full-speed USB host for the board under test,
@@ -2901,7 +2956,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
 | Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | USB host and flashing | `usb_host(enable=True, *, port=None, timeout_s=60)`, `usb_host_status()`, `usb_wait_device(vid=None, pid=None, timeout=10)`, `usb_flash(file, *, address=None, name=None, leave=True, mode=None, port=None, timeout=None, device_timeout=10, progress=None, verify=False)`, `usb_flash_status()`, `usb_flash_abort()`, `usb_check(test, *, count=None, off_ms=None, timeout_ms=None, duration_ms=None, settle_ms=None, port=None, device_timeout=10, timeout=None, progress=None)`, `usb_check_status()`, `usb_check_abort()`, `usb_hid_interfaces()`, `usb_hid_capture(enable=True)`, `usb_hid_read(count=1, timeout=2.0, instance=None)` (see [USB host mode and USB flashing](#usb-host-mode-and-usb-flashing)) |
-| Flashing | `flash(...)`, `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
+| Flashing | `flash(...)`, `detect(*, invasive=True, methods=None)` (see [Detecting the chip on the board](#detecting-the-chip-on-the-board)), `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
 | I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
 | GPIO expanders | `expansion(chip="", *, addr=None, sda=None, scl=None, spi=None, load=None, count=None, hz=None, pullups=None, names=None)` (see [GPIO expanders](#gpio-expanders)) |
 | UART | `capture_uart(...)`, `power_cycle_and_capture(...)`, `open_uart(...)` (both take `port="usb"`, `dtr` and `rts` for the hosted board's USB serial port) |
@@ -2935,6 +2990,8 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `MacAddresses` | `mac_addresses` | `eth_mac`, `wifi_mac` (None while not known), `has_wifi`, `source` (`pod`, `server` or empty) |
 | `LanTls` | `lan_tls`, `set_lan_tls_https_only`, `regenerate_lan_tls`, `set_lan_tls_cert` | `port`, `https_only`, `sessions`, `origin` (`generated`/`user`), `key`, `subject`, `san`, `not_after`, `sha256` (what clients pin), `error` (no certificate) |
 | `LanClients` | `lan_clients`, `pair` | `pairing` (computers on the LAN must be paired), `count`, `max`, `clients` (`LanClient`: `name`, `spki_sha256`, `this`), `has(spki_sha256)` |
+| `DetectResult` | `detect` | `powered`, `findings`, `skipped`, `notes`, `to_dict()` |
+| `DetectFinding` | `DetectResult.findings` | `method`, `chip`, `vendor`, `core`, `id`, `confidence`, `pins`, `raw`, `invasive`, `summary`, `to_dict()` |
 | `UsbHostState` | `usb_host`, `usb_host_status` | `mode`, `port`, `remaining_s`, `host_ms`, `enumerations`, `attached`, `enumeration`, `connected`, `line_speed`, `device`, `hosting`, `mounted` |
 | `UsbDevice` | `usb_wait_device`, `UsbHostState.device` | `vid`, `pid`, `vid_pid`, `speed`, `usb`, `release`, `device_class`, `subclass`, `protocol`, `ep0_size`, `configurations`, `manufacturer`, `product`, `serial`, `descriptor_ms`, `mounted_ms`, `config`, `interfaces`, `has_interface(interface_class, subclass=None)` |
 | `UsbConfig` | `UsbDevice.config` | `value`, `max_power_ma`, `self_powered`, `remote_wakeup`, `interface_count`, `truncated`, `malformed`, `interfaces` |

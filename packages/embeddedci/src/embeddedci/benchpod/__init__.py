@@ -22,6 +22,7 @@ from __future__ import annotations
 from . import can
 from . import control_loop
 from . import decode
+from . import detect
 from . import dsp
 from . import i2c
 from . import sensors
@@ -154,6 +155,7 @@ from .errors import (
     WiringError,
     XipUnavailableError,
 )
+from .detect import DetectFinding, DetectResult
 from .flash import FlashResult
 from .prog import ProgDeviceError, ProgFlashError, ProgLockedError, ProgNoAnswerError, ProgVerifyError
 from .expansion import (
@@ -253,6 +255,8 @@ __all__ = [
     "LoopState",
     # flash + UART
     "FlashResult",
+    "DetectResult",
+    "DetectFinding",
     "UartCapture",
     "UartEntry",
     "UartSession",
@@ -285,6 +289,7 @@ __all__ = [
     "SendResult",
     # capture / analysis
     "decode",
+    "detect",
     "dsp",
     "Capabilities",
     "Capture",
