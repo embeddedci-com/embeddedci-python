@@ -1,0 +1,6 @@
+# XMEGA PDI: what the host needs for every chip of this protocol.
+target: xmega
+title: XMEGA PDI
+ignore:   # image regions to leave out without an error
+  - {hex: 0x830000, size: 0x10000, name: lock bits}
+  - {hex: 0x840000, size: 0x10000, name: signature row}

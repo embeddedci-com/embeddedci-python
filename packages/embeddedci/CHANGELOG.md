@@ -1,5 +1,19 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+For BenchPod firmware after 4.0.5 (features table revision 20, feature `prog_named`).
+
+- **The pin programmers' device table is generated from one YAML file per chip** (`prog-devices/`
+  in the repository, `scripts/gen_prog_devices.py`). `prog_devices.json` is schema 2: each chip has
+  `prog`, its protocol options as named fields (`flash_base`, `cmd_set`, `pc`, `cp_addr`, `cp_bit`,
+  `write_words`, `page_erase`, ...), and `legacy`, the same as the packed `flags` integer.
+- **`flash(target=...)` sends named chip fields to a pod with the `prog_named` feature** (firmware
+  4.0.6 and later) and the packed `flags` and `cp_addr` to an older pod, so every pod gets the same
+  options as before. `ProgDevice.opts` still returns the legacy form; `ProgDevice.fields(named)` and
+  `prog.start_request(..., named=)` are new. `prog.PIC_ENTRY_MASK` is gone: `prog.pic_entry_styles()`
+  returns `{"prog": ..., "flags": ...}` entries.
+
 ## 4.0.5
 
 For BenchPod firmware 4.0.5 (features table revision 19, gateware v68).

@@ -641,6 +641,7 @@ class _Run:
         try:
             if proto == "pic":
                 chip_id, dev = _prog.identify(self.env.command, proto, pins, pin_text=text,
+                                              named=self.env.supports("prog_named"),
                                               sleep=self.env.sleep, clock=self.env.clock)
                 matches = [dev]
             else:

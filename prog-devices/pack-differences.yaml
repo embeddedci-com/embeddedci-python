@@ -1,0 +1,25 @@
+# Differences between the table and Microchip's device packs that scripts/prog_devices_packs.py check
+# knows about and does not fail on. Every entry is a question to answer, not an approval: the
+# table's value is what the firmware was written and bench-tested against, so none of these was
+# changed when the table became YAML (the wire traffic is identical). Delete an entry when the
+# table or the pack reading is fixed.
+- match: {proto: updi, family: [AVR DA, AVR DB, AVR DD], field: eeprom.page}
+  reason: >-
+    Table 32 (the page of avrdude.conf), ATDF pagesize 1. Open: which one the NVM v2 EEPROM write
+    wants; EEPROM writes of these chips have not been run on silicon (only flash, AVR128DA48).
+- match: {proto: tpi, field: flash.page}
+  reason: >-
+    Table 16 (ATtiny40: 64) from the TPI chapters of the datasheets, ATDF 128. Open: the ATDF value
+    is larger than the datasheet's flash page; the TPI parts have not been run on silicon.
+- match: {proto: pic, name: [PIC18F25Q10, PIC18F45Q10], field: eeprom.size}
+  reason: >-
+    Table 1024, DFP 256. Open: check DS40001874 for the data EEPROM size of the x5Q10 parts.
+- match: {proto: pic, name: [PIC18F26Q83, PIC18F26Q84, PIC18F46Q83, PIC18F46Q84, PIC18F56Q83, PIC18F56Q84], field: id}
+  reason: >-
+    Table second byte 0x99, DFP DEVID 0xA3xx (little endian: the byte after the first is 0xA3).
+    Open and important for detect: one of them is wrong (DS40002137 and a chip decide). The
+    table value was never read from a Q83/Q84 on silicon.
+- match: {proto: pdi, name: [ATxmega128A4, ATxmega128D4], field: [user.size, user.page]}
+  reason: >-
+    Table 512, ATDF 256 (the user signature row). Open: the A4 and D4 manuals (8331 and the D4
+    datasheet) against the ATDF; the table shares the 512 of the "U" parts.
