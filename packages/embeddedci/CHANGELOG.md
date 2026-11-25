@@ -13,6 +13,9 @@ For BenchPod firmware after 4.0.5 (features table revision 20, feature `prog_nam
   options as before. `ProgDevice.opts` still returns the legacy form; `ProgDevice.fields(named)` and
   `prog.start_request(..., named=)` are new. `prog.PIC_ENTRY_MASK` is gone: `prog.pic_entry_styles()`
   returns `{"prog": ..., "flags": ...}` entries.
+- Docs: `fpga_image` with firmware 4.0.6 loads the image from its slot in about 0.1 s without
+  writing the config flash, skips the image that already runs, and a restarted pod runs the loop
+  image. No SDK change.
 
 ## 4.0.5
 

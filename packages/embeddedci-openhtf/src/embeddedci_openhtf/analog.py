@@ -169,8 +169,8 @@ def control_loop(bench: Any, **kwargs: Any) -> ControlLoopHandle:
 
 
 def fpga_image(bench: Any, image: Union[FpgaImage, int]) -> FpgaImageInfo:
-    """Switch the iCE40 gateware image (``FpgaImage.LOOP`` / ``FpgaImage.DEEP_REPLAY``; takes
-    ~2-3 s). Returns a :class:`~embeddedci.benchpod.FpgaImageInfo`."""
+    """Switch the iCE40 gateware image (``FpgaImage.LOOP`` / ``FpgaImage.DEEP_REPLAY``; about
+    0.1 s from firmware 4.0.6, 2-3 s before). Returns a :class:`~embeddedci.benchpod.FpgaImageInfo`."""
     return bench.fpga_image(image)
 
 

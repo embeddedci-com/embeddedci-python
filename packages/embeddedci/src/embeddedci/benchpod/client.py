@@ -3897,11 +3897,12 @@ class BenchPod:
         DAC replay image, ``FpgaImage.EMULATION`` (2) the sensor emulation image (gateware v54+,
         W25Q slot ``gw2``; ``bp.sensors.start()`` loads it by itself, and the pod never switches
         back on its own; leaving it is refused while I2C, SPI or UART sensors run). The pod
-        reprograms the FPGA from its config flash and cold-resets it
-        (~2-3 s), which stops anything running in the FPGA: a DAC output or control loop, a UART
-        session, sensor emulation. The selection is written to the config flash, so the pod
-        normally stays on it after a power cycle. Drops the cached :attr:`capabilities` so the next
-        read reflects the new image.
+        reconfigures the FPGA with the image, which stops anything running in the FPGA: a DAC output
+        or control loop, a UART session, sensor emulation. From firmware 4.0.6 it loads the image
+        straight from its slot in about 0.1 s and writes nothing to the config flash; asking for the
+        image that already runs does nothing. After a restart or power cycle the pod runs the loop
+        image (older firmware: 2 to 3 s, the image was written to the config flash and kept across a
+        power cycle). Drops the cached :attr:`capabilities` so the next read reflects the new image.
 
         You rarely need to call this: :meth:`control_loop`, :meth:`replay` and
         :meth:`replay_waveform` switch automatically when they need the other image
