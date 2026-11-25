@@ -1,9 +1,9 @@
-"""Serial auto-detection: probe the ports, never trust the vendor id alone.
+"""Serial auto-detection: open only ports that identify themselves as a pod, then probe them.
 
-The pod's USB vendor ids are shared with other hardware and differ between pod
-generations (RP2350 -> 0x2E8A, STM32H563 -> ST's stock 0x0483, then 1209:EC10), so a vendor-id
-filter both misses real pods and latches onto impostors. These tests pin the
-behaviour that replaced it: rank the ports, then probe each one.
+0483:5740 is ST's generic virtual COM port id, shared with spectrum analyzers (a tinySA froze when
+"status" was written into it), ST-Links and customers' own boards, so a port is opened only when its
+USB id is 1209:EC10, its manufacturer is EmbeddedCI, or its product contains "bench". An explicit
+device path is not filtered.
 """
 
 import pytest
@@ -87,49 +87,88 @@ POD_STATUS = "  device : benchpod\n  ip     : 192.168.1.213\n> "
 
 
 def test_finds_stm32_pod_under_st_vendor_id(monkeypatch):
-    # The STM32 pod enumerates as 0483:5740. A 0x2E8A-only filter missed it
-    # entirely, which broke `--benchpod-connection=serial` on current hardware.
+    # Firmware up to 3.8.x: 0483:5740, product "bench-pod STM32H563 CDC".
     infos = [PortInfo("/dev/cu.usbmodem-stm", vid=0x0483, product="bench-pod STM32H563 CDC")]
     install(monkeypatch, infos, {"/dev/cu.usbmodem-stm": POD_STATUS})
     assert serial_mod.autodetect_port() == "/dev/cu.usbmodem-stm"
 
 
-def test_pid_codes_vendor_id_ranks_as_a_pod_port(monkeypatch):
-    # Pre-release 3.9.0 builds enumerated as 1209:0001 (console + USB network adapter); any
-    # pid.codes product id (VID 0x1209) ranks with the
-    # other pod vendor ids, ahead of an unknown port, but is still identified by probing.
-    infos = [PortInfo("/dev/cu.aaa-other", vid=0x1234), PortInfo("/dev/cu.zzz-pod", vid=0x1209)]
-    opened = install(monkeypatch, infos, {"/dev/cu.aaa-other": "not a pod\n> ",
-                                          "/dev/cu.zzz-pod": POD_STATUS})
-    assert 0x1209 in serial_mod.POD_VIDS
-    assert serial_mod._candidate_ports() == ["/dev/cu.zzz-pod", "/dev/cu.aaa-other"]
+@pytest.mark.parametrize("kw", [
+    {"vid": 0x1209, "pid": 0xEC10},                                    # firmware 4.0.5+, no strings
+    {"vid": 0x0483, "pid": 0x5740, "product": "BenchPod"},             # firmware 3.9.0 to 4.0.4
+    {"vid": 0x0483, "pid": 0x5740, "manufacturer": " embeddedci "},    # manufacturer only
+    {"vid": 0x1209, "pid": 0x0001, "manufacturer": "EmbeddedCI", "product": "BenchPod"},
+    {"vid": 0x0483, "pid": 0x5740, "product": "bench-pod STM32H563 CDC"},
+])
+def test_pod_ports_are_found(monkeypatch, kw):
+    opened = install(monkeypatch, [PortInfo("/dev/cu.pod", **kw)], {"/dev/cu.pod": POD_STATUS})
+    assert serial_mod.autodetect_port() == "/dev/cu.pod"
+    assert opened == ["/dev/cu.pod"]
+
+
+def test_product_in_description_only_counts(monkeypatch):
+    # Some platforms leave `product` empty and put the string in `description`.
+    info = PortInfo("/dev/cu.pod", vid=0x0483, pid=0x5740)
+    info.description = "BenchPod console"
+    install(monkeypatch, [info], {"/dev/cu.pod": POD_STATUS})
+    assert serial_mod.autodetect_port() == "/dev/cu.pod"
+
+
+def test_other_instruments_are_never_opened(monkeypatch):
+    # A tinySA (0483:5740), an ST-Link, a customer board, other pid.codes / RPi devices and a port
+    # without USB info must not get a single byte; only the pod on 1209:EC10 is opened.
+    infos = [
+        PortInfo("/dev/cu.tinysa", vid=0x0483, pid=0x5740, product="tinySA4", manufacturer="tinySA"),
+        PortInfo("/dev/cu.stlink", vid=0x0483, pid=0x374B, product="STM32 STLink"),
+        PortInfo("/dev/cu.stvcp", vid=0x0483, pid=0x5740, product="STM32 Virtual ComPort"),
+        PortInfo("/dev/cu.pidcodes", vid=0x1209, pid=0x0001, product="Some gadget"),
+        PortInfo("/dev/cu.rpi", vid=0x2E8A, pid=0x000A, product="Pico"),
+        PortInfo("/dev/cu.bluetooth"),
+        PortInfo("/dev/cu.pod", vid=0x1209, pid=0xEC10),
+    ]
+    replies = {i.device: POD_STATUS for i in infos}
+    opened = install(monkeypatch, infos, replies)
+    assert serial_mod._candidate_ports() == ["/dev/cu.pod"]
+    assert serial_mod.autodetect_port() == "/dev/cu.pod"
+    assert opened == ["/dev/cu.pod"]
+
+
+def test_port_without_usb_info_is_not_opened(monkeypatch):
+    opened = install(monkeypatch, [PortInfo("/dev/cu.mystery")], {"/dev/cu.mystery": POD_STATUS})
+    with pytest.raises(TransportError, match="explicit device path"):
+        serial_mod.autodetect_port()
+    assert opened == []
+
+
+def test_macos_twin_of_an_allowed_port_is_allowed(monkeypatch):
+    infos = [PortInfo("/dev/cu.usbmodemA", vid=0x1209, pid=0xEC10), PortInfo("/dev/tty.usbmodemA"),
+             PortInfo("/dev/tty.usbmodemT", vid=0x0483, pid=0x5740, product="tinySA4"),
+             PortInfo("/dev/cu.usbmodemT", vid=0x0483, pid=0x5740, product="tinySA4")]
+    install(monkeypatch, infos, {})
+    assert serial_mod._candidate_ports() == ["/dev/cu.usbmodemA", "/dev/tty.usbmodemA"]
+
+
+def test_explicit_device_is_used_without_detection(monkeypatch):
+    # An explicit path never goes through the port listing (no filter).
+    def boom():
+        raise AssertionError("must not enumerate ports for an explicit device")
+    monkeypatch.setattr(serial_mod, "_candidate_ports_vid", boom)
+    port = FakePort("/dev/cu.tinysa-or-anything", "", "identity abc123 key")
+    t = serial_mod.SerialTransport("/dev/cu.tinysa-or-anything", port=port, timeout=1)
+    assert t.identity() == "abc123"
+
+
+def test_pod_vendor_ids_alone_are_not_enough(monkeypatch):
+    infos = [PortInfo("/dev/cu.aaa-other", vid=0x1209, pid=0x0001),
+             PortInfo("/dev/cu.zzz-pod", vid=0x1209, pid=0xEC10)]
+    opened = install(monkeypatch, infos, {"/dev/cu.aaa-other": "not a pod\n> ", "/dev/cu.zzz-pod": POD_STATUS})
     assert serial_mod.autodetect_port() == "/dev/cu.zzz-pod"
     assert opened == ["/dev/cu.zzz-pod"]
 
 
-def test_finds_pod_even_with_unknown_vendor_id(monkeypatch):
-    # Ranking is not filtering: a port no rule recognises is still probed.
-    infos = [PortInfo("/dev/cu.mystery", vid=0x1234)]
-    install(monkeypatch, infos, {"/dev/cu.mystery": POD_STATUS})
-    assert serial_mod.autodetect_port() == "/dev/cu.mystery"
-
-
-def test_skips_impostor_sharing_the_pod_vendor_id(monkeypatch):
-    # 0483:5740 is ST's generic CDC pair, shared with every ST VCP on the bench;
-    # the one that answers `status` as a pod is the one to pick.
-    infos = [
-        PortInfo("/dev/cu.st-vcp", vid=0x0483, product="STM32 Virtual COM Port"),
-        PortInfo("/dev/cu.pod", vid=0x0483, product="bench-pod STM32H563 CDC"),
-    ]
-    opened = install(monkeypatch, infos, {"/dev/cu.st-vcp": "hello\n> ", "/dev/cu.pod": POD_STATUS})
-    assert serial_mod.autodetect_port() == "/dev/cu.pod"
-    # The port naming the pod is ranked first; the impostor shares a pod vendor id, so it is
-    # still probed for a second pod, but it is not one.
-    assert opened == ["/dev/cu.pod", "/dev/cu.st-vcp"]
-
-
 def test_unopenable_port_does_not_stop_the_search(monkeypatch):
-    infos = [PortInfo("/dev/cu.busy", vid=0x2E8A), PortInfo("/dev/cu.pod", vid=0x0483)]
+    infos = [PortInfo("/dev/cu.busy", vid=0x0483, product="BenchPod"),
+             PortInfo("/dev/cu.pod", vid=0x0483, product="BenchPod")]
     install(monkeypatch, infos, {"/dev/cu.pod": POD_STATUS})  # busy port absent -> OSError
     assert serial_mod.autodetect_port() == "/dev/cu.pod"
 
@@ -138,17 +177,19 @@ def test_no_ports_at_all_mentions_the_cable(monkeypatch):
     install(monkeypatch, [], {})
     with pytest.raises(TransportError) as exc:
         serial_mod.autodetect_port()
-    assert "no USB serial ports found" in str(exc.value)
+    assert "1209:EC10" in str(exc.value)
     assert "charge-only" in str(exc.value)
+    assert "explicit device path" in str(exc.value)
 
 
-def test_ports_but_no_pod_points_at_firmware(monkeypatch):
-    infos = [PortInfo("/dev/cu.other", vid=0x1234)]
+def test_pod_port_that_is_not_a_pod_points_at_firmware(monkeypatch):
+    infos = [PortInfo("/dev/cu.other", vid=0x1209, pid=0xEC10)]
     install(monkeypatch, infos, {"/dev/cu.other": "not a pod\n> "})
     with pytest.raises(TransportError) as exc:
         serial_mod.autodetect_port()
     msg = str(exc.value)
     assert "/dev/cu.other" in msg          # says what it looked at
+    assert "1209:EC10" in msg and "explicit device path" in msg
     assert "flash-self" in msg             # and the most likely fix
 
 
@@ -156,9 +197,9 @@ def test_ports_but_no_pod_points_at_firmware(monkeypatch):
 
 def _two_pods(monkeypatch, *, same=False, tty_vid=None):
     infos = [
-        PortInfo("/dev/cu.usbmodemA", vid=0x1209),
+        PortInfo("/dev/cu.usbmodemA", vid=0x1209, pid=0xEC10),
         PortInfo("/dev/tty.usbmodemA", vid=tty_vid),
-        PortInfo("/dev/cu.usbmodemB", vid=0x1209),
+        PortInfo("/dev/cu.usbmodemB", vid=0x1209, pid=0xEC10),
         PortInfo("/dev/cu.other", vid=0x1234),
     ]
     replies = {"/dev/cu.usbmodemA": POD_STATUS, "/dev/tty.usbmodemA": POD_STATUS,
@@ -231,31 +272,28 @@ def test_one_pod_seen_on_two_ports_is_one_pod(monkeypatch):
 def test_two_ports_without_identity_count_as_two(monkeypatch):
     # Old firmware has no identity command: two pods cannot be told apart from twins, so the
     # error asks for a name (or a device path) instead of guessing.
-    infos = [PortInfo("/dev/cu.a", vid=0x0483), PortInfo("/dev/cu.b", vid=0x0483)]
+    infos = [PortInfo("/dev/cu.a", vid=0x0483, product="BenchPod"), PortInfo("/dev/cu.b", vid=0x0483, product="BenchPod")]
     install(monkeypatch, infos, {"/dev/cu.a": POD_STATUS, "/dev/cu.b": POD_STATUS})
     with pytest.raises(ConnectionConfigError, match="a pod with no identity on /dev/cu.a"):
         serial_mod.autodetect_port()
 
 
-def test_own_usb_id_ranks_before_vendor_only_matches(monkeypatch):
-    # 1209:EC10 is the pod's own id (pid.codes); vendor 1209 alone is every pid.codes device, and
-    # 0483/2E8A are shared too, so the exact match goes first, then the vendor-only ones.
+def test_own_usb_id_ranks_after_string_matches(monkeypatch):
+    # Candidates are only pod ports; those naming the pod in their strings come first.
     infos = [
         PortInfo("/dev/cu.a-unknown", vid=0x1234),
-        PortInfo("/dev/cu.b-st", vid=0x0483, pid=0x5740),
-        PortInfo("/dev/cu.c-pidcodes-other", vid=0x1209, pid=0x0001),
-        PortInfo("/dev/cu.d-pod", vid=0x1209, pid=0xEC10),
+        PortInfo("/dev/cu.b-st", vid=0x0483, pid=0x5740, product="tinySA4"),
+        PortInfo("/dev/cu.c-own-id", vid=0x1209, pid=0xEC10),
+        PortInfo("/dev/cu.d-old", vid=0x0483, pid=0x5740, manufacturer="EmbeddedCI", product="BenchPod"),
     ]
-    install(monkeypatch, infos, {"/dev/cu.d-pod": POD_STATUS})
-    assert serial_mod._candidate_ports() == [
-        "/dev/cu.d-pod", "/dev/cu.b-st", "/dev/cu.c-pidcodes-other", "/dev/cu.a-unknown"]
-    assert serial_mod.autodetect_port() == "/dev/cu.d-pod"
+    install(monkeypatch, infos, {"/dev/cu.c-own-id": POD_STATUS})
+    assert serial_mod._candidate_ports() == ["/dev/cu.d-old", "/dev/cu.c-own-id"]
 
 
 def test_pod_is_refound_by_name_when_the_usb_id_changes_across_an_update(monkeypatch):
     # Firmware before the id switch: 0483:5740. After the update the same pod (same identity)
     # re-enumerates as 1209:EC10 on another device node; `usb:<name>` must still find it.
-    before = [PortInfo("/dev/cu.usbmodem1", vid=0x0483, pid=0x5740)]
+    before = [PortInfo("/dev/cu.usbmodem1", vid=0x0483, pid=0x5740, manufacturer="EmbeddedCI", product="BenchPod")]
     install(monkeypatch, before, {"/dev/cu.usbmodem1": POD_STATUS}, {"/dev/cu.usbmodem1": "identity abc123 key"})
     assert serial_mod.autodetect_port("benchpod-abc123") == "/dev/cu.usbmodem1"
     after = [PortInfo("/dev/cu.usbmodem2", vid=0x1209, pid=0xEC10),
