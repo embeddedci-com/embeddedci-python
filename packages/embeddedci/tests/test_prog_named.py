@@ -109,19 +109,19 @@ def test_pic_entry_styles_have_both_forms():
 def _named_pod(pod: FakePod) -> Any:
     from embeddedci.benchpod import feature_map
     rev = feature_map.revision()
-    assert rev >= 20
+    assert rev >= 21
     from embeddedci.benchpod.client import BenchPod as BP
     return BP(transport=FakeTransport(pod, features_rev=rev), lease=False,
               wiring={"swd_swclk": 11, "swd_swdio": 12, "signals": []})
 
 
 def test_a_pod_with_prog_named_gets_named_fields_and_an_old_pod_gets_flags(tmp_path):
-    for features_rev, key, value in ((20, "flash_base", 0x8000), (17, "flags", 0x8000)):
+    for features_rev, key, value in ((21, "flash_base", 0x8000), (20, "flags", 0x8000)):
         pod = FakePod()
         from embeddedci.benchpod.client import BenchPod as BP
         bp = BP(transport=FakeTransport(pod, features_rev=features_rev), lease=False,
                 wiring={"swd_swclk": 11, "swd_swdio": 12, "signals": []})
-        assert bp.supports("prog_named") == (features_rev >= 20)
+        assert bp.supports("prog_named") == (features_rev >= 21)
         assert bp.flash(target="avr-updi", file=app_hex(tmp_path)).ok
         s1 = pod.starts()[0]
         assert s1[key] == value

@@ -90,10 +90,14 @@ PIN14 = Pin.PIN14
 # -- string option types -------------------------------------------------------
 
 #: A DAC output path for a waveform. ``12v`` is the bipolar ±12 V output. ``current_out`` is the
-#: 4-20 mA output (J9): levels on it are amps, not volts.
-DacPath = Literal["3v3", "5v", "12v", "current_out"]
-#: A DAC output path, or ``off`` to park the output (``BenchPod.dac_output``).
-DacOutputPath = Literal["3v3", "5v", "12v", "off"]
+#: 4-20 mA output (J9): levels on it are amps, not volts. ``cal1`` is the 5 V DAC stage routed into
+#: the ADC loopback (the 5 V output is disconnected meanwhile); firmware with feature ``dac_out_cal1``,
+#: for :meth:`BenchPod.generate` only (replay refuses it).
+DacPath = Literal["3v3", "5v", "12v", "current_out", "cal1"]
+#: A DAC output path, or ``off`` to park the output (``BenchPod.dac_output``). ``cal1`` sets the level
+#: on the 5 V stage routed into the ADC loopback, so ``adc_read(source="cal1")`` reads it back
+#: (firmware with feature ``dac_out_cal1``).
+DacOutputPath = Literal["3v3", "5v", "12v", "off", "cal1"]
 #: A named analog path: one fully specified mux + relay state (``BenchPod.analog_path``).
 AnalogPath = Literal["off", "dac_3v3", "dac_5v", "dac_12v", "adc_ext", "cal1", "cal2", "current_in",
                      "current_out"]
