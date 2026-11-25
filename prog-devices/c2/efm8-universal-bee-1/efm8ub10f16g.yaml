@@ -1,0 +1,7 @@
+name: EFM8UB10F16G
+aliases: [EFM8UB11F16G]
+id: "32"
+family: EFM8 Universal Bee 1
+notes: "UB11F16G is the same; shares ID 0x32 with the EFM8BB2: pass device="
+mem:
+  flash: {size: 16384, page: 512, addr: 0, hex: 0, align: 1}

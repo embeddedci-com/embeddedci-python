@@ -126,7 +126,8 @@ class ProgDevice:
     proto: str
     id: str
     mem: Mapping[str, ProgMemory]
-    opts: Mapping[str, int] = field(default_factory=dict)
+    prog: Mapping[str, Any] = field(default_factory=dict)
+    legacy: Mapping[str, int] = field(default_factory=dict)
     vmin_mv: int = 0
     vmax_mv: int = 0
     erase_vmin_mv: int = 0
@@ -141,6 +142,18 @@ class ProgDevice:
         """Whether ``chip_id`` (the pod's ``status.id`` hex) is this chip's. The table's ``id`` is
         hex bytes with ``??`` for bytes that vary (a revision); only its length is compared."""
         return id_matches(self.id, chip_id)
+
+    @property
+    def opts(self) -> Mapping[str, int]:
+        """The chip's options as the packed ``flags`` (and PIC ``cp_addr``) of pods before firmware
+        4.0.6: :attr:`legacy`. Kept for one release; use :meth:`fields`."""
+        return self.legacy
+
+    def fields(self, named: bool = True) -> Dict[str, Any]:
+        """The chip fields of a ``prog_flash`` request: the named protocol fields (:attr:`prog`, for
+        pods with the ``prog_named`` feature) or, with ``named=False``, the packed ``flags`` and
+        ``cp_addr`` older firmware reads. Empty when the chip needs none."""
+        return dict(self.prog if named else self.legacy)
 
     @property
     def expect_id(self) -> str:
@@ -187,7 +200,7 @@ def load_table() -> Dict[str, Any]:
     """The raw ``prog_devices.json`` (schema in ``prog_devices.README.md``)."""
     text = resources.files(__package__).joinpath("prog_devices.json").read_text("utf-8")
     data = json.loads(text)
-    if data.get("schema") != 1:
+    if data.get("schema") != 2:
         raise ValueError("prog_devices.json: unknown schema " + repr(data.get("schema")))
     return data
 
@@ -201,7 +214,8 @@ def _device(raw: Mapping[str, Any], proto: str) -> ProgDevice:
             align=int(m.get("align", page if name == "flash" else 1)), stride=int(m.get("stride", 1)))
     return ProgDevice(
         name=raw["name"], family=raw.get("family", ""), proto=proto, id=str(raw["id"]).lower(),
-        mem=mems, opts={k: int(v) for k, v in (raw.get("opts") or {}).items()},
+        mem=mems, prog=dict(raw.get("prog") or {}),
+        legacy={k: int(v) for k, v in (raw.get("legacy") or {}).items()},
         vmin_mv=int(raw.get("vmin_mv", 0)), vmax_mv=int(raw.get("vmax_mv", 0)),
         erase_vmin_mv=int(raw.get("erase_vmin_mv", 0)), vnote=str(raw.get("vnote", "")),
         aliases=tuple(raw.get("aliases", ())), notes=str(raw.get("notes", "")),
@@ -262,7 +276,7 @@ def find_device(proto: str, *, chip_id: str = "", name: str = "") -> ProgDevice:
             f"({len(fam.devices)} chips). If it is a chip this programmer supports, pass device= "
             "with its name when the table has it, or report the ID", result="unknown chip")
     first = found[0]
-    if any(d.mem != first.mem or d.opts != first.opts for d in found[1:]):
+    if any(d.mem != first.mem or d.prog != first.prog or d.legacy != first.legacy for d in found[1:]):
         raise ProgDeviceError(
             f"ID {chip_id} fits {', '.join(d.name for d in found)}, which differ: pass device= with "
             "the one on the board", result="ambiguous chip")
@@ -599,33 +613,30 @@ class ProgFlashResult:
 
 
 def start_request(proto: str, pins: Mapping[str, Any], *, region: Region, dev: ProgDevice,
-                  erase: str, run_after: bool) -> Dict[str, Any]:
-    """The ``prog_flash`` ``start`` command for one region."""
+                  erase: str, run_after: bool, named: bool = True) -> Dict[str, Any]:
+    """The ``prog_flash`` ``start`` command for one region. ``named``: the chip's options as named
+    fields (pods with the ``prog_named`` feature, firmware 4.0.6+); False sends the packed ``flags``
+    older firmware reads."""
     req: Dict[str, Any] = {"cmd": "prog_flash", "op": "start", "proto": proto, **pins,
                            "mem": region.mem, "addr": region.addr, "len": len(region.data),
                            "page": region.page, "erase": erase, "run": bool(run_after)}
     if dev.expect_id:
         req["expect_id"] = dev.expect_id
-    for key in ("flags", "cp_addr"):
-        if dev.opts.get(key):
-            req[key] = dev.opts[key]
+    req.update(dev.fields(named))
     return req
 
 
 def read_info(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mapping[str, Any], *,
               poll_interval: float = POLL_INTERVAL, sleep: Callable[[float], None] = time.sleep,
               clock: Callable[[], float] = time.monotonic, pin_text: str = "",
-              volts: str = "", flags: int = 0, cp_addr: int = 0) -> str:
+              volts: str = "", fields: Optional[Mapping[str, Any]] = None) -> str:
     """Enter programming mode and read the chip's ID (nothing is written): the pod's ``info``.
-    Returns the ID as hex. ``flags`` and ``cp_addr`` are the device table's ``opts`` of the chip:
-    a PIC with the 8-bit command set (PIC16F18xxx, PIC18 Q) does not answer the 6-bit entry the pod
-    uses without them. Raises :class:`ProgNoAnswerError` and the other :class:`ProgFlashError`
+    Returns the ID as hex. ``fields`` are the chip's request fields (:meth:`ProgDevice.fields`, or
+    a PIC entry style): a PIC with the 8-bit command set (PIC16F18xxx, PIC18 Q) does not answer the
+    6-bit entry the pod uses without them. Raises :class:`ProgNoAnswerError` and the other :class:`ProgFlashError`
     subclasses on a failure."""
     req: Dict[str, Any] = {"cmd": "prog_flash", "op": "info", "proto": proto, **pins}
-    if flags:
-        req["flags"] = flags
-    if cp_addr:
-        req["cp_addr"] = cp_addr
+    req.update(fields or {})
     command(req)
     deadline = clock() + INFO_TIMEOUT
     while True:
@@ -645,24 +656,33 @@ def read_info(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mappin
     return cid
 
 
-#: The PIC ``flags`` bits that change how the chip is entered and its ID read: SET8 (0), BYTEPC (1),
-#: Q10 (4), ID_SPLIT (5) and KEY_FLIP (6) of ``prog_pic.h``.
-PIC_ENTRY_MASK = 0x73
+#: The PIC fields that change how the chip is entered and its ID read (the generator's
+#: ``PIC_ENTRY_FIELDS``): the style a host probes by.
+PIC_ENTRY_FIELDS = ("cmd_set", "pc", "q10", "id_split", "key_flip")
 
 
-def pic_entry_styles() -> List[int]:
-    """The distinct entry styles of the PIC table (its ``flags`` masked to :data:`PIC_ENTRY_MASK`),
-    the plain 6-bit command set (0) first."""
-    styles = {int(d.opts.get("flags", 0)) & PIC_ENTRY_MASK for d in families()["pic"].devices}
-    styles.add(0)
-    return sorted(styles)
+def pic_entry_styles() -> List[Dict[str, Any]]:
+    """The distinct entry styles of the PIC table, the plain 6-bit command set first: each is
+    ``{"prog": named fields, "flags": the same as the packed integer}``."""
+    return [dict(s) for s in load_table()["families"]["pic"]["entry_styles"]]
+
+
+def _entry_of(dev: "ProgDevice") -> Dict[str, Any]:
+    return {k: dev.prog[k] for k in PIC_ENTRY_FIELDS if k in dev.prog}
+
+
+def _style_fields(style: Mapping[str, Any], named: bool) -> Dict[str, Any]:
+    if named:
+        return dict(style["prog"])
+    return {"flags": int(style["flags"])} if style["flags"] else {}
 
 
 def identify(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mapping[str, Any], *,
-             name: str = "", **kw: Any) -> Tuple[str, ProgDevice]:
+             name: str = "", named: bool = True, **kw: Any) -> Tuple[str, ProgDevice]:
     """Read the chip's ID and find it in the table: ``(id hex, device)``.
 
-    A PIC needs its entry style (``flags``) to answer at all. With a ``name`` the table's chip gives
+    A PIC needs its entry style (``cmd_set`` ...) to answer at all. ``named``: send named fields
+    (pods with ``prog_named``) rather than the packed ``flags``. With a ``name`` the table's chip gives
     it. Without one every style of the table is tried in turn until one answers and its ID is in
     the table; the chip found must be of that style, else the ID is read again with its own
     ``flags``. Other protocols read the ID once. Raises :class:`ProgFlashError`."""
@@ -671,20 +691,18 @@ def identify(command: Callable[[Dict[str, Any]], Any], proto: str, pins: Mapping
         return chip_id, find_device(proto, chip_id=chip_id, name=name)
     if name:
         dev = find_device(proto, name=name)
-        chip_id = read_info(command, proto, pins, flags=int(dev.opts.get("flags", 0)),
-                            cp_addr=int(dev.opts.get("cp_addr", 0)), **kw)
+        chip_id = read_info(command, proto, pins, fields=dev.fields(named), **kw)
         return chip_id, find_device(proto, chip_id=chip_id, name=name)
     first: Optional[ProgFlashError] = None
     for style in pic_entry_styles():
         try:
-            chip_id = read_info(command, proto, pins, flags=style, **kw)
+            chip_id = read_info(command, proto, pins, fields=_style_fields(style, named), **kw)
             dev = find_device(proto, chip_id=chip_id)
         except (ProgNoAnswerError, ProgDeviceError) as exc:
             first = first or exc
             continue
-        if int(dev.opts.get("flags", 0)) & PIC_ENTRY_MASK != style:
-            chip_id = read_info(command, proto, pins, flags=int(dev.opts.get("flags", 0)),
-                                cp_addr=int(dev.opts.get("cp_addr", 0)), **kw)
+        if _entry_of(dev) != style["prog"]:
+            chip_id = read_info(command, proto, pins, fields=dev.fields(named), **kw)
             dev = find_device(proto, chip_id=chip_id, name=dev.name)
         return chip_id, dev
     assert first is not None
@@ -708,6 +726,7 @@ def run(
     pin_text: str = "",
     volts: str = "",
     chip_id: str = "",
+    named: bool = True,
 ) -> ProgFlashResult:
     """Write ``regions`` one after the other: stage, ``prog_flash`` start, poll ``status`` until
     done. ``command`` sends one JSON command and returns its ``data``; ``stage`` is the transport's
@@ -731,7 +750,7 @@ def run(
             mode = "none" if chip_erased else "chip"
         last = i == len(regions) - 1
         command(start_request(proto, pins, region=reg, dev=dev, erase=mode,
-                              run_after=run_after and last))
+                              run_after=run_after and last, named=named))
         chip_erased = chip_erased or mode == "chip"
         # Erase plus the pages at the slowest of the five (EEPROM bytes at 10 ms each), plus a margin.
         deadline = t0 + 60.0 + len(reg.data) / 200.0

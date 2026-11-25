@@ -1,0 +1,7 @@
+name: EFM8BB10F8G
+id: "30"
+family: EFM8 Busy Bee 1
+voltage: {min_mv: 2200, max_mv: 3600}
+notes: "flash up to the lock byte; the lock byte, the reserved area and the lock page are never written"
+mem:
+  flash: {size: 8191, page: 512, addr: 0, hex: 0, align: 1}

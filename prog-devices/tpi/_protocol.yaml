@@ -1,0 +1,6 @@
+# AVR TPI (ATtiny4/5/9/10/20/40/102/104): what the host needs for every chip of this protocol.
+target: attiny-tpi
+title: AVR TPI (ATtiny4/5/9/10/20/40/102/104)
+ignore:   # image regions to leave out without an error
+  - {hex: 0x830000, size: 0x10000, name: lock bits}
+  - {hex: 0x840000, size: 0x10000, name: signature row}

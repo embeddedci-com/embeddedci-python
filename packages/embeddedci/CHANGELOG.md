@@ -2,13 +2,23 @@
 
 ## 4.0.6
 
-For BenchPod firmware with features table revision 20.
+For BenchPod firmware with features table revision 21 (feature `dac_out_cal1` at revision 20,
+`prog_named` at 21).
 
 - **`dac_output("cal1", volts=...)` and `generate(dac_path="cal1")`.** The level goes on the 5 V DAC
   stage routed into the ADC loopback (the 5 V output is disconnected meanwhile), so a test can set a
   DAC level and read it back with `adc_read("cal1")` without relays clicking each step. `DacPath` and
   `DacOutputPath` gain `"cal1"`; firmware without feature `dac_out_cal1` is refused with
   `UnsupportedFeatureError`, and `replay` refuses it.
+- **The pin programmers' device table is generated from one YAML file per chip** (`prog-devices/`
+  in the repository, `scripts/gen_prog_devices.py`). `prog_devices.json` is schema 2: each chip has
+  `prog`, its protocol options as named fields (`flash_base`, `cmd_set`, `pc`, `cp_addr`, `cp_bit`,
+  `write_words`, `page_erase`, ...), and `legacy`, the same as the packed `flags` integer.
+- **`flash(target=...)` sends named chip fields to a pod with the `prog_named` feature** (firmware
+  4.0.6 and later) and the packed `flags` and `cp_addr` to an older pod, so every pod gets the same
+  options as before. `ProgDevice.opts` still returns the legacy form; `ProgDevice.fields(named)` and
+  `prog.start_request(..., named=)` are new. `prog.PIC_ENTRY_MASK` is gone: `prog.pic_entry_styles()`
+  returns `{"prog": ..., "flags": ...}` entries.
 
 ## 4.0.5
 

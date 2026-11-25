@@ -1,0 +1,14 @@
+name: PIC18F46Q10
+id: "2071"
+family: PIC18-Q10
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 1900}
+prog:
+  cmd_set: 8bit
+  pc: byte
+  q10: true
+  cp: {addr: 0x300008, bit: 0, protected_when: 0}
+mem:
+  flash: {size: 65536, page: 256, addr: 0, hex: 0, align: 256}
+  eeprom: {size: 1024, page: 1, addr: 0x310000, hex: 0x310000, align: 1}
+  config: {size: 12, page: 2, addr: 0x300000, hex: 0x300000, align: 2}
+  user: {size: 256, page: 2, addr: 0x200000, hex: 0x200000, align: 2}

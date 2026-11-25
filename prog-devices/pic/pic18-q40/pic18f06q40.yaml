@@ -1,0 +1,13 @@
+name: PIC18F06Q40
+id: "c075"
+family: PIC18-Q40
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 1900}
+prog:
+  cmd_set: 8bit
+  pc: byte
+  cp: {addr: 0x300008, bit: 0, protected_when: 0}
+mem:
+  flash: {size: 65536, page: 256, addr: 0, hex: 0, align: 256}
+  eeprom: {size: 512, page: 1, addr: 0x380000, hex: 0x380000, align: 1}
+  config: {size: 9, page: 1, addr: 0x300000, hex: 0x300000, align: 1}
+  user: {size: 32, page: 2, addr: 0x200000, hex: 0x200000, align: 2}

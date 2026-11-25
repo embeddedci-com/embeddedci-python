@@ -54,6 +54,10 @@ jobs:
         run: |
           pytest -q scripts
           python scripts/check_release_tag.py --consistency
+      - name: Pin-programmer device table is generated from prog-devices/
+        # One YAML file per chip is the source; the SDK's prog_devices.json is generated and must
+        # match it (the CLI and the web app check their copies against this repository's main).
+        run: python scripts/gen_prog_devices.py --check
 
   openhtf:
     # The OpenHTF plug supports Python 3.10-3.13 (openhtf has no 3.14 build): pushes test the newest

@@ -693,15 +693,18 @@ def test_run_progress_and_erase_validation():
 def test_start_request_options():
     dev = prog.find_device("updi", chip_id=T1616)
     reg = prog.Region(mem="config", addr=0, data=b"\x01", page=1)
+    base = {"cmd": "prog_flash", "op": "start", "proto": "updi", "data": 3, "mem": "config",
+            "addr": 0, "len": 1, "page": 1, "erase": "none", "run": True, "expect_id": T1616}
     req = prog.start_request("updi", {"data": 3}, region=reg, dev=dev, erase="none", run_after=True)
-    assert req == {"cmd": "prog_flash", "op": "start", "proto": "updi", "data": 3, "mem": "config",
-                   "addr": 0, "len": 1, "page": 1, "erase": "none", "run": True,
-                   "expect_id": T1616, "flags": 0x8000}
+    assert req == {**base, "flash_base": 0x8000}                      # firmware 4.0.6+: named fields
+    req = prog.start_request("updi", {"data": 3}, region=reg, dev=dev, erase="none", run_after=True,
+                             named=False)
+    assert req == {**base, "flags": 0x8000}                           # older firmware: packed flags
 
 
 def test_table_json_is_valid_and_documented():
     data = prog.load_table()
-    assert data["schema"] == 1
+    assert data["schema"] == 2
     json.dumps(data)
     import pathlib
     readme = pathlib.Path(prog.__file__).with_name("prog_devices.README.md")
@@ -810,7 +813,7 @@ class StyleFakePod(FakePod):
 
     def command(self, req: Dict[str, Any]) -> Any:
         if req.get("cmd") == "prog_flash" and req.get("op") == "info":
-            ok = (req.get("flags", 0) & prog.PIC_ENTRY_MASK) == self.need_flags
+            ok = (req.get("flags", 0) & 0x73) == self.need_flags
             self.info_result = "ok" if ok else "no answer (wiring, power or I/O voltage)"
         return super().command(req)
 

@@ -1,0 +1,8 @@
+name: EFM8BB21F16G
+aliases: [EFM8BB22F16G]
+id: "32"
+family: EFM8 Busy Bee 2
+voltage: {min_mv: 2200, max_mv: 3600}
+notes: "BB22F16G is the same; shares ID 0x32 with the EFM8UB1: pass device="
+mem:
+  flash: {size: 16384, page: 512, addr: 0, hex: 0, align: 1}

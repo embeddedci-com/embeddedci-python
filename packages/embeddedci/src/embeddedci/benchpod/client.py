@@ -2280,7 +2280,8 @@ class BenchPod:
             volts = None
         vtext = f"{volts:g} V" if volts else "not set"
         try:
-            chip_id, dev = _prog.identify(self.command, proto, pins, name=device,
+            named = self.supports("prog_named")   # firmware 4.0.6+: named chip fields, else packed flags
+            chip_id, dev = _prog.identify(self.command, proto, pins, name=device, named=named,
                                           pin_text=pin_text, volts=vtext)
         except DirectionConflictError as exc:
             raise _prog.direction_error(exc, pin_text) from exc
@@ -2297,7 +2298,8 @@ class BenchPod:
             notes.append("the image has no flash: no chip erase, only the pages written are erased")
         try:
             r = _prog.run(self.command, stage, proto, dev, regions, pins=pins, erase=erase,
-                          run_after=run_after, pin_text=pin_text, volts=vtext, chip_id=chip_id)
+                          run_after=run_after, pin_text=pin_text, volts=vtext, chip_id=chip_id,
+                          named=named)
         except DirectionConflictError as exc:
             raise _prog.direction_error(exc, pin_text) from exc
         lines += [f"{g.mem} at 0x{g.addr:x}: {g.length} bytes written and verified in "

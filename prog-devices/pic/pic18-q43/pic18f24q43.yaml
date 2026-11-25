@@ -1,0 +1,13 @@
+name: PIC18F24Q43
+id: "6073"
+family: PIC18-Q43
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 2850}
+prog:
+  cmd_set: 8bit
+  pc: byte
+  cp: {addr: 0x300009, bit: 0, protected_when: 0}
+mem:
+  flash: {size: 16384, page: 256, addr: 0, hex: 0, align: 256}
+  eeprom: {size: 1024, page: 1, addr: 0x380000, hex: 0x380000, align: 1}
+  config: {size: 10, page: 1, addr: 0x300000, hex: 0x300000, align: 1}
+  user: {size: 32, page: 2, addr: 0x200000, hex: 0x200000, align: 2}

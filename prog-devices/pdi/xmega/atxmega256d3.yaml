@@ -1,0 +1,9 @@
+name: ATxmega256D3
+id: "1e9844"
+family: XMEGA
+voltage: {min_mv: 1800, max_mv: 3600}
+mem:
+  flash: {size: 270336, page: 512, addr: 0, hex: 0}
+  eeprom: {size: 4096, page: 32, addr: 0, hex: 0x810000}
+  config: {size: 6, page: 1, addr: 0, hex: 0x820000}
+  user: {size: 512, page: 512, addr: 0, hex: 0x850000}

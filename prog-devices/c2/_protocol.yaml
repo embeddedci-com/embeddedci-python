@@ -1,0 +1,3 @@
+# Silicon Labs C2 (EFM8): what the host needs for every chip of this protocol.
+target: efm8
+title: Silicon Labs C2 (EFM8)
