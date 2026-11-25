@@ -4,6 +4,9 @@
 
 For BenchPod firmware 4.0.5 (features table revision 18, gateware v66).
 
+- **`flash(target="pic")` identifies PIC16F18xxx and PIC18 Q chips.** The ID read now uses the chip's
+  command set: the named `device=`'s, or without a name each set of the device table in turn. These chips
+  never answered the old 6-bit entry, so they could not be identified or flashed.
 - **Finds the pod under its own USB id `1209:EC10`** (pid.codes), which the firmware after 4.0.4 uses instead
   of ST's stock `0483:5740`. Both ids work, so `usb`, `usb:<name>` and re-finding a pod after a firmware
   update work before and after the switch. The pod's own id is probed first.

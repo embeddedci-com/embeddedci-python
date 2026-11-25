@@ -2217,10 +2217,10 @@ class BenchPod:
             volts = None
         vtext = f"{volts:g} V" if volts else "not set"
         try:
-            chip_id = _prog.read_info(self.command, proto, pins, pin_text=pin_text, volts=vtext)
+            chip_id, dev = _prog.identify(self.command, proto, pins, name=device,
+                                          pin_text=pin_text, volts=vtext)
         except DirectionConflictError as exc:
             raise _prog.direction_error(exc, pin_text) from exc
-        dev = _prog.find_device(proto, chip_id=chip_id, name=device)
         lines = [f"{dev.name} ({fam.title}), ID {chip_id}"]
         _prog.check_voltage(dev, volts, erase=erase if file else "none")
         if file:
