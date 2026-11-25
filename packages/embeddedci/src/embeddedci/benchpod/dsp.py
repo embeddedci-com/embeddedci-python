@@ -27,11 +27,11 @@ FIT = "fit"
 REPLAY_MAX_SAMPLES = 4096
 
 #: Named DAC output paths → their positive full-scale volts (server benchpodDacPathFullScaleV).
-DAC_PATH_FULLSCALE_V = {"3v3": 3.3, "5v": 5.0, "12v": 12.0}
+DAC_PATH_FULLSCALE_V = {"3v3": 3.3, "5v": 5.0, "12v": 12.0, "cal1": 5.0}
 
 #: Named DAC output paths → (min, max) output volts, as the firmware calibration defines them
 #: (``cal_data.h`` ``DAC_CAL``). ``12v`` is bipolar: −12..+12 V with 0 V at mid-scale.
-DAC_PATH_RANGE_V = {"3v3": (0.0, 3.3), "5v": (0.0, 5.0), "12v": (-12.0, 12.0)}
+DAC_PATH_RANGE_V = {"3v3": (0.0, 3.3), "5v": (0.0, 5.0), "12v": (-12.0, 12.0), "cal1": (0.0, 5.0)}
 
 
 def dac_path_fullscale_v(dac_path: str, fallback: float = 5.0) -> float:

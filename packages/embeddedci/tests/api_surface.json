@@ -484,8 +484,8 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'DacOutput'\""
   },
-  "DacOutputPath": "Literal['3v3', '5v', '12v', 'off']",
-  "DacPath": "Literal['3v3', '5v', '12v', 'current_out']",
+  "DacOutputPath": "Literal['3v3', '5v', '12v', 'off', 'cal1']",
+  "DacPath": "Literal['3v3', '5v', '12v', 'current_out', 'cal1']",
   "DacPinoutMismatchError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, digital: 'str' = '', module: 'str' = '') -> 'None'"
   },

@@ -118,7 +118,7 @@ def analog_path(bench: Any, path: AnalogPath) -> AnalogPathState:
 
 
 def dac_output(bench: Any, path: DacOutputPath, *, volts: Optional[float] = None) -> DacOutput:
-    """Route a DAC output path (``3v3``/``5v``/``12v``/``off``) and optionally drive a calibrated
+    """Route a DAC output path (``3v3``/``5v``/``12v``/``cal1``/``off``) and optionally drive a calibrated
     DC ``volts``. Returns a :class:`~embeddedci.benchpod.DacOutput` (``path``, ``voltage``,
     ``code``)."""
     return bench.dac_output(path, volts=volts)
@@ -249,7 +249,7 @@ def signal_generate_phase(plug: type, *, waveform: Waveshape, freq_hz: float, am
 
 def dac_output_phase(plug: type, *, path: DacOutputPath, volts: Optional[float] = None,
                      name: str = "dac_output") -> object:
-    """A setup phase that routes a DAC output path (``3v3``/``5v``/``12v``/``off``) and, with
+    """A setup phase that routes a DAC output path (``3v3``/``5v``/``12v``/``cal1``/``off``) and, with
     ``volts``, drives that calibrated DC voltage (the switches flip automatically)."""
 
     @htf.PhaseOptions(name=name)

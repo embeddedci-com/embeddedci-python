@@ -1851,7 +1851,8 @@
             "3v3",
             "5v",
             "12v",
-            "off"
+            "off",
+            "cal1"
           ],
           "title": "Path",
           "type": "string"
@@ -3095,7 +3096,8 @@
                 "3v3",
                 "5v",
                 "12v",
-                "current_out"
+                "current_out",
+                "cal1"
               ],
               "type": "string"
             },
@@ -3104,7 +3106,7 @@
             }
           ],
           "default": null,
-          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
+          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin. cal1 = the 5 V stage routed into the ADC loopback (5 V output disconnected; needs firmware with dac_out_cal1).",
           "title": "Dac Path"
         },
         "duration_s": {
@@ -4544,7 +4546,8 @@
                 "3v3",
                 "5v",
                 "12v",
-                "current_out"
+                "current_out",
+                "cal1"
               ],
               "type": "string"
             },
@@ -4553,7 +4556,7 @@
             }
           ],
           "default": null,
-          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v; for waveform_id: the waveform's own, else 3v3). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin.",
+          "description": "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, cal1 = 5v; for waveform_id: the waveform's own, else 3v3). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin. cal1 is for generate and dac_output, not replay.",
           "title": "Dac Path"
         },
         "fault": {

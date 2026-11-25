@@ -2547,10 +2547,16 @@ class BenchPod:
     def dac_output(self, path: DacOutputPath, *, volts: Optional[float] = None) -> DacOutput:
         """Route a DAC output path and, with ``volts``, drive that CALIBRATED DC voltage.
 
-        ``path`` is ``3v3``/``5v``/``12v`` or ``off``. The returned :class:`DacOutput` carries
-        the voltage actually produced (the nearest DAC code to the request).
+        ``path`` is ``3v3``/``5v``/``12v``, ``cal1`` or ``off``. ``cal1`` sets the level on the 5 V
+        DAC stage routed into the ADC loopback (relays K1 and K4), so ``adc_read(source="cal1")``
+        reads it back without any relay switching in between; the 5 V output is disconnected while
+        it is on. It needs firmware with feature ``dac_out_cal1`` (else
+        :class:`UnsupportedFeatureError`), and the pod checks ``volts`` against the 5 V window. The
+        returned :class:`DacOutput` carries the voltage actually produced (the nearest DAC code to
+        the request).
         """
         check_choice(path, DAC_OUTPUT_PATHS, "path")
+        self._require_dac_cal1(path)
         req: Dict[str, Any] = {"cmd": "dac_out", "path": path}
         if volts is not None:
             if path == "off":
@@ -3675,6 +3681,24 @@ class BenchPod:
             self._dac_routed()
         self._routed_dac_path = dac_path
 
+    def _require_dac_cal1(self, path: Optional[str]) -> None:
+        """Refuse ahead, in words, when ``path`` is ``cal1`` and the pod's firmware lacks it."""
+        if path != "cal1" or self.supports("dac_out_cal1"):
+            return
+        fw = self.capabilities.firmware_version or "unknown"
+        first = _feature_map.first_firmware("dac_out_cal1") or "the next release"
+        raise UnsupportedFeatureError(
+            f"path 'cal1' (the 5 V DAC stage routed into the ADC loopback) needs firmware {first} "
+            f"or later (this pod runs firmware {fw}): update the pod, or use analog_path('cal1') "
+            "after dac_output('5v', ...)",
+            feature="dac_out_cal1", firmware_version=self.capabilities.firmware_version)
+
+    @staticmethod
+    def _refuse_replay_cal1(dac_path: Optional[str]) -> None:
+        if dac_path == "cal1":
+            raise ValueError("dac_path 'cal1' is for dac_output and generate; replay on the 5 V "
+                             "stage with dac_path='5v' and analog_path('cal1') (route=False)")
+
     def _default_dac_path(self, route: bool) -> str:
         """The output a waveform plays on when ``dac_path`` is left out.
 
@@ -3685,7 +3709,8 @@ class BenchPod:
         """
         if route:
             return DEFAULT_DAC_PATH
-        return self._routed_dac_path or "5v"
+        routed = self._routed_dac_path
+        return "5v" if routed in (None, "cal1") else routed
 
     def _stop_current_out(self) -> None:
         """Stop a waveform on the 4-20 mA output and return the loop to its live zero. ``dac_stop``
@@ -3731,6 +3756,10 @@ class BenchPod:
         if dac_path is None:
             dac_path = self._default_dac_path(route)  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")
+        if route:
+            self._require_dac_cal1(dac_path)
+        elif dac_path == "cal1":
+            dac_path = "5v"  # no routing: the path only sets the volts scaling
         if freq_hz <= 0:
             raise ValueError(f"freq_hz must be > 0, got {freq_hz!r}")
         vmin, vmax = self._output_range(dac_path)
@@ -4123,6 +4152,7 @@ class BenchPod:
         if dac_path is None:
             dac_path = self._default_dac_path(route)  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")
+        self._refuse_replay_cal1(dac_path)
         check_choice(mapping, REPLAY_MAPPINGS, "mapping")
         bits = self._replay_bits()
         vmin, vmax = self._output_range(dac_path)
@@ -4184,6 +4214,7 @@ class BenchPod:
         if dac_path is None:
             dac_path = wf.dac_path if wf.dac_path in DAC_PATHS else DEFAULT_DAC_PATH  # type: ignore[assignment]
         check_choice(dac_path, DAC_PATHS, "dac_path")  # type: ignore[arg-type]
+        self._refuse_replay_cal1(dac_path)
         path_unit = "mA" if dac_path == _CURRENT_OUT else "V"
         wf_unit = getattr(wf, "unit", "V") or "V"
         if getattr(wf, "kind", "") == "recording" and wf_unit != path_unit and mapping != "fit":

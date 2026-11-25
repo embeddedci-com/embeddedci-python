@@ -2521,7 +2521,12 @@ async def dac_output(
     path: DacOutputPath,
     volts: Annotated[Optional[float], Field(description="Calibrated DC volts to drive; omit to only route.")] = None,
 ) -> m.DacOutputResult:
-    """Route a DAC output (3v3, 5v, 12v = ±12 V, or off) and drive a calibrated DC voltage on it."""
+    """Route a DAC output (3v3, 5v, 12v = ±12 V, cal1, or off) and drive a calibrated DC voltage on it.
+
+    cal1 sets the level on the 5 V DAC stage routed into the ADC loopback (the 5 V output is
+    disconnected while it is on), so adc_read source cal1 reads it back with no relay switching in
+    between. It needs firmware with feature dac_out_cal1 (the pod refuses older firmware with a clear error).
+    """
     out = await _call(lambda: SESSION.require().dac_output(path, volts=volts))
     # code16 is new in embeddedci 2.11; the MCP still runs on older SDKs (CI: mcp-min-sdk).
     return m.DacOutputResult(path=out.path, voltage=out.voltage, code=out.code,
@@ -3048,7 +3053,9 @@ async def generate(
         "Center volts; default mid-range of dac_path. On current_out: center AMPS (0.012 = 12 mA)."))] = None,
     dac_path: Annotated[Optional[DacPath], Field(description=(
         "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
-        "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
+        "cal1 = 5v). Pick the one the DUT pin tolerates: 5v and 12v can damage a 3.3 V pin. "
+        "cal1 = the 5 V stage routed into the ADC loopback (5 V output disconnected; needs firmware "
+        "with dac_out_cal1)."))] = None,
     duration_s: Annotated[Optional[float], Field(description="Seconds; omit to run until dac_stop.")] = None,
     sample_rate_hz: RateHz = None,
     on_capture: Annotated[bool, Field(description="Start on the next capture's hardware t0 (phase-locked).")] = False,
@@ -3107,7 +3114,7 @@ async def replay(
     dac_path: Annotated[Optional[DacPath], Field(description=(
         "DAC output. Omitted: 3v3, the lowest voltage output (with route false: the output last routed, "
         "cal1 = 5v; for waveform_id: the waveform's own, else 3v3). Pick the one the DUT pin "
-        "tolerates: 5v and 12v can damage a 3.3 V pin."))] = None,
+        "tolerates: 5v and 12v can damage a 3.3 V pin. cal1 is for generate and dac_output, not replay."))] = None,
     mapping: Annotated[ReplayMapping, Field(description="faithful = reproduce volts (clip); fit = auto-scale.")] = "faithful",
     sample_rate_hz: Annotated[Optional[float], Field(description="Replay rate; defaults to the capture's own rate.")] = None,
     window_start: Annotated[int, Field(ge=0, description="waveform_id: first recording sample to replay.")] = 0,

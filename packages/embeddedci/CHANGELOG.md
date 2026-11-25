@@ -1,5 +1,15 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+For BenchPod firmware with features table revision 20.
+
+- **`dac_output("cal1", volts=...)` and `generate(dac_path="cal1")`.** The level goes on the 5 V DAC
+  stage routed into the ADC loopback (the 5 V output is disconnected meanwhile), so a test can set a
+  DAC level and read it back with `adc_read("cal1")` without relays clicking each step. `DacPath` and
+  `DacOutputPath` gain `"cal1"`; firmware without feature `dac_out_cal1` is refused with
+  `UnsupportedFeatureError`, and `replay` refuses it.
+
 ## 4.0.5
 
 For BenchPod firmware 4.0.5 (features table revision 19, gateware v68).

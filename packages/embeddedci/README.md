@@ -2005,8 +2005,11 @@ state = bp.analog_path("adc_ext")          # AnalogPathState(path, dac_mux_regis
 print(bp.adc_read("ext").voltage)          # the true front-SMA voltage (the ÷12 divider is applied)
 ```
 
-`dac_output` takes calibrated volts (`"3v3"`, `"5v"`, `"12v"`, or `"off"`); without `volts` it only
-routes. From firmware 3.8.1 the pod drives the DAC at its full 16 bits: `voltage` then has
+`dac_output` takes calibrated volts (`"3v3"`, `"5v"`, `"12v"`, `"cal1"`, or `"off"`); without `volts` it only
+routes. `"cal1"` (firmware with feature `dac_out_cal1`, features table revision 20) sets the level on
+the 5 V DAC stage routed into the ADC loopback, so `bp.adc_read("cal1")` reads it back without relays
+switching between steps; the 5 V output is disconnected while it is on. `generate(dac_path="cal1")`
+works the same way, and older firmware is refused with `UnsupportedFeatureError`. `replay` does not take `"cal1"`. From firmware 3.8.1 the pod drives the DAC at its full 16 bits: `voltage` then has
 microvolt resolution (about 76 µV a step on `"5v"`) and `code16` is the 16-bit code, while `code`
 stays the nearest 8-bit level. On older firmware `code16` is `None` and the steps are 8-bit. `adc_read` routes the source (`"ext"`, `"cal1"`, `"cal2"`, `"current_in"`) and returns one averaged,
 calibrated reading; the pod refuses it while the input is still moving (e.g. a DAC left running).
