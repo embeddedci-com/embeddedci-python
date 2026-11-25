@@ -6,7 +6,7 @@ One call tries every way the wiring profile makes possible and reports what answ
   ``op: "id"``, firmware feature ``dap_id``). Nothing is halted, reset or written. The SDK maps the
   answer: the Arm core from the CPUID, then the vendor's ID register for that core (an STM32's
   DBGMCU_IDCODE, a Nordic FICR) to a part name; a JTAG chain's IDCODEs the same way.
-* ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``: the pod enters the chip's programming mode and reads
+* ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw``: the pod enters the chip's programming mode and reads
   its ID (the ``prog_flash`` ``info`` op, the same read as ``flash(..., dry_run=True)``). Invasive:
   it resets the chip.
 * ``esp32``: the pod syncs with the chip's ROM loader (``esp_flash`` ``sync``) and the loader names
@@ -17,7 +17,7 @@ One call tries every way the wiring profile makes possible and reports what answ
 A method is tried only when the wiring profile wires its pins. The programming protocols and the
 ESP32 are tried only when the profile has a signal *named for the protocol* (``ICSPCLK`` and
 ``ICSPDAT``, ``UPDI``, ``C2CK`` and ``C2D``, ``TPICLK`` and ``TPIDATA``, ``PDI_CLK`` and
-``PDI_DATA``; a ``BOOT`` / ``IO0`` / ``IO9`` signal next to ``uart_rx`` and ``uart_tx``): unlike
+``PDI_DATA``, ``SBWTCK`` or ``TEST`` and ``SBWTDIO`` or ``RST``; a ``BOOT`` / ``IO0`` / ``IO9`` signal next to ``uart_rx`` and ``uart_tx``): unlike
 ``flash()`` there is no fallback to the SWD pins, because detect runs without being told what the
 chip is, and driving an SWD line as a programming pin would be a guess.
 
@@ -42,9 +42,9 @@ from .errors import BenchPodError, DeviceBusyError, DirectionConflictError, Tran
 from .wiring import Wiring
 
 #: Every method :func:`run` knows, in the order it tries them.
-METHODS: Tuple[str, ...] = ("swd", "jtag", "updi", "pic", "c2", "tpi", "pdi", "esp32", "usb")
+METHODS: Tuple[str, ...] = ("swd", "jtag", "updi", "pic", "c2", "tpi", "pdi", "sbw", "esp32", "usb")
 #: The methods that reset the chip or drive its programming pins; ``invasive=False`` leaves them out.
-INVASIVE_METHODS: Tuple[str, ...] = ("updi", "pic", "c2", "tpi", "pdi", "esp32")
+INVASIVE_METHODS: Tuple[str, ...] = ("updi", "pic", "c2", "tpi", "pdi", "sbw", "esp32")
 
 CONFIDENCES = ("low", "medium", "high")
 
@@ -62,8 +62,8 @@ ESP_TIMEOUT = 10.0
 ESP_POLL_INTERVAL = 0.25
 
 _VENDOR = {"updi": "Microchip (Atmel)", "pdi": "Microchip (Atmel)", "tpi": "Microchip (Atmel)",
-           "pic": "Microchip", "c2": "Silicon Labs"}
-_ARCH = {"updi": "AVR", "pdi": "AVR", "tpi": "AVR", "pic": "PIC", "c2": "8051"}
+           "pic": "Microchip", "c2": "Silicon Labs", "sbw": "Texas Instruments"}
+_ARCH = {"updi": "AVR", "pdi": "AVR", "tpi": "AVR", "pic": "PIC", "c2": "8051", "sbw": "MSP430"}
 
 
 # -- result types ------------------------------------------------------------------------------
@@ -72,7 +72,7 @@ _ARCH = {"updi": "AVR", "pdi": "AVR", "tpi": "AVR", "pic": "PIC", "c2": "8051"}
 class DetectFinding:
     """One thing that answered.
 
-    ``method`` is the probe (``swd``, ``jtag``, ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``,
+    ``method`` is the probe (``swd``, ``jtag``, ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw``,
     ``esp32``, ``usb``); ``chip`` the part name (``"STM32F446"``), or ``None`` when only the vendor
     or the debug port is known (for a debug port alone it names the port); ``vendor`` and ``core``
     (``"Cortex-M4"``) as far as known; ``id`` the number the match rests on (``"0x10006421"``, the
@@ -635,6 +635,9 @@ class _Run:
             return self.skip(proto, "the LA voltage is not set")
         if not self.env.supports("prog_flash"):
             return self.skip(proto, "needs pod firmware with prog_flash (update the pod)")
+        if proto == "sbw" and not self.env.supports("prog_named"):
+            # Spy-Bi-Wire shipped with firmware 4.0.6, the release that added prog_named
+            return self.skip(proto, "needs pod firmware with the sbw protocol (4.0.6 or newer; update the pod)")
         self.env.prepare("prog")
         fam = _prog.families()[proto]
         pins, text = got.pins, got.text
@@ -659,6 +662,15 @@ class _Run:
         except DirectionConflictError as exc:
             return self.skip(proto, _reason(_prog.direction_error(exc, text)))
         raw = {"id": chip_id, "family": fam.title}
+        if proto == "sbw" and len(str(chip_id).lower().replace("0x", "").strip()) == 2:
+            # only the JTAG ID answered: the chip is JTAG-locked, its device ID cannot be read
+            raw["locked"] = True
+            self.result.findings.append(DetectFinding(
+                method=proto, chip="MSP430 (JTAG-locked)", vendor=_VENDOR[proto], core=_ARCH[proto],
+                id="0x" + chip_id.lower(), confidence="low", pins=dict(pins), raw=raw, invasive=True))
+            self.result.notes.append("sbw: only the JTAG ID answered, so the chip is JTAG-locked; name it "
+                                     "(device=) and flash with erase=\"chip\" to erase and unlock it")
+            return
         names = sorted({d.name for d in matches})
         if not names:
             self.result.findings.append(DetectFinding(
@@ -766,7 +778,7 @@ def run(env: DetectEnv, *, invasive: bool = True, methods: Optional[Sequence[str
             r.result.notes.append(f"the owners of the LA pins could not be read ({_reason(exc)})")
     steps: Dict[str, Callable[[], None]] = {
         "swd": r.swd, "jtag": r.jtag, "esp32": r.esp32, "usb": r.usb,
-        **{p: (lambda p=p: r.prog(p)) for p in ("updi", "pic", "c2", "tpi", "pdi")}}
+        **{p: (lambda p=p: r.prog(p)) for p in ("updi", "pic", "c2", "tpi", "pdi", "sbw")}}
     for method in selected:
         r.attempt(method, steps[method])
     if r.unwired:

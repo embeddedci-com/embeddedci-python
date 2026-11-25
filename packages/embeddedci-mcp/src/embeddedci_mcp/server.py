@@ -1302,7 +1302,7 @@ async def flash(
 
 # -- detect -----------------------------------------------------------------------------
 
-DetectMethod = Literal["swd", "jtag", "updi", "pic", "c2", "tpi", "pdi", "esp32", "usb"]
+DetectMethod = Literal["swd", "jtag", "updi", "pic", "c2", "tpi", "pdi", "sbw", "esp32", "usb"]
 
 
 @mcp.tool(annotations=_ann("Detect the chip on the board", idempotent=True))
@@ -1311,7 +1311,7 @@ async def detect(
         "true (default): also run the probes that reset the chip (programming-mode ID read, ESP32 "
         "ROM loader). false: only swd, jtag and usb, which never reset or write the chip."))] = True,
     methods: Annotated[Optional[List[DetectMethod]], Field(description=(
-        "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, esp32, usb. Omit for every probe "
+        "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, sbw, esp32, usb. Omit for every probe "
         "the wiring profile makes possible. A named probe the profile does not wire is reported "
         "in skipped."))] = None,
     ctx: Context = None,  # type: ignore[assignment]
@@ -1324,10 +1324,10 @@ async def detect(
     skipped) and name the chip from its ID register (an STM32's DEV_ID, a Nordic part) or JTAG
     IDCODE. `usb` reads the device already mounted on the pod's host port (usb_host first: detect
     never turns host mode on). With invasive=true the chip's programming protocols (`updi`, `pic`,
-    `c2`, `tpi`, `pdi`: read the ID in programming mode) and `esp32` (the ROM loader names the
+    `c2`, `tpi`, `pdi`, `sbw`: read the ID in programming mode) and `esp32` (the ROM loader names the
     chip) run too; they reset the chip, and an ESP32 is left in its ROM loader. A programming
     protocol is probed only when the profile has a signal named for it (UPDI, ICSPCLK + ICSPDAT,
-    C2CK + C2D, TPICLK + TPIDATA, PDI_CLK + PDI_DATA; pic and tpi also MCLR or RESET, else the
+    C2CK + C2D, TPICLK + TPIDATA, PDI_CLK + PDI_DATA, SBWTCK or TEST + SBWTDIO or RST (an MSP430 over Spy-Bi-Wire, firmware 4.0.6; a JTAG-locked chip is reported at low confidence); pic and tpi also MCLR or RESET, else the
     reset pin when the profile sets swd_nreset; esp32: uart_rx, uart_tx and a BOOT, IO0 or IO9
     signal, plus EN or swd_nreset): never on the SWD pins. A probe whose pins another tool owns
     (gpio, uart, sensor) is skipped with the owner, and a probe that errors or gets no answer is a

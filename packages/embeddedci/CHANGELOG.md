@@ -29,6 +29,10 @@ For BenchPod firmware with features table revision 21 (feature `dac_out_cal1` at
   FRAM 0xC400-0xFFFF, information FRAM 0x1800-0x19FF as `config`); the table says where its
   numbers come from. A JTAG-locked chip answers with its JTAG ID only: name it with `device=` and flash
   with `erase="chip"`. Needs firmware with the `sbw` protocol (4.0.6).
+- **`bp.detect()` probes `sbw`** (MSP430 over Spy-Bi-Wire, invasive, vendor Texas Instruments, core MSP430) when the
+  profile has `SBWTCK`/`SBW_TCK`/`TEST` and `SBWTDIO`/`SBW_TDIO`/`RST`; no reset pin is used. A chip that answers
+  with its 1-byte JTAG ID only is reported as "MSP430 (JTAG-locked)" at low confidence. Skipped with a message on
+  a pod older than firmware 4.0.6. `METHODS`, `INVASIVE_METHODS` and the MCP `detect` tool list `sbw`.
 
 ## 4.0.5
 

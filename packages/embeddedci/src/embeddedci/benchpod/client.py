@@ -2058,11 +2058,11 @@ class BenchPod:
         writing the chip (pod firmware with the ``dap_id`` feature; older firmware is reported as
         skipped), and the chip is named from its ID register (an STM32's DEV_ID, a Nordic part
         number) or JTAG IDCODE; ``usb`` reads the device already mounted on the pod's host port
-        (host mode is never turned on). ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi`` (the chip's
+        (host mode is never turned on). ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw`` (the chip's
         programming-mode ID, ``prog_flash``) and ``esp32`` (the ROM loader's chip name) reset the
         chip. A programming protocol is tried only when the profile has a signal named for it
         (``UPDI``, ``ICSPCLK`` and ``ICSPDAT``, ``C2CK`` and ``C2D``, ``TPICLK`` and ``TPIDATA``,
-        ``PDI_CLK`` and ``PDI_DATA``), never on the SWD pins. ``pic`` and ``tpi`` also need the chip's
+        ``PDI_CLK`` and ``PDI_DATA``, ``SBWTCK`` or ``TEST`` and ``SBWTDIO`` or ``RST``), never on the SWD pins. ``pic`` and ``tpi`` also need the chip's
         reset: a signal named ``MCLR`` or ``RESET``, else the pod's reset pin when the profile sets
         ``swd_nreset``. ``esp32`` needs ``uart_rx``, ``uart_tx`` and a ``BOOT`` / ``IO0`` / ``IO9``
         signal, and EN (a signal named ``EN``, else the reset pin under ``swd_nreset``).
