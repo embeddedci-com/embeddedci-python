@@ -4,6 +4,9 @@
 
 For BenchPod firmware 4.0.5 (features table revision 18, gateware v66).
 
+- **Finds the pod under its own USB id `1209:EC10`** (pid.codes), which the firmware after 4.0.4 uses instead
+  of ST's stock `0483:5740`. Both ids work, so `usb`, `usb:<name>` and re-finding a pod after a firmware
+  update work before and after the switch. The pod's own id is probed first.
 - **The emulation image has no SWD, JTAG, SPI master or I2C master** (gateware v65).
   - `bp.has_bus_masters()` says whether the running image has them.
   - `flash()` over SWD or JTAG, `open_spi()`, `spi_flash()`, `open_i2c()`, `expansion()` and

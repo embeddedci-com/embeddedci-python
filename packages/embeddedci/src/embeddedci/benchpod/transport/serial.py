@@ -27,17 +27,22 @@ from ..errors import (
 )
 from .base import RawLink, Transport
 
-# USB vendor ids a bench-pod console enumerates under: 0x2E8A (Raspberry Pi,
-# the RP2350 pod), 0x0483 (STMicroelectronics: the STM32H563 pod, which uses ST's
-# stock CDC VID/PID 0483:5740 on every firmware, from 3.9.0 as a composite device
-# with the CDC-ACM console plus a CDC-NCM network adapter) and 0x1209 (pre-release
-# 3.9.0 builds, under the pid.codes test id 1209:0001).
+# USB ids a bench-pod console has enumerated under, newest first:
+#   * 1209:EC10 (pid.codes, granted 2026-11-25): the pod's own id, from the firmware after 4.0.4.
+#   * 0483:5740 (STMicroelectronics' stock CDC id): the STM32H563 pod up to firmware 4.0.x (from
+#     3.9.0 as a composite device: CDC-ACM console plus a CDC-NCM network adapter).
+#   * 1209:0001 (pid.codes test id): pre-release 3.9.0 builds.
+#   * 2E8A (Raspberry Pi): the RP2350 pod.
+# The SDK finds a pod under any of them, so it works before, during and after a firmware update
+# that changes the id.
 #
-# None of these ids is exclusive to a bench pod (0x2E8A is shared with the
-# CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench
-# and 0x1209 is every pid.codes device), so they only ORDER the ports to probe.
-# Identification is by probing for BENCHPOD_MARKER, never by vendor id alone.
+# None of these ids is exclusive to a bench pod apart from 1209:EC10 (0x2E8A is shared with the
+# CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench and vendor 0x1209
+# with every pid.codes device), so they only ORDER the ports to probe: an exact 1209:EC10 match
+# first, then a bare vendor-id match. Identification is by probing for BENCHPOD_MARKER, never by
+# an id alone.
 POD_VIDS = (0x2E8A, 0x0483, 0x1209)
+POD_USB_IDS = ((0x1209, 0xEC10),)  # (vendor, product): ids only a bench pod uses
 
 # The substring the firmware's ``status`` prints to identify itself
 # ("device : benchpod").
@@ -159,9 +164,9 @@ def _candidate_ports_vid() -> List[Tuple[str, Optional[int]]]:
 
     Ordering, not filtering: a pod is identified by probing (see
     :func:`_probe_pod`), so an adapter this ranking puts last is still tried.
-    Ranking by vendor id alone is not enough — both pod vendor ids are shared
+    Ranking by vendor id alone is not enough — the pod vendor ids are shared
     with other hardware — so a product/manufacturer string that names the pod
-    outranks a bare vendor-id match.
+    outranks the pod's own id (1209:EC10), which outranks a bare vendor-id match.
     """
     _, list_ports = _import_serial()
 
@@ -169,9 +174,11 @@ def _candidate_ports_vid() -> List[Tuple[str, Optional[int]]]:
         text = " ".join(str(getattr(p, attr, "") or "") for attr in ("product", "manufacturer", "description"))
         if "bench-pod" in text.lower() or "benchpod" in text.lower() or "embeddedci" in text.lower():
             return 0
-        if p.vid in POD_VIDS:
+        if (p.vid, getattr(p, "pid", None)) in POD_USB_IDS:
             return 1
-        return 2
+        if p.vid in POD_VIDS:
+            return 2
+        return 3
 
     ports = [p for p in list_ports.comports() if getattr(p, "device", None)]
     ports.sort(key=lambda p: (rank(p), p.device))

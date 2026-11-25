@@ -1,7 +1,7 @@
 """Serial auto-detection: probe the ports, never trust the vendor id alone.
 
 The pod's USB vendor ids are shared with other hardware and differ between pod
-generations (RP2350 -> 0x2E8A, STM32H563 -> ST's stock 0x0483), so a vendor-id
+generations (RP2350 -> 0x2E8A, STM32H563 -> ST's stock 0x0483, then 1209:EC10), so a vendor-id
 filter both misses real pods and latches onto impostors. These tests pin the
 behaviour that replaced it: rank the ports, then probe each one.
 """
@@ -50,9 +50,10 @@ class FakePort:
 
 
 class PortInfo:
-    def __init__(self, device, vid=None, product=None, manufacturer=None):
+    def __init__(self, device, vid=None, product=None, manufacturer=None, pid=None):
         self.device = device
         self.vid = vid
+        self.pid = pid
         self.product = product
         self.manufacturer = manufacturer
         self.description = None
@@ -234,3 +235,31 @@ def test_two_ports_without_identity_count_as_two(monkeypatch):
     install(monkeypatch, infos, {"/dev/cu.a": POD_STATUS, "/dev/cu.b": POD_STATUS})
     with pytest.raises(ConnectionConfigError, match="a pod with no identity on /dev/cu.a"):
         serial_mod.autodetect_port()
+
+
+def test_own_usb_id_ranks_before_vendor_only_matches(monkeypatch):
+    # 1209:EC10 is the pod's own id (pid.codes); vendor 1209 alone is every pid.codes device, and
+    # 0483/2E8A are shared too, so the exact match goes first, then the vendor-only ones.
+    infos = [
+        PortInfo("/dev/cu.a-unknown", vid=0x1234),
+        PortInfo("/dev/cu.b-st", vid=0x0483, pid=0x5740),
+        PortInfo("/dev/cu.c-pidcodes-other", vid=0x1209, pid=0x0001),
+        PortInfo("/dev/cu.d-pod", vid=0x1209, pid=0xEC10),
+    ]
+    install(monkeypatch, infos, {"/dev/cu.d-pod": POD_STATUS})
+    assert serial_mod._candidate_ports() == [
+        "/dev/cu.d-pod", "/dev/cu.b-st", "/dev/cu.c-pidcodes-other", "/dev/cu.a-unknown"]
+    assert serial_mod.autodetect_port() == "/dev/cu.d-pod"
+
+
+def test_pod_is_refound_by_name_when_the_usb_id_changes_across_an_update(monkeypatch):
+    # Firmware before the id switch: 0483:5740. After the update the same pod (same identity)
+    # re-enumerates as 1209:EC10 on another device node; `usb:<name>` must still find it.
+    before = [PortInfo("/dev/cu.usbmodem1", vid=0x0483, pid=0x5740)]
+    install(monkeypatch, before, {"/dev/cu.usbmodem1": POD_STATUS}, {"/dev/cu.usbmodem1": "identity abc123 key"})
+    assert serial_mod.autodetect_port("benchpod-abc123") == "/dev/cu.usbmodem1"
+    after = [PortInfo("/dev/cu.usbmodem2", vid=0x1209, pid=0xEC10),
+             PortInfo("/dev/cu.other", vid=0x0483, pid=0x5740, product="STM32 Virtual COM Port")]
+    install(monkeypatch, after, {"/dev/cu.usbmodem2": POD_STATUS, "/dev/cu.other": "hi\n> "},
+            {"/dev/cu.usbmodem2": "identity abc123 key"})
+    assert serial_mod.autodetect_port("benchpod-abc123") == "/dev/cu.usbmodem2"
