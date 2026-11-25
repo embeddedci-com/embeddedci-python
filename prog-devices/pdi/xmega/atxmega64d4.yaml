@@ -1,0 +1,9 @@
+name: ATxmega64D4
+id: "1e9647"
+family: XMEGA
+voltage: {min_mv: 1800, max_mv: 3600}
+mem:
+  flash: {size: 69632, page: 256, addr: 0, hex: 0}
+  eeprom: {size: 2048, page: 32, addr: 0, hex: 0x810000}
+  config: {size: 6, page: 1, addr: 0, hex: 0x820000}
+  user: {size: 256, page: 256, addr: 0, hex: 0x850000}

@@ -1,0 +1,14 @@
+name: PIC16LF18326
+id: "a630"
+family: PIC16F183xx
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 2700}
+notes: "data EEPROM is not written: its hex-file address is not verified"
+prog:
+  cmd_set: 6bit
+  ee_erase: true
+  id_split: true
+  cp: {addr: 0x10014, bit: 0, protected_when: 0}
+mem:
+  flash: {size: 32768, page: 64, addr: 0, hex: 0, align: 64}
+  config: {size: 8, page: 2, addr: 0x1000E, hex: 0x1000E, align: 2}
+  user: {size: 8, page: 2, addr: 0x10000, hex: 0x10000, align: 2}

@@ -1,0 +1,10 @@
+name: ATxmega128A1
+aliases: [ATxmega128A1U]
+id: "1e974c"
+family: XMEGA
+voltage: {min_mv: 1800, max_mv: 3600}
+mem:
+  flash: {size: 139264, page: 512, addr: 0, hex: 0}
+  eeprom: {size: 2048, page: 32, addr: 0, hex: 0x810000}
+  config: {size: 6, page: 1, addr: 0, hex: 0x820000}
+  user: {size: 512, page: 512, addr: 0, hex: 0x850000}

@@ -1,0 +1,9 @@
+name: ATxmega8E5
+id: "1e9341"
+family: XMEGA
+voltage: {min_mv: 1800, max_mv: 3600}
+mem:
+  flash: {size: 10240, page: 128, addr: 0, hex: 0}
+  eeprom: {size: 512, page: 32, addr: 0, hex: 0x810000}
+  config: {size: 7, page: 1, addr: 0, hex: 0x820000}
+  user: {size: 128, page: 128, addr: 0, hex: 0x850000}

@@ -1,0 +1,12 @@
+name: PIC16LF1717
+id: "5f30"
+family: PIC16F171x
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 2700}
+prog:
+  cmd_set: 6bit
+  id_split: true
+  cp: {addr: 0x1000E, bit: 7, protected_when: 0}
+mem:
+  flash: {size: 16384, page: 64, addr: 0, hex: 0, align: 64}
+  config: {size: 4, page: 2, addr: 0x1000E, hex: 0x1000E, align: 2}
+  user: {size: 8, page: 2, addr: 0x10000, hex: 0x10000, align: 2}

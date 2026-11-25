@@ -1,0 +1,6 @@
+# AVR UPDI (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD): what the host needs for every chip of this protocol.
+target: avr-updi
+title: "AVR UPDI (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD)"
+ignore:   # image regions to leave out without an error
+  - {hex: 0x830000, size: 0x10000, name: lock bits}
+  - {hex: 0x840000, size: 0x10000, name: signature row}

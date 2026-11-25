@@ -1,0 +1,6 @@
+name: EFM8SB20F32G
+id: "16"
+family: EFM8 Sleepy Bee 2
+notes: "flash up to the lock byte; the lock byte, the reserved area and the lock page are never written"
+mem:
+  flash: {size: 32767, page: 1024, addr: 0, hex: 0, align: 1}

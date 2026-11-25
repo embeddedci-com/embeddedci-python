@@ -1,0 +1,12 @@
+name: PIC16LF18425
+id: "cd30"
+family: PIC16F184xx
+voltage: {min_mv: 1800, max_mv: 5500, erase_min_mv: 2700}
+notes: "data EEPROM is not written: its hex-file address is not verified"
+prog:
+  cmd_set: 8bit
+  cp: {addr: 0x10016, bit: 0, protected_when: 0}
+mem:
+  flash: {size: 16384, page: 64, addr: 0, hex: 0, align: 64}
+  config: {size: 10, page: 2, addr: 0x1000E, hex: 0x1000E, align: 2}
+  user: {size: 8, page: 2, addr: 0x10000, hex: 0x10000, align: 2}

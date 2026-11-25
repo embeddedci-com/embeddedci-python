@@ -1,0 +1,10 @@
+name: ATtiny40
+id: "1e920e"
+family: ATtiny TPI
+voltage: {min_mv: 4750, max_mv: 5500}
+voltage_note: "programs at 5 V only (datasheet: apply 5 V, 4.75-5.5 V); the pod's 1.8 and 3.3 V I/O cannot"
+prog:
+  write_words: 4
+mem:
+  flash: {size: 4096, page: 64, addr: 0, hex: 0}
+  config: {size: 1, page: 8, addr: 0, hex: 0x820000}

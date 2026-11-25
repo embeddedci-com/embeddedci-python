@@ -1,0 +1,11 @@
+name: ATtiny1606
+id: "1e9424"
+family: tinyAVR 0/1/2
+voltage: {min_mv: 1800, max_mv: 5500}
+prog:
+  flash_base: 0x8000
+mem:
+  flash: {size: 16384, page: 64, addr: 0, hex: 0}
+  eeprom: {size: 256, page: 32, addr: 0, hex: 0x810000}
+  config: {size: 10, page: 1, addr: 0, hex: 0x820000}
+  user: {size: 32, page: 32, addr: 0, hex: 0x850000}
