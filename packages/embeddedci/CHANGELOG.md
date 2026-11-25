@@ -4,6 +4,22 @@
 
 For BenchPod firmware 4.0.5 (features table revision 18, gateware v66).
 
+- **`bp.detect()` finds out which chip is wired to the pod.** It tries every probe the wiring
+  profile makes possible and returns a `DetectResult` (`powered`, `findings`, `skipped`, `notes`,
+  `to_dict()`); each `DetectFinding` has `method`, `chip`, `vendor`, `core`, `id`, `confidence`
+  (`high`, `medium`, `low`), `pins`, `raw` and `invasive`.
+  - `swd` and `jtag` read the debug port's IDs without halting, resetting or writing the chip
+    (`dap_start` with `op: "id"`, firmware feature `dap_id`; older firmware is reported in `skipped`)
+    and name the part from the Arm core's vendor ID register (an STM32's DEV_ID, a Nordic part) or a
+    JTAG IDCODE (including the STM32 boundary-scan TAP). `usb` reads the device already mounted on the
+    pod's USB host port (host mode is never turned on).
+  - `updi`, `pic`, `c2`, `tpi`, `pdi` (the programming-mode ID) and `esp32` (the ROM loader's chip
+    name) reset the chip and run with `invasive=True` (the default); they run only when the profile
+    has a signal named for the protocol, never on the SWD pins. `invasive=False` runs `swd`, `jtag`
+    and `usb` only; `methods=[...]` limits the probes.
+  - Target power off, no LA voltage, pins owned by a UART, GPIO or sensor, a probe error or no answer
+    are reported in `notes` / `skipped`, not raised. The ID table is
+    `embeddedci/benchpod/detect_ids.json`.
 - **`flash(target="pic")` identifies PIC16F18xxx and PIC18 Q chips.** The ID read now uses the chip's
   command set: the named `device=`'s, or without a name each set of the device table in turn. These chips
   never answered the old 6-bit entry, so they could not be identified or flashed.

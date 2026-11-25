@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, 
 from . import can as _can
 from . import capture as _capture
 from . import control_loop as _control_loop
+from . import detect as _detect
 from . import dsp as _dsp
 from . import esp as _esp
 from . import expansion as _expansion
@@ -2039,6 +2040,68 @@ class BenchPod:
         if check:
             _flash.raise_for_result(result)
         return result
+
+    def detect(self, *, invasive: bool = True,
+               methods: Optional[Sequence[str]] = None) -> "_detect.DetectResult":
+        """Find out which chip is wired to the pod.
+
+        Tries every probe the wiring profile makes possible and reports what answered as a
+        :class:`~embeddedci.benchpod.detect.DetectResult`: ``powered``, ``findings`` (each a
+        :class:`~embeddedci.benchpod.detect.DetectFinding` with ``method``, ``chip``, ``vendor``,
+        ``core``, ``id``, ``confidence`` ``"high"``/``"medium"``/``"low"``, ``pins`` and ``raw``),
+        ``skipped`` and ``notes``. With target power off nothing is probed (``powered`` is
+        ``False``); a pin owned by a UART, GPIO or sensor is not probed (``skipped`` names the
+        owner); a probe that errors or gets no answer is a ``skipped`` entry, not an exception.
+        Needs the LA voltage (the profile's ``la_mv``).
+
+        Probes: ``swd`` and ``jtag`` read the debug port's IDs without halting, resetting or
+        writing the chip (pod firmware with the ``dap_id`` feature; older firmware is reported as
+        skipped), and the chip is named from its ID register (an STM32's DEV_ID, a Nordic part
+        number) or JTAG IDCODE; ``usb`` reads the device already mounted on the pod's host port
+        (host mode is never turned on). ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi`` (the chip's
+        programming-mode ID, ``prog_flash``) and ``esp32`` (the ROM loader's chip name) reset the
+        chip. A programming protocol is tried only when the profile has a signal named for it
+        (``UPDI``, ``ICSPCLK`` and ``ICSPDAT``, ``C2CK`` and ``C2D``, ``TPICLK`` and ``TPIDATA``,
+        ``PDI_CLK`` and ``PDI_DATA``), never on the SWD pins. ``pic`` and ``tpi`` also need the chip's
+        reset: a signal named ``MCLR`` or ``RESET``, else the pod's reset pin when the profile sets
+        ``swd_nreset``. ``esp32`` needs ``uart_rx``, ``uart_tx`` and a ``BOOT`` / ``IO0`` / ``IO9``
+        signal, and EN (a signal named ``EN``, else the reset pin under ``swd_nreset``).
+
+        ``invasive=False`` runs only ``swd``, ``jtag`` and ``usb`` (what the web app runs by
+        itself); ``methods`` limits the probes to those named (a named method the profile does not
+        wire is reported in ``skipped``). Raises :class:`ValueError` for an unknown method name and
+        the usual connection errors when the pod cannot be reached.
+        """
+        _detect.normalize_methods(methods)   # a bad name raises before the pod is touched
+        self._yield_expansion_bus()
+
+        def prepare(what: str) -> None:
+            if what == "swd":
+                self._ensure_bus_masters("SWD")
+            elif what == "jtag":
+                self._ensure_bus_masters("JTAG")
+            elif what == "prog":
+                self._require_prog()
+                self._ensure_image(FpgaImage.DEEP_REPLAY, needed_for="detecting a chip over its "
+                                   "programming pins", switch=True)
+
+        def owners() -> Dict[int, str]:
+            if not self.supports("la_pins"):
+                return {}
+            out: Dict[int, str] = {}
+            for p in self.la_pins():
+                if p.function and p.function != "none":
+                    out[p.la] = f"{p.function} ({p.gpio})" if p.function == "gpio" and p.gpio else p.function
+            return out
+
+        def usb_state() -> Any:
+            return self.usb_host_status()
+
+        env = _detect.DetectEnv(
+            command=self.command, wiring=self.wiring, supports=self.supports,
+            target_status=self.target_status, la_voltage=lambda: self.get_la_voltage().voltage,
+            pin_owners=owners, usb_state=usb_state, prepare=prepare)
+        return _detect.run(env, invasive=invasive, methods=methods)
 
     def _flash_build_on_server(
         self, api: "ServerApi", art: Dict[str, Any], *, swclk: int, swdio: int, nreset: bool,

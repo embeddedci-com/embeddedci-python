@@ -1170,7 +1170,8 @@ async def flash(
         "erase their whole code section) or 'none'."))] = "chip",
     dry_run: Annotated[bool, Field(description=(
         "avr-updi, pic, efm8, attiny-tpi, xmega: only enter programming mode and read the chip's "
-        "ID (a wiring test): stdout_tail names the chip, nothing is written."))] = False,
+        "ID (a wiring test): stdout_tail names the chip, nothing is written. Other targets (SWD, "
+        "JTAG, ESP32) have no dry run and refuse it: use the detect tool to read their IDs."))] = False,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FlashResult:
     """Program the DUT over SWD or JTAG through the pod's CMSIS-DAP probe.
@@ -1211,7 +1212,8 @@ async def flash(
     `reset_pin`, else from wiring-profile signals named for the protocol (ICSPCLK, C2CK, UPDI, ...),
     else the profile's swd_swclk and swd_swdio; pic and attiny-tpi also use the pod's reset pin
     (`nreset`, the default) for MCLR or RESET. `erase` is 'chip' by default; `dry_run` only reads
-    the chip's ID (check the wiring first). ATtiny4/5/9/10/20/40 need 5 V, which the pod's 1.8 and
+    the chip's ID (check the wiring first). `dry_run` is for these targets only: an SWD, JTAG or
+    ESP32 flash refuses it (use `detect` to see what answers on those pins). ATtiny4/5/9/10/20/40 need 5 V, which the pod's 1.8 and
     3.3 V I/O cannot give: the call fails before anything is written. A failure is ok=false with
     stderr_tail saying what to check (wiring, power, locked chip: erase 'chip' unlocks it). Needs
     firmware with the `prog_flash` feature and the xip_prog blob (`benchpod install-blobs`).
@@ -1240,6 +1242,11 @@ async def flash(
                                  target_unreachable=r.target_unreachable, stalled=False,
                                  stdout_tail=clip(r.stdout, 4000)[-4000:],
                                  stderr_tail=clip(r.stderr, 4000)[-4000:])
+        if dry_run:
+            raise ValueError("dry_run only applies to the pin-programmer targets (avr-updi, pic, "
+                             "efm8, attiny-tpi, xmega): an SWD, JTAG or ESP32 flash has no dry run. "
+                             "Use the detect tool to read what answers on those pins without "
+                             "flashing")
         if _is_esp_target(target or pod.wiring.swd_target):
             if from_build:
                 raise ValueError("an ESP32 target is flashed from a file (a .bin or "
@@ -1289,6 +1296,55 @@ async def flash(
                              ) if art else None)
 
     return await _call_reporting(ctx, "flashing", op)
+
+
+# -- detect -----------------------------------------------------------------------------
+
+DetectMethod = Literal["swd", "jtag", "updi", "pic", "c2", "tpi", "pdi", "esp32", "usb"]
+
+
+@mcp.tool(annotations=_ann("Detect the chip on the board", idempotent=True))
+async def detect(
+    invasive: Annotated[bool, Field(description=(
+        "true (default): also run the probes that reset the chip (programming-mode ID read, ESP32 "
+        "ROM loader). false: only swd, jtag and usb, which never reset or write the chip."))] = True,
+    methods: Annotated[Optional[List[DetectMethod]], Field(description=(
+        "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, esp32, usb. Omit for every probe "
+        "the wiring profile makes possible. A named probe the profile does not wire is reported "
+        "in skipped."))] = None,
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.DetectToolResult:
+    """Find out which chip is wired to the pod, from the wiring profile.
+
+    Needs target power on (power_on) and the LA voltage set; with the rail off nothing is probed
+    (powered=false). `swd` and `jtag` read the debug port's IDs without halting, resetting or
+    writing the chip (pod firmware with the `dap_id` feature; older firmware is reported in
+    skipped) and name the chip from its ID register (an STM32's DEV_ID, a Nordic part) or JTAG
+    IDCODE. `usb` reads the device already mounted on the pod's host port (usb_host first: detect
+    never turns host mode on). With invasive=true the chip's programming protocols (`updi`, `pic`,
+    `c2`, `tpi`, `pdi`: read the ID in programming mode) and `esp32` (the ROM loader names the
+    chip) run too; they reset the chip, and an ESP32 is left in its ROM loader. A programming
+    protocol is probed only when the profile has a signal named for it (UPDI, ICSPCLK + ICSPDAT,
+    C2CK + C2D, TPICLK + TPIDATA, PDI_CLK + PDI_DATA; pic and tpi also MCLR or RESET, else the
+    reset pin when the profile sets swd_nreset; esp32: uart_rx, uart_tx and a BOOT, IO0 or IO9
+    signal, plus EN or swd_nreset): never on the SWD pins. A probe whose pins another tool owns
+    (gpio, uart, sensor) is skipped with the owner, and a probe that errors or gets no answer is a
+    skipped entry, not a failure.
+
+    Each finding has chip, vendor, core, id and a confidence: high is an exact table match, medium
+    a known vendor and core with an unknown part, low a debug port alone. Report medium and low
+    findings as such: they are not a chip name."""
+    def op() -> m.DetectToolResult:
+        pod = SESSION.require()
+        if not hasattr(type(pod), "detect"):
+            raise ValueError("detecting the chip needs a newer embeddedci SDK; upgrade embeddedci")
+        res = pod.detect(invasive=invasive, methods=methods)
+        d = res.to_dict()
+        return m.DetectToolResult(
+            powered=d["powered"], findings=[m.DetectFindingInfo(**f) for f in d["findings"]],
+            skipped=[m.DetectSkipped(**s) for s in d["skipped"]], notes=d["notes"])
+
+    return await _call_reporting(ctx, "detecting", op)
 
 
 # -- UART -----------------------------------------------------------------------------

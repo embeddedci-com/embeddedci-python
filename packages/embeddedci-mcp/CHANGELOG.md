@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **New `detect` tool: which chip is wired to the pod.** Reads the debug port IDs over SWD and JTAG
+  without halting or resetting the chip (pod firmware with `dap_id`), the device mounted on the USB
+  host port, and with `invasive` true (the default) the programming-mode ID of UPDI, PIC, C2, TPI and
+  PDI chips and the ESP32 ROM loader, which reset the chip. `methods` limits the probes. Each finding
+  has `chip`, `vendor`, `core`, `id` and a `confidence`; a probe that is not wired, owned by another
+  tool or gets no answer is in `skipped`. Needs the SDK's `BenchPod.detect` (embeddedci 4.0.5).
+- `flash` `dry_run` is for the pin-programmer targets only: an SWD, JTAG or ESP32 flash now refuses
+  it with a message pointing to `detect` instead of ignoring it and flashing.
 - Tool descriptions and the server guide say that from gateware v65 the emulation image has no SWD,
   JTAG, SPI master or I2C master: `flash`, `spi_*`, `i2c_*`, `expansion` and `capture_la` with `send`
   switch to the loop image themselves when no sensor runs, and refuse (`BP0059`) while sensors run.
