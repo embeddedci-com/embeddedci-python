@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- `fpga_image` tool text: about 0.1 s with firmware 4.0.6 (no config-flash write), the running
+  image is not reloaded, and a restarted pod runs the loop image.
+
 ## 4.0.5
 
 For BenchPod firmware 4.0.5; needs embeddedci 4.0.5 (`BenchPod.detect`, the emulation image split and the pod's own USB ID 1209:EC10).

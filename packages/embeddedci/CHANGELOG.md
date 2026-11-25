@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Docs: `fpga_image` with firmware 4.0.6 loads the image from its slot in about 0.1 s without
+  writing the config flash, skips the image that already runs, and a restarted pod runs the loop
+  image. No SDK change.
+
 ## 4.0.5
 
 For BenchPod firmware 4.0.5 (features table revision 19, gateware v68).

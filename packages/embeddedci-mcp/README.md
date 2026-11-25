@@ -369,7 +369,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `control_loop` | Run a tabulated transfer function in the FPGA (for example a solar panel I-V curve). | `curve`, `voc_code`, `sharpness=4`, `points=256`, `k=8192`, `vmin=0`, `vmax=65535`, `tick_div=64`, `source`, `input_code=0`, `step=0`, `input_map`, `switch_image=true` |
 | `loop_input` | Re-target the running loop's input without re-arming. | `input_code`, `source`, `step` |
 | `loop_probe` | The running loop's live operating point. | none |
-| `fpga_image` | Switch the FPGA to the `loop`, `deep_replay` or `emulation` gateware image (~2-3 s); refused while I2C, SPI or UART sensors run on the emulation image. From gateware v65 the emulation image has no SWD, JTAG, SPI master or I2C master: `flash` (SWD/JTAG), `spi_*`, `i2c_*`, `expansion` and `capture_la` with `send` i2c/spi switch to the loop image themselves when no sensor runs, and refuse (`BP0059`) while sensors run (`sensor_stop` first, or flash before `sensor_start`). | **`image`** |
+| `fpga_image` | Switch the FPGA to the `loop`, `deep_replay` or `emulation` gateware image (about 0.1 s from firmware 4.0.6, 2-3 s before; the image that already runs is not reloaded, and a restarted pod runs `loop`); refused while I2C, SPI or UART sensors run on the emulation image. From gateware v65 the emulation image has no SWD, JTAG, SPI master or I2C master: `flash` (SWD/JTAG), `spi_*`, `i2c_*`, `expansion` and `capture_la` with `send` i2c/spi switch to the loop image themselves when no sensor runs, and refuse (`BP0059`) while sensors run (`sensor_stop` first, or flash before `sensor_start`). | **`image`** |
 
 ### CAN
 
