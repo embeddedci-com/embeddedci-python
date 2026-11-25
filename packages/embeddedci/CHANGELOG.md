@@ -1,5 +1,13 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- **`usb` auto-detection only opens pods.** It used to write `status` into every USB serial port,
+  which froze a tinySA spectrum analyzer on ST's generic 0483:5740 id. It now opens a port only when
+  its USB id is 1209:EC10, its manufacturer is EmbeddedCI, or its product contains "bench". Any other
+  device, and a port without USB info, is never opened; an explicit device path is used as given.
+  The retired RP2350 pod (2E8A) is no longer auto-found; pass its device path.
+
 ## 4.0.6
 
 For BenchPod firmware with features table revision 21 (feature `dac_out_cal1` at revision 20,

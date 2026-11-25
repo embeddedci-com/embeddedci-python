@@ -36,11 +36,12 @@ from .base import RawLink, Transport
 # The SDK finds a pod under any of them, so it works before, during and after a firmware update
 # that changes the id.
 #
-# None of these ids is exclusive to a bench pod apart from 1209:EC10 (0x2E8A is shared with the
-# CMSIS-DAP probe's CDC, 0483:5740 with every ST Virtual COM Port on the bench and vendor 0x1209
-# with every pid.codes device), so they only ORDER the ports to probe: an exact 1209:EC10 match
-# first, then a bare vendor-id match. Identification is by probing for BENCHPOD_MARKER, never by
-# an id alone.
+# Only 1209:EC10 is exclusive to a bench pod. 0483:5740 is ST's generic virtual COM port id, shared
+# with spectrum analyzers (tinySA), NanoVNAs, ST-Links and customers' own STM32 boards, and 1209 /
+# 2E8A are shared with other devices too, so an id other than 1209:EC10 never makes a port a
+# candidate by itself: see :func:`_is_pod_port`. Writing "status" into a tinySA froze it
+# (2026-11-25), which is why detection only ever opens ports that identify themselves as a pod.
+# The RP2350 pod (2E8A) firmware is retired: such a pod is reached with an explicit device path.
 POD_VIDS = (0x2E8A, 0x0483, 0x1209)
 POD_USB_IDS = ((0x1209, 0xEC10),)  # (vendor, product): ids only a bench pod uses
 
@@ -153,34 +154,64 @@ def _import_serial():
 
 
 def _candidate_ports() -> List[str]:
-    """USB serial ports to probe, most likely to be a pod first (see :func:`_candidate_ports_vid`)."""
+    """USB serial ports automatic detection may open (see :func:`_candidate_ports_vid`)."""
     return [device for device, _ in _candidate_ports_vid()]
 
 
-def _candidate_ports_vid() -> List[Tuple[str, Optional[int]]]:
-    """USB serial ports to probe with each one's USB vendor id (None when the enumerator does not
-    list it, as for macOS's ``/dev/tty.*`` twin of a ``/dev/cu.*`` port), most likely to be a pod
-    first.
+def _usb_text(info: Any, *attrs: str) -> str:
+    return " ".join(str(getattr(info, attr, "") or "").strip() for attr in attrs)
 
-    Ordering, not filtering: a pod is identified by probing (see
-    :func:`_probe_pod`), so an adapter this ranking puts last is still tried.
-    Ranking by vendor id alone is not enough — the pod vendor ids are shared
-    with other hardware — so a product/manufacturer string that names the pod
-    outranks the pod's own id (1209:EC10), which outranks a bare vendor-id match.
+
+def _is_pod_port(info: Any) -> bool:
+    """Whether the USB port ``info`` (a pyserial ``ListPortInfo``) identifies itself as a BenchPod.
+
+    Automatic detection may open and write to a port only when one of these holds:
+
+    1. its USB id is exactly 1209:EC10 (the pod's own id, firmware 4.0.5 and later);
+    2. its USB manufacturer is ``EmbeddedCI`` (case-insensitive; every firmware since the STM32
+       pod, including 0483:5740 builds and pre-release 1209:0001 builds);
+    3. its USB product contains ``bench`` (case-insensitive: ``BenchPod``, ``bench-pod STM32H563
+       CDC``). Some platforms leave ``product`` empty and carry the string in ``description``,
+       so both are checked.
+
+    Nothing else qualifies: not a vendor id alone (0483:5740 is ST's generic virtual COM port,
+    used by many instruments), and not a port with no USB info.
+    """
+    if (getattr(info, "vid", None), getattr(info, "pid", None)) in POD_USB_IDS:
+        return True
+    if str(getattr(info, "manufacturer", "") or "").strip().lower() == "embeddedci":
+        return True
+    return "bench" in _usb_text(info, "product", "description").lower()
+
+
+def _twin_key(device: str) -> str:
+    """macOS lists each USB device as ``/dev/cu.X`` and ``/dev/tty.X``; both map to ``X``."""
+    for prefix in ("/dev/cu.", "/dev/tty."):
+        if device.startswith(prefix):
+            return device[len(prefix):]
+    return ""
+
+
+def _candidate_ports_vid() -> List[Tuple[str, Optional[int]]]:
+    """USB serial ports automatic detection may open, with each one's USB vendor id (None when the
+    enumerator does not list it, as for macOS's ``/dev/tty.*`` twin of a ``/dev/cu.*`` port).
+
+    A port qualifies only when :func:`_is_pod_port` says so, or when it is the macOS ``cu``/``tty``
+    twin of one that does. Every other port is never opened, so a port that is not a pod
+    (a spectrum analyzer, an ST-Link, a customer's board) never gets a ``status`` written to it.
+    Ports whose pod strings name the pod come first, then the pod's own id, then the rest.
     """
     _, list_ports = _import_serial()
 
-    def rank(p: Any) -> int:
-        text = " ".join(str(getattr(p, attr, "") or "") for attr in ("product", "manufacturer", "description"))
-        if "bench-pod" in text.lower() or "benchpod" in text.lower() or "embeddedci" in text.lower():
-            return 0
-        if (p.vid, getattr(p, "pid", None)) in POD_USB_IDS:
-            return 1
-        if p.vid in POD_VIDS:
-            return 2
-        return 3
-
     ports = [p for p in list_ports.comports() if getattr(p, "device", None)]
+    twins = {_twin_key(p.device) for p in ports if _is_pod_port(p)} - {""}
+    ports = [p for p in ports if _is_pod_port(p) or _twin_key(p.device) in twins]
+
+    def rank(p: Any) -> int:
+        if not _is_pod_port(p):
+            return 2  # a twin that carries no USB info of its own: after the port it duplicates
+        return 1 if (getattr(p, "vid", None), getattr(p, "pid", None)) in POD_USB_IDS else 0
+
     ports.sort(key=lambda p: (rank(p), p.device))
     return [(p.device, getattr(p, "vid", None)) for p in ports]
 
@@ -277,10 +308,12 @@ def _list_found(found: List[Tuple[str, str]]) -> str:
 def autodetect_port(name: str = "") -> str:
     """Return the device path of the pod's USB console.
 
-    Every USB serial port is probed (best candidates first) rather than trusting
-    a vendor-id match, because the pod's vendor ids are shared with other
-    hardware and differ between pod generations — an STM32 pod enumerates under
-    ST's generic CDC id, so a vendor-id filter would miss it entirely.
+    Only ports that identify themselves as a BenchPod are opened (see :func:`_is_pod_port`: USB id
+    1209:EC10, or manufacturer ``EmbeddedCI``, or a product containing ``bench``); each is then
+    probed with ``status`` to confirm. A vendor id alone is never enough, and other devices are
+    never written to: 0483:5740 is ST's generic CDC id, shared with spectrum analyzers, ST-Links and
+    customers' own boards. A pod this does not find (an RP2350 pod, a port without USB info) is
+    reached with an explicit device path, which is used as given, unfiltered.
 
     Several pods may be plugged in. With ``name`` (``"baea06"``, ``"benchpod-baea06"``: connection
     ``usb:<name>``) the port of the pod with that identity is returned. Without, the only pod's;
@@ -293,7 +326,8 @@ def autodetect_port(name: str = "") -> str:
     candidates = _candidate_ports_vid()
     if not candidates:
         raise TransportError(
-            "no USB serial ports found — is the BenchPod plugged in, and does the "
+            "no BenchPod found among the USB serial ports (USB ID 1209:EC10, or a device "
+            "from EmbeddedCI named BenchPod): is it plugged in, and does the "
             "cable carry data (many USB cables are charge-only)? "
             "Pass an explicit device path to override."
         )
@@ -325,8 +359,10 @@ def autodetect_port(name: str = "") -> str:
     raise TransportError(
         "no BenchPod found among the USB serial ports probed ("
         + ", ".join(device for device, _ in candidates)
-        + "). Is the pod powered? A pod with no firmware never opens a console — "
-        "flash it with `benchpod flash-self`. Pass an explicit device path to override."
+        + "). Only ports with USB ID 1209:EC10 or an EmbeddedCI/BenchPod device are opened; "
+        "other serial devices are left alone. Is the pod powered? A pod with no firmware never opens a console — "
+        "flash it with `benchpod flash-self`. To use a port that was not tried, pass an explicit "
+        "device path."
     )
 
 

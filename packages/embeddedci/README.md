@@ -219,7 +219,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `host:8080`, `host:8443` | network on that port: `:8080` is plaintext (refused on Ethernet and Wi-Fi unless the pod's HTTPS-only is off), `:8443` TLS |
 | `/dev/ttyACM0`, `COM3`, `\\.\COM10` | USB console, explicit device path |
 | `benchpod-baea06`, `baea06` | the pod with that name (as on its label and in `discover`): its address found on the LAN over mDNS, else `usb:benchpod-baea06`. Without `[discovery]` it is the host name `benchpod-baea06.local` |
-| `usb` | USB pod, auto-detected by probing the serial ports: its USB network adapter (full API), else its USB console (status only) |
+| `usb` | USB pod, auto-detected among the serial ports that identify as a BenchPod (USB ID 1209:EC10, or manufacturer EmbeddedCI; other devices are never opened or written to): its USB network adapter (full API), else its USB console (status only) |
 | `usb:<name>` | the USB pod with that name when several are plugged into one computer: `usb:baea06`, `usb:benchpod-baea06` (any case, optional `.local`); otherwise as `usb` |
 | `discover` (or `mdns`, `auto`) | find exactly one pod on the LAN via mDNS (needs `[discovery]`); errors on zero or several |
 | `embeddedci:<device-name>` | a named device through embeddedci.com (needs `[cloud]`; the `benchpod login` session or an API key anywhere, or GitHub Actions OIDC) |

@@ -6,7 +6,7 @@ Mirrors the Go CLI's ``connection.go``, plus a cloud destination:
                                       USB network adapter, 10.237.0.0/16, or when ``:8080`` is
                                       given)
 * ``/dev/tty*`` / ``COM3`` / ``\\\\.\\COM3`` -> serial device path
-* ``usb``                          -> USB pod, auto-detected by probing the ports; the
+* ``usb``                          -> USB pod, auto-detected among the USB ports that identify as a BenchPod; the
                                       transport is the pod's USB network adapter when it
                                       answers, else the console (see
                                       :func:`~embeddedci.benchpod.transport.open_transport`)
