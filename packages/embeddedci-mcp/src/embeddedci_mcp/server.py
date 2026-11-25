@@ -3393,12 +3393,14 @@ async def fpga_image(
         "emulation = sensor emulation (sensor_start loads it by itself)."))],
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.FpgaImageResult:
-    """Reprogram the pod's FPGA with another stored gateware image (~2-3 s).
+    """Load another stored gateware image into the pod's FPGA (about 0.1 s from firmware 4.0.6,
+    2-3 s before; asking for the image that already runs does nothing).
 
     Rarely needed: control_loop and replay switch automatically (also back from
     the emulation image once no I2C/SPI/UART sensor runs). The pod never switches back by itself,
     and refuses to leave the emulation image while I2C/SPI/UART sensors run (sensor_stop first).
-    The switch resets the FPGA (any DAC output or UART session stops).
+    The switch resets the FPGA (any DAC output or UART session stops). After a restart or power
+    cycle the pod runs the loop image (firmware 4.0.6+).
 
     Gateware v65+: SWD, JTAG, the SPI master and the I2C master are not in the emulation image.
     flash, spi_*, i2c_*, expansion and capture_la with send i2c/spi switch from it to the loop image

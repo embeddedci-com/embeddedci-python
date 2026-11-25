@@ -2547,7 +2547,9 @@ A pod that reports neither flag nor `sensors_digital` has a single image and is 
 
 What a switch does:
 
-* It reprograms the FPGA from the pod's config flash and cold-boots it, which takes **~2-3 s**.
+* It loads the image into the FPGA straight from its slot on the pod, which takes **about 0.1 s**
+  (firmware 4.0.6+; older firmware wrote it to the config flash first, 2 to 3 s). Asking for the
+  image that already runs does nothing.
 * It **resets the FPGA**, so a running DAC output or control loop, an open UART session and I2C
   sensor emulation stop. Switch first, then start those — for example once in a session fixture:
 
@@ -2556,8 +2558,9 @@ What a switch does:
       bp.fpga_image(FpgaImage.DEEP_REPLAY)
   ```
 
-* The selection is written to the config flash, so the pod normally stays on that image after a
-  power cycle.
+* After a restart or a power cycle the pod runs the loop image (firmware 4.0.6+; older firmware
+  stayed on the last image switched to). Code that needs another image switches to it, as the
+  methods above do.
 * In pytest, `@pytest.mark.benchpod_capability("dac_control_loop")` (or `"dac_deep_replay"`)
   switches the image for the test instead of skipping it. `"spi_master"` and `"i2c_master"` switch
   from the emulation image to the loop image (gateware v65+) and skip the test while emulated
