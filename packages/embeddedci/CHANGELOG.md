@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 4.0.6
 
 For BenchPod firmware with features table revision 20.
 
