@@ -1,6 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 4.0.6
+
+For BenchPod firmware 4.0.6 (features table revision 21, gateware v68); needs embeddedci 4.0.6.
 
 - `fpga_image` tool text: about 0.1 s with firmware 4.0.6 (no config-flash write), the running
   image is not reloaded, and a restarted pod runs the loop image.
