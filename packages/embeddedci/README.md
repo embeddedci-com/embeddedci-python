@@ -226,7 +226,7 @@ explicitly. The pytest plugin does **not** fall back to it (see [pytest plugin](
 | `saved` | the default connection `benchpod-cli` saved (`benchpod set-connection`); errors when none is saved |
 
 **USB network (firmware 3.9.0 and later).** The STM32 pod's USB port is a composite device
-(ST's USB id `0483:5740`, as on older firmware; pre-release 3.9.0 builds used `1209:0001`): the console plus a USB network adapter
+(its own USB id `1209:EC10` from the firmware after 4.0.4, ST's `0483:5740` before; pre-release 3.9.0 builds used `1209:0001`; the SDK finds the pod under any of them): the console plus a USB network adapter
 (CDC-NCM) that carries the same JSON API as the LAN. The link is a point-to-point `/30` in
 `10.237.0.0/16` (the pod is the first address, your computer the second, handed out by the pod's
 DHCP server). With connection `usb` the SDK first looks at this computer's own interfaces (Linux
