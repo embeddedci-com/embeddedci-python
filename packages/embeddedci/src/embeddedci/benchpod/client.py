@@ -1929,7 +1929,7 @@ class BenchPod:
         A chip with its own programming pins and no SWD, JTAG or bootloader is flashed by the pod
         itself: ``target="avr-updi"`` (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), ``"pic"``
         (PIC16F1xxx, PIC16F18xxx, PIC18F Q-series, low-voltage entry), ``"efm8"`` (Silicon Labs EFM8
-        and C8051F, C2), ``"attiny-tpi"`` (ATtiny4/5/9/10/20/40/102/104) or ``"xmega"`` (XMEGA, PDI);
+        and C8051F, C2), ``"attiny-tpi"`` (ATtiny4/5/9/10/20/40/102/104) ``"xmega"`` (XMEGA, PDI) or ``"msp430"`` (MSP430 FRAM parts, Spy-Bi-Wire: ``clk`` is the chip's TEST pin and ``data`` its RST pin; gateware v52 or newer);
         the protocol names ``updi``, ``pic``, ``c2``, ``tpi`` and ``pdi`` work too. ``file`` is a
         ``.hex``, ``.elf`` or ``.bin`` (a ``.bin`` goes at ``load_address``, default 0, into the
         flash). The SDK reads the chip's ID first, finds it in its device table
@@ -2058,11 +2058,11 @@ class BenchPod:
         writing the chip (pod firmware with the ``dap_id`` feature; older firmware is reported as
         skipped), and the chip is named from its ID register (an STM32's DEV_ID, a Nordic part
         number) or JTAG IDCODE; ``usb`` reads the device already mounted on the pod's host port
-        (host mode is never turned on). ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi`` (the chip's
+        (host mode is never turned on). ``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw`` (the chip's
         programming-mode ID, ``prog_flash``) and ``esp32`` (the ROM loader's chip name) reset the
         chip. A programming protocol is tried only when the profile has a signal named for it
         (``UPDI``, ``ICSPCLK`` and ``ICSPDAT``, ``C2CK`` and ``C2D``, ``TPICLK`` and ``TPIDATA``,
-        ``PDI_CLK`` and ``PDI_DATA``), never on the SWD pins. ``pic`` and ``tpi`` also need the chip's
+        ``PDI_CLK`` and ``PDI_DATA``, ``SBWTCK`` or ``TEST`` and ``SBWTDIO`` or ``RST``), never on the SWD pins. ``pic`` and ``tpi`` also need the chip's
         reset: a signal named ``MCLR`` or ``RESET``, else the pod's reset pin when the profile sets
         ``swd_nreset``. ``esp32`` needs ``uart_rx``, ``uart_tx`` and a ``BOOT`` / ``IO0`` / ``IO9``
         signal, and EN (a signal named ``EN``, else the reset pin under ``swd_nreset``).

@@ -2310,6 +2310,7 @@
                   "c2",
                   "tpi",
                   "pdi",
+                  "sbw",
                   "esp32",
                   "usb"
                 ],
@@ -2322,7 +2323,7 @@
             }
           ],
           "default": null,
-          "description": "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, esp32, usb. Omit for every probe the wiring profile makes possible. A named probe the profile does not wire is reported in skipped.",
+          "description": "Only these probes: swd, jtag, updi, pic, c2, tpi, pdi, sbw, esp32, usb. Omit for every probe the wiring profile makes possible. A named probe the profile does not wire is reported in skipped.",
           "title": "Methods"
         }
       },
@@ -2869,7 +2870,7 @@
         },
         "target": {
           "default": "",
-          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD. 'avr-updi' (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), 'pic' (PIC16F1xxx, PIC16F18xxx, PIC18F Q), 'efm8' (Silicon Labs EFM8, C8051F), 'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104) and 'xmega' flash a chip over its own programming pins instead (updi, pic, c2, tpi and pdi work too).",
+          "description": "OpenOCD target config, e.g. target/stm32f4x.cfg; omit for the profile's swd_target. 'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM bootloader instead of SWD. 'avr-updi' (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), 'pic' (PIC16F1xxx, PIC16F18xxx, PIC18F Q), 'efm8' (Silicon Labs EFM8, C8051F), 'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104), 'xmega' and 'msp430' (MSP430 FRAM parts over Spy-Bi-Wire: clk = TEST, data = RST; gateware v52+) flash a chip over its own programming pins instead (updi, pic, c2, tpi, pdi and sbw work too).",
           "title": "Target",
           "type": "string"
         },

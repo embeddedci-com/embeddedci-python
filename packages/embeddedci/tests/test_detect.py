@@ -533,3 +533,51 @@ def test_detect_usb_only_when_host_mode_is_on_and_a_device_is_mounted(monkeypatc
     pod.usb = {"mode": "device"}
     res = bp.detect()
     assert [m for m, _ in res.skipped] == [] and any("usb" in n for n in res.notes)
+
+
+# -- sbw (MSP430 Spy-Bi-Wire) ------------------------------------------------------------------------
+
+SBW = dict(signals=[sig("SBWTCK", 6), sig("SBWTDIO", 7)])
+
+
+def make_sbw(pod: FakePod, named: bool = True, **kw) -> BenchPod:
+    bp = make(pod, **{**SBW, **kw})
+    real = bp.supports
+    bp.supports = lambda f: named if f == "prog_named" else real(f)  # type: ignore[method-assign]
+    return bp
+
+
+def test_detect_sbw_methods_and_pins():
+    assert "sbw" in detect.METHODS and "sbw" in detect.INVASIVE_METHODS
+    got, _, _ = detect.prog_pins(_wiring(signals=[sig("TEST", 3), sig("RST", 4)]), "sbw")
+    assert got.pins == {"data": 4, "clk": 3}  # no reset pin
+    got, reason, silent = detect.prog_pins(_wiring(signals=[sig("SBWTCK", 3)]), "sbw")
+    assert got is None and not silent and "SBWTDIO" in reason
+
+
+def test_detect_sbw_finds_the_msp430fr2433():
+    pod = FakePod()
+    pod.prog_id = "984082"
+    res = make_sbw(pod).detect(methods=["sbw"])
+    (f,) = res.findings
+    assert (f.chip, f.vendor, f.core, f.confidence, f.invasive) == (
+        "MSP430FR2433", "Texas Instruments", "MSP430", "high", True)
+    start = pod.sent("prog_flash", op="info")[0]
+    assert start["proto"] == "sbw" and start["clk"] == 6 and start["data"] == 7 and "reset" not in start
+
+
+def test_detect_sbw_jtag_locked_chip_is_low_confidence():
+    pod = FakePod()
+    pod.prog_id = "98"
+    res = make_sbw(pod).detect(methods=["sbw"])
+    (f,) = res.findings
+    assert (f.chip, f.confidence, f.id) == ("MSP430 (JTAG-locked)", "low", "0x98")
+    assert any("JTAG-locked" in n for n in res.notes)
+
+
+def test_detect_sbw_skipped_on_old_firmware_and_without_invasive():
+    pod = FakePod()
+    res = make_sbw(pod, named=False).detect(methods=["sbw"])
+    assert res.findings == [] and "4.0.6" in res.skipped[0][1] and pod.sent("prog_flash") == []
+    res = make_sbw(FakePod()).detect(methods=["sbw"], invasive=False)
+    assert "invasive" in res.skipped[0][1]

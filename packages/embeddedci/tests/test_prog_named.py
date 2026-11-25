@@ -26,6 +26,8 @@ def _pins(proto: str) -> Dict[str, int]:
 def _requests(named: bool):
     out = []
     for proto, fam in prog.families().items():
+        if proto == "sbw":   # new in 4.0.6: SDK 4.0.5 has no wire form of it (test_sbw_request_has_no_chip_fields)
+            continue
         for dev in fam.devices:
             for mem, m in dev.mem.items():
                 r = prog.Region(mem=mem, addr=m.addr, data=b"\0" * m.page, page=m.page, hex=m.hex)
@@ -86,6 +88,19 @@ def test_named_fields_mean_the_same_flags_as_the_golden_requests_for_every_chip(
         chip = {"flags", "cp_addr", "flash_base", "cmd_set", "pc", "ee_erase", "cp_high", "q10", "id_split",
                 "key_flip", "cp_bit", "write_words", "page_erase", "fpdat", "no_setup"}
         assert {k: v for k, v in n.items() if k not in chip} == {k: v for k, v in o.items() if k not in chip}
+
+
+def test_sbw_request_has_no_chip_fields():
+    # Spy-Bi-Wire has no protocol options: the pod's descriptor takes no named field and no flags for it.
+    dev = prog.find_device("sbw", name="MSP430FR2433")
+    assert dev.prog == {} and dev.legacy == {}
+    m = dev.mem["flash"]
+    r = prog.Region(mem="flash", addr=m.addr, data=b"\0" * m.page, page=m.page, hex=m.hex)
+    for named in (False, True):
+        q = prog.start_request("sbw", {"clk": 3, "data": 4}, region=r, dev=dev, erase="chip",
+                               run_after=False, named=named)
+        assert q["proto"] == "sbw" and q["expect_id"] == "984082"
+        assert not {"flags", "cp_addr", "flash_base", "cmd_set"} & set(q)
 
 
 def test_every_chip_has_the_fields_its_flags_need():

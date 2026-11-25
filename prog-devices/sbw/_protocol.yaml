@@ -1,0 +1,3 @@
+# MSP430 Spy-Bi-Wire (FRAM parts): what the host needs for every chip of this protocol. No protocol fields yet.
+target: msp430
+title: "MSP430 Spy-Bi-Wire (FRAM parts)"

@@ -1090,6 +1090,7 @@ no USB cable to the chip. It is the same `flash()` call, with one of these `targ
 | `efm8` | `c2` | Silicon Labs EFM8 and C8051F | C2CK on `clk`, C2D on `data` |
 | `attiny-tpi` | `tpi` | ATtiny4/5/9/10/20/40/102/104 | TPICLK on `clk`, TPIDATA on `data`, RESET on the pod's reset pin or `reset_pin` |
 | `xmega` | `pdi` | AVR XMEGA | PDI_CLK (the chip's RESET pin) on `clk`, PDI_DATA on `data` |
+| `msp430` | `sbw` | MSP430 FRAM parts (FR2433 so far) over Spy-Bi-Wire | SBWTCK (the chip's TEST pin) on `clk`, SBWTDIO (its RST pin) on `data`; gateware v52+; about 70 s for 16 KB |
 
 ```python
 bp.flash(target="avr-updi", file="build/app.hex", dry_run=True)   # wiring test: reads the chip's ID, writes nothing

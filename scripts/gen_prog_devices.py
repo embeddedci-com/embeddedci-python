@@ -36,7 +36,7 @@ SDK_DIR = ROOT / "packages" / "embeddedci" / "src" / "embeddedci" / "benchpod"
 SDK_JSON = SDK_DIR / "prog_devices.json"
 SDK_README = SDK_DIR / "prog_devices.README.md"
 SCHEMA = 2
-PROTOS = ("updi", "pic", "c2", "tpi", "pdi")
+PROTOS = ("updi", "pic", "c2", "tpi", "pdi", "sbw")
 MEMS = ("flash", "eeprom", "user", "config")   # the order the hosts list them in
 
 # The legacy `flags` bits of the firmware's prog_pic.h / prog_avr12.h / prog_c2.h.

@@ -1040,7 +1040,7 @@ class UsbHostResult(BaseModel):
 
 class DetectFindingInfo(BaseModel):
     """One thing that answered a detect probe."""
-    method: str = Field(description="The probe: swd, jtag, updi, pic, c2, tpi, pdi, esp32 or usb.")
+    method: str = Field(description="The probe: swd, jtag, updi, pic, c2, tpi, pdi, sbw, esp32 or usb.")
     chip: Optional[str] = Field(None, description=(
         'The part ("STM32F446"). None when only the vendor or the debug port is known; for a debug '
         "port alone it names the port."))
