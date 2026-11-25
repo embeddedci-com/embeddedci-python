@@ -1,6 +1,8 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 4.0.5
+
+For BenchPod firmware 4.0.5; needs embeddedci 4.0.5 (`BenchPod.detect`, the emulation image split and the pod's own USB ID 1209:EC10).
 
 - **New `detect` tool: which chip is wired to the pod.** Reads the debug port IDs over SWD and JTAG
   without halting or resetting the chip (pod firmware with `dap_id`), the device mounted on the USB
