@@ -345,7 +345,7 @@ def _is_esp_target(target: str) -> bool:
 
 
 #: ``flash(target=...)`` names for chips with their own programming pins (the SDK's prog.TARGETS).
-_PROG_TARGETS = frozenset({"avr-updi", "updi", "pic", "efm8", "c2", "attiny-tpi", "tpi", "xmega", "pdi"})
+_PROG_TARGETS = frozenset({"avr-updi", "updi", "pic", "efm8", "c2", "attiny-tpi", "tpi", "xmega", "pdi", "msp430", "sbw"})
 
 
 def _is_prog_target(target: str) -> bool:
@@ -1107,8 +1107,9 @@ async def flash(
         "'esp32' (or esp32s3, esp32c3, ...) flashes an ESP32-family target over its UART ROM "
         "bootloader instead of SWD. 'avr-updi' (tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), 'pic' "
         "(PIC16F1xxx, PIC16F18xxx, PIC18F Q), 'efm8' (Silicon Labs EFM8, C8051F), 'attiny-tpi' "
-        "(ATtiny4/5/9/10/20/40/102/104) and 'xmega' flash a chip over its own programming pins "
-        "instead (updi, pic, c2, tpi and pdi work too)."))] = "",
+        "(ATtiny4/5/9/10/20/40/102/104), 'xmega' and 'msp430' (MSP430 FRAM parts over Spy-Bi-Wire: "
+        "clk = TEST, data = RST; gateware v52+) flash a chip over its own programming pins "
+        "instead (updi, pic, c2, tpi, pdi and sbw work too)."))] = "",
     file: Annotated[str, Field(description=(
         "Firmware image path on the machine running this server. Leave empty to flash an uploaded "
         "build instead (build/repo/ref/artifact). For an ESP32: a .bin written at 0 (esptool "
@@ -1205,7 +1206,8 @@ async def flash(
     A chip with its own programming pins and no SWD, JTAG or bootloader is flashed by the pod:
     target 'avr-updi' (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD, one pin), 'pic' (PIC16F1xxx,
     PIC16F18xxx, PIC18F Q-series, low-voltage entry), 'efm8' (Silicon Labs EFM8 and C8051F, C2),
-    'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104) or 'xmega' (XMEGA, PDI). `file` is a .hex, .elf or
+    'attiny-tpi' (ATtiny4/5/9/10/20/40/102/104), 'xmega' (XMEGA, PDI) or 'msp430' (MSP430 FRAM parts,
+    Spy-Bi-Wire: clk = TEST, data = RST, needs gateware v52+). `file` is a .hex, .elf or
     .bin; the tool reads the chip's ID, finds it in its device table, cuts the image into the
     chip's memories (flash, EEPROM, fuses or configuration words, user row or user ID) at their
     usual hex addresses and writes and reads back each page. Pins come from `clk`, `data` and

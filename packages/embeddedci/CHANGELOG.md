@@ -22,6 +22,13 @@ For BenchPod firmware with features table revision 21 (feature `dac_out_cal1` at
 - Docs: `fpga_image` with firmware 4.0.6 loads the image from its slot in about 0.1 s without
   writing the config flash, skips the image that already runs, and a restarted pod runs the loop
   image. No SDK change.
+- **`flash(target="msp430")` programs MSP430 FRAM parts over Spy-Bi-Wire** (protocol `sbw`, also accepted
+  as a target). `clk` is the chip's TEST pin (wiring-profile signal `SBWTCK` or `TEST`), `data` its RST
+  pin (`SBWTDIO` or `RST`); the pod's reset pin is not used and the pod needs gateware v52 or newer. The
+  first device-table entry is the MSP430FR2433 (ID `984082`: JTAG ID 0x98, device ID 0x40 0x82; main
+  FRAM 0xC400-0xFFFF, information FRAM 0x1800-0x19FF as `config`); the table says where its
+  numbers come from. A JTAG-locked chip answers with its JTAG ID only: name it with `device=` and flash
+  with `erase="chip"`. Needs firmware with the `sbw` protocol (4.0.6).
 
 ## 4.0.5
 

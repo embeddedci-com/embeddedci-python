@@ -1,0 +1,10 @@
+name: MSP430FR2433
+aliases: [FR2433]
+id: "984082"
+family: MSP430FR2xx
+voltage: {min_mv: 1800, max_mv: 3600}
+notes: "JTAG ID 0x98 then device ID 0x40 0x82 (TLV 0x1A04/0x1A05). Main FRAM 0xC400-0xFFFF (15 KB, the vectors and the two JTAG signature words at 0xFF80 included: an image that puts a value other than 0x0000/0xFFFF in both 0xFF80 and 0xFF82 locks the chip), information FRAM 0x1800-0x19FF (512 B). Not on hardware yet."
+source: "SLASE59F Table 6-23, SLAU320 Table 2-16, SLAU445 1.11.1"
+mem:
+  flash: {size: 15360, page: 512, addr: 0xC400, hex: 0xC400, align: 2}
+  config: {size: 512, page: 512, addr: 0x1800, hex: 0x1800, align: 2}

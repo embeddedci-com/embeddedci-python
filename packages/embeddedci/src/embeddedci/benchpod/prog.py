@@ -1,8 +1,8 @@
 """Flash a chip over its own programming pins (the pod's ``prog_flash`` command).
 
-Five protocols that need neither SWD, JTAG nor a bootloader: AVR UPDI (``avr-updi``), PIC ICSP
-with low-voltage entry (``pic``), Silicon Labs C2 (``efm8``), AVR TPI (``attiny-tpi``) and XMEGA
-PDI (``xmega``). The pod runs the whole protocol next to the pins: each memory region is staged
+Six protocols that need neither SWD, JTAG nor a bootloader: AVR UPDI (``avr-updi``), PIC ICSP
+with low-voltage entry (``pic``), Silicon Labs C2 (``efm8``), AVR TPI (``attiny-tpi``), XMEGA
+PDI (``xmega``) and MSP430 Spy-Bi-Wire (``msp430``, FRAM parts). The pod runs the whole protocol next to the pins: each memory region is staged
 in the pod's PSRAM (``load_bin``), written and read back by the pod in the background, and this
 module polls its progress. It works the same over the LAN, USB and the cloud.
 
@@ -30,13 +30,14 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from .errors import FlashError, TargetUnreachableError
 
 #: ``flash(target=...)`` names and the ``prog_flash`` protocol each one runs. The protocol names
-#: themselves are accepted too (``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``).
+#: themselves are accepted too (``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw``).
 TARGETS: Dict[str, str] = {
     "avr-updi": "updi", "updi": "updi",
     "pic": "pic",
     "efm8": "c2", "c2": "c2",
     "attiny-tpi": "tpi", "tpi": "tpi",
     "xmega": "pdi", "pdi": "pdi",
+    "msp430": "sbw", "sbw": "sbw",
 }
 
 #: The memories the pod writes, in the order this module writes them: flash first, the
@@ -46,13 +47,19 @@ MEM_ORDER = ("flash", "eeprom", "user", "config")
 #: Wiring-profile signal names looked up when a pin is not given (case-insensitive), per protocol.
 CLK_SIGNALS = {
     "pic": ("ICSPCLK", "ICSP_CLK", "PGC"), "c2": ("C2CK",), "tpi": ("TPICLK", "TPI_CLK"),
-    "pdi": ("PDI_CLK",),
+    "pdi": ("PDI_CLK",), "sbw": ("SBWTCK", "SBW_TCK", "TEST"),
 }
 DATA_SIGNALS = {
     "updi": ("UPDI",), "pic": ("ICSPDAT", "ICSP_DAT", "PGD"), "c2": ("C2D",),
     "tpi": ("TPIDATA", "TPI_DATA"), "pdi": ("PDI_DATA",),
+    "sbw": ("SBWTDIO", "SBW_TDIO", "RST"),
 }
 RESET_SIGNALS = ("MCLR", "RESET", "NRST", "PROG_RESET")
+
+#: Seconds per byte the pod needs, beyond the base allowance, before a write is given up on. Spy-Bi-Wire
+#: moves one 16-bit word per about 4 ms (docs/design/spy-bi-wire.md 14.2): 16 KB take about 70 s.
+_SECONDS_PER_BYTE = {"sbw": 1 / 50}
+_DEFAULT_SECONDS_PER_BYTE = 1 / 200
 
 POLL_INTERVAL = 0.2
 #: Entering programming mode and reading the ID: a few hundred milliseconds, 5 s is generous.
@@ -224,7 +231,7 @@ def _device(raw: Mapping[str, Any], proto: str) -> ProgDevice:
 
 @lru_cache(maxsize=None)
 def families() -> Mapping[str, ProgFamily]:
-    """The table's families by protocol (``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``)."""
+    """The table's families by protocol (``updi``, ``pic``, ``c2``, ``tpi``, ``pdi``, ``sbw``)."""
     out: Dict[str, ProgFamily] = {}
     for proto, fam in load_table()["families"].items():
         out[proto] = ProgFamily(
@@ -253,6 +260,11 @@ def find_device(proto: str, *, chip_id: str = "", name: str = "") -> ProgDevice:
     must have the same memories, else the caller has to name it. Raises
     :class:`ProgDeviceError`."""
     fam = families()[proto]
+    if proto == "sbw" and len(str(chip_id).replace("0x", "").strip()) == 2 and not name:
+        raise ProgLockedError(
+            f"the chip answered with JTAG ID {chip_id} only: it is JTAG-locked (the device ID cannot be "
+            "read). Pass device= (for example device=\"MSP430FR2433\") and erase=\"chip\" to erase it "
+            "(that erases the chip, including the lock) and flash it", result="locked")
     if name:
         dev = fam.find(name)
         if dev is None:
@@ -261,7 +273,9 @@ def find_device(proto: str, *, chip_id: str = "", name: str = "") -> ProgDevice:
                 f"device {name!r} is not in the {fam.title} table (it has {len(fam.devices)} chips, "
                 f"for example {known}); check the spelling, or leave device out to identify the chip "
                 "by its ID", result="unknown device")
-        if chip_id and not dev.matches_id(chip_id):
+        locked_sbw = (proto == "sbw" and len(str(chip_id).replace("0x", "").strip()) == 2
+                      and dev.id.startswith(str(chip_id).lower().replace("0x", "").strip()))
+        if chip_id and not locked_sbw and not dev.matches_id(chip_id):
             raise ProgDeviceError(
                 f"the chip answers with ID {chip_id}, which is not a {dev.name} (ID {dev.id}); "
                 "check the board, or leave device out to identify the chip by its ID",
@@ -753,7 +767,7 @@ def run(
                               run_after=run_after and last, named=named))
         chip_erased = chip_erased or mode == "chip"
         # Erase plus the pages at the slowest of the five (EEPROM bytes at 10 ms each), plus a margin.
-        deadline = t0 + 60.0 + len(reg.data) / 200.0
+        deadline = t0 + 60.0 + len(reg.data) * _SECONDS_PER_BYTE.get(proto, _DEFAULT_SECONDS_PER_BYTE)
         st: Mapping[str, Any] = {}
         while True:
             sleep(poll_interval)

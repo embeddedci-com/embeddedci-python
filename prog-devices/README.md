@@ -1,6 +1,6 @@
 # prog-devices: the pin programmers' chips as data
 
-The device table of `BenchPod.flash(target="avr-updi" | "pic" | "efm8" | "attiny-tpi" | "xmega")` (the pod's
+The device table of `BenchPod.flash(target="avr-updi" | "pic" | "efm8" | "attiny-tpi" | "xmega" | "msp430")` (the pod's
 `prog_flash` command): one YAML file per chip. This directory is the only place the data is edited. The
 generator `scripts/gen_prog_devices.py` turns it into
 
@@ -18,7 +18,7 @@ here, and the CLI and server repositories check their copy against the one this 
 
 ```
 prog-devices/
-  <proto>/                  updi, pic, c2, tpi, pdi
+  <proto>/                  updi, pic, c2, tpi, pdi, sbw
     _protocol.yaml          flash(target=) name, title, image regions to ignore
     <family>/<chip>.yaml    one chip
   pack-differences.yaml     known differences from Microchip's packs (open questions)
@@ -68,7 +68,7 @@ one protocol with the same name.
 | `tpi` | `page_erase` | boolean | the chip has a page erase | bit 3 |
 | `c2` | `fpdat` | 1..255 | the FPDAT register address (default: by device ID) | bits 0..7 |
 | `c2` | `no_setup` | boolean | skip the per-device setup writes | bit 8 |
-| `pdi` | (none) | | | |
+| `pdi`, `sbw` | (none) | | | |
 
 The generator turns them into the request fields the pod's descriptor takes (`cp` becomes `cp_addr`,
 `cp_bit` and `cp_high`) and, next to them, the packed `legacy` form that pods before firmware 4.0.6

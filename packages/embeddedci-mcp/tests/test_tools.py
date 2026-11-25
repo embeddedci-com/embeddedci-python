@@ -401,7 +401,7 @@ def test_flash_an_esp32_target(connected, monkeypatch):
 
 @pytest.mark.skipif("dry_run" not in inspect.signature(BenchPod.flash).parameters,
                     reason="needs embeddedci with the pin-programmer flash targets")
-@pytest.mark.parametrize("target", ["avr-updi", "pic", "efm8", "attiny-tpi", "xmega", "updi", "c2", "tpi", "pdi"])
+@pytest.mark.parametrize("target", ["avr-updi", "pic", "efm8", "attiny-tpi", "xmega", "msp430", "updi", "c2", "tpi", "pdi", "sbw"])
 def test_flash_a_pin_programmer_target(connected, monkeypatch, target):
     seen = {}
 

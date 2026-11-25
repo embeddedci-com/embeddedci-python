@@ -158,7 +158,7 @@ def write(tmp_path, name, content) -> str:
 
 def test_table_loads_every_family():
     fams = prog.families()
-    assert set(fams) == {"updi", "pic", "c2", "tpi", "pdi"}
+    assert set(fams) == {"updi", "pic", "c2", "tpi", "pdi", "sbw"}
     for proto, fam in fams.items():
         assert fam.devices, proto
         assert prog.TARGETS[fam.target] == proto
@@ -854,3 +854,67 @@ def test_pic_info_6bit_chip_sends_no_flags():
     assert make_pod(pod).flash(target="pic", dry_run=True, clk=3, data=4).ok
     (info,) = pod.infos()
     assert "flags" not in info and "cp_addr" not in info
+
+
+# -- MSP430 Spy-Bi-Wire ----------------------------------------------------------------------------
+
+FR2433_ID = "984082"      # JTAG ID 0x98, device ID 0x40 0x82 (the firmware's 3-byte id)
+
+
+def test_sbw_target_and_table():
+    assert prog.protocol_for("msp430") == "sbw" and prog.protocol_for("SBW") == "sbw"
+    dev = prog.find_device("sbw", chip_id=FR2433_ID)
+    assert dev.name == "MSP430FR2433" and dev.expect_id == FR2433_ID
+    assert prog.find_device("sbw", name="fr2433") is dev
+    fl, cfg = dev.mem["flash"], dev.mem["config"]
+    assert (fl.addr, fl.hex, fl.size) == (0xC400, 0xC400, 15360)       # 0xC400..0xFFFF, datasheet Table 6-23
+    assert (cfg.addr, cfg.hex, cfg.size) == (0x1800, 0x1800, 512)      # information FRAM 0x1800..0x19FF
+    assert fl.align % 2 == 0 and cfg.align % 2 == 0                    # the pod needs even addr and len
+    assert (dev.vmin_mv, dev.vmax_mv) == (1800, 3600)
+
+
+def test_sbw_split_even_regions_and_refuses_outside():
+    dev = prog.find_device("sbw", name="MSP430FR2433")
+    regions, _ = prog.split_regions([(0xC400, b"\x01" * 5), (0xFFFE, b"\x00\xc4"), (0x1800, b"\x07")], dev)
+    assert [(r.mem, r.addr, len(r.data)) for r in regions] == [
+        ("flash", 0xC400, 6), ("flash", 0xFFFE, 2), ("config", 0x1800, 2)]
+    assert all(r.addr % 2 == 0 and len(r.data) % 2 == 0 for r in regions)
+    with pytest.raises(prog.ProgDeviceError):
+        prog.split_regions([(0x4000, b"\x01")], dev)
+
+
+def test_sbw_flash_flow_and_pins(tmp_path):
+    pod = FakePod(chip_id=FR2433_ID)
+    bp = make_pod(pod)
+    img = write(tmp_path, "fw.hex", ihex((0xC400, bytes(range(32))), (0xFFFE, b"\x00\xc4")))
+    res = bp.flash(target="msp430", file=img, clk=4, data=3)
+    assert res.ok and "MSP430FR2433" in res.stdout
+    assert pod.infos()[0] == {"cmd": "prog_flash", "op": "info", "proto": "sbw", "clk": 4, "data": 3}
+    s1, s2 = pod.starts()
+    assert (s1["proto"], s1["clk"], s1["data"], s1["mem"], s1["addr"], s1["len"], s1["erase"],
+            s1["expect_id"], s1["run"]) == ("sbw", 4, 3, "flash", 0xC400, 32, "chip", FR2433_ID, False)
+    assert "reset" not in s1 and "flags" not in s1
+    assert (s2["addr"], s2["len"], s2["erase"], s2["run"]) == (0xFFFE, 2, "none", True)
+
+
+def test_sbw_pins_from_rst_and_test_signal_names(tmp_path):
+    pod = FakePod(chip_id=FR2433_ID)
+    bp = make_pod(pod, signals=[{"name": "TEST", "la": 9}, {"name": "RST", "la": 8}])
+    bp.flash(target="msp430", file=write(tmp_path, "a.hex", ihex((0xC400, b"\x01\x02"))), dry_run=True)
+    assert (pod.infos()[0]["clk"], pod.infos()[0]["data"]) == (9, 8)
+
+
+def test_sbw_locked_chip_answers_jtag_id_only(tmp_path):
+    pod = FakePod(chip_id="98")
+    bp = make_pod(pod)
+    with pytest.raises(prog.ProgLockedError, match="JTAG-locked"):
+        bp.flash(target="msp430", file=write(tmp_path, "a.hex", ihex((0xC400, b"\x01\x02"))), dry_run=True)
+    # naming the chip lets an erase="chip" flash go on
+    img = write(tmp_path, "a.hex", ihex((0xC400, b"\x01\x02")))
+    assert bp.flash(target="msp430", file=img, device="MSP430FR2433").ok
+    assert pod.starts()[0]["erase"] == "chip"
+
+
+def test_sbw_write_timeout_allows_a_slow_link():
+    # 15 KB at about 70 s per 16 KB must not time out at the generic 200 B/s allowance
+    assert 60.0 + 15360 * prog._SECONDS_PER_BYTE["sbw"] > 300

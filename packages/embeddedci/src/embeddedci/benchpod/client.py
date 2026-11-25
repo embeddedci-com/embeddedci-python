@@ -1929,7 +1929,7 @@ class BenchPod:
         A chip with its own programming pins and no SWD, JTAG or bootloader is flashed by the pod
         itself: ``target="avr-updi"`` (AVR tinyAVR 0/1/2, megaAVR 0, AVR DA/DB/DD), ``"pic"``
         (PIC16F1xxx, PIC16F18xxx, PIC18F Q-series, low-voltage entry), ``"efm8"`` (Silicon Labs EFM8
-        and C8051F, C2), ``"attiny-tpi"`` (ATtiny4/5/9/10/20/40/102/104) or ``"xmega"`` (XMEGA, PDI);
+        and C8051F, C2), ``"attiny-tpi"`` (ATtiny4/5/9/10/20/40/102/104) ``"xmega"`` (XMEGA, PDI) or ``"msp430"`` (MSP430 FRAM parts, Spy-Bi-Wire: ``clk`` is the chip's TEST pin and ``data`` its RST pin; gateware v52 or newer);
         the protocol names ``updi``, ``pic``, ``c2``, ``tpi`` and ``pdi`` work too. ``file`` is a
         ``.hex``, ``.elf`` or ``.bin`` (a ``.bin`` goes at ``load_address``, default 0, into the
         flash). The SDK reads the chip's ID first, finds it in its device table

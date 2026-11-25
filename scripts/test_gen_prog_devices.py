@@ -30,7 +30,7 @@ def test_the_repository_tables_are_up_to_date():
 
 def test_every_chip_loads_and_names_are_unique():
     fams = g.load_source()
-    assert {p: len(f["devices"]) for p, f in fams.items()} == {"updi": 79, "pic": 149, "c2": 14, "tpi": 8, "pdi": 38}
+    assert {p: len(f["devices"]) for p, f in fams.items()} == {"updi": 79, "pic": 149, "c2": 14, "tpi": 8, "pdi": 38, "sbw": 1}
 
 
 def test_natural_order_and_stable_output():
