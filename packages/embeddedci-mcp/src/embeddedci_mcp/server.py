@@ -448,6 +448,10 @@ def _status() -> m.StatusResult:
     if isinstance(dirs, str) and dirs.startswith("not sent") and "firmware" not in dirs:
         warnings.append(f"the wiring's pin directions were {dirs} (call la_dir(from_wiring=true) "
                         "once that pin is released)")
+    mons = getattr(pod, "monitors_status", "")
+    if isinstance(mons, str) and "not attached" in mons:
+        warnings.append(f"the wiring profile's current monitors: {mons} (fix the profile's monitors, or "
+                        "attach them with expansion)")
     if la is None:
         warnings.append("LA I/O voltage not selected, and the wiring profile sets none: ask the user for "
                         "the board's I/O voltage (1.8 or 3.3, 5.0 on a digital v4 pod) and set la_mv in the profile (set_wiring, "
@@ -622,6 +626,7 @@ async def wiring() -> m.WiringResult:
         pod = SESSION.require()
         result = wiring_summary(pod.wiring)
         result.directions = pod.pin_directions_status
+        result.monitors = pod.monitors_status or None
         if header_map is not None and hasattr(pod, "board_header"):
             try:
                 result.board_header = pod.board_header()
@@ -669,6 +674,7 @@ async def set_wiring(
         result = wiring_summary(pod.wiring, saved=do_save)
         # Assigning the profile sent its pin directions (la_dir) on firmware that has it.
         result.directions = pod.pin_directions_status
+        result.monitors = pod.monitors_status or None
         result = _pod_wiring_state(pod, result)
         if SESSION.wiring_autosave and risky and not save:
             result.hint = ("not autosaved: the I/O voltage, power rail or SWD target changed. " +
@@ -701,6 +707,7 @@ async def save_wiring(
         pod.save_wiring(data, name=name)
         result = wiring_summary(pod.wiring, saved=True)
         result.directions = pod.pin_directions_status
+        result.monitors = pod.monitors_status or None
         return _pod_wiring_state(pod, result)
 
     return await _call(op)
@@ -717,6 +724,7 @@ async def load_wiring(
         pod.load_wiring(name)
         result = wiring_summary(pod.wiring)
         result.directions = pod.pin_directions_status
+        result.monitors = pod.monitors_status or None
         return _pod_wiring_state(pod, result)
 
     return await _call(op)
@@ -802,6 +810,12 @@ async def power_off(
     return await _call(lambda: _switch_power(efuse, False, delay_s, None, rail))
 
 
+MonitorArg = Annotated[Optional[str], Field(description=(
+    "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, "
+    "for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). "
+    "Omit efuse then."))]
+
+
 @mcp.tool(annotations=_ann("Profile the target's power"))
 async def measure_power(
     duration_s: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
@@ -810,20 +824,27 @@ async def measure_power(
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling "
         "loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, "
-        "adc_rate_hz what the sensor was configured for."))] = 500.0,
+        "adc_rate_hz what the sensor was configured for. With monitor: at most 200, default one read "
+        "per conversion cycle."))] = 500.0,
     points: Annotated[int, Field(ge=0, le=500, description=(
         "Points of current/voltage trace to return alongside the statistics; 0 = statistics only."))] = 0,
+    monitor: MonitorArg = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> m.PowerProfileResult:
     """Measure the DUT's supply current and voltage for a window: average, minimum and peak current,
     voltage, energy and charge (gap-free sampling, so energy is integrated, not estimated).
 
     Use this for a self-contained window (a boot, a sleep interval). To profile across other tool
-    calls, bracket them with power_profile_start / power_profile_stop.
+    calls, bracket them with power_profile_start / power_profile_stop. With monitor, the profile comes
+    from an external INA current monitor (attached with expansion) for uA currents; efuse in the
+    result is 0.
     """
-    return await _call_reporting(ctx, "profiling power", lambda: power_summary(
-        SESSION.require().measure_power(duration_s, efuse=efuse, rail=rail, rate_hz=rate_hz,
-                                        keep_samples=points), points))
+    def op() -> m.PowerProfileResult:
+        pod = SESSION.require()
+        return power_summary(pod.measure_power(duration_s, efuse=efuse, rail=rail, rate_hz=rate_hz,
+                                               keep_samples=points, monitor=monitor), points)
+
+    return await _call_reporting(ctx, "profiling power", op)
 
 
 @mcp.tool(annotations=_ann("Start a power profile"))
@@ -834,11 +855,20 @@ async def power_profile_start(
         "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that."))] = 500.0,
     max_duration_s: Annotated[float, Field(gt=0, le=600, description=(
         "Seconds after which the pod stops sampling by itself (the result is then truncated)."))] = 60.0,
+    monitor: MonitorArg = None,
 ) -> m.PowerProfileStartResult:
     """Start sampling the target-power rail in the background, then run the steps you want to
-    profile and call power_profile_stop. Replaces any profile already running."""
+    profile and call power_profile_stop. Replaces any profile already running. With monitor, an
+    external INA current monitor (attached with expansion) is sampled instead (efuse 0 in the result)."""
     def op() -> m.PowerProfileStartResult:
         pod = SESSION.require()
+        if monitor is not None:
+            if efuse is not None or rail is not None:
+                raise ValueError("monitor= and rail= (or efuse=) are exclusive: pick the pod's power rail "
+                                 "or an external INA monitor, not both")
+            SESSION.power_profile = pod.power_profile(
+                rate_hz=rate_hz, max_duration=max_duration_s, monitor=monitor).start()
+            return m.PowerProfileStartResult(efuse=0, rate_hz=rate_hz, max_duration=max_duration_s)
         chosen = pod._efuse(rail, efuse)   # a J1 supply has no current monitor: refused here
         SESSION.power_profile = pod.power_profile(rail=chosen, rate_hz=rate_hz,
                                                   max_duration=max_duration_s).start()
@@ -866,7 +896,8 @@ async def power_profile_stop(
 async def power_status() -> m.PowerStatusResult:
     """Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off and tripped
     state, bus voltage and current draw. On the digital board v4 also j1_rails: whether J1 pin 17
-    (+3.3 V) and pin 18 (+1.8 V) are on."""
+    (+3.3 V) and pin 18 (+1.8 V) are on. Also a live reading of each external INA current monitor
+    attached with expansion or the wiring profile (monitors)."""
     def op() -> m.PowerStatusResult:
         pod = SESSION.require()
         ts, ps = pod.target_status(), pod.power_status()
@@ -881,7 +912,9 @@ async def power_status() -> m.PowerStatusResult:
             pod = m.PodPowerResult(monitor_ok=ps.pod.ok, bus_voltage=ps.pod.bus_voltage,
                                    current=ps.pod.current, total_current=ps.total_current)
         j1 = ts.j1_rails
-        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod,
+        mons = {name: m.MonitorPowerResult(monitor_ok=r.ok, bus_voltage=r.bus_voltage, current=r.current)
+                for name, r in ps.monitors.items()}
+        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod, monitors=mons or None,
                                    j1_rails=m.J1RailsResult(v3v3=j1.v3v3, v1v8=j1.v1v8) if j1 else None)
 
     return await _call(op)
@@ -2429,12 +2462,23 @@ async def gpio_release(la: OptionalGpioChannels = None) -> m.GpioReleaseResult:
 _CHIP_NAMES = ", ".join(c.name for c in EXPANSION_CHIPS)
 
 
+def _monitor_result(st: Any) -> m.MonitorResult:
+    r = st.reading
+    return m.MonitorResult(
+        name=st.name, chip=st.chip, addr=st.addr, channel=st.channel, shunt_ohm=st.shunt_ohm,
+        averaging=st.averaging, cycle_s=round(st.cycle, 6), error=st.error,
+        current_a=None if r is None else r.current, bus_voltage_v=None if r is None else r.bus_voltage,
+        shunt_voltage_v=None if r is None else r.shunt_voltage, power_w=None if r is None else r.power,
+        overflow=None if r is None else r.overflow)
+
+
 def _expansion_result(st: Any) -> m.ExpansionResult:
     if not st.attached:
         return m.ExpansionResult(attached=False, chips=[c.name for c in EXPANSION_CHIPS])
     return m.ExpansionResult(attached=True, chip=st.chip, bus=st.bus, la=dict(st.la),
                              addrs=list(st.addrs), count=st.count, hz=st.hz, pullups=st.pullups,
-                             pins=[ext_pin_state(p) for p in st.pins], notes=list(st.notes) or None)
+                             pins=[ext_pin_state(p) for p in st.pins] or None, notes=list(st.notes) or None,
+                             monitors=[_monitor_result(x) for x in st.monitors] or None)
 
 
 @mcp.tool(annotations=_ann("GPIO expander board", destructive=True, idempotent=True))
@@ -2443,10 +2487,12 @@ async def expansion(
         f"The expander chip to attach: {_CHIP_NAMES}. Omit for the status (what is attached, its "
         "pins' modes and live levels)."))] = None,
     detach: Annotated[bool, Field(description=(
-        "Detach the expander: every EXT pin back to input, its bus released."))] = False,
+        "Detach everything: every EXT pin back to input, the bus released, the INA monitors removed. "
+        "With addr or name only that INA monitor is detached."))] = False,
     addr: Annotated[Optional[Union[int, List[int]]], Field(description=(
         "I2C chips: the 7-bit address (default the chip's first, 0x20 = 32), or a list for several "
-        "chips on one bus (EXT pins in that order). mcp23s17: hardware address 0-7."))] = None,
+        "chips on one bus (EXT pins in that order). INA current monitors: one address (default 0x40 = "
+        "64), one chip per call. mcp23s17: hardware address 0-7. With detach: the INA monitor to detach."))] = None,
     sda: Annotated[Optional[LaRef], Field(description="I2C SDA; omit for the wiring's i2c_sda.")] = None,
     scl: Annotated[Optional[LaRef], Field(description="I2C SCL; omit for the wiring's i2c_scl.")] = None,
     spi: Annotated[Optional[List[LaRef]], Field(min_length=4, max_length=4, description=(
@@ -2464,6 +2510,23 @@ async def expansion(
         "firmware newer than 3.10.12), else external."))] = None,
     names: Annotated[Optional[Dict[str, str]], Field(description=(
         "Names for the pins, {'EXT1': 'LED1', ...}; usable wherever EXTn is."))] = None,
+    shunt_ohm: Annotated[Optional[float], Field(gt=0, description=(
+        "INA current monitors: the shunt resistor in ohms (e.g. 10.0). Required, except for the ina260 "
+        "(own 2 mohm)."))] = None,
+    channel: Annotated[Optional[int], Field(ge=1, le=3, description=(
+        "ina3221 only: channel 1-3."))] = None,
+    name: Annotated[Optional[str], Field(description=(
+        "INA current monitors: the monitor's name (default 'ina226@0x40'; not 'ext'). With detach: the "
+        "monitor to detach."))] = None,
+    averaging: Annotated[Optional[int], Field(description=(
+        "INA chips: conversions averaged per result: 1, 4, 16, 64, 128, 256, 512 or 1024 (ina219: 1-128 "
+        "in powers of two). Default 16."))] = None,
+    conversion_time_s: Annotated[Optional[float], Field(gt=0, description=(
+        "INA chips: seconds per shunt and bus conversion (the nearest the chip has, 50 us to 8.2 ms). "
+        "Default about 1.1 ms."))] = None,
+    max_current_a: Annotated[Optional[float], Field(gt=0, description=(
+        "INA chips: the largest current expected, amps: ina219, ina228 and ina238 pick their "
+        "narrowest input range that covers it (finer steps)."))] = None,
 ) -> m.ExpansionResult:
     """Attach an I2C/SPI GPIO expander board, report it, or detach it.
 
@@ -2474,6 +2537,18 @@ async def expansion(
     The expander's bus closes on its own before flash, i2c_open and SPI tools; i2c_open on the same
     two pins shares the bus with it.
 
+    INA current monitors (ina226, ina228, ina238, ina219, ina260, ina3221) are usually in the wiring
+    profile's monitors list (connect attaches them; the connect result and expansion say what happened).
+    They also attach here, one chip per call, for
+    currents the pod's own monitors cannot resolve (they step about 125 uA): wire a shunt in series
+    between the pod's target-power output (J5/J6) and the DUT and the chip across it (bus pin on the DUT
+    side); with 10 ohm an ina226 resolves 0.25 uA up to about 8 mA. They add no EXT pins. Read them with
+    measure_power(monitor='ext'), power_status and power_profile_start(monitor=...): 'ext' is the
+    monitor when exactly one is attached, else its name ('ina226@0x40'). The LA voltage must be 3.3 V or
+    5 V (not 1.8 V). Several monitors share one bus (same sda/scl), also with a GPIO expander; an INA call
+    adds a monitor, the same address reconfigures it, detach=true removes everything and detach=true with
+    addr or name one monitor. set_wiring/save_wiring store what is attached in the profile.
+
     Gateware v65+: the emulation image (loaded by sensor_start) has no I2C or SPI master (the expander runs on it). With no I2C/SPI/UART sensor running the pod switches to the loop image by itself (~3 s); with sensors running this refuses (BP0059): sensor_stop first, or do it before sensor_start.
     """
     def op() -> m.ExpansionResult:
@@ -2481,6 +2556,10 @@ async def expansion(
         if detach:
             if chip is not None:
                 raise ValueError("give chip or detach=true, not both")
+            if addr is not None or name is not None:
+                if isinstance(addr, list):
+                    raise ValueError("detach one INA monitor by one address, or by name")
+                return _expansion_result(pod.expansion(None, addr=addr, name=name))
             return _expansion_result(pod.expansion(None))
         if chip is None:
             return _expansion_result(pod.expansion(
@@ -2488,7 +2567,10 @@ async def expansion(
                 pullups=pullups, names=names))
         return _expansion_result(pod.expansion(chip, addr=addr, sda=sda, scl=scl, spi=spi,
                                                load=load, count=count, hz=hz, pullups=pullups,
-                                               names=names))
+                                               names=names, shunt_ohm=shunt_ohm, channel=channel, name=name,
+                                               averaging=averaging,
+                                               conversion_time=conversion_time_s,
+                                               max_current=max_current_a))
 
     return await _call(op)
 

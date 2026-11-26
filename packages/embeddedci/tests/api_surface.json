@@ -131,7 +131,7 @@
     "enable_pulldown": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
-    "expansion": "(self, chip: 'Optional[str]' = '', *, addr: 'Union[int, Sequence[int], None]' = None, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, spi: 'Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None]' = None, load: 'Union[Pin, int, str, None]' = None, count: 'Optional[int]' = None, hz: 'Optional[int]' = None, pullups: 'Optional[str]' = None, names: 'Union[Mapping[Any, str], Sequence[Optional[str]], None]' = None) -> \"'_expansion.ExpansionStatus'\"",
+    "expansion": "(self, chip: 'Optional[str]' = '', *, addr: 'Union[int, Sequence[int], None]' = None, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, spi: 'Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None]' = None, load: 'Union[Pin, int, str, None]' = None, count: 'Optional[int]' = None, hz: 'Optional[int]' = None, pullups: 'Optional[str]' = None, names: 'Union[Mapping[Any, str], Sequence[Optional[str]], None]' = None, shunt_ohm: 'Union[float, Sequence[float], None]' = None, channel: 'Union[int, Sequence[int], None]' = None, averaging: 'Optional[int]' = None, conversion_time: 'Optional[float]' = None, max_current: 'Optional[float]' = None, name: 'Optional[str]' = None) -> \"'_expansion.ExpansionStatus'\"",
     "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, tck: 'Union[Pin, int, str, None]' = None, tms: 'Union[Pin, int, str, None]' = None, tdi: 'Union[Pin, int, str, None]' = None, tdo: 'Union[Pin, int, str, None]' = None, trst: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None, device: 'str' = '', clk: 'Union[Pin, int, str, None]' = None, data: 'Union[Pin, int, str, None]' = None, reset_pin: 'Union[Pin, int, str, None]' = None, erase: 'str' = 'chip', dry_run: 'bool' = False) -> 'FlashResult'",
     "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'Optional[DacPath]' = None, duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
@@ -151,7 +151,7 @@
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
-    "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
+    "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0, monitor: 'Optional[str]' = None) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
     "open_i2c": "(self, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, *, hz: 'int' = 100000, pullups: 'str' = 'pod') -> '_i2c_master.I2CMaster'",
@@ -165,7 +165,7 @@
     "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, rail: 'Optional[Union[Efuse, int, str]]' = None, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None) -> '_uart.UartCapture'",
     "power_off": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
     "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
-    "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0) -> 'PowerProfileSession'",
+    "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0, monitor: 'Optional[str]' = None) -> 'Any'",
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "read_gpio": "(self, la: 'Union[Pin, int, str]') -> 'int'",
@@ -461,6 +461,15 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'CurrentOutput'\""
   },
+  "CurrentReading": {
+    "__fields__": [
+      "bus_voltage",
+      "shunt_voltage",
+      "current",
+      "power",
+      "overflow"
+    ]
+  },
   "DacCalPath": "Literal['3v3', '5v', '12v']",
   "DacHandle": {
     "__init__": "(self, *, stop: 'Callable[[], Any]', dac_path: 'str' = '', cotrig: 'bool' = False, data: 'Optional[dict]' = None) -> 'None'",
@@ -529,7 +538,7 @@
   "DirectionConflictError": {
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, la: 'int' = 0) -> 'None'"
   },
-  "EXPANSION_CHIPS": "(ExpansionChip(name='tca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=('tca9535',), note='TI, 1.65-5.5 V'), ExpansionChip(name='pca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='in/out', max_hz=400000, since='2.13.21', aliases=('pca9535',), note='NXP, 2.3-5.5 V: not at 1.8 V'), ExpansionChip(name='mcp23017', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='Microchip, 1.8-5.5 V'), ExpansionChip(name='pcf8574', bus='i2c', pins=8, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='quasi', max_hz=100000, since='2.13.21', aliases=(), note='NXP/TI, 2.5-6 V: not at 1.8 V; 100 kHz'), ExpansionChip(name='pcf8574a', bus='i2c', pins=8, la_pins=2, addrs=(56, 57, 58, 59, 60, 61, 62, 63), voltages=(3.3,), directions='quasi', max_hz=100000, since='2.13.21', aliases=(), note='the PCF8574 at addresses 0x38-0x3f'), ExpansionChip(name='pcf8575', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='quasi', max_hz=400000, since='2.13.21', aliases=(), note='NXP/TI, 2.5-5.5 V: not at 1.8 V'), ExpansionChip(name='tca6416a', bus='i2c', pins=16, la_pins=2, addrs=(32, 33), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)'), ExpansionChip(name='tca6424a', bus='i2c', pins=24, la_pins=2, addrs=(34, 35), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)'), ExpansionChip(name='mcp23s17', bus='spi', pins=16, la_pins=4, addrs=(0, 1, 2, 3, 4, 5, 6, 7), voltages=(1.8, 3.3), directions='in/out', max_hz=6000000, since='2.13.21', aliases=(), note='Microchip, SPI; several on one CS by hardware address (A0-A2)'), ExpansionChip(name='74hc595', bus='spi', pins=8, la_pins=4, addrs=(), voltages=(3.3,), directions='out', max_hz=6000000, since='2.13.21', aliases=(), note='shift-register chain, outputs only; CS to RCLK (latch), MISO a free pin'), ExpansionChip(name='74hc165', bus='spi', pins=8, la_pins=5, addrs=(), voltages=(3.3,), directions='in', max_hz=6000000, since='2.13.21', aliases=(), note='shift-register chain, inputs only; CS to CLK INH, load= to SH/LD, MOSI a free pin'))",
+  "EXPANSION_CHIPS": "(ExpansionChip(name='tca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=('tca9535',), note='TI, 1.65-5.5 V', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='pca9555', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='in/out', max_hz=400000, since='2.13.21', aliases=('pca9535',), note='NXP, 2.3-5.5 V: not at 1.8 V', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='mcp23017', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='Microchip, 1.8-5.5 V', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='pcf8574', bus='i2c', pins=8, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='quasi', max_hz=100000, since='2.13.21', aliases=(), note='NXP/TI, 2.5-6 V: not at 1.8 V; 100 kHz', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='pcf8574a', bus='i2c', pins=8, la_pins=2, addrs=(56, 57, 58, 59, 60, 61, 62, 63), voltages=(3.3,), directions='quasi', max_hz=100000, since='2.13.21', aliases=(), note='the PCF8574 at addresses 0x38-0x3f', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='pcf8575', bus='i2c', pins=16, la_pins=2, addrs=(32, 33, 34, 35, 36, 37, 38, 39), voltages=(3.3,), directions='quasi', max_hz=400000, since='2.13.21', aliases=(), note='NXP/TI, 2.5-5.5 V: not at 1.8 V', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='tca6416a', bus='i2c', pins=16, la_pins=2, addrs=(32, 33), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='tca6424a', bus='i2c', pins=24, la_pins=2, addrs=(34, 35), voltages=(1.8, 3.3), directions='in/out', max_hz=400000, since='2.13.21', aliases=(), note='TI, 1.65-5.5 V, level-shifting (VCCI = the LA voltage)', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='mcp23s17', bus='spi', pins=16, la_pins=4, addrs=(0, 1, 2, 3, 4, 5, 6, 7), voltages=(1.8, 3.3), directions='in/out', max_hz=6000000, since='2.13.21', aliases=(), note='Microchip, SPI; several on one CS by hardware address (A0-A2)', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='74hc595', bus='spi', pins=8, la_pins=4, addrs=(), voltages=(3.3,), directions='out', max_hz=6000000, since='2.13.21', aliases=(), note='shift-register chain, outputs only; CS to RCLK (latch), MISO a free pin', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='74hc165', bus='spi', pins=8, la_pins=5, addrs=(), voltages=(3.3,), directions='in', max_hz=6000000, since='2.13.21', aliases=(), note='shift-register chain, inputs only; CS to CLK INH, load= to SH/LD, MOSI a free pin', kind='gpio', channels=1, internal_ohm=0.0, shunt_max=0.0, ids=()), ExpansionChip(name='ina226', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor: 16-bit, shunt 2.5 \u00b5V/step (0.25 \u00b5A with 10 ohm), +-81.92 mV, bus to 36 V', kind='current', channels=1, internal_ohm=0.0, shunt_max=0.08192, ids=((254, 65535, 21577), (255, 65535, 8800))), ExpansionChip(name='ina228', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor: 20-bit, shunt 78 nV/step on the +-40.96 mV range, bus to 85 V', kind='current', channels=1, internal_ohm=0.0, shunt_max=0.16384, ids=((62, 65535, 21577), (63, 65520, 8832))), ExpansionChip(name='ina238', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor: 16-bit, shunt 1.25 \u00b5V/step on the +-40.96 mV range, bus to 85 V', kind='current', channels=1, internal_ohm=0.0, shunt_max=0.16384, ids=((62, 65535, 21577), (63, 65520, 9088))), ExpansionChip(name='ina219', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor: shunt 10 \u00b5V/step (1 \u00b5A with 10 ohm), +-320 mV, bus to 32 V; 3-5.5 V; no ID register, so only the address is probed', kind='current', channels=1, internal_ohm=0.0, shunt_max=0.32, ids=()), ExpansionChip(name='ina260', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor, internal 2 mohm shunt, 1.25 mA/step, +-15 A: for amps, not \u00b5A', kind='current', channels=1, internal_ohm=0.002, shunt_max=0.0, ids=((254, 65535, 21577), (255, 65520, 8816))), ExpansionChip(name='ina3221', bus='i2c', pins=0, la_pins=2, addrs=(64, 65, 66, 67), voltages=(3.3, 5.0), directions='', max_hz=400000, since='4.0.7', aliases=(), note='current monitor, 3 channels, shunt 40 \u00b5V/step (4 \u00b5A with 10 ohm), bus to 26 V; averaging and conversion time apply to all three', kind='current', channels=3, internal_ohm=0.0, shunt_max=0.1638, ids=((254, 65535, 21577), (255, 65535, 12832))))",
   "EXTERNAL": "Efuse.EXTERNAL",
   "Edge": "Literal['rising', 'falling', 'both']",
   "Efuse": {
@@ -570,7 +579,12 @@
       "max_hz",
       "since",
       "aliases",
-      "note"
+      "note",
+      "kind",
+      "channels",
+      "internal_ohm",
+      "shunt_max",
+      "ids"
     ],
     "chained": "property"
   },
@@ -586,7 +600,8 @@
       "hz",
       "pullups",
       "pins",
-      "notes"
+      "notes",
+      "monitors"
     ],
     "names": "property"
   },
@@ -916,6 +931,46 @@
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'ModuleInfo'\""
   },
+  "MonitorProfileSession": {
+    "__init__": "(self, mon: 'CurrentMonitor', *, rate_hz: 'Optional[float]', keep_samples: 'int', max_duration: 'float') -> 'None'",
+    "result": "property",
+    "start": "(self) -> \"'MonitorProfileSession'\"",
+    "status": "(self) -> 'Dict[str, Any]'",
+    "stop": "(self) -> 'PowerProfile'"
+  },
+  "MonitorSpec": {
+    "__fields__": [
+      "chip",
+      "addr",
+      "shunt_ohm",
+      "name",
+      "channel",
+      "sda",
+      "scl",
+      "averaging",
+      "conversion_time",
+      "max_current"
+    ],
+    "effective_name": "property",
+    "errors": "(self, prefix: 'str' = 'monitors[0]') -> 'List[str]'",
+    "from_dict": "(cls, data: 'Any', prefix: 'str' = 'monitors[0]') -> \"'MonitorSpec'\"",
+    "to_dict": "(self) -> 'Dict[str, Any]'"
+  },
+  "MonitorStatus": {
+    "__fields__": [
+      "name",
+      "chip",
+      "addr",
+      "channel",
+      "shunt_ohm",
+      "sda",
+      "scl",
+      "averaging",
+      "cycle",
+      "reading",
+      "error"
+    ]
+  },
   "MotorEmulator": {
     "__init__": "(self, spi: \"'SpiSession'\", *, programn: \"'Optional[GpioPin]'\" = None, done: \"'Optional[GpioPin]'\" = None, calibration: 'Optional[EmulatorCalibration]' = None) -> 'None'",
     "arm": "(self, board: 'int' = 0, *, timeout: 'float' = 0.1) -> 'EmulatorStatus'",
@@ -1021,7 +1076,8 @@
       "raw"
     ],
     "avg_power": "property",
-    "from_chunks": "(cls, chunks: 'Iterable[Dict[str, Any]]') -> \"'PowerProfile'\""
+    "from_chunks": "(cls, chunks: 'Iterable[Dict[str, Any]]') -> \"'PowerProfile'\"",
+    "from_readings": "(cls, readings: 'Sequence[Tuple[float, Any]]', *, adc_rate_hz: 'float' = 0.0, keep_samples: 'int' = 0, truncated: 'bool' = False) -> \"'PowerProfile'\""
   },
   "PowerProfileSession": {
     "__init__": "(self, pod: \"'BenchPod'\", request: 'Dict[str, Any]') -> 'None'",
@@ -1036,6 +1092,7 @@
       "external",
       "pod",
       "total_current",
+      "monitors",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'PowerStatus'\"",
@@ -1598,6 +1655,7 @@
       "spi_miso",
       "spi_cs",
       "signals",
+      "monitors",
       "extra",
       "source",
       "profile_name",
@@ -1666,6 +1724,7 @@
     "ControlLoopHandle",
     "CorrelatedCapture",
     "CurrentOutput",
+    "CurrentReading",
     "DacCalPath",
     "DacHandle",
     "DacLine",
@@ -1727,6 +1786,9 @@
     "LowLevel",
     "MacAddresses",
     "ModuleInfo",
+    "MonitorProfileSession",
+    "MonitorSpec",
+    "MonitorStatus",
     "MotorEmulator",
     "NoopBuildReporter",
     "PIN1",

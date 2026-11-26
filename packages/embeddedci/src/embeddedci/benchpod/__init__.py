@@ -158,6 +158,7 @@ from .errors import (
 from .detect import DetectFinding, DetectResult
 from .flash import FlashResult
 from .prog import ProgDeviceError, ProgFlashError, ProgLockedError, ProgNoAnswerError, ProgVerifyError
+from .current_monitor import CurrentReading, MonitorProfileSession, MonitorStatus
 from .expansion import (
     EXPANSION_CHIPS,
     ExpansionChip,
@@ -206,7 +207,7 @@ from .spi import SpiFlashInfo, SpiFlashResult, SpiSession, SpiStreamResult
 from . import motor_emulator
 from .motor_emulator import BatteryModel, EmulatorCalibration, MotorEmulator
 from .waveforms import Waveform, WaveformLibrary
-from .wiring import Signal, Wiring
+from .wiring import Signal, Wiring, MonitorSpec
 from .header import header_map
 
 __all__ = [
@@ -228,6 +229,10 @@ __all__ = [
     "ExtPin",
     "ExtPinState",
     "expansion_chip",
+    "CurrentReading",
+    "MonitorProfileSession",
+    "MonitorSpec",
+    "MonitorStatus",
     # power profiles
     "PowerProfile",
     "PowerProfileSession",

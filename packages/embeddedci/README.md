@@ -1850,6 +1850,81 @@ list, `["EXT1", ...]`). `ExtPinState`: `ext` (the n of EXTn), `pin` (`"EXT3"`), 
 `open_drain`), `level` (the commanded level) and `live` (the level read from the chip). An
 `ExtPin` is a `GpioPin` with `ext` and `pin`; its `la` is `None`.
 
+## External current monitors (µA currents)
+
+The pod's own INA238 monitors step in about 125 µA, too coarse for a sleep current. For µA, put a
+shunt in series between the pod's target-power output (J5 or J6) and the DUT, and an off-the-shelf
+INA breakout across it (IN+ on the supply side, IN- and the bus pin on the DUT side). Describe it in
+the wiring profile and connecting attaches it; the existing power calls read it with `monitor=`:
+
+```json
+"monitors": [
+  {"chip": "ina226", "addr": 64, "shunt_ohm": 10.0, "name": "dut", "sda": 13, "scl": 14}
+]
+```
+
+```python
+bp = BenchPod("192.168.1.150")                   # connecting attached the profile's monitors
+prof = bp.measure_power(2.0, monitor="ext")      # PowerProfile: avg, min, peak, charge, energy
+print(prof.avg_current * 1e6, "uA")
+with bp.power_profile(monitor="dut") as p:       # around a block of code
+    run_test()
+print(bp.power_status().monitors)                # {"dut": RailPower(ok, bus_voltage, current)}
+print(bp.expansion().monitors, bp.monitors_status)   # MonitorStatus with a live reading each
+```
+
+With 10 ohm an INA226 resolves 0.25 µA up to about 8 mA (80 mV across the shunt, which the DUT
+does not see as supply). The `measure` fixture records the results like any number:
+`measure("sleep_current", prof.avg_current * 1e6, "uA", max=5)`.
+
+- **In the profile:** `Wiring.monitors` is a list of `MonitorSpec` (JSON objects with `chip`, `addr`
+  and `shunt_ohm`, and optionally `name`, `channel` (INA3221), `sda`, `scl`, `averaging`,
+  `conversion_time` and `max_current`). It is validated when the profile is built, so a wrong chip,
+  address, name or pin is an error at once: `chip` is `ina226`, `ina228`, `ina238`, `ina219`, `ina260` or
+  `ina3221`; `addr` is an integer 64-79 (INA3221: 64-67); `shunt_ohm` is required (not for the INA260,
+  which has its own 2 mohm); `sda`/`scl` default to `i2c_sda`/`i2c_scl` and must be the same for
+  every monitor (the pod has one I2C master); names and addresses are unique; at most 8.
+- **On connect:** the SDK attaches them, and again when the profile changes (`load_wiring()`, a new
+  `wiring`). Nothing raises if one does not answer: `bp.monitors_status` says what happened, and
+  `monitor="ext"` repeats it.
+- **By hand:** `expansion("ina226", addr=0x40, sda=13, scl=14, shunt_ohm=10.0, name="dut")` attaches
+  one chip per call (the same arguments as the profile entry: `channel`, `averaging`,
+  `conversion_time`, `max_current`). A call for an attached address (and channel) replaces it and
+  reconfigures the chip; a list for `addr` or `shunt_ohm` is refused. `expansion(None, addr=0x40)` or
+  `expansion(None, name="dut")` detaches one; `expansion(None)` detaches everything. It probes the
+  chip (manufacturer and die ID where it has them; the INA219 has none) and raises `ExpansionError`
+  for a missing or wrong chip or an LA voltage the chip does not run at (3.3 V or 5 V; not 1.8 V).
+- **Saving:** `save_wiring()` stores the monitors that are attached, like any other profile field.
+- **Names:** `"ina226@0x40"` unless `name` says otherwise (INA3221 `"ina3221@0x40.2"`); `monitor="ext"`
+  selects the monitor when exactly one is attached, else give the name. `monitor=` together with
+  `efuse=` is a `ValueError`: a monitor measures its own shunt, `efuse` is the pod's rail.
+- `averaging` and `conversion_time` trade noise for speed; `max_current` (amps) selects the narrowest
+  input range of the INA219, INA228 and INA238 that covers it. The current is computed on the host
+  from the shunt voltage and `shunt_ohm`, the only calibration.
+- `measure_power(duration, monitor=...)` reads once per conversion cycle (`rate_hz` up to 200) and
+  returns a `PowerProfile` with `efuse` 0. `power_profile(monitor=...)` samples in a background
+  thread (`MonitorProfileSession`, same `start()`, `stop()` and `result`). `power_status().monitors`
+  and `expansion().monitors` (`MonitorStatus`, with `reading`, a `CurrentReading`) are live. Monitors
+  share the bus with a GPIO expander and an `open_i2c()` session on the same pins, and it closes itself
+  before `flash()` and `open_spi()`.
+
+| Chip | Addresses | Shunt resolution | Notes |
+|---|---|---|---|
+| `ina226` | 0x40-0x4f | 2.5 µV | 16-bit, +-81.92 mV, bus to 36 V |
+| `ina228` | 0x40-0x4f | 78 nV (fine range) | 20-bit, +-40.96 / +-163.84 mV, bus to 85 V |
+| `ina238` | 0x40-0x4f | 1.25 µV (fine range) | 16-bit, +-40.96 / +-163.84 mV, bus to 85 V |
+| `ina219` | 0x40-0x4f | 10 µV | +-320 mV, bus to 32 V, no ID register |
+| `ina260` | 0x40-0x4f | internal 2 mohm | 1.25 mA steps, +-15 A: for amps |
+| `ina3221` | 0x40-0x43 | 40 µV | 3 channels, shared averaging |
+
+`MonitorStatus` has `name`, `chip`, `addr`, `channel`, `shunt_ohm`, `sda`, `scl`, `averaging`, `cycle`
+(seconds per new result), `reading` and `error`; `CurrentReading` has `bus_voltage`, `shunt_voltage`,
+`current`, `power` and `overflow` (the shunt input is at or past the chip's range: use a smaller
+shunt). `MonitorSpec` has the profile entry's fields plus `effective_name`, `errors()`, `to_dict()` and
+`from_dict()`. The INA entries of `EXPANSION_CHIPS` also carry `kind`, `channels`, `internal_ohm`,
+`shunt_max` and `ids`. `PowerProfile.from_readings(...)` builds a profile from `(t, reading)` pairs.
+All chips run from 2.7-5.5 V (INA219: 3-5.5 V). Not supported yet: INA229 (SPI), INA237 and INA253/INA254.
+
 ## Emulated sensors
 
 The pod can **play sensors** for the DUT: I2C, SPI and UART sensors on LA channels and analog

@@ -385,6 +385,20 @@ class FakeTransport(Transport):
                 self.tca_ptr ^= 1
             rx = base64.urlsafe_b64encode(bytes(out)).decode().rstrip("=")
             return {"addr": addr, "ack": True, "rx": rx}
+        if addr == 0x40:  # an INA226 across a 10 ohm shunt: 1 uA, 3.3 V
+            if not hasattr(self, "ina"):
+                self.ina, self.ina_ptr = {0xFE: 0x5449, 0xFF: 0x2260, 1: 4, 2: 2640}, 0
+            data = base64.urlsafe_b64decode(write + "=" * (-len(write) % 4)) if write else b""
+            if data:
+                self.ina_ptr = data[0]
+                if len(data) == 3:
+                    self.ina[self.ina_ptr] = int.from_bytes(data[1:], "big")
+            out = b""
+            while len(out) < read:
+                out += self.ina.get(self.ina_ptr, 0).to_bytes(2, "big")
+                self.ina_ptr += 1
+            rx = base64.urlsafe_b64encode(out[:read]).decode().rstrip("=")
+            return {"addr": addr, "ack": True, "rx": rx}
         if addr != 0x76:
             return {"addr": addr, "ack": False, "nack_at": 0, "rx": ""}
         rx = base64.urlsafe_b64encode(bytes([0x58] * read)).decode().rstrip("=")

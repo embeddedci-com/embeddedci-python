@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import weakref
 from contextlib import contextmanager
@@ -42,6 +43,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, 
 from . import can as _can
 from . import capture as _capture
 from . import control_loop as _control_loop
+from . import current_monitor as _cmon
 from . import detect as _detect
 from . import dsp as _dsp
 from . import esp as _esp
@@ -54,6 +56,7 @@ from . import motor_emulator as _motor_emulator
 from . import prog as _prog
 from . import spi as _spi
 from . import usb_host as _usb
+from . import wiring as _wiring
 from . import uart as _uart
 from .capabilities import (ADC_WRAP_SPAN, ADC_WRAP_THRESHOLD, BUS_MASTER_GATEWARE,
                            AffineCal, Capabilities)
@@ -133,6 +136,7 @@ from .state import (
     ModuleInfo,
     PowerStatus,
     PullState,
+    RailPower,
     ResetState,
     TargetStatus,
     UsbCcStatus,
@@ -410,6 +414,14 @@ class BenchPod:
         self._spi_session_ref: Optional["weakref.ReferenceType[_spi.SpiSession]"] = None
         # The GPIO expander attached with expansion(), if any.
         self._expansion: Optional[_expansion.Expansion] = None
+        # The SDK's own I2C session (expander and current monitors share it) and the monitors.
+        self._own_i2c: Optional[_i2c_master.I2CMaster] = None
+        # One raw command at a time: a monitor's profile thread reads while the caller's thread works.
+        self._cmd_lock = threading.RLock()
+        self._monitors: List[_cmon.CurrentMonitor] = []
+        #: What attaching the wiring profile's ``monitors`` did on connect ("" when it has none).
+        self.monitors_status = ""
+        self._monitors_synced = False
         #: What happened to the wiring profile's pin directions the last time the SDK sent them on
         #: its own (on connect, on a new :attr:`wiring`): ``"sent"`` or ``"not sent: <why>"``.
         self.pin_directions_status = "not sent: not connected yet"
@@ -475,6 +487,7 @@ class BenchPod:
             self._auto_pin_directions()
             if la_voltage is None:
                 self._auto_la_voltage()
+            self._sync_profile_monitors()
         except BaseException:
             self.close()
             raise
@@ -544,6 +557,7 @@ class BenchPod:
         ``BENCHPOD_LEASE``). Idempotent."""
         try:
             self._yield_expansion_bus()
+            self._monitors.clear()
             if self._pod_lease is not None:
                 lease, self._pod_lease = self._pod_lease, None
                 _pod_lease.close_pod_lease(self._transport, lease)
@@ -839,6 +853,7 @@ class BenchPod:
     def wiring(self, value: Union[Wiring, Mapping[str, Any], str, "os.PathLike[str]"]) -> None:
         self._wiring = Wiring.coerce(value)
         self._auto_pin_directions()
+        self._sync_profile_monitors()
 
     def _resolve_wiring(self) -> Wiring:
         env = os.environ.get(WIRING_ENV, "").strip()
@@ -1030,6 +1045,7 @@ class BenchPod:
         self._wiring = prof
         if changed:
             self._auto_pin_directions()
+            self._sync_profile_monitors()
         return prof
 
     def save_wiring(self, wiring: Union[Wiring, Mapping[str, Any], str, None] = None, *,
@@ -1048,7 +1064,14 @@ class BenchPod:
         no profiles: a cloud device's single profile on embeddedci.com is replaced (``name`` must
         not be given); a LAN or USB pod raises (update the firmware).
         """
-        profile = self.wiring if wiring is None else Wiring.coerce(wiring)
+        if wiring is None:
+            profile = self.wiring
+            # What expansion() attached is what the profile stores. Nothing attached because the
+            # profile's own monitors failed to attach keeps them, instead of dropping them.
+            if self._monitors or not self.monitors_status.startswith("not attached"):
+                profile = replace(profile, monitors=self._monitor_specs())
+        else:
+            profile = Wiring.coerce(wiring)
         listing = self._pod_wiring_list()
         if listing is None:
             return self._save_server_wiring(profile, name)
@@ -1074,6 +1097,8 @@ class BenchPod:
         self._wiring = saved
         if changed:
             self._auto_pin_directions()
+            for m_ in self._monitors:
+                m_.from_profile = True  # the saved profile now holds them
         return saved
 
     def set_default_wiring(self, name: str) -> str:
@@ -1111,6 +1136,8 @@ class BenchPod:
         self._wiring = profile.with_changes(source="server")
         if changed:
             self._auto_pin_directions()
+            for m_ in self._monitors:
+                m_.from_profile = True  # the saved profile now holds them
         return self._wiring
 
     def signal(self, name: str) -> GpioPin:
@@ -1324,8 +1351,18 @@ class BenchPod:
         return TargetStatus.from_reply(self.command({"cmd": "target_status"}))
 
     def power_status(self) -> PowerStatus:
-        """The INA power monitors: bus voltage and current on each target-power rail."""
-        return PowerStatus.from_reply(self.command({"cmd": "power_status"}))
+        """The INA power monitors: bus voltage and current on each target-power rail, and
+        (:attr:`PowerStatus.monitors`) a live reading of each external INA monitor attached with
+        :meth:`expansion`."""
+        status = PowerStatus.from_reply(self.command({"cmd": "power_status"}))
+        if self._monitors:
+            ext = {}
+            for st in self._monitor_statuses():
+                r = st.reading
+                ext[st.name] = RailPower(ok=r is not None, bus_voltage=r.bus_voltage if r else 0.0,
+                                         current=r.current if r else 0.0)
+            status = dataclasses.replace(status, monitors=ext)
+        return status
 
     def reset_target(self, *, pulse: float = 0.1) -> ResetState:
         """Pulse the target's reset line for ``pulse`` seconds (rev3 pods, DUT header J1 pin 22).
@@ -4788,6 +4825,12 @@ class BenchPod:
         hz: Optional[int] = None,
         pullups: Optional[str] = None,
         names: Union[Mapping[Any, str], Sequence[Optional[str]], None] = None,
+        shunt_ohm: Union[float, Sequence[float], None] = None,
+        channel: Union[int, Sequence[int], None] = None,
+        averaging: Optional[int] = None,
+        conversion_time: Optional[float] = None,
+        max_current: Optional[float] = None,
+        name: Optional[str] = None,
     ) -> "_expansion.ExpansionStatus":
         """Attach a GPIO expander board, report it, or detach it.
 
@@ -4799,6 +4842,28 @@ class BenchPod:
         :class:`~embeddedci.benchpod.expansion.ExpansionStatus` (chip, bus pins, each pin's mode and
         live level); ``expansion(None)`` puts every pin back to input and detaches.
         :data:`~embeddedci.benchpod.expansion.EXPANSION_CHIPS` lists the chips.
+
+        **INA current monitors** (INA226, INA228, INA238, INA219, INA260, INA3221) attach the same
+        way, for currents the pod's own monitors cannot resolve (µA)::
+
+            bp.expansion("ina226", addr=0x40, sda=13, scl=14, shunt_ohm=10.0, name="dut")
+            bp.measure_power(2.0, monitor="dut")      # also power_profile(monitor=), power_status()
+            bp.expansion(None, addr=0x40)             # detach this one (or name="dut")
+
+        Usually the monitors are in the wiring profile (:class:`~embeddedci.benchpod.wiring.MonitorSpec`,
+        its ``monitors`` list): connecting attaches them, and :meth:`save_wiring` stores the ones
+        that are attached. Wire the shunt in series between the pod's target-power output and the DUT
+        and the chip across it. ``shunt_ohm`` (not for the INA260) is the only calibration; INA3221
+        ``channel`` is 1-3. ``averaging``, ``conversion_time`` (seconds, the nearest the chip has) and
+        ``max_current`` (amps: the INA219, INA228 and INA238 pick their narrowest range that covers it)
+        configure the chip. One chip per call: ``addr`` and ``shunt_ohm`` are single values, and
+        several chips are several calls; a call for an address (and channel) that is attached
+        replaces it, which reconfigures the chip. The monitor is named ``"ina226@0x40"`` unless
+        ``name`` says otherwise; ``monitor="ext"`` selects it when exactly one is attached. They
+        share one bus, so they need the same ``sda``/``scl``, and sit beside an attached GPIO
+        expander. The LA voltage must be 3.3 V or 5 V. ``expansion()`` lists them with a live reading
+        (:attr:`ExpansionStatus.monitors`); ``expansion(None)`` detaches everything, and
+        ``expansion(None, addr=...)`` or ``expansion(None, name=...)`` one monitor.
 
         I2C chips: ``addr`` is the 7-bit address (default: the chip's first), or a list of them for
         several chips on one bus (EXT pins numbered in that order); ``sda``/``scl`` default to the
@@ -4817,28 +4882,39 @@ class BenchPod:
         :meth:`open_i2c` session on the same two pins is used as it is. EXT pins are not
         FPGA-timed: pulses, captures, triggers and :meth:`la_dir` refuse them.
         """
-        exp = self._expansion
-        given = any(v is not None for v in (addr, sda, scl, spi, load, count, hz, pullups, names))
+        mon_args = (shunt_ohm, channel, averaging, conversion_time, max_current, name)
+        given = any(v is not None for v in (addr, sda, scl, spi, load, count, hz, pullups, names) + mon_args)
         if chip == "":
             if given:
                 raise ValueError("name the chip to attach, e.g. expansion('tca9555', addr=0x20)")
-            return exp.status() if exp is not None else _expansion.ExpansionStatus(attached=False)
+            return self._expansion_status()
         if chip is None:
+            if given and (any(v is not None for v in (sda, scl, spi, load, count, hz, pullups, names)
+                              + mon_args[:-1]) or (addr is None and name is None)):
+                raise ValueError("expansion(None) detaches everything; expansion(None, addr=...) or "
+                                 "expansion(None, name=...) detaches one current monitor")
             if given:
-                raise ValueError("expansion(None) detaches; it takes no other arguments")
+                self._detach_monitors(addr, name)
+                return self._expansion_status()
             self._detach_expansion()
+            for mon in list(self._monitors):
+                mon.close()
             return _expansion.ExpansionStatus(attached=False)
         info = _expansion.expansion_chip(chip)
         block = self._wiring_expansion(info)
-        lv = self.get_la_voltage().voltage
-        if lv is None:
-            raise _expansion.ExpansionError("set the LA voltage first (set_la_voltage(3.3) or 1.8): "
-                                            "the expander runs at the LA voltage")
-        if not any(abs(lv - v) < 0.05 for v in info.voltages):
-            ok = " or ".join(f"{v:g} V" for v in info.voltages)
-            raise _expansion.ExpansionError(
-                f"the {info.name} does not run at the LA voltage {lv:g} V (it needs {ok}); pick a chip "
-                "for this voltage (EXPANSION_CHIPS lists them) or change the LA voltage")
+        lv = self._la_voltage_for(info)
+        if info.kind == "current":
+            if spi is not None or load is not None or count not in (None, 1) or names is not None:
+                raise ValueError(f"the {info.name} is an I2C current monitor: spi, load, count and names "
+                                 "do not apply (name= names the monitor)")
+            self._attach_monitor(info, addr=addr, sda=sda, scl=scl, hz=hz, pullups=pullups,
+                                 shunt_ohm=shunt_ohm, channel=channel, averaging=averaging,
+                                 conversion_time=conversion_time, max_current=max_current,
+                                 name=name, block={}, lv=lv)
+            return self._expansion_status()
+        if any(v is not None for v in mon_args):
+            raise ValueError("shunt_ohm, channel, averaging, conversion_time, max_current and name are "
+                             "for the INA current monitors")
         default_hz = min(400_000 if info.bus == "i2c" else 1_000_000, info.max_hz)
         hz_i = int(hz if hz is not None else block.get("hz") or default_hz)
         if isinstance(hz, bool) or hz_i <= 0 or hz_i > info.max_hz:
@@ -4922,7 +4998,270 @@ class BenchPod:
             except Exception:
                 pass
             raise
-        return new.status()
+        return self._expansion_status()
+
+    # -- external INA current monitors (attached through expansion()) -------------
+
+    def _la_voltage_for(self, info: "_expansion.ExpansionChip") -> float:
+        lv = self.get_la_voltage().voltage
+        if lv is None:
+            raise _expansion.ExpansionError("set the LA voltage first (set_la_voltage(3.3) or 1.8): "
+                                            "the expander runs at the LA voltage")
+        if not any(abs(lv - v) < 0.05 for v in info.voltages):
+            ok = " or ".join(f"{v:g} V" for v in info.voltages)
+            raise _expansion.ExpansionError(
+                f"the {info.name} does not run at the LA voltage {lv:g} V (it needs {ok}); pick a chip "
+                "for this voltage (EXPANSION_CHIPS lists them) or change the LA voltage")
+        return lv
+
+    def _attach_monitor(self, info: "_expansion.ExpansionChip", *, addr: Any, sda: Any, scl: Any,
+                        hz: Optional[int], pullups: Optional[str], shunt_ohm: Any, channel: Any,
+                        averaging: Optional[int], conversion_time: Optional[float],
+                        max_current: Optional[float], name: Optional[str], block: Mapping[str, Any],
+                        lv: float, from_profile: bool = False) -> "_cmon.CurrentMonitor":
+        """expansion() for an INA chip: one monitor, added, or replacing the one at its address
+        (and channel), which reconfigures the chip."""
+        c = info
+        for key, v in (("addr", addr), ("channel", channel), ("shunt_ohm", shunt_ohm)):
+            if isinstance(v, (list, tuple)):
+                raise ValueError(f"{key} is one value for the {c.name}: one chip per expansion() call "
+                                 "(call it again for another address)")
+        a = c.addrs[0] if addr is None and block.get("addr") is None else (
+            addr if addr is not None else self._expansion_addrs(c, block.get("addr"))[0])
+        if isinstance(a, bool) or a not in c.addrs:
+            raise ValueError(f"the {c.name} has addresses 0x{c.addrs[0]:02x}-0x{c.addrs[-1]:02x}, got {addr!r}")
+        ch = 1 if channel is None else channel
+        if isinstance(ch, bool) or ch not in range(1, c.channels + 1):
+            raise ValueError(f"channel is 1..{c.channels} for the {c.name}, got {channel!r}")
+        shunt = shunt_ohm if shunt_ohm is not None else block.get("shunt_ohm")
+        if c.internal_ohm:
+            if shunt not in (None, c.internal_ohm):
+                raise ValueError(f"the {c.name} has its own {c.internal_ohm * 1000:g} mohm shunt: "
+                                 "leave shunt_ohm out")
+            shunt = c.internal_ohm
+        elif shunt is None:
+            raise ValueError("shunt_ohm is the shunt resistor in ohms, e.g. shunt_ohm=10.0")
+        elif isinstance(shunt, bool) or not isinstance(shunt, (int, float)) or not 0 < float(shunt) <= 1e6:
+            raise ValueError(f"shunt_ohm is in ohms, greater than 0, got {shunt!r}")
+        if name is not None and (not isinstance(name, str) or not name.strip() or name.strip().lower() == "ext"
+                                 or _expansion.ext_index(name) is not None):
+            raise ValueError(f"name {name!r} is not usable (empty, 'ext' or EXTn)")
+        hz_i = int(hz if hz is not None else block.get("hz") or 400_000)
+        if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= hz_i <= _i2c_master.HZ_MAX:
+            raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
+        sda_i = self._wired(sda if sda is not None else block.get("sda"), "i2c_sda")
+        scl_i = self._wired(scl if scl is not None else block.get("scl"), "i2c_scl")
+        if sda_i == scl_i:
+            raise ValueError("sda and scl must be different LA pins")
+        pull = pullups if pullups is not None else block.get("pullups")
+        pod_ok = self._pulls_at(lv) and sda_i <= 6 and scl_i <= 6
+        if pull is None:
+            pull = "pod" if pod_ok else "external"
+        check_choice(pull, _i2c_master.PULLUPS, "pullups")
+        if pull == "pod" and not pod_ok:
+            raise _expansion.ExpansionError(
+                "pullups='pod' needs both pins on LA1-LA6 (only they have pod pull-ups) and an LA "
+                "voltage of 1.8 V or 3.3 V; use pullups='external' with pull-ups on the breakout")
+        _cmon.validate_settings(c, float(shunt), averaging, max_current)
+        for other in self._monitors:
+            if (other.sda, other.scl) != (sda_i, scl_i) and not (other.addr == a and other.channel == ch):
+                raise _expansion.ExpansionError(
+                    f"{other.name} is on LA{other.sda} SDA / LA{other.scl} SCL: the pod has one I2C "
+                    "master, so every monitor and expander needs the same two pins")
+        if self._expansion is not None and self._expansion.chip.bus == "i2c" and \
+                (self._expansion.la["sda"], self._expansion.la["scl"]) != (sda_i, scl_i):
+            raise _expansion.ExpansionError(
+                "the attached GPIO expander is on other pins: the pod has one I2C master, so a "
+                "monitor and an expander need the same two pins")
+        self._ensure_bus_masters("the I2C master")
+        # The same address (and channel) is replaced: that reconfigures the chip. Another chip type at
+        # the address cannot be there too.
+        replaced = [o for o in self._monitors if o.addr == a and (o.channel == ch or o.chip.name != c.name)]
+        taken = {m_.name for m_ in self._monitors if m_ not in replaced}
+        mon = _cmon.CurrentMonitor(self, c, addr=a, sda=sda_i, scl=scl_i, hz=hz_i, pullups=pull,
+                                   shunt_ohm=float(shunt), channel=ch, name=name)
+        if mon.name in taken:
+            raise ValueError(f"name {mon.name!r} is already used by another monitor")
+        mon.from_profile = from_profile
+        mon.spec = _wiring.MonitorSpec(
+            chip=c.name, addr=a, shunt_ohm=None if c.internal_ohm else float(shunt), name=name,
+            channel=ch if c.channels > 1 else None, sda=sda_i if sda is not None else None,
+            scl=scl_i if scl is not None else None, averaging=averaging,
+            conversion_time=conversion_time, max_current=max_current)
+        for other in replaced:
+            other.close()
+        had_pull = bool(self._monitors) or self._expansion is not None
+        enabled_pull = False
+        if pull == "pod":
+            self.enable_pullup(sda_i, scl_i)
+            enabled_pull = not had_pull
+        self._monitors.append(mon)
+        try:
+            sibling = any(o.addr == a and o is not mon for o in self._monitors)
+            mon._attach(averaging=averaging, conversion_time=conversion_time,
+                        max_current=max_current, first_of_chip=not sibling)
+        except BaseException:
+            if mon in self._monitors:
+                self._monitors.remove(mon)
+            mon.closed = True
+            try:
+                if not self._monitors and self._expansion is None:
+                    self._release_own_i2c()
+                if enabled_pull:
+                    self.disable_pullup(sda_i, scl_i)
+            except Exception:
+                pass
+            raise
+        return mon
+
+    def _detach_monitors(self, addr: Any, name: Optional[str]) -> None:
+        """expansion(None, addr=..., name=...): detach the monitors at ``addr`` (every channel) and/or
+        called ``name``."""
+        hits = [m_ for m_ in self._monitors
+                if (addr is None or m_.addr == addr) and (name is None or m_.name == name)]
+        if not hits:
+            have = ", ".join(f"{m_.name} (0x{m_.addr:02x})" for m_ in self._monitors) or "none attached"
+            raise ValueError(f"no current monitor at addr={addr!r} name={name!r}: attached are {have}")
+        for m_ in hits:
+            m_.close()
+
+    def _monitor_specs(self) -> Tuple["_wiring.MonitorSpec", ...]:
+        return tuple(m_.spec for m_ in self._monitors if getattr(m_, "spec", None) is not None)
+
+    def _sync_profile_monitors(self, *, load: bool = False) -> None:
+        """Attach the wiring profile's ``monitors`` (on connect and when the profile changes), and
+        drop the ones the previous profile attached. Never raises: :attr:`monitors_status` says what
+        happened, and ``monitor=`` repeats it if a monitor is missing."""
+        old = [m_ for m_ in self._monitors if m_.from_profile]
+        try:
+            # Only a profile that is loaded already, so connecting sends nothing it did not send
+            # before; ``monitor=`` loads it on first use (``load=True``).
+            profile = self.wiring if load else self._wiring
+            if profile is None:
+                return
+            specs = profile.monitors
+        except Exception as exc:
+            self.monitors_status = f"not attached: the wiring profile could not be read: {exc}"
+            return
+        self._monitors_synced = True
+        if not specs and not old:
+            self.monitors_status = ""
+            return
+        for m_ in old:
+            m_.close()
+        done: List[str] = []
+        errors: List[str] = []
+        for spec in specs:
+            try:
+                info = _expansion.expansion_chip(spec.chip)
+                mon = self._attach_monitor(
+                    info, addr=spec.addr, sda=spec.sda, scl=spec.scl, hz=None, pullups=None,
+                    shunt_ohm=spec.shunt_ohm, channel=spec.channel, averaging=spec.averaging,
+                    conversion_time=spec.conversion_time, max_current=spec.max_current,
+                    name=spec.name, block={}, lv=self._la_voltage_for(info), from_profile=True)
+                done.append(mon.name)
+            except Exception as exc:
+                errors.append(f"{spec.effective_name}: {exc}")
+        parts = []
+        if done:
+            parts.append("attached " + ", ".join(done))
+        if errors:
+            parts.append("not attached: " + "; ".join(errors))
+            _log.warning("wiring profile monitors: %s", "; ".join(errors))
+        self.monitors_status = " | ".join(parts)
+
+    @staticmethod
+    def _monitor_exclusive(efuse: Any, rail: Any) -> None:
+        if efuse is not None or rail is not None:
+            raise ValueError("monitor= and rail= (or efuse=) are exclusive: pick the pod's power rail or "
+                             "an external INA monitor (monitor=), not both")
+
+    def _monitor(self, name: Optional[str]) -> "_cmon.CurrentMonitor":
+        """The attached monitor called ``name``: ``"ext"`` (or ``None``) when exactly one is attached."""
+        if not self._monitors and not self._monitors_synced:
+            self._sync_profile_monitors(load=True)
+        mons = self._monitors
+        if not mons:
+            why = f" (the profile's monitors: {self.monitors_status})" if self.monitors_status else ""
+            raise _expansion.ExpansionError(
+                "no external current monitor is attached" + why + ": add one to the wiring profile's "
+                "monitors, or attach it with expansion('ina226', shunt_ohm=...)")
+        if name is None or (isinstance(name, str) and name.lower() == "ext"):
+            if len(mons) == 1:
+                return mons[0]
+            raise ValueError("several current monitors are attached: name one of "
+                             + ", ".join(repr(m_.name) for m_ in mons))
+        for m_ in mons:
+            if m_.name == name:
+                return m_
+        raise ValueError(f"no current monitor named {name!r}: attached are "
+                         + ", ".join(repr(m_.name) for m_ in mons) + " ('ext' when there is one)")
+
+    def _monitor_statuses(self, *, read: bool = True) -> Tuple["_cmon.MonitorStatus", ...]:
+        return tuple(m_.status(read=read) for m_ in list(self._monitors))
+
+    def _expansion_status(self) -> "_expansion.ExpansionStatus":
+        """The attached GPIO expander and INA monitors as one status."""
+        mons = self._monitor_statuses()
+        exp = self._expansion
+        if exp is None and not mons:
+            return _expansion.ExpansionStatus(attached=False)
+        base = exp.status() if exp is not None else _expansion.ExpansionStatus(
+            attached=True, bus="i2c", la={"sda": mons[0].sda, "scl": mons[0].scl})
+        return dataclasses.replace(base, monitors=mons)
+
+    def _forget_monitor(self, mon: _cmon.CurrentMonitor) -> None:
+        if mon in self._monitors:
+            self._monitors.remove(mon)
+        if mon.pullups == "pod":
+            pins = (mon.sda, mon.scl)
+            mine = self._i2c_master_ref() if self._i2c_master_ref is not None else None
+            needed = (any(o.pullups == "pod" and (o.sda, o.scl) == pins for o in self._monitors)
+                      or (self._expansion is not None and self._expansion.pod_pullups == pins)
+                      or (mine is not None and not mine.closed))
+            if not needed:
+                try:
+                    self.disable_pullup(*pins)
+                except BenchPodError:
+                    pass
+        if not self._monitors and self._expansion is None:
+            self._release_own_i2c()
+
+    def _own_i2c_session(self, sda: int, scl: int, *, hz: int, pullups: str, who: str,
+                         err: type = _cmon.CurrentMonitorError) -> _i2c_master.I2CMaster:
+        """The I2C session the SDK keeps for an expander and current monitors (one pod master):
+        the user's :meth:`open_i2c` session when it is on the same pins, else the SDK's own,
+        opened on first use."""
+        theirs = self._i2c_master_ref() if self._i2c_master_ref is not None else None
+        if theirs is not None and not theirs.closed:
+            if (theirs.sda, theirs.scl) == (sda, scl):
+                return theirs
+            raise err(
+                f"this BenchPod has an I2C session open on LA{theirs.sda} SDA / LA{theirs.scl} SCL, "
+                f"and {who} is on LA{sda} / LA{scl}: the pod has one I2C master. Close that "
+                "session, or use the same two pins")
+        spi = self._spi_session_ref() if self._spi_session_ref is not None else None
+        if spi is not None and not spi.closed:
+            raise err(f"{who} needs the pod's I2C master, but this BenchPod has an SPI session open "
+                      "(open_spi), and SPI, I2C and SWD share one engine on the pod: close that "
+                      "session first")
+        own = self._own_i2c
+        if own is not None and not own.closed:
+            if (own.sda, own.scl) == (sda, scl):
+                return own
+            raise err(f"{who} is on LA{sda} SDA / LA{scl} SCL, but an expander or current monitor "
+                      f"already holds the pod's I2C master on LA{own.sda} / LA{own.scl}: they must "
+                      "share the same two pins (or detach the other first)")
+        self._own_i2c = self._start_i2c(sda, scl, hz=hz, pullups=pullups)
+        return self._own_i2c
+
+    def _release_own_i2c(self) -> None:
+        own, self._own_i2c = self._own_i2c, None
+        if own is not None and not own.closed:
+            try:
+                own.close()
+            except Exception:  # the pod may be gone (close() on a dead connection)
+                pass
 
     def _detach_expansion(self) -> None:
         exp, self._expansion = self._expansion, None
@@ -4935,7 +5274,8 @@ class BenchPod:
                 self.release_gpio(exp.la["load"])
             if exp.pod_pullups:
                 mine = self._i2c_master_ref() if self._i2c_master_ref is not None else None
-                if mine is None or mine.closed:  # the user's own session still needs them
+                shared = any(o.pullups == "pod" and (o.sda, o.scl) == exp.pod_pullups for o in self._monitors)
+                if (mine is None or mine.closed) and not shared:  # a user session or monitor needs them
                     self.disable_pullup(*exp.pod_pullups)
 
     def _yield_expansion_bus(self) -> None:
@@ -4943,6 +5283,7 @@ class BenchPod:
         exp = getattr(self, "_expansion", None)
         if exp is not None:
             exp.release_bus()
+        self._release_own_i2c()
 
     def _wiring_expansion(self, info: "_expansion.ExpansionChip") -> Dict[str, Any]:
         """The wiring profile's ``expansion`` object when it is for this chip, else ``{}``."""
@@ -5059,20 +5400,36 @@ class BenchPod:
 
     def measure_power(self, duration: float, *, efuse: Optional[Union[Efuse, int]] = None,
                       rail: Optional[Union[Efuse, int, str]] = None,
-                      rate_hz: float = 500.0, keep_samples: int = 0) -> PowerProfile:
+                      rate_hz: float = 500.0, keep_samples: int = 0,
+                      monitor: Optional[str] = None) -> PowerProfile:
         """Profile a target-power rail for ``duration`` seconds (blocking) and return the
         :class:`~embeddedci.benchpod.power.PowerProfile`: average, minimum and peak current, voltage,
-        energy and charge. ``efuse`` defaults to the wiring profile's rail; ``keep_samples`` (up to
-        4096) also returns a bin-averaged trace."""
+        energy and charge. ``rail`` (``efuse`` is its old name) defaults to the wiring profile's rail; ``keep_samples`` (up to
+        4096) also returns a bin-averaged trace.
+
+        ``monitor`` profiles an external INA monitor (attached with :meth:`expansion`) instead of a
+        pod rail, for µA currents: ``"ext"`` when exactly one is attached, else its name
+        (``"ina226@0x40"``). ``rate_hz`` then defaults to one read per conversion cycle (200 at
+        most), and ``rail``/``efuse`` do not apply (passing one is a ``ValueError``); the profile's
+        ``efuse`` is 0."""
         if not 0 < duration <= 600:
             raise ValueError(f"duration must be > 0 and <= 600 seconds, got {duration!r}")
+        if monitor is not None:
+            self._monitor_exclusive(efuse, rail)
+            if not 0 <= int(keep_samples) <= 4096:
+                raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
+            mon = self._monitor(monitor)
+            return PowerProfile.from_readings(
+                mon.readings(duration, rate_hz=None if rate_hz == 500.0 else rate_hz),
+                adc_rate_hz=1.0 / mon.cycle, keep_samples=int(keep_samples))
         req = self._power_request(efuse, rate_hz, keep_samples, rail)
         req["duration_ms"] = max(1, int(round(duration * 1000)))
         return PowerProfile.from_chunks(self._power_profile_chunks(req))
 
     def power_profile(self, *, efuse: Optional[Union[Efuse, int]] = None,
                       rail: Optional[Union[Efuse, int, str]] = None, rate_hz: float = 500.0,
-                      keep_samples: int = 4096, max_duration: float = 60.0) -> PowerProfileSession:
+                      keep_samples: int = 4096, max_duration: float = 60.0,
+                      monitor: Optional[str] = None) -> Any:
         """A power profile around a block of code::
 
             with bp.power_profile() as prof:
@@ -5080,9 +5437,18 @@ class BenchPod:
             assert prof.result.peak_current < 0.5
 
         Sampling stops by itself after ``max_duration`` seconds (``result.truncated``).
+        ``monitor`` profiles an external INA monitor instead (as in :meth:`measure_power`): a
+        background thread reads it once per conversion cycle; ``rail``/``efuse`` do not apply.
         """
         if not 0 < max_duration <= 600:
             raise ValueError(f"max_duration must be > 0 and <= 600 seconds, got {max_duration!r}")
+        if monitor is not None:
+            self._monitor_exclusive(efuse, rail)
+            if not 0 <= int(keep_samples) <= 4096:
+                raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
+            return _cmon.MonitorProfileSession(
+                self._monitor(monitor), rate_hz=None if rate_hz == 500.0 else rate_hz,
+                keep_samples=int(keep_samples), max_duration=max_duration)
         req = self._power_request(efuse, rate_hz, keep_samples, rail)
         req["max_duration_ms"] = int(round(max_duration * 1000))
         return PowerProfileSession(self, req)
@@ -5154,5 +5520,5 @@ class BenchPod:
             raise BenchPodError(f"{type(self._transport).__name__} does not support JSON commands")
         if not isinstance(req, dict) or not req.get("cmd"):
             raise ValueError("a raw command needs a 'cmd' field, e.g. {'cmd': 'status'}")
-        with _classified_errors():
+        with self._cmd_lock, _classified_errors():
             return cmd(req)

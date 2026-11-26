@@ -225,8 +225,8 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration_s`**, `rail`, `efuse`, `rate_hz=500`, `points=0` |
-| `power_profile_start` | Start sampling the rail in the background while other tools run. | `rail`, `efuse`, `rate_hz=500`, `max_duration_s=60` |
+| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge (with `monitor`, from an external INA monitor attached with `expansion` or the wiring profile: µA currents). | **`duration_s`**, `rail`, `efuse`, `monitor`, `rate_hz=500`, `points=0` |
+| `power_profile_start` | Start sampling the rail (or, with `monitor`, an external INA monitor) in the background while other tools run. | `rail`, `efuse`, `monitor`, `rate_hz=500`, `max_duration_s=60` |
 | `power_profile_stop` | Stop the running profile and return its statistics (and a trace). | `points=0` |
 
 ### Flash
@@ -325,7 +325,7 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `gpio_wait` | Wait until an LA channel reads a level (`reached: false` on timeout). | **`la`**, `level=1`, `timeout_s=5` |
 | `gpio_pulse` | FPGA-timed pulses on an LA channel: `width_s` 4 us to 65.535 ms, `count` up to 65535. | **`la`**, **`width_s`**, `count=1` |
 | `gpio_release` | Return channels to high-Z, watched by captures (EXT pins to input). | `la` |
-| `expansion` | Attach an I2C/SPI GPIO expander board (chips: `tca9555`, `pca9555`, `mcp23017`, `pcf8574`, `pcf8574a`, `pcf8575`, `tca6416a`, `tca6424a`, `mcp23s17`, `74hc595`, `74hc165`), report it, or detach it. Its pins become `EXT1`..`EXTn`, which `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait` and `gpio_release` take next to LA channels; `gpio_pulse`, triggers and `la_dir` refuse them. | `chip` (omit for the status), `detach=false`, `addr`, `sda`, `scl`, `spi` (`[sck, mosi, miso, cs]`), `load` (74hc165), `count` (chains), `hz`, `pullups`, `names` |
+| `expansion` | Attach an I2C/SPI GPIO expander board (chips: `tca9555`, `pca9555`, `mcp23017`, `pcf8574`, `pcf8574a`, `pcf8575`, `tca6416a`, `tca6424a`, `mcp23s17`, `74hc595`, `74hc165`; INA current monitors `ina226`, `ina228`, `ina238`, `ina219`, `ina260`, `ina3221`), report it, or detach it. Its pins become `EXT1`..`EXTn`, which `gpio_mode`, `gpio_write`, `gpio_read`, `gpio_wait` and `gpio_release` take next to LA channels; `gpio_pulse`, triggers and `la_dir` refuse them. An INA chip adds no pins and is usually in the wiring profile's `monitors` list (connect attaches it); `detach` with `addr` or `name` removes one: a shunt in series between the target-power output and the DUT and the INA across it measures µA currents (an INA226 on 10 ohm resolves 0.25 µA), read with `measure_power`, `power_status` and `power_profile_start` `monitor`; the LA voltage must be 3.3 V or 5 V. | `chip` (omit for the status), `detach=false`, `addr`, `sda`, `scl`, `spi` (`[sck, mosi, miso, cs]`), `load` (74hc165), `count` (chains), `hz`, `pullups`, `names`, `shunt_ohm`, `channel` (ina3221), `averaging`, `conversion_time_s`, `max_current_a`, `name` |
 | `la_dir` | Which way each pin's DUT signal goes (`dut_input`, `dut_output`, `bidir`, `unknown`); on a DUT output the pod refuses push-pull drivers. `connect` and `set_wiring` already send the wiring profile's; `from_wiring` sends them again; no arguments lists every pin. | `la`, `dir`, `from_wiring=false` |
 
 ### Analog

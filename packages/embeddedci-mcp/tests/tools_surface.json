@@ -2371,8 +2371,36 @@
             }
           ],
           "default": null,
-          "description": "I2C chips: the 7-bit address (default the chip's first, 0x20 = 32), or a list for several chips on one bus (EXT pins in that order). mcp23s17: hardware address 0-7.",
+          "description": "I2C chips: the 7-bit address (default the chip's first, 0x20 = 32), or a list for several chips on one bus (EXT pins in that order). INA current monitors: one address (default 0x40 = 64), one chip per call. mcp23s17: hardware address 0-7. With detach: the INA monitor to detach.",
           "title": "Addr"
+        },
+        "averaging": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "INA chips: conversions averaged per result: 1, 4, 16, 64, 128, 256, 512 or 1024 (ina219: 1-128 in powers of two). Default 16.",
+          "title": "Averaging"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ina3221 only: channel 1-3.",
+          "title": "Channel"
         },
         "chip": {
           "anyOf": [
@@ -2384,8 +2412,22 @@
             }
           ],
           "default": null,
-          "description": "The expander chip to attach: tca9555, pca9555, mcp23017, pcf8574, pcf8574a, pcf8575, tca6416a, tca6424a, mcp23s17, 74hc595, 74hc165. Omit for the status (what is attached, its pins' modes and live levels).",
+          "description": "The expander chip to attach: tca9555, pca9555, mcp23017, pcf8574, pcf8574a, pcf8575, tca6416a, tca6424a, mcp23s17, 74hc595, 74hc165, ina226, ina228, ina238, ina219, ina260, ina3221. Omit for the status (what is attached, its pins' modes and live levels).",
           "title": "Chip"
+        },
+        "conversion_time_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "INA chips: seconds per shunt and bus conversion (the nearest the chip has, 50 us to 8.2 ms). Default about 1.1 ms.",
+          "title": "Conversion Time S"
         },
         "count": {
           "anyOf": [
@@ -2404,7 +2446,7 @@
         },
         "detach": {
           "default": false,
-          "description": "Detach the expander: every EXT pin back to input, its bus released.",
+          "description": "Detach everything: every EXT pin back to input, the bus released, the INA monitors removed. With addr or name only that INA monitor is detached.",
           "title": "Detach",
           "type": "boolean"
         },
@@ -2445,6 +2487,33 @@
           "default": null,
           "description": "74hc165 only: the LA channel on SH/LD, pulsed low before each read.",
           "title": "Load"
+        },
+        "max_current_a": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "INA chips: the largest current expected, amps: ina219, ina228 and ina238 pick their narrowest input range that covers it (finer steps).",
+          "title": "Max Current A"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "INA current monitors: the monitor's name (default 'ina226@0x40'; not 'ext'). With detach: the monitor to detach.",
+          "title": "Name"
         },
         "names": {
           "anyOf": [
@@ -2524,6 +2593,20 @@
           "default": null,
           "description": "I2C SDA; omit for the wiring's i2c_sda.",
           "title": "Sda"
+        },
+        "shunt_ohm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "INA current monitors: the shunt resistor in ohms (e.g. 10.0). Required, except for the ina260 (own 2 mohm).",
+          "title": "Shunt Ohm"
         },
         "spi": {
           "anyOf": [
@@ -4092,6 +4175,19 @@
           "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
+        "monitor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). Omit efuse then.",
+          "title": "Monitor"
+        },
         "points": {
           "default": 0,
           "description": "Points of current/voltage trace to return alongside the statistics; 0 = statistics only.",
@@ -4121,7 +4217,7 @@
         },
         "rate_hz": {
           "default": 500.0,
-          "description": "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, adc_rate_hz what the sensor was configured for.",
+          "description": "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, adc_rate_hz what the sensor was configured for. With monitor: at most 200, default one read per conversion cycle.",
           "maximum": 500,
           "minimum": 100,
           "title": "Rate Hz",
@@ -4493,6 +4589,19 @@
           "maximum": 600,
           "title": "Max Duration S",
           "type": "number"
+        },
+        "monitor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). Omit efuse then.",
+          "title": "Monitor"
         },
         "rail": {
           "anyOf": [

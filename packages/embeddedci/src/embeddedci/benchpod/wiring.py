@@ -120,6 +120,127 @@ class Signal:
                 "active_low": self.active_low, "description": self.description}
 
 
+_MONITOR_KEYS = ("chip", "addr", "shunt_ohm", "name", "channel", "sda", "scl", "averaging",
+                 "conversion_time", "max_current")
+_MONITOR_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.@-]{0,31}$")
+MONITORS_MAX = 8
+
+
+@dataclass(frozen=True)
+class MonitorSpec:
+    """One external INA current monitor of a wiring profile (the ``monitors`` list): the SDK
+    attaches it on connect, as ``BenchPod.expansion(chip, addr=..., shunt_ohm=..., ...)`` would, and
+    ``measure_power(monitor=name)`` reads it. ``sda``/``scl`` default to the profile's
+    ``i2c_sda``/``i2c_scl``; all monitors of a profile share the same two pins."""
+
+    chip: str
+    addr: int
+    #: The shunt in ohms; ``None`` only for the INA260 (internal 2 mohm).
+    shunt_ohm: Optional[float] = None
+    #: Default ``"<chip>@0x<addr>"`` (INA3221: ``".<channel>"`` appended).
+    name: Optional[str] = None
+    channel: Optional[int] = None
+    sda: Optional[int] = None
+    scl: Optional[int] = None
+    averaging: Optional[int] = None
+    #: Seconds per shunt and bus conversion (the nearest the chip has).
+    conversion_time: Optional[float] = None
+    #: Amps: the INA219, INA228 and INA238 pick the narrowest input range that covers it.
+    max_current: Optional[float] = None
+
+    @property
+    def effective_name(self) -> str:
+        if self.name:
+            return self.name
+        chan = f".{self.channel or 1}" if self.chip == "ina3221" else ""
+        return f"{self.chip}@0x{self.addr:02x}{chan}"
+
+    def errors(self, prefix: str = "monitors[0]") -> List[str]:
+        from .expansion import expansion_chip  # late: expansion imports nothing from here
+
+        errs: List[str] = []
+        try:
+            chip = expansion_chip(self.chip)
+            if chip.kind != "current":
+                raise ValueError(f"{self.chip} is a GPIO expander")
+        except ValueError:
+            names = "ina226, ina228, ina238, ina219, ina260, ina3221"
+            return [f"{prefix}.chip must be one of {names}, got {self.chip!r}"]
+        if not _is_int(self.addr) or self.addr not in chip.addrs:
+            errs.append(f"{prefix}.addr must be an integer from {chip.addrs[0]} to {chip.addrs[-1]} "
+                        f"(0x{chip.addrs[0]:02x}-0x{chip.addrs[-1]:02x}) for the {chip.name}, got {self.addr!r}")
+        if chip.internal_ohm:
+            if self.shunt_ohm not in (None, chip.internal_ohm):
+                errs.append(f"{prefix}.shunt_ohm: the {chip.name} has its own {chip.internal_ohm * 1000:g} "
+                            "mohm shunt; leave it out")
+        elif self.shunt_ohm is None or isinstance(self.shunt_ohm, bool) or not isinstance(
+                self.shunt_ohm, (int, float)) or not 0 < self.shunt_ohm <= 1e6:
+            errs.append(f"{prefix}.shunt_ohm is required: the shunt resistor in ohms (greater than 0), "
+                        f"got {self.shunt_ohm!r}")
+        if self.name is not None and (not isinstance(self.name, str) or not _MONITOR_NAME.match(self.name)
+                                      or self.name.lower() == "ext"):
+            errs.append(f"{prefix}.name must start with a letter, use letters, digits and _ . @ -, be at "
+                        f"most 32 characters and not be 'ext', got {self.name!r}")
+        if self.channel is not None and (not _is_int(self.channel) or not 1 <= self.channel <= chip.channels
+                                         or (chip.channels == 1 and self.channel != 1)):
+            errs.append(f"{prefix}.channel is 1..{chip.channels} for the {chip.name}, got {self.channel!r}")
+        for key in ("sda", "scl"):
+            v = getattr(self, key)
+            if v is not None and (not _is_int(v) or not 1 <= v <= 14):
+                errs.append(f"{prefix}.{key} must be an LA channel 1..14, got {v!r}")
+        if self.sda is not None and self.sda == self.scl:
+            errs.append(f"{prefix}.sda and scl must be different LA channels")
+        if self.averaging is not None:
+            ok = (1, 2, 4, 8, 16, 32, 64, 128) if chip.name == "ina219" else (1, 4, 16, 64, 128, 256, 512, 1024)
+            if not _is_int(self.averaging) or self.averaging not in ok:
+                errs.append(f"{prefix}.averaging is one of {', '.join(str(a) for a in ok)}, got {self.averaging!r}")
+        if self.conversion_time is not None and (isinstance(self.conversion_time, bool) or not isinstance(
+                self.conversion_time, (int, float)) or not 0 < self.conversion_time <= 0.01):
+            errs.append(f"{prefix}.conversion_time is seconds, greater than 0 and at most 0.01, "
+                        f"got {self.conversion_time!r}")
+        if self.max_current is not None and (isinstance(self.max_current, bool) or not isinstance(
+                self.max_current, (int, float)) or self.max_current <= 0):
+            errs.append(f"{prefix}.max_current is amps, greater than 0, got {self.max_current!r}")
+        elif self.max_current is not None and chip.shunt_max and isinstance(self.shunt_ohm, (int, float)) \
+                and self.shunt_ohm > 0 and self.max_current * self.shunt_ohm > chip.shunt_max:
+            errs.append(f"{prefix}.max_current {self.max_current:g} A across {self.shunt_ohm:g} ohm is "
+                        f"{self.max_current * self.shunt_ohm * 1000:.1f} mV: the {chip.name} takes at most "
+                        f"{chip.shunt_max * 1000:.2f} mV")
+        return errs
+
+    def to_dict(self) -> Dict[str, Any]:
+        """The profile entry: only the keys that are set."""
+        out: Dict[str, Any] = {"chip": self.chip, "addr": self.addr}
+        for key in _MONITOR_KEYS[2:]:
+            v = getattr(self, key)
+            if v is not None:
+                out[key] = v
+        return out
+
+    @classmethod
+    def from_dict(cls, data: Any, prefix: str = "monitors[0]") -> "MonitorSpec":
+        if not isinstance(data, Mapping):
+            raise ValueError(f"{prefix} must be an object like "
+                             '{"chip": "ina226", "addr": 64, "shunt_ohm": 10.0}')
+        unknown = sorted(set(data) - set(_MONITOR_KEYS))
+        if unknown:
+            raise ValueError(f"{prefix}: unknown key(s) {', '.join(unknown)} (keys: {', '.join(_MONITOR_KEYS)})")
+        missing = [k for k in ("chip", "addr") if k not in data]
+        if missing:
+            raise ValueError(f"{prefix} needs {' and '.join(missing)}")
+        return cls(**{k: data[k] for k in _MONITOR_KEYS if k in data})
+
+
+def _parse_monitors(value: Any) -> Tuple["MonitorSpec", ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("monitors must be a list of objects like "
+                         '{"chip": "ina226", "addr": 64, "shunt_ohm": 10.0}')
+    return tuple(v if isinstance(v, MonitorSpec) else MonitorSpec.from_dict(v, f"monitors[{i}]")
+                 for i, v in enumerate(value))
+
+
 @dataclass(frozen=True)
 class Wiring:
     """A bench's wiring profile (schema version 2). Construct it, :meth:`load` a file, or let
@@ -166,6 +287,9 @@ class Wiring:
     spi_miso: Optional[int] = None
     spi_cs: Optional[int] = None
     signals: Tuple[Signal, ...] = ()
+    #: External INA current monitors the SDK attaches on connect (:class:`MonitorSpec`); read with
+    #: ``measure_power(monitor=...)``. ``BenchPod.save_wiring()`` stores the monitors that are attached.
+    monitors: Tuple[MonitorSpec, ...] = ()
     #: Profile keys owned by other features (the control loop's ``loop_input_*``), kept as they are.
     extra: Mapping[str, Any] = field(default_factory=dict)
     #: Where this profile came from: ``"pod"``, ``"file"``, ``"server"``, ``"dict"``, ``"preset"`` or
@@ -188,6 +312,7 @@ class Wiring:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signals", tuple(self.signals))
+        object.__setattr__(self, "monitors", _parse_monitors(self.monitors))
         if isinstance(self.pulls, (list, tuple)):
             pulls = tuple(self.pulls)
             if all(_is_int(x) for x in pulls):
@@ -240,7 +365,7 @@ class Wiring:
             raise ValueError(f"invalid wiring: version must be 1 or 2, got {version!r}")
         if version == 1:
             data = {**DEFAULT_PINS, **data, "version": WIRING_VERSION}
-        scalar = {f.name for f in fields(cls)} - {"signals", "extra", "source", "dut_dirs", "profile_name", "profile_rev"}
+        scalar = {f.name for f in fields(cls)} - {"signals", "monitors", "extra", "source", "dut_dirs", "profile_name", "profile_rev"}
         kwargs: Dict[str, Any] = {}
         extra: Dict[str, Any] = {}
         unknown: List[str] = []
@@ -251,6 +376,8 @@ class Wiring:
                 kwargs[key] = value
             elif key == "signals":
                 kwargs["signals"] = tuple(_parse_signals(value, unknown))
+            elif key == "monitors":
+                kwargs["monitors"] = _parse_monitors(value)
             elif key == "dut_dirs":
                 kwargs["dut_dirs"] = value
             elif key.startswith(_PASSTHROUGH_PREFIXES) or not strict:
@@ -303,10 +430,12 @@ class Wiring:
         """The profile's JSON object, version 2: every key, ``null`` for what is not set."""
         out: Dict[str, Any] = {"version": self.version}
         for f in fields(self):
-            if f.name in ("signals", "extra", "source", "version", "dut_dirs", "pulls", "profile_name", "profile_rev"):
+            if f.name in ("signals", "monitors", "extra", "source", "version", "dut_dirs", "pulls", "profile_name", "profile_rev"):
                 continue
             out[f.name] = getattr(self, f.name)
         out["signals"] = [s.to_dict() for s in self.signals]
+        if self.monitors:
+            out["monitors"] = [m.to_dict() for m in self.monitors]
         out["dut_dirs"] = dict(self.dut_dirs)
         if isinstance(self.pulls, Mapping):
             # the list whenever every pull is its channel's own direction: every reader takes it
@@ -434,8 +563,37 @@ class Wiring:
 
     # -- validation -------------------------------------------------------------
 
+    def _monitor_errors(self) -> List[str]:
+        errs: List[str] = []
+        if len(self.monitors) > MONITORS_MAX:
+            errs.append(f"monitors has {len(self.monitors)} entries, at most {MONITORS_MAX}")
+        seen_addr: Dict[Tuple[int, int], int] = {}
+        seen_name: Dict[str, int] = {}
+        pins: Dict[Tuple[Any, Any], int] = {}
+        for i, m in enumerate(self.monitors):
+            bad = m.errors(f"monitors[{i}]")
+            errs += bad
+            if bad:
+                continue
+            key = (m.addr, m.channel or 1)
+            if key in seen_addr:
+                errs.append(f"monitors[{i}] has the same address (and channel) as monitors[{seen_addr[key]}]")
+            seen_addr.setdefault(key, i)
+            low = m.effective_name.lower()
+            if low in seen_name:
+                errs.append(f"monitors[{i}] has the same name as monitors[{seen_name[low]}]: {m.effective_name!r}")
+            seen_name.setdefault(low, i)
+            sda = m.sda if m.sda is not None else self.i2c_sda
+            scl = m.scl if m.scl is not None else self.i2c_scl
+            pins.setdefault((sda, scl), i)
+        if len(pins) > 1:
+            errs.append("monitors must all use the same two I2C pins (the pod has one I2C master); "
+                        "check sda and scl of each entry against i2c_sda and i2c_scl")
+        return errs
+
     def _errors(self) -> List[str]:
         errs: List[str] = []
+        errs += self._monitor_errors()
         if self.version != WIRING_VERSION:
             errs.append(f"version must be {WIRING_VERSION}, got {self.version!r}")
         if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300, 5000)):

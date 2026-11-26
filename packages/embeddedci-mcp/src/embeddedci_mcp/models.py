@@ -223,6 +223,9 @@ class WiringResult(BaseModel):
     directions: Optional[str] = Field(None, description=(
         "'sent' when the pod has the profile's pin directions (la_dir: sent on connect and by "
         "set_wiring), else 'not sent: <why>' (older firmware, or a DUT output pin driven right now)."))
+    monitors: Optional[str] = Field(None, description=(
+        "What attaching the profile's external INA current monitors (the profile's monitors list) did: "
+        "'attached dut' or 'not attached: <why>'; null when the profile has none."))
     board_header: Optional[str] = Field(None, description=(
         "The pod's I/O header: 'j1' (2x11 pin headers, one-piece boards up to v3-r2) or 'front' "
         "(2x13 connector on the front of digital v3r3 and later); null when the pod cannot tell."))
@@ -268,6 +271,22 @@ class ExtPinResult(BaseModel):
     live: Optional[int] = Field(None, description="The level read from the chip, when it was read.")
 
 
+class MonitorResult(BaseModel):
+    name: str = Field(description="Use it as monitor='...' in measure_power and power_profile_start ('ext' when it is the only one).")
+    chip: str
+    addr: int
+    channel: int = Field(description="ina3221 channel 1-3; 1 for the other chips.")
+    shunt_ohm: float
+    averaging: int = Field(description="Conversions averaged per result.")
+    cycle_s: float = Field(description="Seconds the chip takes for one new result.")
+    current_a: Optional[float] = Field(None, description="Live current through the shunt, amps (signed); null with error set.")
+    bus_voltage_v: Optional[float] = Field(None, description="Live voltage at the chip's bus pin (DUT side of the shunt).")
+    shunt_voltage_v: Optional[float] = None
+    power_w: Optional[float] = None
+    overflow: Optional[bool] = Field(None, description="The shunt input is at or past the chip's range: use a smaller shunt.")
+    error: Optional[str] = Field(None, description="Why the chip could not be read.")
+
+
 class ExpansionResult(BaseModel):
     attached: bool
     chip: Optional[str] = None
@@ -280,6 +299,7 @@ class ExpansionResult(BaseModel):
     pullups: Optional[str] = Field(None, description="pod, external, or null for SPI.")
     pins: Optional[List[ExtPinResult]] = None
     notes: Optional[List[str]] = None
+    monitors: Optional[List[MonitorResult]] = Field(None, description="The attached INA current monitors, each with a live reading.")
     chips: Optional[List[str]] = Field(None, description="The chips that can be attached, when none is.")
 
 
@@ -353,11 +373,18 @@ class PodPowerResult(BaseModel):
     total_current: Optional[float] = Field(None, description="Amps: pod + DUT internal rail, what the USB input delivers.")
 
 
+class MonitorPowerResult(BaseModel):
+    monitor_ok: bool = Field(description="The chip answered; bus_voltage and current are meaningful.")
+    bus_voltage: float
+    current: float = Field(description="Amps, signed.")
+
+
 class PowerStatusResult(BaseModel):
     internal: RailResult = Field(description="The internal 5 V rail (efuse 1).")
     external: RailResult = Field(description="The external rail (efuse 2).")
     pod: Optional[PodPowerResult] = Field(None, description="The pod's own draw; null on boards that don't measure it.")
     j1_rails: Optional[J1RailsResult] = Field(None, description="J1 pins 17 and 18 on the digital board v4; null on boards where both are always on.")
+    monitors: Optional[Dict[str, MonitorPowerResult]] = Field(None, description="External INA current monitors attached with expansion, by name (null when none).")
 
 
 class ResetResult(BaseModel):
