@@ -490,12 +490,12 @@ def benchpod_target(benchpod: BenchPod, pytestconfig: "pytest.Config") -> Iterat
     The rail is ``--benchpod-efuse`` when given, else the wiring profile's — the same rail
     ``power_cycle_and_capture`` and ``measure_power`` default to.
     """
-    efuse = pytestconfig.getoption("benchpod_efuse") or benchpod.wiring.efuse
-    benchpod.power_on(efuse)
+    rail = pytestconfig.getoption("benchpod_efuse") or benchpod.wiring.efuse
+    benchpod.power_on(rail=rail)
     try:
         yield benchpod
     finally:
-        benchpod.power_off(efuse)
+        benchpod.power_off(rail=rail)
 
 
 @pytest.fixture(scope="session")

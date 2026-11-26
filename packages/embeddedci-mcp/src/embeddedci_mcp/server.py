@@ -98,7 +98,13 @@ LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(descript
 PullPin = Annotated[int, Field(ge=1, le=14)]
 EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power rail: internal 5 V (efuse 1) or external (efuse 2).")]
 WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
-    "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail."))]
+    "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail."))]
+PowerRail = Annotated[Optional[Literal["internal", "external", "j1_3v3", "j1_1v8"]], Field(description=(
+    "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 "
+    "(J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on "
+    "from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. "
+    "Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has "
+    "the J1 supplies)."))]
 BaudRate = Annotated[int, Field(ge=300, le=4_000_000)]
 WiredBaud = Annotated[Optional[int], Field(ge=300, le=4_000_000, description=(
     "UART baud rate; omit for the wiring profile's uart_baud."))]
@@ -747,63 +753,59 @@ async def delete_wiring(
 
 # -- power ----------------------------------------------------------------------------
 
-J1Rail = Annotated[Optional[Literal["3v3", "1v8"]], Field(description=(
-    "Switch a supply pin on J1 of the digital board v4 instead of a target-power rail: 3v3 = pin 17 "
-    "(+3.3 V, about 1.45 A limit), 1v8 = pin 18 (+1.8 V). Both are on from boot and independent of "
-    "the efuse rails and of resets. power_status says whether the board has them (j1_rails)."))]
+_RAIL_NAMES = {1: "internal", 2: "external"}
+
+
+def _rail_name(rail: Any) -> str:
+    return _RAIL_NAMES.get(rail, rail) if not isinstance(rail, str) else rail
 
 
 def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
-                  wiring_profile: Optional[str] = None, j1_rail: Optional[str] = None) -> m.PowerResult:
+                  wiring_profile: Optional[str] = None, rail: Optional[str] = None) -> m.PowerResult:
     pod = SESSION.require()
-    if j1_rail is not None:
-        pod.target_power(on=on, j1_rail=j1_rail)
-        return m.PowerResult(j1_rail=j1_rail, on=on)
+    chosen = pod._rail(rail, efuse)   # raises when both are given or none is known
     if on:
-        pod.power_on(efuse, delay=delay, wiring_profile=wiring_profile)
+        pod.power_on(rail=chosen, delay=delay, wiring_profile=wiring_profile)
     else:
-        pod.target_power(efuse, on=False, delay=delay)
+        pod.target_power(on=False, delay=delay, rail=chosen)
     w = pod.wiring
-    rail = w.efuse if efuse is None else efuse
-    return m.PowerResult(efuse=rail, on=on, delay=delay, profile=w.profile_name or None,
+    return m.PowerResult(rail=_rail_name(chosen), efuse=chosen if isinstance(chosen, int) else None, on=on,
+                         delay=delay, profile=w.profile_name or None,
                          la_voltage=w.la_voltage if on else None)
 
 
 @mcp.tool(annotations=_ann("Power target on", destructive=True, idempotent=True))
 async def power_on(
-    efuse: WiredEfuse = None,
+    rail: PowerRail = None,
     delay_s: Annotated[Optional[float], Field(description=(
         "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture)."))] = None,
     wiring_profile: Annotated[Optional[str], Field(description=(
         "A stored wiring profile to power the board with (it becomes this connection's profile); "
         "omit to use the current one."))] = None,
-    j1_rail: J1Rail = None,
+    efuse: WiredEfuse = None,
 ) -> m.PowerResult:
     """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
     (when the pod has none or another one), its pull resistors (pulls; at 1.8 V only on firmware newer than 3.10.12) are set, then the
     rail goes on, and the pod records the profile.
     The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
-    a board that is already powered.
-
-    With j1_rail it switches that J1 supply pin on instead (digital board v4), without touching
-    the profile or the efuse rails."""
-    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile, j1_rail))
+    a board that is already powered."""
+    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile, rail))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))
 async def power_off(
-    efuse: WiredEfuse = None,
+    rail: PowerRail = None,
     delay_s: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
-    j1_rail: J1Rail = None,
+    efuse: WiredEfuse = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail off. The result says which rail was used. With j1_rail it
-    switches that J1 supply pin off instead (digital board v4)."""
-    return await _call(lambda: _switch_power(efuse, False, delay_s, None, j1_rail))
+    """Switch the target's power rail off. The result says which rail was used."""
+    return await _call(lambda: _switch_power(efuse, False, delay_s, None, rail))
 
 
 @mcp.tool(annotations=_ann("Profile the target's power"))
 async def measure_power(
     duration_s: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
+    rail: PowerRail = None,
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling "
@@ -820,12 +822,13 @@ async def measure_power(
     calls, bracket them with power_profile_start / power_profile_stop.
     """
     return await _call_reporting(ctx, "profiling power", lambda: power_summary(
-        SESSION.require().measure_power(duration_s, efuse=efuse, rate_hz=rate_hz,
+        SESSION.require().measure_power(duration_s, efuse=efuse, rail=rail, rate_hz=rate_hz,
                                         keep_samples=points), points))
 
 
 @mcp.tool(annotations=_ann("Start a power profile"))
 async def power_profile_start(
+    rail: PowerRail = None,
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that."))] = 500.0,
@@ -836,10 +839,10 @@ async def power_profile_start(
     profile and call power_profile_stop. Replaces any profile already running."""
     def op() -> m.PowerProfileStartResult:
         pod = SESSION.require()
-        rail = pod.wiring.efuse if efuse is None else efuse
-        SESSION.power_profile = pod.power_profile(efuse=rail, rate_hz=rate_hz,
+        chosen = pod._efuse(rail, efuse)   # a J1 supply has no current monitor: refused here
+        SESSION.power_profile = pod.power_profile(rail=chosen, rate_hz=rate_hz,
                                                   max_duration=max_duration_s).start()
-        return m.PowerProfileStartResult(efuse=rail, rate_hz=rate_hz, max_duration=max_duration_s)
+        return m.PowerProfileStartResult(efuse=chosen, rate_hz=rate_hz, max_duration=max_duration_s)
 
     return await _call(op)
 
@@ -1521,6 +1524,7 @@ async def capture_uart(
 async def power_cycle_and_capture(
     rx: UartRx = None,
     tx: UartTx = None,
+    rail: PowerRail = None,
     efuse: WiredEfuse = None,
     delay_s: Annotated[float, Field(ge=0, le=60, description="Seconds into the capture the power comes back.")] = 1.0,
     duration_s: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds; must exceed delay_s.")] = 4.0,
@@ -1541,7 +1545,7 @@ async def power_cycle_and_capture(
     def op() -> m.UartCaptureResult:
         pod = SESSION.require()
         return _uart_result(pod.power_cycle_and_capture(
-            rx=rx, tx=tx, efuse=efuse, delay=delay_s, duration=duration_s, baud=baud, until=pattern,
+            rx=rx, tx=tx, efuse=efuse, rail=rail, delay=delay_s, duration=duration_s, baud=baud, until=pattern,
             off_settle=off_settle_s, **_uart_frame(pod, "power_cycle_and_capture", parity, stop_bits)))
 
     return await _call_reporting(ctx, "power-cycling", op)

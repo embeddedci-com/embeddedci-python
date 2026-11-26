@@ -216,8 +216,8 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. `j1_rail` (`3v3` or `1v8`) switches a supply pin on J1 instead (digital board v4: pin 17 +3.3 V, pin 18 +1.8 V; both on from boot, independent of the efuse rails and of resets). | `efuse`, `delay_s`, `wiring_profile`, `j1_rail` |
-| `power_off` | Switch the target's power rail off. `j1_rail` switches a J1 supply pin off instead (digital board v4). | `efuse`, `delay_s`, `j1_rail` |
+| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. `rail` names the output: `internal` (5 V), `external`, or on a digital board v4 `j1_3v3` / `j1_1v8` (J1 pins 17 and 18, on from boot, independent of the efuse rails and of resets, no current monitor); omitted it is the wiring profile's rail. `efuse` (1 or 2) is the old name. | `rail`, `delay_s`, `wiring_profile`, `efuse` |
+| `power_off` | Switch the target's power rail off (`rail` as for `power_on`). | `rail`, `delay_s`, `efuse` |
 | `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
 | `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse_s=0.1` |
 
@@ -225,8 +225,8 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration_s`**, `efuse`, `rate_hz=500`, `points=0` |
-| `power_profile_start` | Start sampling the rail in the background while other tools run. | `efuse`, `rate_hz=500`, `max_duration_s=60` |
+| `measure_power` | Sample supply current and voltage for a window: average, min, peak, energy and charge. | **`duration_s`**, `rail`, `efuse`, `rate_hz=500`, `points=0` |
+| `power_profile_start` | Start sampling the rail in the background while other tools run. | `rail`, `efuse`, `rate_hz=500`, `max_duration_s=60` |
 | `power_profile_stop` | Stop the running profile and return its statistics (and a trace). | `points=0` |
 
 ### Flash
@@ -269,7 +269,7 @@ the board's with `pullups="external"`.
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `capture_uart` | Record the DUT's UART for a window, or until a regex matches. `port` `usb` records the serial port of the board the pod hosts over USB instead of LA pins (pod firmware 4.0.3+, `usb_host` first; `baud` defaults to 115200, `dtr` and `rts` to true). | **`duration_s`**, `rx`, `tx`, `baud`, `until_regex`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low`, `port`, `dtr`, `rts` |
-| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `efuse`, `delay_s=1`, `duration_s=4`, `baud`, `until_regex`, `off_settle_s=0.3`, `parity`, `stop_bits` |
+| `power_cycle_and_capture` | Power-cycle the target and capture UART across the boot. | `rx`, `tx`, `rail`, `efuse`, `delay_s=1`, `duration_s=4`, `baud`, `until_regex`, `off_settle_s=0.3`, `parity`, `stop_bits` |
 | `uart_open` | Start buffering the DUT's UART in the background. The frame is the profile's (`uart_parity`, `uart_stop_bits`; 8N1 unless set) unless `parity` (`none`/`even`/`odd`) or `stop_bits` (1/2) say otherwise; anything but 8N1 needs firmware 3.10.8+. `half_duplex` runs it on one wire (`rx`; `tx` defaults to it) and `entry` (`reset_ms`, `tx_low`, `hold_ms`, `idle_ms`, `data_hex`) runs a pod-timed boot-mode entry first: reset with TX held low, release, the first bytes (gateware v57, for boot-ROM pins such as RL78 TOOL0). `port` `usb` opens the serial port of the hosted board (a CDC ACM port, or an FTDI, CP210x or CH34x chip) instead of LA pins: no pins, wiring profile or I/O voltage, the result has no `rx` or `tx` (pod firmware 4.0.3+; `baud` defaults to 115200; `dtr` and `rts` default to true). | `rx`, `tx`, `baud`, `parity`, `stop_bits`, `half_duplex`, `entry`, `de`, `de_active_low`, `port`, `dtr`, `rts` |
 | `uart_write` | Send text to the DUT through the open UART session. | **`text`**, `line_ending=lf` |
 | `uart_read` | Return output received since the last read, optionally waiting for a match. | `until_regex`, `timeout_s=2` |

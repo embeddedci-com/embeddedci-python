@@ -151,7 +151,7 @@
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
-    "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
+    "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
     "open_i2c": "(self, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, *, hz: 'int' = 100000, pullups: 'str' = 'pod') -> '_i2c_master.I2CMaster'",
@@ -162,10 +162,10 @@
     "pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'Dict[int, str]'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
     "ping": "(self) -> 'Any'",
-    "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None) -> '_uart.UartCapture'",
-    "power_off": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None) -> 'None'",
-    "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None) -> 'None'",
-    "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0) -> 'PowerProfileSession'",
+    "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, rail: 'Optional[Union[Efuse, int, str]]' = None, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None) -> '_uart.UartCapture'",
+    "power_off": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
+    "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
+    "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0) -> 'PowerProfileSession'",
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "read_gpio": "(self, la: 'Union[Pin, int, str]') -> 'int'",
@@ -196,7 +196,7 @@
     "store_adc_compensation": "(self, hf_dc_gain: 'float', c_top_pf: 'float') -> 'Calibration'",
     "stored_wiring": "(self, name: 'Optional[str]' = None) -> 'Optional[Wiring]'",
     "supports": "(self, feature: 'str') -> 'bool'",
-    "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None) -> 'None'",
+    "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
     "usb_cc": "(self) -> 'UsbCcStatus'",
@@ -339,6 +339,7 @@
       "nrst_pin",
       "usb_cc",
       "vref_out",
+      "dut_rails",
       "spi_master",
       "spi_stream",
       "uart_frame",
@@ -750,6 +751,13 @@
       "tripped"
     ],
     "loop_input": "property"
+  },
+  "J1Rails": {
+    "__fields__": [
+      "v3v3",
+      "v1v8"
+    ],
+    "from_reply": "(cls, d: 'Any') -> \"Optional['J1Rails']\""
   },
   "LOG_LEVELS": "('error', 'warn', 'info', 'debug')",
   "LaCapture": {
@@ -1240,6 +1248,7 @@
       "internal",
       "external",
       "supported",
+      "j1_rails",
       "raw"
     ],
     "efuse": "(self, efuse: \"'Efuse | int'\") -> 'EfuseState'",
@@ -1702,6 +1711,7 @@
     "I2CTransaction",
     "INTERNAL",
     "IVPoint",
+    "J1Rails",
     "LOG_LEVELS",
     "LaCapture",
     "LaPinState",

@@ -204,9 +204,9 @@ class WiringResult(BaseModel):
     autosave: bool = Field(False, description="The server saves set_wiring's profile on the pod (--wiring-autosave).")
     la_voltage: Optional[float] = Field(description=(
         "LA I/O-bank voltage the profile asks for, in volts; null when it sets none."))
-    efuse: Optional[int] = Field(description=(
-        "Target-power rail the tools default to: internal 5 V (efuse 1) or external (efuse 2); null "
-        "when the profile sets none (pass efuse)."))
+    efuse: Optional[Union[int, str]] = Field(description=(
+        "Target-power rail the tools default to: 1 (internal 5 V), 2 (external) or, on a digital "
+        "board v4, j1_3v3 / j1_1v8 (J1 pins 17 and 18); null when the profile sets none (pass rail)."))
     uart_baud: int
     i2c_address: Optional[int] = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer; null when unset.")
     swd_nreset: bool
@@ -326,8 +326,8 @@ class GpioReleaseResult(BaseModel):
 class PowerResult(BaseModel):
     profile: Optional[str] = Field(None, description="The wiring profile the board was powered on with.")
     la_voltage: Optional[float] = Field(None, description="The I/O voltage the profile set before power-on.")
-    efuse: Optional[int] = Field(None, description="The rail used: internal 5 V (efuse 1) or external (efuse 2); null when j1_rail was switched.")
-    j1_rail: Optional[str] = Field(None, description="The J1 supply switched (digital board v4): 3v3 (pin 17) or 1v8 (pin 18); null for an efuse rail.")
+    rail: str = Field(description="The output switched: internal (internal 5 V, efuse 1), external (efuse 2), j1_3v3 (J1 pin 17) or j1_1v8 (J1 pin 18).")
+    efuse: Optional[int] = Field(None, description="The eFuse number of the rail (1 or 2); null for a J1 supply.")
     on: bool
     delay: Optional[float] = None
 

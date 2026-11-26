@@ -18,7 +18,7 @@ Units, everywhere in the public API: **volts**, **seconds**, **hertz**.
 from __future__ import annotations
 
 from enum import Enum, IntEnum
-from typing import Dict, Literal, NamedTuple, Sequence, Tuple, Union, get_args
+from typing import Any, Dict, Literal, NamedTuple, Sequence, Tuple, Union, get_args
 
 from .errors import BenchPodError
 
@@ -215,6 +215,36 @@ def coerce_efuse(value: Union[Efuse, int]) -> int:
     if ivalue not in (Efuse.INTERNAL, Efuse.EXTERNAL):
         raise ValueError(f"efuse must be 1 (INTERNAL) or 2 (EXTERNAL), got {value!r}")
     return ivalue
+
+
+#: The four power outputs a profile or a power call can name: the two target-power eFuses and, on
+#: the digital board v4, the switched supply pins on J1 (pin 17 +3.3 V, pin 18 +1.8 V).
+J1_RAILS = ("j1_3v3", "j1_1v8")
+_RAIL_NAMES = {"internal": 1, "external": 2}
+
+
+def coerce_rail(value: Any) -> Union[int, str]:
+    """Validate and normalize a power output to ``1`` (internal 5 V), ``2`` (external) or
+    ``"j1_3v3"`` / ``"j1_1v8"`` (J1 pins 17 and 18). Accepts ``"internal"``, ``"external"``, an
+    :class:`Efuse` or 1 and 2 (:class:`ValueError` otherwise)."""
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in J1_RAILS:
+            return v
+        if v in _RAIL_NAMES:
+            return _RAIL_NAMES[v]
+    elif not isinstance(value, bool):
+        try:
+            if int(value) in (1, 2):
+                return int(value)
+        except (TypeError, ValueError):
+            pass
+    raise ValueError(f"rail must be 'internal', 'external', 'j1_3v3' or 'j1_1v8', got {value!r}")
+
+
+def is_j1_rail(value: Any) -> bool:
+    """Whether ``value`` (a normalized rail) is one of the J1 supplies."""
+    return isinstance(value, str) and value in J1_RAILS
 
 
 def coerce_pin(value: Union[Pin, int], name: str = "pin") -> int:

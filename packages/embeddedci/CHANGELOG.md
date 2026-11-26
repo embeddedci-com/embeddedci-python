@@ -2,12 +2,17 @@
 
 ## Unreleased
 
-- **`power_on`, `power_off` and `target_power` take `j1_rail="3v3" | "1v8"`**: they switch the supply pins on J1 of the digital board
-  v4 (pin 17 +3.3 V, pin 18 +1.8 V; feature `dut_rails`, hardware fact `dut_rails`). Both are on
-  from boot and independent of the eFuses and of resets. `TargetStatus.j1_rails` (`J1Rails`:
-  `v3v3`, `v1v8`) reports them, `None` on boards where both pins are always on. Older boards and
-  firmware are refused with `ValueError` before anything is sent. Needs the firmware change
-  `dut_rails` (features table revision 22).
+- **`rail=` names every power output** on `power_on`, `power_off`, `target_power`, `measure_power`,
+  `power_profile` and `power_cycle_and_capture`: `"internal"` (eFuse 1, 5 V), `"external"` (eFuse 2),
+  and on the digital board v4 `"j1_3v3"` / `"j1_1v8"` (the switched J1 pins 17 and 18; feature
+  `dut_rails`). `efuse=` stays as the old name for 1 and 2 (passing both is a `ValueError`).
+  The wiring profile's rail (`Wiring.efuse`, key `efuse`) may be 1, 2, `"j1_3v3"` or `"j1_1v8"`, and
+  every call that names no rail follows it, so a DUT on J1 is power-cycled like any other
+  (`"internal"` / `"external"` also load as 1 / 2). The J1 pins are on from boot and independent of
+  the eFuses and of resets; `TargetStatus.j1_rails` (`J1Rails`: `v3v3`, `v1v8`) reports them, `None`
+  on boards where both are always on. They have no current monitor: `measure_power` and
+  `power_profile` on one raise `ValueError`. Older boards and firmware are refused before anything is
+  sent. Needs the firmware change `dut_rails` (features table revision 22).
 - Docs and messages: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog
   module v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x): both mean the
   v4 board, and the USB-A port check accepts both. The error catalog and feature map follow the
