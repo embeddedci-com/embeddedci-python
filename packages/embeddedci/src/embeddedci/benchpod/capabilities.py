@@ -178,6 +178,9 @@ class Capabilities:
     #: J1 pin 21 is switched and measured, and the pod has 5 V I/O (digital board v4+): the
     #: hardware fact ``vref_out``. :attr:`LaVoltage.pin21` reports pin 21.
     vref_out: bool = False
+    #: J1 pin 17 (+3.3 V) and pin 18 (+1.8 V) are switched (digital board v4+): the hardware fact
+    #: ``dut_rails``. :meth:`BenchPod.j1_power`, :attr:`TargetStatus.j1_rails`.
+    dut_rails: bool = False
     #: SPI master on four LA pins and SPI NOR flash programming (gateware >= v45):
     #: :meth:`BenchPod.open_spi`, :meth:`BenchPod.spi_flash`.
     spi_master: bool = False
@@ -359,7 +362,7 @@ class Capabilities:
             attr = _TABLE_ALIASES.get(name, name)
             if attr in _BOOL_FIELDS:
                 setattr(self, attr, True)
-        for fact in ("usb_cc", "pod_current", "nrst_pin", "vref_out"):
+        for fact in ("usb_cc", "pod_current", "nrst_pin", "vref_out", "dut_rails"):
             if facts.get(fact) is True:
                 setattr(self, fact, True)
 

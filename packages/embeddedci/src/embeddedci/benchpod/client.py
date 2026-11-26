@@ -1203,6 +1203,24 @@ class BenchPod:
         """
         self._transport.target_power(self._efuse(efuse), bool(on), _seconds_to_ms(delay, "delay"))
 
+    def j1_power(self, rail: str, *, on: bool) -> None:
+        """Switch a supply pin on J1 of the digital board v4 (feature ``dut_rails``): ``"3v3"``
+        is pin 17 (+3.3 V, current limited to about 1.45 A) and ``"1v8"`` pin 18 (+1.8 V).
+
+        Both are on from boot, so a DUT powered from J1 works as on older boards, and they are
+        independent of the target-power eFuses and of resets: :meth:`power_off` and
+        :meth:`reset_target` leave them as they are. :attr:`TargetStatus.j1_rails` reports them.
+        Older boards have both pins always on: raises :class:`ValueError` there.
+        """
+        name = {"3v3": "j1_3v3", "1v8": "j1_1v8"}.get(str(rail).lower().replace(".", ""))
+        if name is None:
+            raise ValueError(f"rail must be '3v3' (J1 pin 17) or '1v8' (J1 pin 18), got {rail!r}")
+        if not self.supports("dut_rails"):
+            raise ValueError("this BenchPod has no switchable J1 supplies (digital board v4 with "
+                             "firmware that has feature dut_rails): pins 17 and 18 are always on")
+        with _classified_errors():
+            self.command({"cmd": "target_power", "rail": name, "enabled": bool(on)})
+
     def power_on(self, efuse: Optional[Union[Efuse, int]] = None,
                  *, delay: Optional[float] = None, wiring_profile: Optional[str] = None) -> None:
         """Power the target on with its wiring profile applied first.
@@ -1269,7 +1287,8 @@ class BenchPod:
         self.target_power(efuse, on=False, delay=delay)
 
     def target_status(self) -> TargetStatus:
-        """Both eFuse rails: enabled, tripped (``fault``), and whether the state was readable."""
+        """Both eFuse rails: enabled, tripped (``fault``), and whether the state was readable.
+        On the digital board v4 also ``j1_rails``: whether J1 pins 17 and 18 are on."""
         return TargetStatus.from_reply(self.command({"cmd": "target_status"}))
 
     def power_status(self) -> PowerStatus:

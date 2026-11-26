@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`BenchPod.j1_power("3v3" | "1v8", on=...)`** switches the supply pins on J1 of the digital board
+  v4 (pin 17 +3.3 V, pin 18 +1.8 V; feature `dut_rails`, hardware fact `dut_rails`). Both are on
+  from boot and independent of the eFuses and of resets. `TargetStatus.j1_rails` (`J1Rails`:
+  `v3v3`, `v1v8`) reports them, `None` on boards where both pins are always on. Older boards and
+  firmware are refused with `ValueError` before anything is sent. Needs the firmware change
+  `dut_rails` (features table revision 22).
 - Docs and messages: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog
   module v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x): both mean the
   v4 board, and the USB-A port check accepts both. The error catalog and feature map follow the
