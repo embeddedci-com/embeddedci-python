@@ -175,7 +175,7 @@ class Capabilities:
     nrst_pin: bool = False
     #: USB-C CC-line monitoring (rev3 pods): :meth:`BenchPod.usb_cc`.
     usb_cc: bool = False
-    #: J1 pin 21 is switched and measured, and the pod has 5 V I/O (digital board v3r4+): the
+    #: J1 pin 21 is switched and measured, and the pod has 5 V I/O (digital board v4+): the
     #: hardware fact ``vref_out``. :attr:`LaVoltage.pin21` reports pin 21.
     vref_out: bool = False
     #: SPI master on four LA pins and SPI NOR flash programming (gateware >= v45):

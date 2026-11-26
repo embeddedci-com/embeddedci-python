@@ -49,7 +49,7 @@ class InputMapSpec(BaseModel):
 
 class CapabilitiesInfo(BaseModel):
     board: str = ""
-    board_rev: str = Field("", description="PCB revision: v2, v3, v3r2, v3r4 (digital board v3r4) or unknown.")
+    board_rev: str = Field("", description="PCB revision: v2, v3, v3r2, v4 (digital board v4; firmware 4.0.x says v3r4) or unknown.")
     firmware_version: str = ""
     adc_bits: int = 0
     scope: bool = False
@@ -68,7 +68,7 @@ class CapabilitiesInfo(BaseModel):
     nrst_pin: bool = Field(False, description="Dedicated target-reset pin (reset_target, flash nreset).")
     usb_cc: bool = Field(False, description='USB-C CC monitoring (command {"cmd": "usb_cc"}).')
     vref_out: bool = Field(False, description=(
-        "Digital board v3r4: J1 pin 21 is switched and measured, 5 V I/O (set_la_voltage 5.0), and every "
+        "Digital board v4: J1 pin 21 is switched and measured, 5 V I/O (set_la_voltage 5.0), and every "
         "channel's pull goes up or down with a strength the pod picks."))
     calibrate: bool = Field(False, description="The pod calibrates its own ADC offset on the 4-20 mA input (calibrate, calibration).")
     current_out: bool = Field(False, description=(
@@ -142,7 +142,7 @@ class StatusResult(BaseModel):
 
 
 class Pin21Result(BaseModel):
-    """J1 pin 21 on digital v3r4: the rail the pull-ups pull to."""
+    """J1 pin 21 on digital v4: the rail the pull-ups pull to."""
 
     source: str = Field(description="bank (follows the I/O bank, 1.8 or 3.3 V) or 5v.")
     setting: float = Field(description="What pin 21 should be, volts.")
@@ -157,7 +157,7 @@ class Pin21Result(BaseModel):
 class LaVoltageResult(BaseModel):
     voltage: Optional[float]
     readback: Optional[float] = None
-    pin21: Optional[Pin21Result] = Field(None, description="Digital v3r4 only: J1 pin 21.")
+    pin21: Optional[Pin21Result] = Field(None, description="Digital v4 only: J1 pin 21.")
 
 
 # -- wiring profile ----------------------------------------------------------------
@@ -571,9 +571,9 @@ class PullChannel(BaseModel):
     direction: Optional[str]
     ohms: str
     available: bool
-    #: Digital v3r4: 10k, 2.2k or both (about 1.8k), none when off; picked from the pin's function.
+    #: Digital v4: 10k, 2.2k or both (about 1.8k), none when off; picked from the pin's function.
     strength: Optional[str] = None
-    #: Digital v3r4: why a pull that was set is off right now (pin21_down, dut_off, fault); the pod
+    #: Digital v4: why a pull that was set is off right now (pin21_down, dut_off, fault); the pod
     #: puts it back by itself. None when everything set is on.
     held: Optional[str] = None
 
@@ -638,7 +638,7 @@ class AdcReadResult(BaseModel):
         "Loop current in amps on the 4-20 mA input (current_in only): 0.004 to 0.020 for a live loop."))
     sense_ohms: Optional[float] = Field(None, description=(
         "The resistance current was computed with, ohms (current_in only, firmware 3.10.13+): 249 up to "
-        "analog module v3r4, about 100 from v3r5 (100 ohm behind a 30 mA limiter, so a loop reads at most "
+        "analog module v3r4, about 100 from v4 (100 ohm behind a 30 mA limiter, so a loop reads at most "
         "28.5 to 31.5 mA). Null on older firmware (249)."))
     range: Optional[str] = Field(None, description=(
         "The ADC input range the reading was taken in: normal or low (firmware 3.9.5+)."))

@@ -1,4 +1,4 @@
-"""The 4-20 mA input (J8) on both analog module revisions: 249 ohm up to v3r4, 100 ohm from v3r5
+"""The 4-20 mA input (J8) on both analog module revisions: 249 ohm up to v3r4, 100 ohm from v4
 (firmware 3.10.13+), where ``current_in`` takes the low range by itself and the pod reports the
 resistance it converts with (``sense_mohm``)."""
 
@@ -14,8 +14,8 @@ from embeddedci.benchpod.state import AdcReading, Calibration
 from test_adc_range import RangePod
 
 
-class V3r5Pod(RangePod):
-    """A v3r5 module: routing current_in without a range picks the low range, the next relay path
+class V4Pod(RangePod):
+    """A v4 module: routing current_in without a range picks the low range, the next relay path
     (or a DAC route) gives it back, as the firmware does (analog_path_auto_range)."""
 
     def __init__(self, shunt_100r: bool = True) -> None:
@@ -69,8 +69,8 @@ class V3r5Pod(RangePod):
         return d
 
 
-def _pod(shunt_100r: bool = True) -> "tuple[BenchPod, V3r5Pod]":
-    t = V3r5Pod(shunt_100r)
+def _pod(shunt_100r: bool = True) -> "tuple[BenchPod, V4Pod]":
+    t = V4Pod(shunt_100r)
     return BenchPod(transport=t, lease=False), t
 
 
@@ -87,7 +87,7 @@ def test_models_carry_the_sense_resistance():
     assert Calibration.from_reply({"source": "current_in", "sense_mohm": 0}).sense_ohms is None
 
 
-def test_v3r4_reads_as_before():
+def test_v3r4_module_reads_as_before():
     bp, t = _pod(shunt_100r=False)
     r = bp.adc_read("current_in")
     assert r.range == "normal" and r.sense_ohms == pytest.approx(249.0)
@@ -96,7 +96,7 @@ def test_v3r4_reads_as_before():
     assert cap.currents == pytest.approx([v / 249.0 for v in cap.volts])
 
 
-def test_v3r5_reads_current_in_in_the_low_range():
+def test_v4_reads_current_in_in_the_low_range():
     bp, t = _pod()
     bp.capabilities
     r = bp.adc_read("current_in")
@@ -111,7 +111,7 @@ def test_v3r5_reads_current_in_in_the_low_range():
     assert r.range == "normal" and r.sense_ohms == pytest.approx(99.990)
 
 
-def test_v3r5_capture_is_in_amps_through_100_ohm():
+def test_v4_capture_is_in_amps_through_100_ohm():
     bp, t = _pod()
     cap = bp.capture_adc(2, source="current_in")
     assert t.commands[0] == {"cmd": "analog_path", "path": "current_in"}

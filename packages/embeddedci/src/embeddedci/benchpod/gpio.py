@@ -84,7 +84,7 @@ class LaPinState:
 
     @classmethod
     def from_reply(cls, entry: Any, pull_dirs: Optional[Sequence[Any]] = None) -> "LaPinState":
-        """``pull_dirs``: the la_pins reply's directions for every channel (digital v3r4, whose
+        """``pull_dirs``: the la_pins reply's directions for every channel (digital v4, whose
         entries leave ``dirs`` out)."""
         e = entry if isinstance(entry, dict) else {}
         pull = e.get("pull") if isinstance(e.get("pull"), dict) else {}

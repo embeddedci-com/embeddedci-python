@@ -406,7 +406,7 @@ def _status() -> m.StatusResult:
         warnings.append("DAC off: the digital board and the analog module use different flat-cable "
                         "pinouts (module.dac_pinout_ok is false), so every DAC command is refused "
                         "(BP0080). Tell the user the two boards do not belong together: a digital "
-                        "v3r4 or later board needs an analog module 3.5 or later")
+                        "v4 or later board needs an analog module v4 or later")
     try:
         la = pod.get_la_voltage().voltage
     except BenchPodError:
@@ -444,7 +444,7 @@ def _status() -> m.StatusResult:
                         "once that pin is released)")
     if la is None:
         warnings.append("LA I/O voltage not selected, and the wiring profile sets none: ask the user for "
-                        "the board's I/O voltage (1.8 or 3.3, 5.0 on a digital v3r4 pod) and set la_mv in the profile (set_wiring, "
+                        "the board's I/O voltage (1.8 or 3.3, 5.0 on a digital v4 pod) and set la_mv in the profile (set_wiring, "
                         "then save_wiring), or call set_la_voltage, before flash, UART, LA capture, "
                         "pulls or sensor emulation")
     try:
@@ -491,7 +491,7 @@ async def connect(
         "set-connection`), else to find the one pod on the LAN over mDNS."))] = None,
     la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
         "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the "
-        "digital board v3r4)."))] = None,
+        "digital board v4)."))] = None,
     lease_wait_s: Annotated[float, Field(ge=0, le=3600, description=(
         "Seconds to wait when someone else holds the pod's lease (the cloud device's, or the "
         "pod's own on the LAN and USB network)."))] = 30.0,
@@ -532,7 +532,7 @@ async def status() -> m.StatusResult:
 
 
 def _pin21(state: Any) -> Optional[m.Pin21Result]:
-    p = getattr(state, "pin21", None)   # embeddedci before digital v3r4 support has none
+    p = getattr(state, "pin21", None)   # embeddedci before digital v4 support has none
     if p is None:
         return None
     return m.Pin21Result(source=p.source, setting=p.setting, measured=p.measured, state=p.state, up=p.up)
@@ -540,11 +540,11 @@ def _pin21(state: Any) -> Optional[m.Pin21Result]:
 
 @mcp.tool(annotations=_ann("Set LA I/O voltage", idempotent=True))
 async def set_la_voltage(la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
-        "The DUT's I/O voltage. 5.0 needs a pod with the digital board v3r4 (status capabilities "
+        "The DUT's I/O voltage. 5.0 needs a pod with the digital board v4 (status capabilities "
         "vref_out). Omit it to read the current voltage and pin 21 without changing anything."))] = None,
 ) -> m.LaVoltageResult:
     """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod, 5.0 a digital
-    v3r4 board).
+    v4 board).
 
     Usually not needed: connect sets it from the wiring profile's la_mv, and firmware 3.10.10+
     takes it from the profile on the first LA operation. Call it when the profile sets none (ask
@@ -552,7 +552,7 @@ async def set_la_voltage(la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]],
 
     At 5.0 outputs reach 5 V only through their pull-ups: switch on the pull-up (set_pull up) on
     outputs into 5 V CMOS-level inputs. Point the user to https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io for the details. On digital
-    v3r4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
+    v4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
     voltage (select 5.0 or remove the signal).
     """
     if la_voltage is None:
@@ -1900,7 +1900,7 @@ async def set_pull(
     pull: Annotated[Literal["up", "down", "off"], Field(description=(
         "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and "
         "strength in the result). A channel pulls only the ways its resistor allows (pull_status: "
-        "supported): on the digital board v3r4 every channel pulls up or down; on older boards LA1-LA6 "
+        "supported): on the digital board v4 every channel pulls up or down; on older boards LA1-LA6 "
         "pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023)."))],
 ) -> m.PullStatusResult:
     """Pull LA channels up or down, or switch their pull resistor off. For an I2C bus pull SDA and
@@ -1967,7 +1967,7 @@ async def usb_host(
     enabled: Annotated[Optional[bool], Field(description=(
         "Omit to read the state. true starts host mode (or renews its timeout), false stops it."))] = None,
     port: Annotated[Optional[Literal["usb_a", "usb_c"]], Field(description=(
-        "usb_a: the USB-A host port (digital v3r4 and later). usb_c: the pod's own USB-C connector "
+        "usb_a: the USB-A host port (digital v4 and later). usb_c: the pod's own USB-C connector "
         "through a breakout, on any pod. Omit to let the server pick from the board revision."))] = None,
     timeout_s: Annotated[int, Field(ge=1, le=3600, description=(
         "Seconds until the pod goes back to being a USB device by itself."))] = 60,
@@ -2565,7 +2565,7 @@ async def adc_read(source: AdcSource = "ext", range: AdcRangeArg = None) -> m.Ad
     """One calibrated voltage: ext = front SMA (true volts), cal1/cal2 = DAC loopbacks, current_in = 4-20 mA input (J8).
 
     current_in also returns current, the loop current in amps. range low reads small signals (up to ±5.46 V)
-    at 6x the resolution on analog module v3r4+; overrange says the input clipped. From analog module v3r5
+    at 6x the resolution on analog module v3r4+; overrange says the input clipped. From analog module v4
     current_in reads in the low range unless range is given (the next other route gives normal back).
 
     Refused while the input is still moving (e.g. a DAC output left running).

@@ -174,12 +174,12 @@ no voltage anywhere, a refused command raises `FirmwareError` with code `BP0001`
 is not set; set the board's I/O voltage first: BenchPod(conn, la_voltage=3.3) ...` (prefixed with
 the command, as every `FirmwareError` is).
 
-**5 V I/O (digital board v3r4).** On a pod with the digital board v3r4 (`bp.supports("la_5v")`,
+**5 V I/O (digital board v4).** On a pod with the digital board v4 (`bp.supports("la_5v")`,
 `bp.capabilities.vref_out`), `bp.set_la_voltage(5.0)` (or `la_mv: 5000` in the profile) keeps the
 bank at 3.3 V and switches J1 pin 21, the pull-up rail, to 5 V; outputs reach 5 V through their
 pull-up (`bp.set_pull(la, "up")`). What that means for the wiring is on the
 [5 V page](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io). `FirmwareError` `BP0028`: 5 V did not come up. Other pods raise
-`ValueError` before anything is sent. On v3r4, `LaVoltage.pin21` reports pin 21 (`None` elsewhere):
+`ValueError` before anything is sent. On v4, `LaVoltage.pin21` reports pin 21 (`None` elsewhere):
 
 ```python
 st = bp.get_la_voltage()
@@ -969,7 +969,7 @@ how finely a transient was resolved. Measured on a v2 pod:
 
 An overload is held at the limit for about 2.8 ms, then the eFuse trips (`TargetStatus` `fault`) and
 retries after ≈ 110 ms. A trip shorter than one sample does not show in a profile. The ADC's `current_in`
-input is a 4-20 mA loop terminal (249 Ω, 100 Ω from analog module v3r5), not a way to measure the target's supply.
+input is a 4-20 mA loop terminal (249 Ω, 100 Ω from analog module v4), not a way to measure the target's supply.
 
 ## Flashing
 
@@ -1206,7 +1206,7 @@ pod's own USB link: while the pod hosts it is off the computer's USB (no console
 
 | Pod | Port | How the board connects |
 |---|---|---|
-| digital v3r4 and later | `usb_a` | its normal USB cable in the pod's USB-A host port |
+| digital v4 and later | `usb_a` | its normal USB cable in the pod's USB-A host port |
 | older pods | `usb_c` | the pod's USB-C connector through a breakout (D+, D-, GND to the board, 5 V into the pod's VBUS) |
 
 ```python
@@ -1220,7 +1220,7 @@ bp.usb_host(False)                          # back to being a USB device
 
 * `usb_host(enable=True, *, port=None, timeout_s=60)` starts or stops host mode and returns a
   `UsbHostState`. `port` is `"usb_a"` or `"usb_c"`; left out, the SDK uses `usb_a` on a board whose
-  `board_rev` is v3r4 or later, `usb_c` on an older one, and tries `usb_a` then `usb_c` when the pod
+  `board_rev` is v4 or later, `usb_c` on an older one, and tries `usb_a` then `usb_c` when the pod
   does not say. When `timeout_s` runs out the pod is a USB device again.
 * `usb_host_status()` returns the `UsbHostState`: `mode`, `port`, `attached`, `enumeration`
   (`none`, `running`, `done`, `stuck`), `connected` and `line_speed` (a board that draws power but is
@@ -1515,9 +1515,9 @@ firmware the call raises `UnsupportedFeatureError` before anything is sent. The 
 stop bit of what it receives; a byte with a wrong parity bit is still delivered, and
 `bp.status()["uart_rx_parity_error"]` turns true for the session.
 
-No pod has an RS-485 port, and boards before the digital v3r4 have no 5 V I/O: a 5 V UART needs a
+No pod has an RS-485 port, and boards before the digital v4 have no 5 V I/O: a 5 V UART needs a
 level shifter there, and Modbus RTU on RS-485 an external RS-485 transceiver powered at 3.3 V (or a
-5 V transceiver behind a level shifter). The digital v3r4 has [5 V I/O](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io).
+5 V transceiver behind a level shifter). The digital v4 has [5 V I/O](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io).
 
 **One wire (half duplex).** Some parts talk UART on a single pin, for example a boot ROM's
 programming pin. `half_duplex=True` runs the session on `rx` alone (`tx` defaults to the same
@@ -1583,7 +1583,7 @@ value. Which channels have one and which way each can pull depends on the board,
 The resistors are referenced to 3V3, so the pod won't engage one while the LA bank is at 1.8 V
 (`PullState.available` is false).
 
-**Digital board v3r4** (`bp.supports("la_pull_strength")`): every channel, LA1–LA14, pulls up or
+**Digital board v4** (`bp.supports("la_pull_strength")`): every channel, LA1–LA14, pulls up or
 down with a 10k, a 2.2k or both (about 1.8k). You still name only the direction: the pod picks the
 strength from the pin's function (2.2k for I2C, one-wire UART, open drain, and pod outputs in 5 V
 mode; 10k otherwise), and `PullState.strength` says which (`"10k"`, `"2.2k"`, `"both"`, `"none"`
@@ -2052,10 +2052,10 @@ the 5 V DMM line, see below); it serves every source in the low range and shows 
 ### Calibrating the ADC offset
 
 `"current_in"` reads the 4-20 mA terminal (J8) across a 249 Ω resistor, so 4 mA is 0.996 V and 20 mA is
-4.98 V. From analog module v3r5 (firmware 3.10.13+) the resistor is 100 Ω behind a series diode and
+4.98 V. From analog module v4 (firmware 3.10.13+) the resistor is 100 Ω behind a series diode and
 a 30 mA current limiter, which lowers what the pod takes from the loop to about 4.3 V at 20 mA:
 
-| | Module up to v3r4 | Module v3r5 and later |
+| | Module up to v3r4 | Module v4 and later |
 |---|---|---|
 | 4 mA / 20 mA | 0.996 V / 4.98 V | 0.4 V / 2.0 V |
 | Voltage taken from the loop at 20 mA | about 5 V | about 4.3 V |
@@ -2063,7 +2063,7 @@ a 30 mA current limiter, which lowers what the pod takes from the loop to about 
 | Resolution | about 4 µA per count | about 1.7 µA per count (low), 10 µA (normal) |
 | Measurable current | 0 to about 21 mA in the low range, more in normal | 0 to the limiter, 28.5 to 31.5 mA |
 
-On v3r5, `adc_read("current_in")`, `analog_path("current_in")` and `capture_adc(source="current_in")`
+On analog module v4, `adc_read("current_in")`, `analog_path("current_in")` and `capture_adc(source="current_in")`
 without `range` switch the ADC to the low range; the next route of another source or a DAC output
 gives the normal range back. A reading that sits near 30 mA whatever the loop does is the limiter.
 A reversed loop reads 0 (the diode blocks it). `AdcReading.sense_ohms` and
@@ -2156,7 +2156,7 @@ bp.set_module_id("am-3f9a1c07b2e4", "3.3")   # serial (up to 16 characters) and 
 two rails (`power`, `bridge_power`), the EEPROM state (`eeprom`: `"ok"`, `"blank"`, `"bad magic"`,
 `"bad crc"`, `"bad length"`, `"none"`), and with `"ok"` the `type`, `rev` and `serial`, plus the stored
 calibration blob's `cal_len` and `cal_ok`. `dac_pinout_ok` is `False` when the digital board and
-the module use different flat-cable DAC pinouts (a digital v3r4 or later board needs analog module
+the module use different flat-cable DAC pinouts (a digital v4 or later board needs analog module
 3.5 or later): the DAC is then off and every command that drives it raises
 `DacPinoutMismatchError` (`BP0080`). `set_module_id(serial, rev, module_type="analog")` writes
 the identity and keeps the calibration. A serial names one module for life: a module that already
@@ -2985,7 +2985,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 
 | Type | Returned by / used for | Fields and members |
 |---|---|---|
-| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set`, `pin21` (a `Pin21`, digital v3r4 only) |
+| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set`, `pin21` (a `Pin21`, digital v4 only) |
 | `Pin21` | `LaVoltage.pin21` | `source`, `setting`, `measured` (V), `state`, `up`, `ok` |
 | `TargetStatus` | `target_status` | `internal`, `external` (each an `EfuseState`), `supported`, `efuse(n)` |
 | `EfuseState` | `TargetStatus.efuse` | `enabled`, `fault`, `valid` |
@@ -3010,7 +3010,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `UsbHidCapture` | `usb_hid_capture` | `capturing`, `buffered`, `dropped` |
 | `UsbHidReports`, `UsbHidReport` | `usb_hid_read` | `reports`, `dropped`, `capturing`; `ms`, `instance`, `data` |
 | `UsbCcStatus` | `usb_cc` | `orientation`, `advertised`, `advertised_current` (A), `cc1_voltage`, `cc2_voltage` (V) |
-| `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available`, `supported`, `strength` (digital v3r4) |
+| `PullState` | `pull_state`, `set_pull` | `la`, `enabled`, `direction`, `ohms`, `available`, `supported`, `strength` (digital v4) |
 | `LaPinState` | `la_pins`, `configure_gpio`, `la_dir` | `la`, `function`, `gpio`, `level`, `pull`, `pull_ohms`, `pull_on`, `pull_dirs`, `dir`, `warn`, `warnings`, `in_use` |
 | `GpioPin` (class) | `gpio`, `gpio_pins`, `signal` | `name`, `configure()`, `set(level)`, `high()`, `low()`, `activate()`, `deactivate()`, `is_active()`, `read()`, `wait_for(level, *, timeout)`, `pulse(width, *, count=1)`, `state()`, `release()` |
 | `ExtPin` (class) | `gpio`, `gpio_pins`, `signal` on an EXT pin | a `GpioPin` with `ext`, `pin`; `la` is `None`; `pulse()` raises `ExpansionError` |
@@ -3085,10 +3085,10 @@ reported keeps its default (`False`, `0` or `""`), so a feature check is just
 
 | Group | Fields |
 |---|---|
-| Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"v3r2"`, `"v3r4"` (digital v3r4), `"unknown"`, or `""`), `la_vccio_mv` (the LA I/O voltage the pod reports, 5000 in 5 V mode) |
+| Identity | `board`, `firmware_version`, `board_rev` (`"v2"`, `"v3"`, `"v3r2"`, `"v4"` (digital v4; firmware 4.0.x says `"v3r4"`), `"unknown"`, or `""`), `la_vccio_mv` (the LA I/O voltage the pod reports, 5000 in 5 V mode) |
 | ADC | `adc_bits`, `adc_fullscale_mv`, `adc_channels`, `adc_offset_counts`, `adc_affine` (the front-end fit, of the range in use), `adc_low_range` (analog module v3r4+: the low range), `adc_range` (`"normal"`, `"low"`, or `""` before firmware 3.9.5), `adc_range_fullscale` (volts, ±), `adc_max_count`, `counts_to_volts(count)` |
 | DAC and replay | `dac`, `dac_dc`, `dac_replay`, `dac_deep_replay`, `dac_control_loop`, `dac_loop_sources` (gateware v29+), `dac_loop_input_map` (v30+), `dac_cotrig` (v27+), `generate16` (`generate` in calibrated 16-bit volts: every analog pod), `dac_bits`, `dac_replay_bits`, `dac_replay_max_samples`, `dac_fullscale_mv`, `dac_channels`, `dac_limits` (output limits on the DAC paths) |
-| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `vref_out` (digital v3r4: pin 21 switched and measured, 5 V I/O, pulls with a strength on every channel), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions), `analog` (`False` on the digital-only board, `None` when not announced) |
+| Features | `scope`, `analyzer`, `serial`, `tunnel`, `command`, `ota`, `la_pins`, `gpio_read` (direct pin reads, v35+), `capture_trigger` (v35+), `power_profile`, `capture_b64` (faster ADC read-back, used automatically), `nrst_pin` (the dedicated reset pin, rev3), `usb_cc` (rev3), `vref_out` (digital v4: pin 21 switched and measured, 5 V I/O, pulls with a strength on every channel), `spi_master` (v45+), `spi_stream`, `uart_frame` (UART parity and stop bits, gateware v56+), `uart_hd` (one-wire UART and boot-mode entry, gateware v57+), `calibrate`, `cal_dmm` (firmware 3.9.4+: `calibrate_dac`, `calibrate_adc_gain`), `current_out`, `can`, `pod_current` (`PowerStatus.pod`), `sensors` (sensor emulation from definitions), `analog` (`False` on the digital-only board, `None` when not announced) |
 | Firmware updates and policies | `flash_kb` (MCU flash in KiB, 0 when not reported), `blob_slots`, `ota_sig`, `sig_policy` (`"audit"`, `"required"`, ...), `sig_keys`, `sig_policy_cmd`, `lan_policy` (`"open"`, `"locked"`, `"off"`), `lan_policy_cmd`, `tunnel_max_tier`, `lease_state` (the pod refuses LAN writes while a cloud job holds it), `cloud_ca`, `cloud_proxy`, `ws_auth_v2` (server only) |
 | Boot health | `safe_mode`, `safe_reason`, `last_crash`, `reset_cause`, `boot_warning()` (a one-line warning after safe mode or a crash, else `None`) |
 | Source | `raw` (the map it was parsed from) |

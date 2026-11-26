@@ -1,5 +1,10 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- Tool text: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog module
+  v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x).
+
 ## 4.0.6
 
 For BenchPod firmware 4.0.6 (features table revision 21, gateware v68); needs embeddedci 4.0.6.

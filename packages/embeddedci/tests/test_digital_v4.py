@@ -1,4 +1,4 @@
-"""Digital board v3r4 (firmware board_caps.h): 5 V I/O and pin 21 (``set_la_voltage(5.0)``,
+"""Digital board v4 (firmware board_caps.h): 5 V I/O and pin 21 (``set_la_voltage(5.0)``,
 :attr:`LaVoltage.pin21`), and pulls with a direction and a strength on every channel. A pod
 without the ``vref_out`` fact behaves as before: 5.0 is refused before anything is sent."""
 
@@ -13,8 +13,9 @@ from embeddedci.benchpod.errors import firmware_error
 
 
 class Pod:
-    def __init__(self, v3r4: bool, features_rev: int = 7) -> None:
-        self.v3r4 = v3r4
+    def __init__(self, v4: bool, features_rev: int = 7, rev: str = "v4") -> None:
+        self.v4 = v4
+        self.rev = rev
         self.features_rev = features_rev
         self.sent: List[Dict[str, Any]] = []
         self.mv = 0
@@ -26,9 +27,9 @@ class Pod:
         self.too_large = False      # the full la_pins listing does not fit one reply
 
     def status(self) -> Dict[str, Any]:
-        hw = ["nrst_pin"] + (["vref_out"] if self.v3r4 else [])
+        hw = ["nrst_pin"] + (["vref_out"] if self.v4 else [])
         return {"board": "stm32h563", "adc_bits": 16, "version": "3.10.13", "features_rev": self.features_rev,
-                "gateware": 58, "fpga_image": "deep", "hw": hw, "board_rev": "v3r4" if self.v3r4 else "v3"}
+                "gateware": 58, "fpga_image": "deep", "hw": hw, "board_rev": self.rev if self.v4 else "v3"}
 
     def ping(self) -> Any:
         return "pong"
@@ -47,7 +48,7 @@ class Pod:
         self.sent.append(req)
         if req["cmd"] == "la_voltage":
             if "mv" in req:
-                if req["mv"] == 5000 and not self.v3r4:
+                if req["mv"] == 5000 and not self.v4:
                     raise firmware_error("la voltage must be 1800 or 3300 (mv)", cmd="la_voltage")
                 if req["mv"] == 5000 and not self.five_v_ok:
                     raise firmware_error("5 V did not come up on pin 21 (4120 mV); check the USB supply",
@@ -55,7 +56,7 @@ class Pod:
                 self.mv = req["mv"]
                 self.pin21_mv = 4920 if self.mv == 5000 else self.mv
             out: Dict[str, Any] = {"mv": self.mv, "st": 1, "readback_mv": 3300 if self.mv == 5000 else self.mv}
-            if self.v3r4:
+            if self.v4:
                 out["vref_out"] = self._vref()
             return out
         if req["cmd"] == "la_pull":
@@ -91,12 +92,12 @@ class Pod:
                 "pull": {"dir": "up", "ohms": "10k", "on": False}}
 
 
-def _bp(v3r4: bool, features_rev: int = 7) -> "tuple[BenchPod, Pod]":
-    pod = Pod(v3r4, features_rev)
+def _bp(v4: bool, features_rev: int = 7, rev: str = "v4") -> "tuple[BenchPod, Pod]":
+    pod = Pod(v4, features_rev, rev)
     return BenchPod(transport=pod, lease=False, wiring={"version": 2}), pod
 
 
-def test_capabilities_say_v3r4():
+def test_capabilities_say_v4():
     bp, _ = _bp(True)
     assert bp.capabilities.vref_out
     assert bp.supports("la_5v") and bp.supports("la_pull_strength")
@@ -105,7 +106,15 @@ def test_capabilities_say_v3r4():
     assert not old.supports("la_5v") and not old.supports("la_pull_strength")
 
 
-def test_5v_on_v3r4():
+def test_board_rev_v3r4_still_counts_as_v4():
+    # v3r4 = the pre-rename name of v4, what firmware 4.0.x reports
+    bp, _ = _bp(True, rev="v3r4")
+    assert bp.capabilities.board_rev == "v3r4"
+    assert bp.supports("la_5v") and bp.capabilities.vref_out
+    assert bp._has_usb_a("v3r4") and bp._has_usb_a("v4") and not bp._has_usb_a("v3r3")
+
+
+def test_5v_on_v4():
     bp, pod = _bp(True)
     st = bp.set_la_voltage(5.0)
     assert pod.sent[-1] == {"cmd": "la_voltage", "mv": 5000}
@@ -116,7 +125,7 @@ def test_5v_on_v3r4():
 
 def test_5v_refused_before_sending_on_older_boards():
     bp, pod = _bp(False)
-    with pytest.raises(ValueError, match="digital board v3r4"):
+    with pytest.raises(ValueError, match="digital board v4"):
         bp.set_la_voltage(5.0)
     assert not [r for r in pod.sent if r["cmd"] == "la_voltage"]
     # 3.3 V is as before, and there is no pin 21 in the reply
@@ -146,7 +155,7 @@ def test_pull_strength_reported():
     bp, _ = _bp(True)
     st = bp.set_pull(1, "up")
     assert st.state == "up" and st.strength == "2.2k" and st.ohms == "2.2k"
-    st = bp.set_pull(9, "down")   # every channel on v3r4, both ways
+    st = bp.set_pull(9, "down")   # every channel on v4, both ways
     assert st.state == "down" and st.supported == ("up", "down") and st.strength == "10k"
     st = bp.set_pull(9, "off")
     assert st.state == "off" and st.strength == "none"
@@ -180,7 +189,7 @@ def test_la_pins_too_large_reads_in_two_parts():
                              {"cmd": "la_pins", "la": [8, 9, 10, 11, 12, 13, 14]}]
 
 
-def test_la_dir_and_gpio_entries_pull_both_ways_on_v3r4():
+def test_la_dir_and_gpio_entries_pull_both_ways_on_v4():
     bp, _ = _bp(True)
     assert bp.la_dir(9, "dut_input")[0].pull_dirs == ("up", "down")
     assert all(p.pull_dirs == ("up", "down") for p in bp._gpio_configure([4], "input", None))

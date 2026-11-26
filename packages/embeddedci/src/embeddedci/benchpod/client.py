@@ -169,7 +169,7 @@ _CURRENT_OUT = "current_out"
 _ANALOG_PATH_DAC = {"dac_3v3": "3v3", "dac_5v": "5v", "dac_12v": "12v", "cal1": "5v", "cal2": "12v",
                     "current_out": _CURRENT_OUT}
 #: The sense resistor on the 4-20 mA input (J8): ``current_in`` reads the voltage across it. 249 Ω
-#: on analog modules up to v3r4 and the default for firmware that does not say; from v3r5 the pod
+#: on analog modules up to v3r4 and the default for firmware that does not say; from v4 the pod
 #: reports its own value (``Calibration.sense_ohms``, 100 Ω with the ADC divider in parallel).
 _CURRENT_IN_SENSE_OHMS = 249.0
 #: The live zero a stopped current waveform returns to (microamps).
@@ -389,7 +389,7 @@ class BenchPod:
         # so a waveform played with route=False and no dac_path scales for it. None = unknown.
         self._routed_dac_path: Optional[str] = None
         #: The pod put the ADC in the low range by itself, routing ``current_in`` on analog module
-        #: v3r5 (firmware 3.10.13+); the next DAC route puts it back, without saying so.
+        #: v4 (firmware 3.10.13+); the next DAC route puts it back, without saying so.
         self._adc_low_auto = False
         self._api_base = api_base or os.environ.get(API_BASE_ENV)
         self._api_key = api_key or os.environ.get(API_KEY_ENV)
@@ -1154,7 +1154,7 @@ class BenchPod:
 
     def set_la_voltage(self, voltage: float) -> LaVoltage:
         """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod), or
-        ``5.0`` on a pod with the digital board v3r4 (feature ``la_5v``).
+        ``5.0`` on a pod with the digital board v4 (feature ``la_5v``).
 
         At 5.0 the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V, and outputs
         reach 5 V through their pull-ups: https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io
@@ -1169,9 +1169,9 @@ class BenchPod:
         """
         v = float(voltage)
         if abs(v - LA_VOLTAGE_5V) < 0.05:
-            # 5 V I/O (digital v3r4): the pod keeps the bank at 3.3 V and moves pin 21 to 5 V.
+            # 5 V I/O (digital v4): the pod keeps the bank at 3.3 V and moves pin 21 to 5 V.
             if not self.supports("la_5v"):
-                raise ValueError("5 V I/O needs a BenchPod with the digital board v3r4 or later and "
+                raise ValueError("5 V I/O needs a BenchPod with the digital board v4 or later and "
                                  "firmware that has it (feature la_5v): use 1.8 or 3.3")
             with _classified_errors():
                 return LaVoltage.from_reply(self.command({"cmd": "la_voltage", "mv": 5000}))
@@ -1329,10 +1329,11 @@ class BenchPod:
 
     @staticmethod
     def _has_usb_a(board_rev: str) -> Optional[bool]:
-        """Whether a ``status`` ``board_rev`` (``"v3r4"``) has the USB-A host port (digital v3r4 and
+        """Whether a ``status`` ``board_rev`` (``"v4"``) has the USB-A host port (digital v4 and
         later); ``None`` when the pod does not say."""
-        m = re.fullmatch(r"v(\d+)r(\d+)", str(board_rev or "").strip().lower())
-        return None if m is None else (int(m.group(1)), int(m.group(2))) >= (3, 4)
+        # "v3r4" = the pre-rename name of v4 (firmware 4.0.x); both count.
+        m = re.fullmatch(r"v(\d+)(?:r(\d+))?", str(board_rev or "").strip().lower())
+        return None if m is None else (int(m.group(1)), int(m.group(2) or 0)) >= (3, 4)
 
     def usb_host_status(self) -> "_usb.UsbHostState":
         """The pod's USB host state: ``mode`` (``device``, ``starting``, ``host``, ``stopping``),
@@ -1356,9 +1357,9 @@ class BenchPod:
         :class:`~embeddedci.benchpod.errors.UsbHostUnavailableError` (``BP0076``). When the timeout
         runs out, or ``usb_host(False)`` is called, the pod is a USB device again.
 
-        ``port``: ``"usb_a"`` (the USB-A host port of digital v3r4 and later) or ``"usb_c"`` (the
+        ``port``: ``"usb_a"`` (the USB-A host port of digital v4 and later) or ``"usb_c"`` (the
         pod's own USB-C connector through a breakout, on any pod). Left out, the SDK picks
-        ``"usb_a"`` on a board that has the port (``board_rev`` v3r4 or later), ``"usb_c"`` on an
+        ``"usb_a"`` on a board that has the port (``board_rev`` v4 or later), ``"usb_c"`` on an
         older one, and tries ``"usb_a"`` first (falling back to ``"usb_c"``) when the pod does not
         say. Waits until the pod is in host mode; raises
         :class:`~embeddedci.benchpod.errors.UsbTimeout` when it is not within 10 s.
@@ -2618,7 +2619,7 @@ class BenchPod:
 
         On ``current_in`` the reading also carries ``current``, the loop current in amps, and
         already has this pod's calibration offset taken out (:meth:`calibrate`); ``offset`` says
-        how much that was. From analog module v3r5 (100 Ω sense resistor, 30 mA limiter, firmware
+        how much that was. From analog module v4 (100 Ω sense resistor, 30 mA limiter, firmware
         3.10.13+) ``current_in`` reads in the low range unless ``range`` says otherwise: about
         1.7 µA per count, up to the limiter's 28.5 to 31.5 mA. The next route of another source or
         output gives the normal range back. ``sense_ohms`` is the resistance ``current`` was
@@ -2685,7 +2686,7 @@ class BenchPod:
             caps.adc_affine = AffineCal(a=state.a or 0.0, b=state.b, unwrap=unwrap)
 
     def _note_auto_range(self, current_in: bool, asked: Optional[str], before: str, after: str) -> None:
-        """After a route: on analog module v3r5 ``current_in`` without a ``range`` takes the low
+        """After a route: on analog module v4 ``current_in`` without a ``range`` takes the low
         range by itself, and the next route of another path gives it back."""
         if asked is not None or not current_in:
             self._adc_low_auto = False
@@ -4417,14 +4418,14 @@ class BenchPod:
         else:
             _log.warning("la_pins: still not done after %d replies; the listing stops there",
                          _LA_PINS_MAX_PAGES)
-        # Digital v3r4 says the directions once for every channel ("pull_dirs").
+        # Digital v4 says the directions once for every channel ("pull_dirs").
         dirs = data.get("pull_dirs")
         return [LaPinState.from_reply(e, pull_dirs=dirs if isinstance(dirs, list) else None)
                 for e in entries]
 
     def _entry_pull_dirs(self, entries: Any) -> Optional[Tuple[str, ...]]:
         """The pull directions for listing replies that do not say them (la_dir, gpio): on digital
-        v3r4 every channel pulls both ways, said only once in the la_pins reply."""
+        v4 every channel pulls both ways, said only once in the la_pins reply."""
         if not isinstance(entries, list):
             return None
         bare = any(isinstance(e, dict) and isinstance(e.get("pull"), dict) and "dirs" not in e["pull"]
