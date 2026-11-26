@@ -306,7 +306,7 @@ def test_disconnect(connected):
 
 def test_power_tools(connected):
     assert call("power_on", efuse=1, delay_s=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
-                                                     "profile": None, "la_voltage": 3.3}
+                                                     "profile": None, "la_voltage": 3.3, "j1_rail": None}
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
     assert status["internal"]["enabled"] is True and status["internal"]["bus_voltage"] == 5.01
@@ -1332,3 +1332,24 @@ def test_log_level_on_old_firmware_is_a_clean_error(fake_open, fake_transport, m
     monkeypatch.setattr(pod, "log_level", old, raising=False)
     with pytest.raises(ToolError, match="newer pod firmware"):
         call("log_level")
+
+
+def test_j1_rails(fake_open, fake_transport):
+    """power_on / power_off with j1_rail switch J1 pins 17 and 18 (digital board v4); power_status
+    reports them. A board without them answers null and refuses j1_rail."""
+    fake_transport.features_rev = 22
+    fake_transport.j1_rails = {"v3v3": True, "v1v8": True}
+    call("connect", connection="192.168.1.50", la_voltage=3.3)
+    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": True}
+    assert call("power_off", j1_rail="1v8") == {"efuse": None, "j1_rail": "1v8", "on": False, "delay": None, "profile": None, "la_voltage": None}
+    assert fake_transport.requests[-1] == {"cmd": "target_power", "rail": "j1_1v8", "enabled": False}
+    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": False}
+    assert call("power_on", j1_rail="1v8") == {"efuse": None, "j1_rail": "1v8", "on": True, "delay": None, "profile": None, "la_voltage": None}
+    # the efuse rails were not touched
+    assert not any(c[0] == "target_power" for c in fake_transport.calls if c[0] != "command")
+
+
+def test_j1_rails_absent(connected):
+    assert call("power_status")["j1_rails"] is None
+    with pytest.raises(Exception, match="no switchable J1"):
+        call("power_on", j1_rail="3v3")

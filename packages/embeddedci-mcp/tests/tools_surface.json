@@ -4319,6 +4319,23 @@
           "default": null,
           "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
+        },
+        "j1_rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "3v3",
+                "1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Switch a supply pin on J1 of the digital board v4 instead of a target-power rail: 3v3 = pin 17 (+3.3 V, about 1.45 A limit), 1v8 = pin 18 (+1.8 V). Both are on from boot and independent of the efuse rails and of resets. power_status says whether the board has them (j1_rails).",
+          "title": "J1 Rail"
         }
       },
       "title": "power_offArguments",
@@ -4364,6 +4381,23 @@
           "default": null,
           "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
+        },
+        "j1_rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "3v3",
+                "1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Switch a supply pin on J1 of the digital board v4 instead of a target-power rail: 3v3 = pin 17 (+3.3 V, about 1.45 A limit), 1v8 = pin 18 (+1.8 V). Both are on from boot and independent of the efuse rails and of resets. power_status says whether the board has them (j1_rails).",
+          "title": "J1 Rail"
         },
         "wiring_profile": {
           "anyOf": [

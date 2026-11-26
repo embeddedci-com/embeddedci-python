@@ -326,9 +326,15 @@ class GpioReleaseResult(BaseModel):
 class PowerResult(BaseModel):
     profile: Optional[str] = Field(None, description="The wiring profile the board was powered on with.")
     la_voltage: Optional[float] = Field(None, description="The I/O voltage the profile set before power-on.")
-    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
+    efuse: Optional[int] = Field(None, description="The rail used: internal 5 V (efuse 1) or external (efuse 2); null when j1_rail was switched.")
+    j1_rail: Optional[str] = Field(None, description="The J1 supply switched (digital board v4): 3v3 (pin 17) or 1v8 (pin 18); null for an efuse rail.")
     on: bool
     delay: Optional[float] = None
+
+
+class J1RailsResult(BaseModel):
+    v3v3: bool = Field(description="J1 pin 17 (+3.3 V) is on.")
+    v1v8: bool = Field(description="J1 pin 18 (+1.8 V) is on.")
 
 
 class RailResult(BaseModel):
@@ -351,6 +357,7 @@ class PowerStatusResult(BaseModel):
     internal: RailResult = Field(description="The internal 5 V rail (efuse 1).")
     external: RailResult = Field(description="The external rail (efuse 2).")
     pod: Optional[PodPowerResult] = Field(None, description="The pod's own draw; null on boards that don't measure it.")
+    j1_rails: Optional[J1RailsResult] = Field(None, description="J1 pins 17 and 18 on the digital board v4; null on boards where both are always on.")
 
 
 class ResetResult(BaseModel):

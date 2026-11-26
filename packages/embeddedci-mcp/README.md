@@ -216,8 +216,8 @@ description, ranges and enums, so an agent sees more than this table.
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. | `efuse`, `delay_s`, `wiring_profile` |
-| `power_off` | Switch the target's power rail off. | `efuse`, `delay_s` |
+| `power_on` | Power the board on with its wiring profile applied first: the profile's I/O voltage (when the pod has none or another one), its pull resistors (`pulls`, at 3.3 V), then the rail; the pod records the profile. Never changes the I/O voltage under a powered board. `wiring_profile` powers on with a stored profile. `j1_rail` (`3v3` or `1v8`) switches a supply pin on J1 instead (digital board v4: pin 17 +3.3 V, pin 18 +1.8 V; both on from boot, independent of the efuse rails and of resets). | `efuse`, `delay_s`, `wiring_profile`, `j1_rail` |
+| `power_off` | Switch the target's power rail off. `j1_rail` switches a J1 supply pin off instead (digital board v4). | `efuse`, `delay_s`, `j1_rail` |
 | `power_status` | Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off, tripped, bus voltage and current, and the pod's own draw. | none |
 | `reset_target` | Drive the DUT's reset line from the pod's reset pin. | `action=pulse`, `pulse_s=0.1` |
 

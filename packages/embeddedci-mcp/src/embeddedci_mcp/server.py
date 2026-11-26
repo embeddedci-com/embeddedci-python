@@ -747,9 +747,18 @@ async def delete_wiring(
 
 # -- power ----------------------------------------------------------------------------
 
+J1Rail = Annotated[Optional[Literal["3v3", "1v8"]], Field(description=(
+    "Switch a supply pin on J1 of the digital board v4 instead of a target-power rail: 3v3 = pin 17 "
+    "(+3.3 V, about 1.45 A limit), 1v8 = pin 18 (+1.8 V). Both are on from boot and independent of "
+    "the efuse rails and of resets. power_status says whether the board has them (j1_rails)."))]
+
+
 def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
-                  wiring_profile: Optional[str] = None) -> m.PowerResult:
+                  wiring_profile: Optional[str] = None, j1_rail: Optional[str] = None) -> m.PowerResult:
     pod = SESSION.require()
+    if j1_rail is not None:
+        pod.j1_power(j1_rail, on=on)
+        return m.PowerResult(j1_rail=j1_rail, on=on)
     if on:
         pod.power_on(efuse, delay=delay, wiring_profile=wiring_profile)
     else:
@@ -768,22 +777,28 @@ async def power_on(
     wiring_profile: Annotated[Optional[str], Field(description=(
         "A stored wiring profile to power the board with (it becomes this connection's profile); "
         "omit to use the current one."))] = None,
+    j1_rail: J1Rail = None,
 ) -> m.PowerResult:
     """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
     (when the pod has none or another one), its pull resistors (pulls; at 1.8 V only on firmware newer than 3.10.12) are set, then the
     rail goes on, and the pod records the profile.
     The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
-    a board that is already powered."""
-    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile))
+    a board that is already powered.
+
+    With j1_rail it switches that J1 supply pin on instead (digital board v4), without touching
+    the profile or the efuse rails."""
+    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile, j1_rail))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))
 async def power_off(
     efuse: WiredEfuse = None,
     delay_s: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
+    j1_rail: J1Rail = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail off. The result says which rail was used."""
-    return await _call(lambda: _switch_power(efuse, False, delay_s))
+    """Switch the target's power rail off. The result says which rail was used. With j1_rail it
+    switches that J1 supply pin off instead (digital board v4)."""
+    return await _call(lambda: _switch_power(efuse, False, delay_s, None, j1_rail))
 
 
 @mcp.tool(annotations=_ann("Profile the target's power"))
@@ -847,7 +862,8 @@ async def power_profile_stop(
 @mcp.tool(annotations=_ann("Power status", read_only=True))
 async def power_status() -> m.PowerStatusResult:
     """Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off and tripped
-    state, bus voltage and current draw."""
+    state, bus voltage and current draw. On the digital board v4 also j1_rails: whether J1 pin 17
+    (+3.3 V) and pin 18 (+1.8 V) are on."""
     def op() -> m.PowerStatusResult:
         pod = SESSION.require()
         ts, ps = pod.target_status(), pod.power_status()
@@ -861,7 +877,9 @@ async def power_status() -> m.PowerStatusResult:
         if ps.pod is not None:
             pod = m.PodPowerResult(monitor_ok=ps.pod.ok, bus_voltage=ps.pod.bus_voltage,
                                    current=ps.pod.current, total_current=ps.total_current)
-        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod)
+        j1 = ts.j1_rails
+        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod,
+                                   j1_rails=m.J1RailsResult(v3v3=j1.v3v3, v1v8=j1.v1v8) if j1 else None)
 
     return await _call(op)
 
