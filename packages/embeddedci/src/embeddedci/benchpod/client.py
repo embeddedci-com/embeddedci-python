@@ -1212,7 +1212,7 @@ class BenchPod:
         :meth:`reset_target` leave them as they are. :attr:`TargetStatus.j1_rails` reports them.
         Older boards have both pins always on: raises :class:`ValueError` there.
         """
-        name = {"3v3": "j1_3v3", "1v8": "j1_1v8"}.get(str(rail).lower().replace(".", ""))
+        name = {"3v3": "j1_3v3", "1v8": "j1_1v8"}.get(str(rail).lower())
         if name is None:
             raise ValueError(f"rail must be '3v3' (J1 pin 17) or '1v8' (J1 pin 18), got {rail!r}")
         if not self.supports("dut_rails"):

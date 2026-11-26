@@ -63,7 +63,7 @@ def test_capability_and_feature():
 def test_j1_power_sends_rail():
     bp, pod = _bp(True)
     bp.j1_power("1v8", on=False)
-    bp.j1_power("3.3", on=False)
+    bp.j1_power("3v3", on=False)
     assert pod.sent == [{"cmd": "target_power", "rail": "j1_1v8", "enabled": False},
                         {"cmd": "target_power", "rail": "j1_3v3", "enabled": False}]
     assert bp.target_status().j1_rails == J1Rails(v3v3=False, v1v8=False)
