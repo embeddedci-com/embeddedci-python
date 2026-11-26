@@ -795,7 +795,7 @@ print(wiring.describe())                        # a pin table: bias resistor and
 | Key | When not set | Meaning |
 |---|---|---|
 | `la_mv` | not set | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
-| `efuse` | not set (pass `efuse=`) | target-power rail: 1 internal 5 V, 2 external |
+| `efuse` | not set (pass `rail=`) | the target-power rail: 1 internal 5 V, 2 external, or on a digital board v4 `"j1_3v3"` / `"j1_1v8"` (J1 pins 17 and 18); every power call that names no rail uses it |
 | `uart_rx`, `uart_tx`, `uart_baud` | not wired, not wired, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
 | `uart_parity`, `uart_stop_bits` | `"none"`, `1` | The UART frame after the 8 data bits (`"even"`, `"odd"`; 2 stop bits). `open_uart`, `capture_uart` and `power_cycle_and_capture` use it when `parity` / `stop_bits` are omitted; anything but 8N1 needs firmware 3.10.8+ |
 | `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
@@ -927,7 +927,20 @@ print(bp.usb_cc().advertised)                 # USB-C orientation + advertised c
 `delay` lets a power change land *during* something else (see `power_cycle_and_capture`). The reset
 controls drive the pod's dedicated reset pin (DUT header J1 pin 22); they and `usb_cc()` need a rev3
 pod (`ResetState.supported`). `TargetStatus.supported` is false on boards that cannot read the eFuse
-state back. An omitted `efuse` is the wiring profile's rail (internal by default).
+state back. An omitted rail is the wiring profile's (internal by default).
+
+**`rail=` names every power output** (`power_on`, `power_off`, `target_power`, `measure_power`,
+`power_profile`, `power_cycle_and_capture`): `"internal"` (eFuse 1), `"external"` (eFuse 2) and, on the
+digital board v4 (hardware fact `dut_rails`, feature `dut_rails`), `"j1_3v3"` and `"j1_1v8"`, the
+switched J1 pins 17 (+3.3 V, about 1.45 A limit) and 18 (+1.8 V). `efuse=` is the old name for 1 and 2;
+passing both is a `ValueError`. The J1 pins are on from boot, independent of the eFuses and of
+resets, and have no current monitor (`measure_power` and `power_profile` on one raise `ValueError`).
+`TargetStatus.j1_rails` is a `J1Rails(v3v3, v1v8)`, `None` on boards where both pins are always on.
+
+```python
+bp.power_off(rail="j1_3v3")
+assert bp.target_status().j1_rails.v3v3 is False
+```
 
 ### Power profiles
 
