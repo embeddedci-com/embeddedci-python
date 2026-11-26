@@ -38,7 +38,7 @@ def _raw() -> Any:
 
 @dataclass(frozen=True)
 class Pin21:
-    """J1 pin 21 on digital v3r4 (:attr:`LaVoltage.pin21`): the rail every pull-up pulls to, and a
+    """J1 pin 21 on digital v4 (:attr:`LaVoltage.pin21`): the rail every pull-up pulls to, and a
     reference the DUT can use. It follows the I/O voltage, or is 5 V in 5 V mode."""
 
     #: ``"bank"`` (follows the I/O bank, 1.8 or 3.3 V) or ``"5v"``.
@@ -73,14 +73,14 @@ class Pin21:
 class LaVoltage:
     """The LA I/O-bank voltage (``BenchPod.set_la_voltage`` / ``get_la_voltage``)."""
 
-    #: Selected I/O voltage in volts (1.8 or 3.3; 5.0 in 5 V I/O on digital v3r4, where the bank
+    #: Selected I/O voltage in volts (1.8 or 3.3; 5.0 in 5 V I/O on digital v4, where the bank
     #: stays at 3.3 V), or ``None`` when none has been chosen yet —
     #: the pod refuses every LA-bank operation until one is.
     voltage: Optional[float]
     #: The measured bank voltage in volts, or ``None`` when the board cannot measure it. In 5 V
     #: mode the bank is at 3.3 V while :attr:`voltage` is 5.0.
     readback: Optional[float] = None
-    #: J1 pin 21 on digital v3r4 (``None`` on other boards).
+    #: J1 pin 21 on digital v4 (``None`` on other boards).
     pin21: Optional["Pin21"] = None
     raw: Dict[str, Any] = _raw()
 
@@ -241,10 +241,10 @@ class PullState:
     available: bool = True
     #: Every direction the channel can pull: ``("up",)``, ``("down",)``, ``("up", "down")`` or ``()``.
     supported: Tuple[str, ...] = ()
-    #: Digital v3r4: the resistors engaged, ``"10k"``, ``"2.2k"`` or ``"both"`` (about 1.8k;
+    #: Digital v4: the resistors engaged, ``"10k"``, ``"2.2k"`` or ``"both"`` (about 1.8k;
     #: ``"none"`` when off). The pod picks them from the pin's function. ``None`` on other boards.
     strength: Optional[str] = None
-    #: Digital v3r4: why a pull the host set is off right now, else ``None``. ``"pin21_down"``
+    #: Digital v4: why a pull the host set is off right now, else ``None``. ``"pin21_down"``
     #: (pin 21 is down: every pull off), ``"dut_off"`` (pull-ups suspended after the pod switched the
     #: DUT off), ``"fault"`` (an expander write failed). ``enabled`` is what is on the wire; the pod
     #: puts the pull back by itself.
@@ -446,7 +446,7 @@ class AdcReading:
     #: ``current_in``, and older firmware.
     offset: Optional[float] = None
     #: Loop current in amps on ``current_in``, the 4-20 mA input: ``voltage`` across the pod's
-    #: sense resistor (249 Ω, or 100 Ω from analog module v3r5). ``None`` on every other source and
+    #: sense resistor (249 Ω, or 100 Ω from analog module v4). ``None`` on every other source and
     #: on older firmware.
     current: Optional[float] = None
     #: The ADC input range the reading was taken in (``"normal"`` / ``"low"``) and its full scale
@@ -457,7 +457,7 @@ class AdcReading:
     #: bound. Use the normal range. ``False`` on firmware before 3.9.5.
     overrange: bool = False
     #: On ``current_in``: the resistance ``current`` was computed with, in ohms (firmware 3.10.13+).
-    #: 249.0 on analog modules up to v3r4; from v3r5 the 100 Ω sense resistor in parallel with the
+    #: 249.0 on analog modules up to v3r4; from v4 the 100 Ω sense resistor in parallel with the
     #: ADC input divider, 99.990 in the normal range and 99.995 in the low range. ``None`` on other
     #: sources and older firmware (which is always 249 Ω).
     sense_ohms: Optional[float] = None
@@ -567,7 +567,7 @@ class Calibration:
     #: ``"none"``. ``None`` on older firmware.
     stored: Optional[str] = None
     #: The resistance a ``current_in`` voltage is turned into the loop current with, in ohms, for
-    #: the range in use (firmware 3.10.13+): 249.0 on analog modules up to v3r4, from v3r5 99.990
+    #: the range in use (firmware 3.10.13+): 249.0 on analog modules up to v3r4, from v4 99.990
     #: (normal range) or 99.995 (low range). ``None`` on older firmware, which is always 249 Ω.
     sense_ohms: Optional[float] = None
     raw: Dict[str, Any] = _raw()
@@ -621,8 +621,8 @@ class ModuleInfo:
     cal_ok: bool = False
     #: The digital board and the module use the same flat-cable DAC pinout. ``False``: the DAC is
     #: off and every command that drives it is refused
-    #: (:class:`~embeddedci.benchpod.errors.DacPinoutMismatchError`, ``BP0080``); a digital v3r4 or
-    #: later board needs analog module 3.5 or later. ``None`` when the pod does not report it.
+    #: (:class:`~embeddedci.benchpod.errors.DacPinoutMismatchError`, ``BP0080``); a digital v4 or
+    #: later board needs analog module v4 or later. ``None`` when the pod does not report it.
     dac_pinout_ok: Optional[bool] = None
     raw: Dict[str, Any] = _raw()
 

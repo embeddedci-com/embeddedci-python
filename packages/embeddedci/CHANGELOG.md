@@ -1,5 +1,12 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- Docs and messages: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog
+  module v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x): both mean the
+  v4 board, and the USB-A port check accepts both. The error catalog and feature map follow the
+  firmware change in a later sync.
+
 ## 4.0.6
 
 For BenchPod firmware with features table revision 21 (feature `dac_out_cal1` at revision 20,

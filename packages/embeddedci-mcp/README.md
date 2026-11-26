@@ -141,7 +141,7 @@ transparently, so an idle chat never blocks CI on that pod. `status` shows the p
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
 | `--connection` | `BENCHPOD_CONNECTION` | the CLI's saved connection, else mDNS | host[:port], a pod name (`benchpod-a1b2c3`: mDNS, else USB), serial device, `usb`, `usb:<name>`, `discover`, `saved`, or `embeddedci:<device>`; unset = `benchpod set-connection`'s saved one, else find the one pod on the LAN |
-| `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3; 5.0 on a digital v3r4 pod) applied on connect |
+| `--la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | LA I/O voltage (1.8 or 3.3; 5.0 on a digital v4 pod) applied on connect |
 | `--wiring-autosave` | `BENCHPOD_WIRING_AUTOSAVE` | off | `set_wiring` also stores the profile on the pod (not a change of the I/O voltage, power rail or SWD target: those need `save_wiring`) |
 | — | `BENCHPOD_API_KEY` | — | cloud pods and the waveform library (without it, cloud tools use the `benchpod login` session) |
 | — | `BENCHPOD_API_BASE` | `https://www.embeddedci.com` | another embeddedci server |
@@ -457,7 +457,7 @@ capture tools' summaries, `la_timing` and `decode_la` instead.
   `status` also warns when a cloud job holds the pod or the LAN policy is locked.
   Refusals whose fix the firmware spells as a raw protocol command name the tool instead:
   `FirmwareError: uart_proxy_start: la voltage not set; the wiring profile sets no I/O voltage: ask
-  the user for the board's (1.8 or 3.3, 5.0 on a digital v3r4 pod), set it in the profile (set_wiring with la_mv 1800 or 3300,
+  the user for the board's (1.8 or 3.3, 5.0 on a digital v4 pod), set it in the profile (set_wiring with la_mv 1800 or 3300,
   then save_wiring) or call set_la_voltage` and `PinConflictError: uart_proxy_start: pin conflict: LA4 is in use
   by gpio; release it with gpio_release(la=[4])`. The other pin owners point to `uart_close` and
   `sensor_stop`; a pull conflict to `set_pull(la=[7], pull="off")`.

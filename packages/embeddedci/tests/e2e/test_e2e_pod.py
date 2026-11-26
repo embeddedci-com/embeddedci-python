@@ -435,7 +435,7 @@ def test_current_in_reads_zero_with_j8_open(pod):
     pod.analog_path("off")
     if reading.current is None:
         pytest.skip("this pod's firmware does not report the loop current")
-    # 249 ohm up to analog module v3r4; from v3r5 the pod reports about 100 ohm (firmware 3.10.13+).
+    # 249 ohm up to analog module v3r4; from v4 the pod reports about 100 ohm (firmware 3.10.13+).
     ohms = reading.sense_ohms or 249.0
     assert reading.current == pytest.approx(reading.voltage / ohms, abs=4e-6)
     limit = 30e-6 if pod.capabilities.calibrate and pod.calibration().calibrated else 100e-6

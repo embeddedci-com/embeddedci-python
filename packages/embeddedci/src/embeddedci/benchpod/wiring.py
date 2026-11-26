@@ -433,7 +433,7 @@ class Wiring:
         if self.version != WIRING_VERSION:
             errs.append(f"version must be {WIRING_VERSION}, got {self.version!r}")
         if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300, 5000)):
-            errs.append(f"la_mv must be 1800, 3300 or 5000 (5 V: digital board v3r4; or None: not set), "
+            errs.append(f"la_mv must be 1800, 3300 or 5000 (5 V: digital board v4; or None: not set), "
                         f"got {self.la_mv!r}")
         if self.efuse is not None and (not _is_int(self.efuse) or self.efuse not in (1, 2)):
             errs.append(f"efuse must be 1 (internal) or 2 (external) (or None: not set), got {self.efuse!r}")

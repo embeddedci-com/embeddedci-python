@@ -1591,7 +1591,7 @@
             }
           ],
           "default": null,
-          "description": "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the digital board v3r4).",
+          "description": "Select the LA I/O-bank voltage right after connecting (the DUT's I/O voltage; 5.0 needs the digital board v4).",
           "title": "La Voltage"
         },
         "lease_wait_s": {
@@ -5472,7 +5472,7 @@
             }
           ],
           "default": null,
-          "description": "The DUT's I/O voltage. 5.0 needs a pod with the digital board v3r4 (status capabilities vref_out). Omit it to read the current voltage and pin 21 without changing anything.",
+          "description": "The DUT's I/O voltage. 5.0 needs a pod with the digital board v4 (status capabilities vref_out). Omit it to read the current voltage and pin 21 without changing anything.",
           "title": "La Voltage"
         }
       },
@@ -5503,7 +5503,7 @@
           "type": "array"
         },
         "pull": {
-          "description": "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and strength in the result). A channel pulls only the ways its resistor allows (pull_status: supported): on the digital board v3r4 every channel pulls up or down; on older boards LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023).",
+          "description": "The direction: up, down or off. The pod picks the resistor from the pin's function (ohms and strength in the result). A channel pulls only the ways its resistor allows (pull_status: supported): on the digital board v4 every channel pulls up or down; on older boards LA1-LA6 pull up, LA7/LA8 down, LA9-LA14 have none, and the pod refuses the rest (BP0024, BP0023).",
           "enum": [
             "up",
             "down",
@@ -6824,7 +6824,7 @@
             }
           ],
           "default": null,
-          "description": "usb_a: the USB-A host port (digital v3r4 and later). usb_c: the pod's own USB-C connector through a breakout, on any pod. Omit to let the server pick from the board revision.",
+          "description": "usb_a: the USB-A host port (digital v4 and later). usb_c: the pod's own USB-C connector through a breakout, on any pod. Omit to let the server pick from the board revision.",
           "title": "Port"
         },
         "timeout_s": {

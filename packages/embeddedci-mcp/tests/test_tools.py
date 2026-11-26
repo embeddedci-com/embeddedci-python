@@ -86,7 +86,7 @@ def test_enums_reach_the_schema():
 
     tools = {t.name: t for t in anyio.run(mcp.list_tools)}
     assert tools["analog_path"].inputSchema["properties"]["path"]["enum"][0] == "off"
-    # optional since digital v3r4 (omitted = read); 5.0 is the v3r4 5 V mode
+    # optional since digital v4 (omitted = read); 5.0 is the v4 5 V mode
     assert tools["set_la_voltage"].inputSchema["properties"]["la_voltage"]["anyOf"][0]["enum"] == [1.8, 3.3, 5.0]
 
 

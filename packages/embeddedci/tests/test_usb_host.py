@@ -55,7 +55,7 @@ class FakePod:
     """The pod's usb_host and usb_flash: host mode starts after `start_polls` reads, a flash runs
     for `polls` status calls and then ends with `result`."""
 
-    def __init__(self, *, board_rev: str = "v3r4", dev: Optional[Dict[str, Any]] = None,
+    def __init__(self, *, board_rev: str = "v4", dev: Optional[Dict[str, Any]] = None,
                  start_polls: int = 1, polls: int = 3, result: str = "ok", phase: str = "write",
                  firmware: str = "4.0.3", features_rev: int = 14, usb_a: Optional[bool] = None,
                  enumeration: str = "done", protocol: str = "") -> None:
@@ -214,13 +214,19 @@ def test_old_firmware_gets_a_clear_error(call):
 
 # -- usb_host and its port ----------------------------------------------------------------------
 
-def test_usb_host_picks_usb_a_on_v3r4_and_waits():
-    pod = FakePod(board_rev="v3r4", dev=PICO, start_polls=3)
+def test_usb_host_picks_usb_a_on_v4_and_waits():
+    pod = FakePod(board_rev="v4", dev=PICO, start_polls=3)
     st = make(pod).usb_host(timeout_s=120)
     assert st.hosting and st.port == "usb_a"
     start = [c for c in pod.cmds if c.get("enabled")][0]
     assert start == {"cmd": "usb_host", "enabled": True, "port": "usb_a", "timeout_s": 120}
     assert len([c for c in pod.cmds if c == {"cmd": "usb_host"}]) == 3
+
+
+def test_usb_host_picks_usb_a_on_v3r4_name():
+    # v3r4 = the pre-rename name of v4 (firmware 4.0.x)
+    pod = FakePod(board_rev="v3r4", dev=PICO, usb_a=True)
+    assert make(pod).usb_host().port == "usb_a"
 
 
 def test_usb_host_picks_usb_c_on_older_boards():
