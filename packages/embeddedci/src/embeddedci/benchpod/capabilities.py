@@ -179,7 +179,7 @@ class Capabilities:
     #: hardware fact ``vref_out``. :attr:`LaVoltage.pin21` reports pin 21.
     vref_out: bool = False
     #: J1 pin 17 (+3.3 V) and pin 18 (+1.8 V) are switched (digital board v4+): the hardware fact
-    #: ``dut_rails``. :meth:`BenchPod.j1_power`, :attr:`TargetStatus.j1_rails`.
+    #: ``dut_rails``. :meth:`BenchPod.target_power` (``j1_rail``), :attr:`TargetStatus.j1_rails`.
     dut_rails: bool = False
     #: SPI master on four LA pins and SPI NOR flash programming (gateware >= v45):
     #: :meth:`BenchPod.open_spi`, :meth:`BenchPod.spi_flash`.

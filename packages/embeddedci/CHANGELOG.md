@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **`BenchPod.j1_power("3v3" | "1v8", on=...)`** switches the supply pins on J1 of the digital board
+- **`power_on`, `power_off` and `target_power` take `j1_rail="3v3" | "1v8"`**: they switch the supply pins on J1 of the digital board
   v4 (pin 17 +3.3 V, pin 18 +1.8 V; feature `dut_rails`, hardware fact `dut_rails`). Both are on
   from boot and independent of the eFuses and of resets. `TargetStatus.j1_rails` (`J1Rails`:
   `v3v3`, `v1v8`) reports them, `None` on boards where both pins are always on. Older boards and

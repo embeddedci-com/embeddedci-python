@@ -1,4 +1,4 @@
-"""J1 pins 17 and 18 on the digital board v4 (feature ``dut_rails``): ``j1_power`` sends
+"""J1 pins 17 and 18 on the digital board v4 (feature ``dut_rails``): ``power_on`` / ``power_off`` / ``target_power`` with ``j1_rail`` send
 ``target_power`` with ``rail``, ``target_status`` reports ``j1_rails``, older boards are refused
 before anything is sent."""
 
@@ -60,24 +60,24 @@ def test_capability_and_feature():
     assert not old.capabilities.dut_rails and not old.supports("dut_rails")
 
 
-def test_j1_power_sends_rail():
+def test_j1_rail_sends_rail():
     bp, pod = _bp(True)
-    bp.j1_power("1v8", on=False)
-    bp.j1_power("3v3", on=False)
+    bp.power_off(j1_rail="1v8")
+    bp.target_power(on=False, j1_rail="3v3")
     assert pod.sent == [{"cmd": "target_power", "rail": "j1_1v8", "enabled": False},
                         {"cmd": "target_power", "rail": "j1_3v3", "enabled": False}]
     assert bp.target_status().j1_rails == J1Rails(v3v3=False, v1v8=False)
-    bp.j1_power("3v3", on=True)
+    bp.power_on(j1_rail="3v3")
     assert bp.target_status().j1_rails == J1Rails(v3v3=True, v1v8=False)
 
 
 def test_bad_rail_and_old_boards_send_nothing():
     bp, pod = _bp(True)
-    with pytest.raises(ValueError, match="3v3"):
-        bp.j1_power("5v", on=True)
+    with pytest.raises(ValueError, match="j1_rail"):
+        bp.power_on(j1_rail="5v")
     old, opod = _bp(False)
     with pytest.raises(ValueError, match="no switchable J1"):
-        old.j1_power("3v3", on=True)
+        old.power_on(j1_rail="3v3")
     assert pod.sent == [] and opod.sent == []
     assert old.target_status().j1_rails is None
 
@@ -85,5 +85,5 @@ def test_bad_rail_and_old_boards_send_nothing():
 def test_old_firmware_refused():
     bp, pod = _bp(True, features_rev=21)
     with pytest.raises(ValueError):
-        bp.j1_power("3v3", on=True)
+        bp.power_on(j1_rail="3v3")
     assert pod.sent == []

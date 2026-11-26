@@ -757,7 +757,7 @@ def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
                   wiring_profile: Optional[str] = None, j1_rail: Optional[str] = None) -> m.PowerResult:
     pod = SESSION.require()
     if j1_rail is not None:
-        pod.j1_power(j1_rail, on=on)
+        pod.target_power(on=on, j1_rail=j1_rail)
         return m.PowerResult(j1_rail=j1_rail, on=on)
     if on:
         pod.power_on(efuse, delay=delay, wiring_profile=wiring_profile)

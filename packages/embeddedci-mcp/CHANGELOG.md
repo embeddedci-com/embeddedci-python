@@ -5,7 +5,7 @@
 - `power_on` and `power_off` take `j1_rail` (`3v3` or `1v8`): the supply pins on J1 of the digital
   board v4 (pin 17 +3.3 V, pin 18 +1.8 V; both on from boot, independent of the efuse rails and of
   resets). The result has `j1_rail` (`efuse` is null then), and `power_status` has `j1_rails`
-  (null on boards where both pins are always on). Needs embeddedci with `j1_power`.
+  (null on boards where both pins are always on). Needs embeddedci with `j1_rail`.
 - Tool text: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog module
   v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x).
 

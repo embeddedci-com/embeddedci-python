@@ -1194,27 +1194,30 @@ class BenchPod:
     # -- power --------------------------------------------------------------
 
     def target_power(self, efuse: Optional[Union[Efuse, int]] = None, *,
-                     on: bool, delay: Optional[float] = None) -> None:
+                     on: bool, delay: Optional[float] = None, j1_rail: Optional[str] = None) -> None:
         """Enable or disable a target-power eFuse (omitted: the wiring profile's rail, INTERNAL by
         default).
+
+        ``j1_rail`` (``"3v3"`` or ``"1v8"``) switches a supply pin on J1 of the digital board v4
+        instead (feature ``dut_rails``): pin 17 is +3.3 V (current limited to about 1.45 A), pin 18
+        +1.8 V. Both are on from boot and independent of the eFuses and of resets;
+        :attr:`TargetStatus.j1_rails` reports them. Older boards have both always on: raises
+        :class:`ValueError` there.
 
         ``delay`` (seconds) schedules the change pod-side and returns immediately — handy to
         power on *during* a UART capture.
         """
+        if j1_rail is not None:
+            self._j1_power(j1_rail, on)
+            return
         self._transport.target_power(self._efuse(efuse), bool(on), _seconds_to_ms(delay, "delay"))
 
-    def j1_power(self, rail: str, *, on: bool) -> None:
-        """Switch a supply pin on J1 of the digital board v4 (feature ``dut_rails``): ``"3v3"``
-        is pin 17 (+3.3 V, current limited to about 1.45 A) and ``"1v8"`` pin 18 (+1.8 V).
+    _J1_RAILS = {"3v3": "j1_3v3", "1v8": "j1_1v8"}
 
-        Both are on from boot, so a DUT powered from J1 works as on older boards, and they are
-        independent of the target-power eFuses and of resets: :meth:`power_off` and
-        :meth:`reset_target` leave them as they are. :attr:`TargetStatus.j1_rails` reports them.
-        Older boards have both pins always on: raises :class:`ValueError` there.
-        """
-        name = {"3v3": "j1_3v3", "1v8": "j1_1v8"}.get(str(rail).lower())
+    def _j1_power(self, rail: str, on: bool) -> None:
+        name = self._J1_RAILS.get(str(rail).lower())
         if name is None:
-            raise ValueError(f"rail must be '3v3' (J1 pin 17) or '1v8' (J1 pin 18), got {rail!r}")
+            raise ValueError(f"j1_rail must be '3v3' (J1 pin 17) or '1v8' (J1 pin 18), got {rail!r}")
         if not self.supports("dut_rails"):
             raise ValueError("this BenchPod has no switchable J1 supplies (digital board v4 with "
                              "firmware that has feature dut_rails): pins 17 and 18 are always on")
@@ -1222,8 +1225,12 @@ class BenchPod:
             self.command({"cmd": "target_power", "rail": name, "enabled": bool(on)})
 
     def power_on(self, efuse: Optional[Union[Efuse, int]] = None,
-                 *, delay: Optional[float] = None, wiring_profile: Optional[str] = None) -> None:
+                 *, delay: Optional[float] = None, wiring_profile: Optional[str] = None,
+                 j1_rail: Optional[str] = None) -> None:
         """Power the target on with its wiring profile applied first.
+
+        ``j1_rail`` (``"3v3"`` or ``"1v8"``) switches that J1 supply pin on instead, without the
+        profile or the eFuse rails (:meth:`target_power`).
 
         In order: ``wiring_profile`` (a profile stored on the pod) becomes this connection's
         profile (:meth:`load_wiring`); the profile's I/O voltage is set when the pod has none or
@@ -1233,6 +1240,9 @@ class BenchPod:
         changed under a board that is already powered: that raises, set it with
         :meth:`set_la_voltage` yourself if you mean it.
         """
+        if j1_rail is not None:
+            self._j1_power(j1_rail, True)
+            return
         if wiring_profile:
             self.load_wiring(wiring_profile)
         w = self.wiring
@@ -1282,9 +1292,9 @@ class BenchPod:
             return False
 
     def power_off(self, efuse: Optional[Union[Efuse, int]] = None,
-                  *, delay: Optional[float] = None) -> None:
-        """Power the target off."""
-        self.target_power(efuse, on=False, delay=delay)
+                  *, delay: Optional[float] = None, j1_rail: Optional[str] = None) -> None:
+        """Power the target off (``j1_rail``: switch that J1 supply pin off instead)."""
+        self.target_power(efuse, on=False, delay=delay, j1_rail=j1_rail)
 
     def target_status(self) -> TargetStatus:
         """Both eFuse rails: enabled, tripped (``fault``), and whether the state was readable.
