@@ -1,6 +1,6 @@
 # Changelog — `embeddedci`
 
-## Unreleased
+## 4.0.7
 
 - **`supply=` names every power output**, one word for what the DUT gets, on `power_on`, `power_off`,
   `target_power` (first positional argument), `measure_power`, `power_profile` and
