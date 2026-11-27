@@ -26,7 +26,8 @@ class Pod:
     ``drop`` closes the connection, ``timeout`` never answers, ``refuse`` is BP0093.
     After the send the pod stays down for ``down_pings`` pings, then answers again."""
 
-    def __init__(self, after_send: str = "reply", down_pings: int = 0) -> None:
+    def __init__(self, after_send: str = "reply", down_pings: int = 0, features_rev: int = 23) -> None:
+        self.features_rev = features_rev
         self.after_send = after_send
         self.down_pings = down_pings
         self.sent: List[Dict[str, Any]] = []
@@ -36,7 +37,7 @@ class Pod:
 
     def status(self) -> Dict[str, Any]:
         return {"board": "stm32h563", "adc_bits": 16, "version": "4.0.8", "la_voltage": 3.3,
-                "features_rev": 22, "gateware": 68, "fpga_image": "deep", "hw": ["nrst_pin"],
+                "features_rev": self.features_rev, "gateware": 68, "fpga_image": "deep", "hw": ["nrst_pin"],
                 "uptime_s": self.uptime}
 
     def ping(self) -> Any:
@@ -78,6 +79,15 @@ def no_sleep(monkeypatch):
 def _pod(**kw):
     pod = Pod(**kw)
     return BenchPod(transport=pod, lease=False, wiring={"version": 2}), pod
+
+
+def test_old_firmware_is_a_clean_unsupported_error() -> None:
+    from embeddedci.benchpod import UnsupportedFeatureError
+
+    bp, pod = _pod(features_rev=22)
+    with pytest.raises(UnsupportedFeatureError, match="reboot"):
+        bp.reboot()
+    assert pod.sent == []
 
 
 def test_modes() -> None:

@@ -1853,6 +1853,7 @@ class BenchPod:
         DAC, sensors and open sessions are gone. The wiring profile's pin directions and I/O
         voltage are sent again; set anything else again. The USB console connection
         (``connection="/dev/cu.usb..."``) has no ``reboot`` command: use ``"usb"`` or the network.
+        Firmware without ``reboot`` (feature ``reboot``) raises :class:`UnsupportedFeatureError`.
         """
         name = str(mode).strip().lower() if isinstance(mode, str) else ""
         if name not in REBOOT_MODES:
@@ -1862,6 +1863,8 @@ class BenchPod:
         # The pod must answer first: a dropped connection after the send is only a success
         # when the send reached it (an unreachable pod stays an error).
         self.ping()
+        if type(self._transport).__name__ != "SerialTransport":   # the console says what it lacks itself
+            self._require_capability("reboot", "reboot")
         self._yield_expansion_bus()
         sent_at = time.monotonic()
         try:
