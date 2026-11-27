@@ -218,8 +218,9 @@ class ExpansionStatus:
     pins: Tuple[ExtPinState, ...] = ()
     #: Things worth knowing (a quasi-bidirectional chip's weak high, levels that were not read).
     notes: Tuple[str, ...] = ()
-    #: The attached INA current monitors (:class:`~embeddedci.benchpod.current_monitor.MonitorStatus`).
-    monitors: Tuple[Any, ...] = ()
+    #: The attached INA current monitors by name
+    #: (:class:`~embeddedci.benchpod.current_monitor.MonitorStatus`).
+    monitors: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def names(self) -> List[str]:

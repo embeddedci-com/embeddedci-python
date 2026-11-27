@@ -114,7 +114,7 @@ def test_conf_connection_timeout_and_la_voltage_reach_benchpod(monkeypatch):
 def test_wiring_reaches_benchpod_as_a_dict_and_as_a_file(tmp_path):
     tx = FakeTransport()
     plug = benchpod_plug(transport=tx, wiring={"uart_rx": 7, "uart_tx": 8, "efuse": 2})()
-    assert plug.wiring.uart_rx == 7 and plug.wiring.efuse == 2
+    assert plug.wiring.uart_rx == 7 and plug.wiring.supply == "external"
     assert plug.wiring.la("uart_tx") == 8
 
     path = tmp_path / "bench.json"

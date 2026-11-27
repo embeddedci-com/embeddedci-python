@@ -45,7 +45,7 @@ bench = benchpod_plug("192.168.1.50", la_voltage=3.3)
 def power_up(test, bench):
     bench.power_on()                                  # methods proxy to the BenchPod SDK client
     status = bench.pod.target_status()                # or reach the full client via .pod
-    test.logger.info("eFuse tripped: %s", status.efuse(1).fault)
+    test.logger.info("eFuse tripped: %s", status.supplies["5v"].fault)
 ```
 
 Connection forms (all **direct**, never cloud):
@@ -71,7 +71,7 @@ on which LA channel. Pass it to the plug — a dict, a path to a `.json` / `.tom
 bench = benchpod_plug("192.168.1.50", la_voltage=3.3, wiring="bench.json")
 ```
 
-Every channel, baud, power rail and SWD argument a helper or phase leaves out then comes from the
+Every channel, baud, power supply and SWD argument a helper or phase leaves out then comes from the
 profile, and its names work wherever a channel number does:
 
 ```python
@@ -155,7 +155,7 @@ bench = benchpod_plug("/dev/ttyACM0", la_voltage=3.3)
 def boot_and_rail(test, bench):
     cap = bench.power_cycle_and_capture(rx=1, tx=2, delay=1.0, duration=5.0, until="APP_OK")
     record_uart(test, cap, name="boot_ok")
-    test.measurements.rail_v = bench.power_status().rail(1).bus_voltage   # volts
+    test.measurements.rail_v = bench.power_status().supplies["5v"].bus_voltage   # volts
 ```
 
 `flash_ok_measurement(name="flash_ok")` and `uart_matched_measurement(name="boot_ok")` are the
@@ -270,7 +270,7 @@ test = htf.Test(
 
 ### Power profiles
 
-`measure_power_phase` profiles a target-power rail while the DUT does something, and records what
+`measure_power_phase` profiles a target-power supply while the DUT does something, and records what
 it drew — the "does this firmware meet its sleep budget?" measurement. Every sample is timestamped
 and the integrals run over those timestamps, so energy and charge are integrated rather than
 estimated. `rate_hz` is 100-500 (default 500); the pod delivers what you ask to ~200 Hz and flattens

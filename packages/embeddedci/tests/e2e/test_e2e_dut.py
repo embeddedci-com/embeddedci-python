@@ -29,10 +29,10 @@ def flashed(pod, bench, pytestconfig):
     if not firmware:
         pytest.skip("pass --benchpod-firmware=<scenario-sensors.elf> to run the DUT tier")
     result = pod.flash(file=firmware, target=bench.target_cfg, swclk=bench.swclk, swdio=bench.swdio,
-                       nreset=bench.nreset, target_power=bench.efuse, check=False)
+                       nreset=bench.nreset, target_power=bench.supply, check=False)
     yield result
     try:
-        pod.power_off(bench.efuse)
+        pod.power_off(bench.supply)
     except Exception:
         pass
 
@@ -42,10 +42,10 @@ def dut(flashed, pod, bench):
     """The pod with a successfully flashed, powered-off DUT."""
     if not flashed.ok:
         pytest.skip("flashing failed (see test_flash)")
-    pod.power_off(bench.efuse)
+    pod.power_off(bench.supply)
     time.sleep(0.5)
     yield pod
-    pod.power_off(bench.efuse)
+    pod.power_off(bench.supply)
 
 
 def test_flash(flashed):
@@ -53,26 +53,26 @@ def test_flash(flashed):
 
 
 def test_power_cycle_captures_the_boot_banner(dut, bench):
-    boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, efuse=bench.efuse,
+    boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, supply=bench.supply,
                                        delay=0.5, duration=BOOT_TIMEOUT, until=APP_OK)
     assert boot.matched, f"no APP_OK within {BOOT_TIMEOUT}s:\n{boot.text[-2000:]}"
     assert "SCENARIO:" in boot.text
 
 
 def test_power_monitor_and_efuse_see_the_dut(dut, bench):
-    dut.power_on(bench.efuse)
+    dut.power_on(bench.supply)
     time.sleep(1.0)
-    rail = dut.power_status().rail(bench.efuse)
+    rail = dut.power_status().supply(bench.supply)
     assert 4.5 < rail.bus_voltage < 5.5 and rail.current > 0.01, rail
-    assert dut.target_status().efuse(bench.efuse).enabled
-    dut.power_off(bench.efuse)
+    assert dut.target_status().supply(bench.supply).enabled
+    dut.power_off(bench.supply)
     time.sleep(0.5)
-    assert dut.power_status().rail(bench.efuse).current < 0.005
+    assert dut.power_status().supply(bench.supply).current < 0.005
 
 
 def test_interactive_console(dut, bench):
     with dut.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
-        dut.power_on(bench.efuse)                       # immediate: the session is already buffering
+        dut.power_on(bench.supply)                       # immediate: the session is already buffering
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
         uart.expect("> ", timeout=5)
         uart.write("help\r")
@@ -97,18 +97,18 @@ def reset_wired(dut, bench):
 
 def test_reset_pin_reboots_the_dut_without_a_power_cycle(reset_wired, bench):
     with reset_wired.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
-        reset_wired.power_on(bench.efuse)
+        reset_wired.power_on(bench.supply)
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
         reset_wired.reset_target(pulse=0.05)
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
         # the rail stayed up the whole time: this was a reset, not a power cycle
-        assert reset_wired.target_status().efuse(bench.efuse).enabled
+        assert reset_wired.target_status().supply(bench.supply).enabled
 
 
 def test_held_reset_keeps_the_dut_quiet_until_released(reset_wired, bench):
     reset_wired.set_reset(True)
     with reset_wired.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
-        reset_wired.power_on(bench.efuse)
+        reset_wired.power_on(bench.supply)
         assert uart.read_until(APP_OK, timeout=4.0) is None, "the DUT booted while held in reset"
         reset_wired.set_reset(False)
         uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
@@ -118,7 +118,7 @@ def test_firmware_detects_the_emulated_bmp280(dut, bench):
     dut.enable_pullup(bench.i2c_sda, bench.i2c_scl)
     sensor = _bmp280(dut, bench, temperature_c=22.5, pressure_pa=101_000)
     try:
-        boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, efuse=bench.efuse,
+        boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, supply=bench.supply,
                                            delay=0.5, duration=BOOT_TIMEOUT, until=APP_OK)
         assert "chip id match=0x58" in boot.text, boot.text[-2000:]
         assert sensor.status()["running"]
@@ -142,7 +142,7 @@ def test_firmware_reads_back_the_value_we_injected(dut, bench):
     sensor = _bmp280(dut, bench, temperature_c=injected, pressure_pa=pressure)
     try:
         with dut.open_uart(rx=bench.uart_rx, tx=bench.uart_tx) as uart:
-            dut.power_on(bench.efuse)
+            dut.power_on(bench.supply)
             uart.expect(APP_OK, timeout=BOOT_TIMEOUT)
             uart.expect("> ", timeout=5)
 
@@ -157,7 +157,7 @@ def test_firmware_reads_back_the_value_we_injected(dut, bench):
                 f"changed to {changed} C, the DUT reported {second} C"
             assert abs(second - first) > 5.0, "the reading did not follow the emulated sensor"
     finally:
-        dut.power_off(bench.efuse)
+        dut.power_off(bench.supply)
         sensor.stop()
         dut.disable_pullup(bench.i2c_sda, bench.i2c_scl)
 
@@ -193,18 +193,18 @@ def test_sensor_capture_sees_the_boot_probe(dut, bench):
         if dut.supports("sensor_la_trigger"):
             # The capture waits for the bus's next START, so one call made well before the boot
             # burst catches its start, the BMP280 probe, with no timing.
-            dut.power_off(bench.efuse)
+            dut.power_off(bench.supply)
             time.sleep(0.5)
-            dut.power_on(bench.efuse)
+            dut.power_on(bench.supply)
             time.sleep(1.0)
             txns = sensor.i2c_transactions(4096, timeout_s=5.0)
             assert i2c.addressed(txns, 0x76), i2c.format_transactions(txns)
             return
         lead, misses = BMP280_PROBE_AT, []
         for _ in range(3):
-            dut.power_off(bench.efuse)
+            dut.power_off(bench.supply)
             time.sleep(0.5)
-            dut.power_on(bench.efuse)
+            dut.power_on(bench.supply)
             time.sleep(lead)
             txns = sensor.i2c_transactions(4096, wait_for_traffic=False)
             if i2c.addressed(txns, 0x76):
@@ -219,7 +219,7 @@ def test_sensor_capture_sees_the_boot_probe(dut, bench):
 
 
 def test_firmware_reports_a_missing_sensor(dut, bench):
-    boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, efuse=bench.efuse,
+    boot = dut.power_cycle_and_capture(rx=bench.uart_rx, tx=bench.uart_tx, supply=bench.supply,
                                        delay=0.5, duration=BOOT_TIMEOUT, until=APP_OK)
     assert "BMP280 init FAILED" in boot.text, boot.text[-2000:]
 
@@ -233,12 +233,12 @@ def boot_capture(flashed, pod, bench):
     pod.enable_pullup(bench.i2c_sda, bench.i2c_scl)
     sensor = _bmp280(pod, bench)
     try:
-        pod.power_off(bench.efuse)
+        pod.power_off(bench.supply)
         time.sleep(1.5)
-        pod.power_on(bench.efuse, delay=0.1)    # pod-side delay, so the capture below is armed first
+        pod.power_on(bench.supply, delay=0.1)    # pod-side delay, so the capture below is armed first
         la = pod.capture_la(4_000_000, sample_rate_hz=1_000_000)  # the NUCLEO boots ~2.4 s in
     finally:
-        pod.power_off(bench.efuse)
+        pod.power_off(bench.supply)
         sensor.stop()
         pod.disable_pullup(bench.i2c_sda, bench.i2c_scl)
     return la
@@ -293,8 +293,8 @@ def power_pod(dut):
 
 
 def test_power_profile_of_a_boot(power_pod, bench):
-    with power_pod.power_profile(efuse=bench.efuse, keep_samples=1000, max_duration=10.0) as session:
-        power_pod.power_on(bench.efuse)
+    with power_pod.power_profile(supply=bench.supply, keep_samples=1000, max_duration=10.0) as session:
+        power_pod.power_on(bench.supply)
         time.sleep(3.0)
     prof = session.result
     assert 4.5 < prof.avg_voltage < 5.5 and 0.01 < prof.avg_current < 1.0, prof
@@ -310,15 +310,15 @@ def test_power_profile_of_a_boot(power_pod, bench):
 
 
 def test_power_profile_sees_the_delayed_power_on(power_pod, bench):
-    power_pod.power_on(bench.efuse, delay=0.5)            # pod-side timer: lands inside the profile
-    prof = power_pod.measure_power(2.0, efuse=bench.efuse, keep_samples=2000)
+    power_pod.power_on(bench.supply, delay=0.5)            # pod-side timer: lands inside the profile
+    prof = power_pod.measure_power(2.0, supply=bench.supply, keep_samples=2000)
     first_on = next((t for t, amps, _ in prof.samples if amps > 0.005), None)
     assert first_on is not None and 0.3 < first_on < 0.9, first_on
     assert prof.peak_current > prof.min_current + 0.005
 
 
 def test_power_profile_of_an_unpowered_rail(power_pod, bench):
-    power_pod.power_off(bench.efuse)
+    power_pod.power_off(bench.supply)
     time.sleep(0.5)
-    prof = power_pod.measure_power(0.5, efuse=bench.efuse)
+    prof = power_pod.measure_power(0.5, supply=bench.supply)
     assert prof.avg_current < 0.005 and prof.energy < 0.01

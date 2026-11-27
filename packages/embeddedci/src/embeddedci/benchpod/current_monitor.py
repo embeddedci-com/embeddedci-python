@@ -5,9 +5,9 @@ between the pod's target-power output and the DUT and an INA breakout across it.
 attached like a GPIO expander and read through the power calls::
 
     bp.expansion("ina226", addr=0x40, sda=13, scl=14, shunt_ohm=10.0)   # 0.25 µA steps; probes the chip
-    prof = bp.measure_power(2.0, monitor="ext")      # a PowerProfile: avg, min, peak, charge, energy
+    prof = bp.measure_power(2.0, monitor="dut")      # a PowerProfile: avg, min, peak, charge, energy
     print(bp.power_status().monitors)                # live bus voltage and current of each monitor
-    with bp.power_profile(monitor="ext") as p:       # around a block of code
+    with bp.power_profile(monitor="dut") as p:       # around a block of code
         run_test()
 
 The host SDK drives the chip through the pod's I2C master on two LA pins, so several monitors at
@@ -457,10 +457,10 @@ class MonitorProfileSession:
         return self
 
     def status(self) -> Dict[str, Any]:
-        """``{"running", "efuse", "elapsed_ms", "n"}``; ``efuse`` is 0 for an external monitor."""
+        """``{"running", "monitor", "elapsed_ms", "n"}``; ``monitor`` is the monitor's name."""
         n = len(self._pairs)
         t = self._pairs[-1][0] if n else 0.0
-        return {"running": bool(self._thread and self._thread.is_alive()), "efuse": 0,
+        return {"running": bool(self._thread and self._thread.is_alive()), "monitor": self._mon.name,
                 "elapsed_ms": int(t * 1000), "n": n}
 
     def stop(self) -> PowerProfile:
@@ -476,7 +476,7 @@ class MonitorProfileSession:
                 self._pairs.append((0.0, self._mon.read()))
             self._result = PowerProfile.from_readings(
                 self._pairs, adc_rate_hz=1.0 / self._mon.cycle, keep_samples=self._keep,
-                truncated=self._truncated)
+                truncated=self._truncated, monitor=self._mon.name)
         return self._result
 
     @property

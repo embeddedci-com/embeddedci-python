@@ -101,7 +101,7 @@ def test_full_flash_flow_ok(fake_openocd):
         result = device.flash(
             file="fw.elf", target="target/stm32f1x.cfg",
             swclk=bp.PIN1, swdio=bp.PIN2, nreset=True,
-            target_power=bp.INTERNAL, openocd_bin=fake_openocd, timeout=10,
+            target_power="5v", openocd_bin=fake_openocd, timeout=10,
         )
         assert result.ok
         # target was powered first, and openocd's bytes reached the pod.

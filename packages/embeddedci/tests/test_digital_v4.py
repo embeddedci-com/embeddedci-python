@@ -1,5 +1,5 @@
 """Digital board v4 (firmware board_caps.h): 5 V I/O and pin 21 (``set_la_voltage(5.0)``,
-:attr:`LaVoltage.pin21`), and pulls with a direction and a strength on every channel. A pod
+:attr:`LaVoltage.vref_out`), and pulls with a direction and a strength on every channel. A pod
 without the ``vref_out`` fact behaves as before: 5.0 is refused before anything is sent."""
 
 from __future__ import annotations
@@ -119,8 +119,8 @@ def test_5v_on_v4():
     st = bp.set_la_voltage(5.0)
     assert pod.sent[-1] == {"cmd": "la_voltage", "mv": 5000}
     assert st.voltage == 5.0 and st.readback == 3.3
-    assert st.pin21 is not None and st.pin21.source == "5v" and st.pin21.ok
-    assert st.pin21.measured == pytest.approx(4.92) and st.pin21.setting == 5.0
+    assert st.vref_out is not None and st.vref_out.source == "5v" and st.vref_out.ok
+    assert st.vref_out.measured == pytest.approx(4.92) and st.vref_out.setting == 5.0
 
 
 def test_5v_refused_before_sending_on_older_boards():
@@ -130,7 +130,7 @@ def test_5v_refused_before_sending_on_older_boards():
     assert not [r for r in pod.sent if r["cmd"] == "la_voltage"]
     # 3.3 V is as before, and there is no pin 21 in the reply
     st = bp.set_la_voltage(3.3)
-    assert st.voltage == 3.3 and st.pin21 is None
+    assert st.voltage == 3.3 and st.vref_out is None
 
 
 def test_5v_that_did_not_come_up():

@@ -245,6 +245,7 @@ def flash(
     file: str = "",
     load_address: str = "",
     target_power: Optional[int] = None,
+    powered: bool = False,
     verify: bool = True,
     reset: bool = True,
     connect_under_reset: Optional[bool] = None,
@@ -262,7 +263,7 @@ def flash(
     (``transport select jtag``); the SWD pins may be given too. The caller chooses the port
     (:func:`select_port`).
     ``target_power`` of 1/2 enables that eFuse first; ``None`` leaves power
-    untouched.
+    untouched. ``powered`` says the caller already powered the target (a switched supply).
 
     ``nreset`` says whether the target's reset line is wired to the pod's reset
     pin (DUT header J1 pin 22). It is a flag, not a channel: pods have driven
@@ -322,7 +323,7 @@ def flash(
             swclk, swdio, packet_size=_DAP_MAX_PACKET, packet_count=_DAP_PACKET_COUNT, **pins,
             # Every attempt, not just the first: a retry after a target that answered too early
             # (a NUCLEO's ST-LINK still holding it) must wait for it to settle as well.
-            wait_ms=TARGET_ANSWER_WAIT_MS if target_power is not None else None)
+            wait_ms=TARGET_ANSWER_WAIT_MS if (target_power is not None or powered) else None)
         try:
             result = _run_bridge(bin_path, args, pod_link, timeout=timeout, transport=port)
         finally:

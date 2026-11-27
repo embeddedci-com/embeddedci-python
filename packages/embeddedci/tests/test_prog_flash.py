@@ -472,7 +472,7 @@ def test_flash_dry_run_only_reads_the_chip(tmp_path):
 def test_flash_power_on_first(tmp_path):
     pod = FakePod()
     bp = make_pod(pod)
-    bp.flash(target="avr-updi", file=app_hex(tmp_path), target_power=1)
+    bp.flash(target="avr-updi", file=app_hex(tmp_path), target_power="5v")
     assert bp._transport.powered == [(1, True)]
 
 

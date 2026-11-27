@@ -57,7 +57,7 @@ below is what that fixture uses — edit it to match your board.
 | UART RX (pod → DUT drives) | LA4 | `wiring.uart_tx` |
 | I2C SDA (needs a pull-up) | LA2 (4.7k pull-up) | `wiring.i2c_sda` |
 | I2C SCL (needs a pull-up) | LA1 (4.7k pull-up) | `wiring.i2c_scl` |
-| Target 5V power | eFuse 1 = internal, 2 = external | `--benchpod-efuse` |
+| Target power | the `5v` supply (or `external`, `3v3`, `1v8`) | `--benchpod-supply` |
 
 Bias resistors on the LA channels:
 

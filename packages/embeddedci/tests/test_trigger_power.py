@@ -125,7 +125,7 @@ STATS = {"efuse": 1, "sample_rate_hz": 364.0, "adc_sample_rate_hz": 950.0, "n": 
 
 
 def test_measure_power_request_and_units():
-    bp, pod = _bp(wiring=Wiring.preset().with_changes(efuse=2))
+    bp, pod = _bp(wiring=Wiring.preset().with_changes(supply="external"))
     pod.chunks["power_profile"] = [
         {"status": "ok", "t_us": [0, 500000], "current_ua": [50000, 54000], "bus_mv": [5010, 5000],
          "more": True},

@@ -2,17 +2,31 @@
 
 ## Unreleased
 
-- **`rail=` names every power output** on `power_on`, `power_off`, `target_power`, `measure_power`,
-  `power_profile` and `power_cycle_and_capture`: `"internal"` (eFuse 1, 5 V), `"external"` (eFuse 2),
-  and on the digital board v4 `"j1_3v3"` / `"j1_1v8"` (the switched J1 pins 17 and 18; feature
-  `dut_rails`). `efuse=` stays as the old name for 1 and 2 (passing both is a `ValueError`).
-  The wiring profile's rail (`Wiring.efuse`, key `efuse`) may be 1, 2, `"j1_3v3"` or `"j1_1v8"`, and
-  every call that names no rail follows it, so a DUT on J1 is power-cycled like any other
-  (`"internal"` / `"external"` also load as 1 / 2). The J1 pins are on from boot and independent of
-  the eFuses and of resets; `TargetStatus.j1_rails` (`J1Rails`: `v3v3`, `v1v8`) reports them, `None`
-  on boards where both are always on. They have no current monitor: `measure_power` and
-  `power_profile` on one raise `ValueError`. Older boards and firmware are refused before anything is
-  sent. Needs the firmware change `dut_rails` (features table revision 22).
+- **`supply=` names every power output**, one word for what the DUT gets, on `power_on`, `power_off`,
+  `target_power` (first positional argument), `measure_power`, `power_profile` and
+  `power_cycle_and_capture`: `"5v"` (the pod's 5 V through eFuse 1), `"external"` (your own supply
+  through eFuse 2) and, on BenchPod v4, `"3v3"` and `"1v8"` (the switched 3.3 V and 1.8 V outputs, J1
+  pins 17 and 18; feature and hardware fact `supply_3v3_1v8`, features table revision 22). Any other
+  string is a `ValueError` listing the four. Omitted: the wiring profile's supply. The switched
+  supplies are on from boot and independent of the eFuses and of resets; they have no current monitor
+  (`measure_power` and `power_profile` on one raise `ValueError`). Older boards and firmware are
+  refused before anything is sent.
+- **Old names stay as deprecated aliases.** The ints 1 and 2, the `Efuse` enum and `"internal"` are
+  accepted as supplies. `efuse=` on those calls warns (`DeprecationWarning`); `supply=` with `efuse=`
+  is a `ValueError`. `TargetStatus.supplies` is a dict by name (`SupplyState`; `"3v3"` and `"1v8"`
+  only on v4) with `supply(name)`; `TargetStatus.internal` / `.external` / `.efuse(n)` are deprecated
+  properties. `PowerStatus.supplies` (`SupplyPower`, `"5v"` and `"external"`) likewise, with
+  `.internal` / `.external` / `.rail(n)` deprecated; `monitors` is a dict of `SupplyPower` by monitor
+  name. `EfuseState` and `RailPower` stay importable as aliases of `SupplyState` and `SupplyPower`.
+  `Capabilities.supply_3v3_1v8` is the new hardware flag.
+- **`Wiring.supply`** (`"5v"`, `"external"`, `"3v3"`, `"1v8"` or `None`) replaces `Wiring.efuse`,
+  which stays as a deprecated property (`1`, `2`, or `None`) and as a deprecated constructor /
+  `with_changes` keyword. A profile is written with `"supply"` and, for `"5v"` and `"external"`, also
+  the old `"efuse": 1 | 2`; it is read from either key (both must agree). `PowerProfile.supply` and
+  `PowerProfile.monitor` (exactly one is set) replace `PowerProfile.efuse`, now a deprecated property.
+- **`LaVoltage.vref_out`** (class `VrefOut`) replaces `LaVoltage.pin21` (`Pin21`): the I/O reference
+  (VREF OUT, J1 pin 21). `pin21` and `Pin21` stay as deprecated aliases.
+- New pytest option `--benchpod-supply` (`--benchpod-efuse` still works).
 - Docs and messages: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog
   module v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x): both mean the
   v4 board, and the USB-A port check accepts both. The error catalog and feature map follow the
@@ -23,8 +37,11 @@
   `monitors` list (`Wiring.monitors`, `MonitorSpec`: `chip`, `addr`, `shunt_ohm`, and optionally `name`,
   `channel`, `sda`, `scl`, `averaging`, `conversion_time`, `max_current`), validated when the profile is
   built. Connecting attaches the profile's monitors (`BenchPod.monitors_status`), and
-  `measure_power(duration, monitor="ext")`, `power_profile(monitor=...)`, `power_status().monitors`
-  and `expansion().monitors` read them. `monitor=` with `efuse=` is a `ValueError`.
+  `measure_power(duration, monitor="<name>")`, `power_profile(monitor=...)`, `power_status().monitors`
+  and `expansion().monitors` (dicts by monitor name) read them. A monitor is selected by name
+  (`name=`, else `"<chip>@0x<addr>"`) or with `monitor=True` when exactly one is attached (a
+  `ValueError` listing the names when there are none or several). `monitor=` with `supply=` or
+  `efuse=` is a `ValueError`.
   `save_wiring()` stores the monitors that are attached.
 - `expansion()` attaches an INA chip by hand (INA226, INA228, INA238, INA219, INA260, INA3221: new
   `kind="current"` entries of `EXPANSION_CHIPS`; new arguments `shunt_ohm`, `channel`, `averaging`,

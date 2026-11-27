@@ -112,7 +112,7 @@ def test_loop_replies_are_code16():
 
 def test_power_profile_sample_rate_hz():
     bp, pod = _bp()
-    req = bp._power_request(1, 400.0, 0)
+    req = bp._power_request("5v", None, 400.0, 0)
     assert req["cmd"] == "power_profile" and req["sample_rate_hz"] == 400 and "rate_hz" not in req
 
 
@@ -142,7 +142,7 @@ def test_booleans():
     pod.replies["target_status"] = {"efuse1": {"enabled": True, "fault": False, "valid": True},
                                     "efuse2": {"enabled": False, "fault": True, "valid": True}}
     st = bp.target_status()
-    assert st.internal.enabled and not st.internal.fault and st.external.fault
+    assert st.supplies["5v"].enabled and not st.supplies["5v"].fault and st.supplies["external"].fault
 
 
 def test_target_power_over_tcp_sends_enabled():

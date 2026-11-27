@@ -81,6 +81,6 @@ def test_pod_answers_after_the_refusals(digital):
         with pytest.raises(UnsupportedFeatureError):
             call()
     assert digital.status().get("board")
-    assert digital.power_status().internal.ok
+    assert digital.power_status().supplies["5v"].ok
     la = digital.capture_la(8192, sample_rate_hz=1_000_000)
     assert len(la) == 8192 and la.sample_rate_hz == pytest.approx(1e6, rel=0.05)

@@ -80,7 +80,7 @@ def local_flash(monkeypatch):
 def test_cloud_pod_has_the_server_flash_the_build(monkeypatch, local_flash):
     server = FakeServer()
     bp = _bp(monkeypatch, server, cloud=True)
-    res = bp.flash(swclk=11, swdio=12, nreset=True, repo="acme/fw", ref="main", target_power=1)
+    res = bp.flash(swclk=11, swdio=12, nreset=True, repo="acme/fw", ref="main", target_power="5v")
     assert res.ok and res.artifact == ART and "Verified" in res.stdout
     assert server.lookups == [{"build": "", "repo": "acme/fw", "ref": "main", "artifact": ""}]
     device_id, body, _ = server.flashes[0]

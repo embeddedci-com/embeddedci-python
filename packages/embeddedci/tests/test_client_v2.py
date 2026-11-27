@@ -152,12 +152,12 @@ def test_target_status_and_power_status_are_typed():
     })
     ts = bp.target_status()
     assert isinstance(ts, TargetStatus)
-    assert ts.efuse(1).enabled and not ts.efuse(1).fault and ts.efuse(benchpod.EXTERNAL).fault
+    assert ts.supply("5v").enabled and not ts.supply("5v").fault and ts.supply(benchpod.EXTERNAL).fault
     ps = bp.power_status()
     assert isinstance(ps, PowerStatus)
-    assert ps.rail(1).bus_voltage == pytest.approx(5.012)
-    assert ps.internal.current == pytest.approx(0.1234)
-    assert not ps.external.ok
+    assert ps.supply("5v").bus_voltage == pytest.approx(5.012)
+    assert ps.supplies["5v"].current == pytest.approx(0.1234)
+    assert not ps.supplies["external"].ok
     assert ps.pod is None and ps.total_current is None
 
 
@@ -556,7 +556,7 @@ def test_measure_power_streams_with_its_duration_in_the_request():
 
     t = Streaming()
     bp = BenchPod(transport=t, lease=False)
-    bp.measure_power(60.0, efuse=1)
+    bp.measure_power(60.0, supply="5v")
     from embeddedci.benchpod.transport.base import request_timeout
 
     assert request_timeout(t.commands[-1], 30) == 90

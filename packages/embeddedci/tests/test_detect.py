@@ -355,7 +355,7 @@ def test_detect_power_off_probes_nothing():
     pod.rails["efuse1"]["enabled"] = 0
     res = make(pod).detect()
     assert res.powered is False and res.findings == []
-    assert "power" in res.notes[0] and "efuse 1" in res.notes[0]
+    assert "power" in res.notes[0] and "5v" in res.notes[0]
     assert pod.sent("dap_start") == [] and pod.sent("la_pins") == []
 
 

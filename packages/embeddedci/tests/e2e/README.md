@@ -73,7 +73,7 @@ match the EmbeddedCI bench — a NUCLEO-F446RE running `examples/scenario-sensor
 | LA channel jumpered to the reset pin | none | `BENCHPOD_E2E_NRST_LA` (e.g. 8) |
 | Pod's USB-C port plugged into a host | no | `BENCHPOD_E2E_USB_CC=1` |
 | DAC 0-5 V output wired to the ADC's front SMA | no | `BENCHPOD_E2E_EXT_LOOP=1` |
-| DUT power rail | eFuse 1 | `BENCHPOD_E2E_EFUSE` |
+| DUT power supply | `5v` | `BENCHPOD_E2E_SUPPLY` (`BENCHPOD_E2E_EFUSE` 1 / 2 still works) |
 | OpenOCD target | `target/stm32f4x.cfg` | `BENCHPOD_E2E_TARGET_CFG` |
 | Unwired LA channels (the tests drive them) | 9, 10 | `BENCHPOD_E2E_FREE_LA=9,10` or `none` |
 | LA13/LA14 with nothing driving them | 13, 14 | `BENCHPOD_E2E_TOP_LA=13,14` or `none` |

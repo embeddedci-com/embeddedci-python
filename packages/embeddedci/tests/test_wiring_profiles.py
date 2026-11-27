@@ -191,11 +191,11 @@ def test_power_on_applies_the_profile_first():
     assert tp["profile"] == "k66" and tp["efuse"] == 2
     # A powered board never gets its I/O voltage changed by the next power_on.
     with pytest.raises(Exception, match="power it off first"):
-        bp.power_on(efuse=2, wiring_profile="nrf")
+        bp.power_on("external", wiring_profile="nrf")
 
 
 def test_power_on_with_nothing_wired_needs_a_rail():
-    with pytest.raises(ValueError, match="sets no power rail"):
+    with pytest.raises(ValueError, match="sets no power supply"):
         BenchPod(transport=ProfilePod(), lease=False).power_on()
 
 

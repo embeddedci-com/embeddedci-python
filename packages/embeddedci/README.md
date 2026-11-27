@@ -28,7 +28,7 @@ with BenchPod("192.168.1.213", la_voltage=3.3) as bp:        # or "usb", or "emb
     assert boot.matched, boot.text
 ```
 
-No pin numbers: the SWD channels, the UART pair, the baud and the power rail come from the bench's
+No pin numbers: the SWD channels, the UART pair, the baud and the power supply come from the bench's
 [wiring profile](#wiring-profile). Pass them explicitly when you want to override it.
 
 **Pod firmware 4.0 or later.** embeddedci 4.x drives pods with firmware 4.0.0 and later (client
@@ -137,7 +137,7 @@ def test_target_flashes_and_boots(benchpod_target, firmware):
 @pytest.mark.hardware
 def test_boot_stays_inside_its_power_budget(benchpod_target):
     profile = benchpod_target.measure_power(3.0)
-    assert profile.peak_current < 0.25       # amps, measured on the rail
+    assert profile.peak_current < 0.25       # amps, measured on the supply
     assert not profile.fault                 # the eFuse never tripped
 ```
 
@@ -151,13 +151,13 @@ runner with no pod. See [pytest plugin](#pytest-plugin) for every fixture, optio
 Driving a pod directly, without pytest:
 
 ```python
-from embeddedci.benchpod import INTERNAL, BenchPod
+from embeddedci.benchpod import BenchPod
 
 with BenchPod("192.168.1.213", la_voltage=3.3) as bp:
     bp.ping()
     print(bp.status())                       # firmware version, board, network, features
     print(bp.capabilities.board, bp.capabilities.dac_deep_replay)
-    bp.power_on(INTERNAL)
+    bp.power_on("5v")
 ```
 
 `BenchPod` is a context manager; `close()` is idempotent.
@@ -174,21 +174,21 @@ no voltage anywhere, a refused command raises `FirmwareError` with code `BP0001`
 is not set; set the board's I/O voltage first: BenchPod(conn, la_voltage=3.3) ...` (prefixed with
 the command, as every `FirmwareError` is).
 
-**5 V I/O (digital board v4).** On a pod with the digital board v4 (`bp.supports("la_5v")`,
+**5 V I/O (BenchPod v4).** On a pod with BenchPod v4 (`bp.supports("la_5v")`,
 `bp.capabilities.vref_out`), `bp.set_la_voltage(5.0)` (or `la_mv: 5000` in the profile) keeps the
-bank at 3.3 V and switches J1 pin 21, the pull-up rail, to 5 V; outputs reach 5 V through their
+bank at 3.3 V and switches the I/O reference (VREF OUT, J1 pin 21), the supply the pull-ups pull to, to 5 V; outputs reach 5 V through their
 pull-up (`bp.set_pull(la, "up")`). What that means for the wiring is on the
 [5 V page](https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io). `FirmwareError` `BP0028`: 5 V did not come up. Other pods raise
-`ValueError` before anything is sent. On v4, `LaVoltage.pin21` reports pin 21 (`None` elsewhere):
+`ValueError` before anything is sent. On v4, `LaVoltage.vref_out` reports VREF OUT (`None` elsewhere; `pin21` is the deprecated name):
 
 ```python
 st = bp.get_la_voltage()
-if st.pin21 and st.pin21.state == "high":
-    # a DUT signal above the I/O voltage lifts pin 21 through the pulls: select 5 V or remove it
-    print(f"pin 21 at {st.pin21.measured} V, set to {st.pin21.setting} V")
+if st.vref_out and st.vref_out.state == "high":
+    # a DUT signal above the I/O voltage lifts VREF OUT through the pulls: select 5 V or remove it
+    print(f"VREF OUT at {st.vref_out.measured} V, set to {st.vref_out.setting} V")
 ```
 
-`Pin21` has `source` (`"bank"` or `"5v"`), `setting` and `measured` (volts), `state` (`"ok"`,
+`VrefOut` (`Pin21` is the old name) has `source` (`"bank"` or `"5v"`), `setting` and `measured` (volts), `state` (`"ok"`,
 `"high"`, `"low"`, `"short"` or `"unknown"`), `up` (high enough for the pulls) and `ok`.
 
 Other constructor arguments: `timeout` (seconds, default 30), `api_key`, `api_base`,
@@ -449,12 +449,12 @@ SDK is kept on `.code`, with a message that says to update the SDK.
 
   | Concept | Constants | Wire value |
   |---|---|---|
-  | Target-power eFuse | `INTERNAL`, `EXTERNAL` (`Efuse`) | 1, 2 |
+  | Target-power supply | `"5v"`, `"external"`, `"3v3"`, `"1v8"` (`SUPPLIES`); the old `INTERNAL`, `EXTERNAL` (`Efuse`) are 1, 2 | the same strings |
   | LA channels | `PIN1` … `PIN14` (`Pin`) | 1 … 14 |
   | BMP280 addresses | `BMP280_ADDR_PRIMARY`, `BMP280_ADDR_SECONDARY` | 0x76, 0x77 |
   | Gateware image | `FpgaImage.LOOP`, `FpgaImage.DEEP_REPLAY`, `FpgaImage.EMULATION` | 0, 1, 2 |
 
-  Plain ints work too (`efuse=1`, `swclk=11`); they are validated. The target's reset line is not an
+  Plain ints work too (`swclk=11`, and 1 / 2 for the supplies); they are validated. The target's reset line is not an
   LA channel — it has a dedicated pin (see [Flashing](#flashing)).
 
 **Feature checks.** Pods differ by board, firmware and gateware. `bp.supports("spi_master")` says
@@ -571,7 +571,7 @@ def test_result_pin_follows_the_trigger(benchpod):
 
 
 def test_rail_is_healthy(benchpod_target, pins):   # target powered for this test only
-    assert not benchpod_target.target_status().efuse(pins.efuse).fault
+    assert not benchpod_target.target_status().supply(pins.efuse).fault
 ```
 
 The `benchpod` fixture is a `BenchPod` instance, not the module — import constants such as
@@ -586,7 +586,8 @@ The `benchpod` fixture is a `BenchPod` instance, not the module — import const
 | `--benchpod-la-voltage` | `BENCHPOD_LA_VOLTAGE` | — | override the `benchpod_la_voltage` fixture for one run (1.8 or 3.3); the flag wins over the fixture, the env var only applies when neither is set |
 | `--benchpod-wiring` | `BENCHPOD_WIRING` | — | wiring profile file (`.json`/`.toml`); the flag wins over the `benchpod_wiring` fixture, the env var only applies when neither is set |
 | `--benchpod-wiring-profile` | `BENCHPOD_WIRING_PROFILE` | the pod's default | name of a wiring profile stored on the pod to run with; not with `--benchpod-wiring` |
-| `--benchpod-efuse` | — | the profile's rail | target-power rail for `benchpod_target` and `pins.efuse` (1 internal, 2 external); `benchpod_target` otherwise follows the wiring profile, `pins.efuse` is 1 |
+| `--benchpod-supply` | — | the profile's supply | target-power supply for `benchpod_target` (`5v`, `external`, `3v3`, `1v8`); otherwise it follows the wiring profile |
+| `--benchpod-efuse` | — | the profile's supply | older spelling for `benchpod_target` and `pins.efuse` (1 = `5v`, 2 = `external`); `pins.efuse` is 1 |
 | `--benchpod-firmware` | — | — | firmware image for the `firmware` fixture |
 | `--benchpod-discover` | — | off | when no connection is configured, find one pod via mDNS (needs `[discovery]`) |
 | `--benchpod-api-key` | `BENCHPOD_API_KEY` | — | API key for the cloud destination and the waveform library; it, `--benchpod-api-base` and the lease options also reach the short connection that lifts the DAC limits (`BENCHPOD_LIFT_DAC_LIMITS=1`) |
@@ -623,7 +624,7 @@ benchpod_connection = 192.168.1.213
 | `benchpod_wiring` | session | the bench's wiring profile — **override it in `conftest.py`** (a `Wiring`, dict or file path; default `None` → `BENCHPOD_WIRING`, a profile stored on the pod, nothing wired; see [Wiring profile](#wiring-profile)). An explicit profile also supplies the LA voltage when nothing else sets one |
 | `benchpod` | session | a connected `BenchPod` with the options above applied; LA channels left in GPIO mode are released when the session starts and ends; closed at session end |
 | `benchpod_connection` | session | the resolved connection string (skips when none) |
-| `benchpod_target` | function | `benchpod` with the target rail (`--benchpod-efuse`, else the wiring profile's) powered on for the test, off at teardown |
+| `benchpod_target` | function | `benchpod` with the target supply (`--benchpod-supply`, else the wiring profile's) powered on for the test, off at teardown |
 | `benchpod_sensors` | function | `benchpod.sensors` (`SensorEmulation`); stops the stimulus and every emulated sensor at teardown; skips on firmware without the `sensors` capability |
 | `benchpod_dac` | function | `benchpod`; stops any DAC output (generate, replay, control loop) at teardown |
 | `benchpod_capabilities` | session | `benchpod.capabilities` |
@@ -784,7 +785,7 @@ wiring = Wiring(uart_rx=3, uart_tx=4, swd_target="target/stm32f4x.cfg",
 bp = BenchPod("192.168.1.50", la_voltage=wiring.la_voltage, wiring=wiring)
 
 with bp.open_uart() as uart:                   # rx=3, tx=4, 115200 baud from the profile
-    bp.power_on()                              # the profile's eFuse
+    bp.power_on()                              # the profile's supply
     uart.expect("APP_OK", timeout=6)
 bp.flash(file="app.elf")                        # swclk/swdio/nreset/target from the profile
 bp.sensors.start("bmp280")                      # sda/scl from the profile
@@ -795,7 +796,7 @@ print(wiring.describe())                        # a pin table: bias resistor and
 | Key | When not set | Meaning |
 |---|---|---|
 | `la_mv` | not set | LA I/O-bank voltage in mV (1800 or 3300); `wiring.la_voltage` in volts |
-| `efuse` | not set (pass `rail=`) | the target-power rail: 1 internal 5 V, 2 external, or on a digital board v4 `"j1_3v3"` / `"j1_1v8"` (J1 pins 17 and 18); every power call that names no rail uses it |
+| `supply` | not set (pass `supply=`) | the target-power supply: `"5v"`, `"external"` or, on BenchPod v4, `"3v3"` / `"1v8"`; every power call that names no supply uses it. Stored with the old key `efuse` (1 / 2) next to it for `"5v"` and `"external"`; a profile with only `efuse` is read as before |
 | `uart_rx`, `uart_tx`, `uart_baud` | not wired, not wired, `115200` | `rx` samples the DUT's TX; `tx` drives the DUT's RX |
 | `uart_parity`, `uart_stop_bits` | `"none"`, `1` | The UART frame after the 8 data bits (`"even"`, `"odd"`; 2 stop bits). `open_uart`, `capture_uart` and `power_cycle_and_capture` use it when `parity` / `stop_bits` are omitted; anything but 8N1 needs firmware 3.10.8+ |
 | `i2c_sda`, `i2c_scl`, `i2c_addr` | not wired, not wired, not set | the I2C bus (emulated sensors default to it; put I2C on LA1-LA6, which have pull-ups) |
@@ -870,7 +871,7 @@ cloud device's single profile on embeddedci.com, and raises over the LAN or USB.
 
 **Power-on applies the profile.** `bp.power_on()` (or `bp.power_on(wiring_profile="k66")`) sets the
 profile's I/O voltage when the pod has none or another one, sets its pull resistors, then switches
-the profile's rail on and records on the pod which profile powered the board (`target_status`).
+the profile's supply on and records on the pod which profile powered the board (`target_status`).
 `Wiring.pulls` says which pull resistors are on, as a map of channel to direction
 (`{"pulls": {"1": "up", "2": "up", "8": "down"}}` in the JSON) or as a list of channels that pull
 their own direction (`{"pulls": [1, 2]}`); `Wiring.pull_directions()` gives either as the map.
@@ -905,16 +906,14 @@ print(header_map(bp.wiring, bp.board_header()))
 ## Power, reset and power monitoring
 
 ```python
-from embeddedci.benchpod import EXTERNAL, INTERNAL
+bp.power_on("5v")                             # the pod's 5 V (eFuse 1)
+bp.power_off("5v", delay=2.0)                 # scheduled pod-side; returns immediately
+bp.target_power("external", on=True)          # your own supply (eFuse 2)
 
-bp.power_on(INTERNAL)                         # internal 5 V eFuse
-bp.power_off(INTERNAL, delay=2.0)             # scheduled pod-side; returns immediately
-bp.target_power(EXTERNAL, on=True)
+supply = bp.target_status().supplies["5v"]    # SupplyState(enabled, fault, valid)
+assert supply.enabled and not supply.fault    # fault = tripped (over-current / short)
 
-rail = bp.target_status().efuse(INTERNAL)     # EfuseState(enabled, fault, valid)
-assert rail.enabled and not rail.fault        # fault = tripped (over-current / short)
-
-power = bp.power_status().rail(INTERNAL)      # RailPower(ok, bus_voltage, current)
+power = bp.power_status().supplies["5v"]      # SupplyPower(ok, bus_voltage, current)
 print(f"{power.bus_voltage:.2f} V  {power.current * 1000:.1f} mA")
 
 bp.reset_target(pulse=0.1)                    # pulse reset without power-cycling
@@ -927,24 +926,41 @@ print(bp.usb_cc().advertised)                 # USB-C orientation + advertised c
 `delay` lets a power change land *during* something else (see `power_cycle_and_capture`). The reset
 controls drive the pod's dedicated reset pin (DUT header J1 pin 22); they and `usb_cc()` need a rev3
 pod (`ResetState.supported`). `TargetStatus.supported` is false on boards that cannot read the eFuse
-state back. An omitted rail is the wiring profile's (internal by default).
+state back. An omitted supply is the wiring profile's.
 
-**`rail=` names every power output** (`power_on`, `power_off`, `target_power`, `measure_power`,
-`power_profile`, `power_cycle_and_capture`): `"internal"` (eFuse 1), `"external"` (eFuse 2) and, on the
-digital board v4 (hardware fact `dut_rails`, feature `dut_rails`), `"j1_3v3"` and `"j1_1v8"`, the
-switched J1 pins 17 (+3.3 V, about 1.45 A limit) and 18 (+1.8 V). `efuse=` is the old name for 1 and 2;
-passing both is a `ValueError`. The J1 pins are on from boot, independent of the eFuses and of
-resets, and have no current monitor (`measure_power` and `power_profile` on one raise `ValueError`).
-`TargetStatus.j1_rails` is a `J1Rails(v3v3, v1v8)`, `None` on boards where both pins are always on.
+**`supply=` names every power output** (`power_on`, `power_off`, `target_power`, `measure_power`,
+`power_profile`, `power_cycle_and_capture`; the first positional argument of the first three):
+
+| `supply` | output | current monitor |
+|---|---|---|
+| `"5v"` | the pod's 5 V through eFuse 1 (DUT INT terminal) | yes |
+| `"external"` | your own supply through eFuse 2 (DUT EXT terminal) | yes |
+| `"3v3"` | switched 3.3 V, J1 pin 17, about 1.45 A limit; BenchPod v4 only | no |
+| `"1v8"` | switched 1.8 V, J1 pin 18; BenchPod v4 only | no |
+
+`"3v3"` and `"1v8"` need the hardware fact and feature `supply_3v3_1v8` (`ValueError` before anything
+is sent on a pod without it). They are on from boot, independent of the eFuses and of resets, and
+have no current monitor (`measure_power` and `power_profile` on one raise `ValueError`: use an
+external INA monitor). Any other string is a `ValueError` listing the four.
+
+`TargetStatus.supplies` is a dict by name (`"3v3"` and `"1v8"` only on v4, with just `enabled`);
+`supply(name)` reads one. `PowerStatus.supplies` has `"5v"` and `"external"`.
+
+**Old names, still accepted:** `"internal"` for `"5v"`, the ints 1 and 2 and the `Efuse` enum
+(`INTERNAL`, `EXTERNAL`), and the keyword `efuse=` (a `DeprecationWarning`; passing both `supply=`
+and `efuse=` is a `ValueError`). `TargetStatus.internal` / `.external` / `.efuse(n)`,
+`PowerStatus.internal` / `.external` / `.rail(n)`, `Wiring.efuse` and `PowerProfile.efuse` are
+deprecated views of the dicts and fields above; `EfuseState` and `RailPower` are aliases of
+`SupplyState` and `SupplyPower`.
 
 ```python
-bp.power_off(rail="j1_3v3")
-assert bp.target_status().j1_rails.v3v3 is False
+bp.power_off("3v3")
+assert bp.target_status().supplies["3v3"].enabled is False
 ```
 
 ### Power profiles
 
-`power_status()` is one snapshot. A power profile samples the rail's monitor about a thousand times a
+`power_status()` is one snapshot. A power profile samples the supply's monitor about a thousand times a
 second **without gaps** — each sample averages its whole period — so energy and charge are integrated,
 and short bursts (an inference, a radio transmit) show up:
 
@@ -952,7 +968,7 @@ and short bursts (an inference, a radio transmit) show up:
 prof = bp.measure_power(2.0, keep_samples=1000)          # blocks for 2 s
 print(prof.avg_current, prof.peak_current, prof.avg_voltage, prof.energy, prof.charge)
 
-with bp.power_profile(efuse=INTERNAL) as session:        # around a block of code
+with bp.power_profile(supply="5v") as session:        # around a block of code
     bp.power_on(delay=0.2)                               # inrush lands inside the profile
     time.sleep(3)
 boot = session.result
@@ -960,7 +976,7 @@ assert boot.peak_current < 0.5 and not boot.fault
 t, amps, volts = boot.samples[0]                         # bin-averaged trace (keep_samples, ≤ 4096)
 ```
 
-`PowerProfile`: `efuse`, `rate_hz`, `adc_rate_hz`, `n`, `duration` (s), `avg_current`, `min_current`,
+`PowerProfile`: `supply` (`"5v"` or `"external"`; `None` for a monitor profile, then `monitor` names the monitor), `rate_hz`, `adc_rate_hz`, `n`, `duration` (s), `avg_current`, `min_current`,
 `peak_current` (A), `avg_voltage`, `min_voltage`, `max_voltage` (V), `energy` (J), `charge` (C),
 `avg_power` (W), `fault` (the eFuse tripped), `truncated` (stopped at `max_duration`), `samples`.
 
@@ -1188,7 +1204,7 @@ port answered (`chip` then names the port).
 | `updi`, `pic`, `c2`, `tpi`, `pdi` | the ID the chip answers in programming mode (the `prog_flash` `info` op, as `flash(..., dry_run=True)`) | signals named for the protocol: `UPDI`; `ICSPCLK` and `ICSPDAT`; `C2CK` and `C2D`; `TPICLK` and `TPIDATA`; `PDI_CLK` and `PDI_DATA` | yes |
 | `esp32` | the chip name the ROM loader reports (the `esp_flash` `sync` op) | `uart_rx`, `uart_tx` and a `BOOT`, `IO0` or `IO9` signal | yes |
 
-* **Power first.** With the target's rail (the profile's `efuse`, else either rail) off, nothing is
+* **Power first.** With the target's supply (the profile's `supply`, else `5v` or `external`) off, nothing is
   probed: `powered` is `False` and a note says so. The LA voltage must be set (the profile's `la_mv`).
 * **Pins owned by something else** (a UART, GPIO, sensor or an open SPI/I2C session) are not
   probed: the method is in `skipped` with the owner. A probe that errors or gets no answer is a
@@ -1476,7 +1492,7 @@ Needs emulator gateware 0x0007 or later.
 ```python
 import re
 
-from embeddedci.benchpod import INTERNAL, PIN4, PIN5
+from embeddedci.benchpod import PIN4, PIN5
 
 # A fixed window that stops early on a match.
 log = bp.capture_uart(rx=PIN5, tx=PIN4, baud=115200, duration=3.0, until="login:")
@@ -1484,12 +1500,12 @@ print(log.matched, log.lines)
 assert "login:" in log
 
 # Catch the boot banner: power off, schedule the power-on pod-side, capture across it.
-boot = bp.power_cycle_and_capture(rx=PIN5, tx=PIN4, efuse=INTERNAL,
+boot = bp.power_cycle_and_capture(rx=PIN5, tx=PIN4, supply="5v",
                                   delay=1.0, duration=6.0, until=re.compile(r"APP_OK"))
 assert boot.match(r"chip id match=0x58")
 ```
 
-`power_cycle_and_capture` powers the eFuse off, waits `off_settle` seconds, schedules the power-on
+`power_cycle_and_capture` powers the supply off, waits `off_settle` seconds, schedules the power-on
 `delay` seconds out with a **pod-side timer**, then captures for `duration` (which must exceed
 `delay`) — so the power-on and the boot output land inside the window. It works on every transport,
 including USB, where the UART proxy owns the link for the whole capture.
@@ -1499,7 +1515,7 @@ opens, so you can listen *before* acting and write to the DUT's console:
 
 ```python
 with bp.open_uart(rx=PIN5, tx=PIN4, baud=115200) as uart:
-    bp.power_on(INTERNAL)                    # immediate: the session is already buffering
+    bp.power_on("5v")                        # immediate: the session is already buffering
     uart.expect("APP_OK", timeout=6)         # raises UartTimeout (with .text) on timeout
     uart.write("status\r\n")
     uptime = uart.expect(re.compile(r"uptime=(\d+)"), timeout=2).group(1)   # expect returns the match
@@ -1602,7 +1618,7 @@ strength from the pin's function (2.2k for I2C, one-wire UART, open drain, and p
 mode; 10k otherwise), and `PullState.strength` says which (`"10k"`, `"2.2k"`, `"both"`, `"none"`
 when off). The pull-ups go to J1 pin 21, so they work at 1.8, 3.3 and 5 V. While pin 21 is down
 (shorted or held down) the pod turns every pull off and refuses new ones with `BP0029`; when the
-pod switches the DUT's power off, the pull-ups stay off until a rail is on again or you set a pull.
+pod switches the DUT's power off, the pull-ups stay off until a supply is on again or you set a pull.
 While the pod holds a pull off like this, `PullState.enabled` and `state` say what is on the wire
 and `PullState.held` says why (`"pin21_down"`, `"dut_off"` or `"fault"`; `None` otherwise). The pod
 puts the pull back by itself (firmware after 3.10.12).
@@ -1865,12 +1881,12 @@ the wiring profile and connecting attaches it; the existing power calls read it 
 
 ```python
 bp = BenchPod("192.168.1.150")                   # connecting attached the profile's monitors
-prof = bp.measure_power(2.0, monitor="ext")      # PowerProfile: avg, min, peak, charge, energy
+prof = bp.measure_power(2.0, monitor="dut")      # PowerProfile: avg, min, peak, charge, energy
 print(prof.avg_current * 1e6, "uA")
 with bp.power_profile(monitor="dut") as p:       # around a block of code
     run_test()
-print(bp.power_status().monitors)                # {"dut": RailPower(ok, bus_voltage, current)}
-print(bp.expansion().monitors, bp.monitors_status)   # MonitorStatus with a live reading each
+print(bp.power_status().monitors)                # {"dut": SupplyPower(ok, bus_voltage, current)}
+print(bp.expansion().monitors, bp.monitors_status)   # {"dut": MonitorStatus} with a live reading each
 ```
 
 With 10 ohm an INA226 resolves 0.25 µA up to about 8 mA (80 mV across the shunt, which the DUT
@@ -1886,7 +1902,7 @@ does not see as supply). The `measure` fixture records the results like any numb
   every monitor (the pod has one I2C master); names and addresses are unique; at most 8.
 - **On connect:** the SDK attaches them, and again when the profile changes (`load_wiring()`, a new
   `wiring`). Nothing raises if one does not answer: `bp.monitors_status` says what happened, and
-  `monitor="ext"` repeats it.
+  `monitor=...` repeats it.
 - **By hand:** `expansion("ina226", addr=0x40, sda=13, scl=14, shunt_ohm=10.0, name="dut")` attaches
   one chip per call (the same arguments as the profile entry: `channel`, `averaging`,
   `conversion_time`, `max_current`). A call for an attached address (and channel) replaces it and
@@ -1895,16 +1911,17 @@ does not see as supply). The `measure` fixture records the results like any numb
   chip (manufacturer and die ID where it has them; the INA219 has none) and raises `ExpansionError`
   for a missing or wrong chip or an LA voltage the chip does not run at (3.3 V or 5 V; not 1.8 V).
 - **Saving:** `save_wiring()` stores the monitors that are attached, like any other profile field.
-- **Names:** `"ina226@0x40"` unless `name` says otherwise (INA3221 `"ina3221@0x40.2"`); `monitor="ext"`
-  selects the monitor when exactly one is attached, else give the name. `monitor=` together with
-  `efuse=` is a `ValueError`: a monitor measures its own shunt, `efuse` is the pod's rail.
+- **Names:** `"ina226@0x40"` unless `name` says otherwise (INA3221 `"ina3221@0x40.2"`); `monitor=True`
+  selects the monitor when exactly one is attached (a `ValueError` listing the names when there are
+  none or several). `monitor=` together with `supply=` or `efuse=` is a `ValueError`: a monitor
+  measures its own shunt, `supply` is one of the pod's.
 - `averaging` and `conversion_time` trade noise for speed; `max_current` (amps) selects the narrowest
   input range of the INA219, INA228 and INA238 that covers it. The current is computed on the host
   from the shunt voltage and `shunt_ohm`, the only calibration.
 - `measure_power(duration, monitor=...)` reads once per conversion cycle (`rate_hz` up to 200) and
-  returns a `PowerProfile` with `efuse` 0. `power_profile(monitor=...)` samples in a background
+  returns a `PowerProfile` with `supply` `None` and `monitor` set to its name. `power_profile(monitor=...)` samples in a background
   thread (`MonitorProfileSession`, same `start()`, `stop()` and `result`). `power_status().monitors`
-  and `expansion().monitors` (`MonitorStatus`, with `reading`, a `CurrentReading`) are live. Monitors
+  and `expansion().monitors` (dicts by name; `MonitorStatus`, with `reading`, a `CurrentReading`) are live. Monitors
   share the bus with a GPIO expander and an `open_i2c()` session on the same pins, and it closes itself
   before `flash()` and `open_spi()`.
 
@@ -3049,7 +3066,7 @@ lease_wait=600.0, lease_ttl=120, wiring=None, lease_purpose=None)`. A context ma
 |---|---|
 | Connection and device | `ping()`, `status()`, `diag()` (heap, per-task stacks, network-stack and console counters: the `diag` command), `mac_addresses(status=None)` (the Ethernet and Wi-Fi MACs, see [MAC addresses](#mac-addresses-managed-networks)), `capabilities`, `refresh_capabilities()` (drop the cached capabilities and read them again), `close()`, `leased` (true while this client holds a lease, see [Device leases](#device-leases)), `local_lease()` (the pod's own lease: `LocalLease`), `wiring`, `save_wiring(wiring=None, name=None)` (store a wiring profile on the pod; firmware before 3.10.8: on embeddedci.com), `signal(name)`, `fpga_image(image)`, `has_bus_masters()` (the running gateware image has SWD, JTAG, the SPI and I2C masters: gateware before v65, or the loop and deep-replay images), `usb_cc()`, `usb_network(on=None)` (the USB network setting; `False` turns the adapter off over the USB link), `lan_tls()`, `set_lan_tls_https_only(on)`, `regenerate_lan_tls()`, `set_lan_tls_cert(cert_pem, key_pem)` (the LAN API over TLS, see [TLS on the LAN](#tls-on-the-lan)) |
 | LA voltage | `set_la_voltage(volts)`, `get_la_voltage()` |
-| Power and reset | `power_on(efuse=None, *, delay=None)`, `power_off(efuse=None, *, delay=None)`, `target_power(efuse=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, efuse=None, rate_hz=500.0, keep_samples=0)`, `power_profile(*, efuse=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
+| Power and reset | `power_on(supply=None, *, delay=None)`, `power_off(supply=None, *, delay=None)`, `target_power(supply=None, *, on, delay=None)`, `target_status()`, `power_status()`, `measure_power(duration, *, supply=None, rate_hz=500.0, keep_samples=0, monitor=None)`, `power_profile(*, supply=None, rate_hz=500.0, keep_samples=4096, max_duration=60.0, monitor=None)`, `reset_target(*, pulse=0.1)`, `set_reset(asserted)`, `reset_state()` |
 | USB host and flashing | `usb_host(enable=True, *, port=None, timeout_s=60)`, `usb_host_status()`, `usb_wait_device(vid=None, pid=None, timeout=10)`, `usb_flash(file, *, address=None, name=None, leave=True, mode=None, port=None, timeout=None, device_timeout=10, progress=None, verify=False)`, `usb_flash_status()`, `usb_flash_abort()`, `usb_check(test, *, count=None, off_ms=None, timeout_ms=None, duration_ms=None, settle_ms=None, port=None, device_timeout=10, timeout=None, progress=None)`, `usb_check_status()`, `usb_check_abort()`, `usb_hid_interfaces()`, `usb_hid_capture(enable=True)`, `usb_hid_read(count=1, timeout=2.0, instance=None)` (see [USB host mode and USB flashing](#usb-host-mode-and-usb-flashing)) |
 | Flashing | `flash(...)`, `detect(*, invasive=True, methods=None)` (see [Detecting the chip on the board](#detecting-the-chip-on-the-board)), `spi_flash(image, addr=0, *, erase=True, verify=True, hold_reset=False, sck=, mosi=, miso=, cs=)`, `open_spi(...)`, `open_motor_emulator(...)` |
 | I2C master | `open_i2c(sda=None, scl=None, *, hz=100_000, pullups="pod")` (see [I2C master](#i2c-master)) |
@@ -3073,12 +3090,12 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 
 | Type | Returned by / used for | Fields and members |
 |---|---|---|
-| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set`, `pin21` (a `Pin21`, digital v4 only) |
-| `Pin21` | `LaVoltage.pin21` | `source`, `setting`, `measured` (V), `state`, `up`, `ok` |
-| `TargetStatus` | `target_status` | `internal`, `external` (each an `EfuseState`), `supported`, `efuse(n)` |
-| `EfuseState` | `TargetStatus.efuse` | `enabled`, `fault`, `valid` |
-| `PowerStatus` | `power_status` | `internal`, `external` (each a `RailPower`), `pod`, `total_current`, `rail(n)` |
-| `RailPower` | `PowerStatus.rail` | `ok`, `bus_voltage`, `current` |
+| `LaVoltage` | `get_la_voltage`, `set_la_voltage` | `voltage`, `readback`, `is_set`, `vref_out` (a `VrefOut`, BenchPod v4 only; `pin21` is the deprecated name) |
+| `VrefOut` | `LaVoltage.vref_out` | `source`, `setting`, `measured` (V), `state`, `up`, `ok` |
+| `TargetStatus` | `target_status` | `supplies` (`"5v"`, `"external"`, and on v4 `"3v3"`, `"1v8"`: each a `SupplyState`), `supported`, `supply(name)` |
+| `SupplyState` | `TargetStatus.supplies` | `enabled`, `fault`, `valid` |
+| `PowerStatus` | `power_status` | `supplies` (`"5v"`, `"external"`: each a `SupplyPower`), `pod`, `total_current`, `monitors` (by name), `supply(name)` |
+| `SupplyPower` | `PowerStatus.supplies` | `ok`, `bus_voltage`, `current` |
 | `PowerProfile` | `measure_power`, `PowerProfileSession.result` | see [Power profiles](#power-profiles) |
 | `PowerProfileSession` | `power_profile` (a context manager) | `start()`, `stop()`, `status()`, `result` |
 | `ResetState` | `reset_target`, `set_reset`, `reset_state` | `asserted`, `supported` |
@@ -3161,7 +3178,7 @@ few built from other shapes); `to_dict()` goes the other way where a type is sen
 | `DeviceLease` (class) | a cloud `BenchPod` holds one | `acquire(*, wait_timeout=600.0, poll_interval=5.0)`, `held`, `lease_id`, `release()` |
 | `ConnSpec` | `parse_connection`, `resolve_connection` | `kind`, `addr`, `device`, `device_name`, `is_wifi()`, `is_serial()`, `is_cloud()` |
 | `LowLevel` (class) | `lowlevel` | see [Escape hatches](#escape-hatches) |
-| `Pin` / `Efuse` (enums) | channel and rail arguments | `PIN1` … `PIN14`, `INTERNAL`, `EXTERNAL` |
+| `Pin` / `Efuse` (enums) | channel and supply arguments | `PIN1` … `PIN14`, `INTERNAL`, `EXTERNAL` |
 
 ### `Capabilities`
 

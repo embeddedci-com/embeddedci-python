@@ -112,7 +112,7 @@ class DetectFinding:
 class DetectResult:
     """What :meth:`BenchPod.detect <embeddedci.benchpod.BenchPod.detect>` found.
 
-    ``powered``: the target's power rail is on (when it is off nothing is probed). ``findings``:
+    ``powered``: the target's power supply is on (when it is off nothing is probed). ``findings``:
     what answered, in probe order. ``skipped``: ``(method, reason)`` for a probe that was wired but
     not run or got no answer (a pin owned by something else, firmware too old, an invasive probe
     with ``invasive=False``, no answer from the chip). ``notes``: everything else worth saying,
@@ -734,29 +734,23 @@ def _dict(value: Any) -> Dict[str, Any]:
 
 
 def _power_state(env: DetectEnv) -> Tuple[Optional[bool], str]:
-    """``(on, words)``: whether the profile's rail (any rail without one) is enabled."""
+    """``(on, words)``: whether the profile's supply (either of 5v and external without one) is enabled."""
     ts = env.target_status()
-    rail = env.wiring.efuse
-    if isinstance(rail, str):   # a J1 supply (digital board v4): on or off, no fault state
-        j1 = getattr(ts, "j1_rails", None)
-        if j1 is None:
-            return None, f"the pod cannot read the state of {rail}"
-        on = j1.v3v3 if rail == "j1_3v3" else j1.v1v8
-        if on:
-            return True, f"the {rail} supply on J1 is on"
-        return False, f"target power is off ({rail} on J1): power the target (power_on) and detect again"
-    states = [(rail, ts.efuse(rail))] if rail else [(1, ts.internal), (2, ts.external)]
-    name = {1: "internal 5 V (efuse 1)", 2: "external (efuse 2)"}
+    supply = env.wiring.supply
     if not getattr(ts, "supported", True):
         return None, "the pod cannot read the target-power state"
+    states = [(supply, ts.supplies.get(supply))] if supply else [(n, st) for n, st in ts.supplies.items()
+                                                                  if n in ("5v", "external")]
+    states = [(n, st) for n, st in states if st is not None]
+    if supply and not states:
+        return None, f"the pod cannot read the state of the {supply} supply"
     for n, st in states:
         if st.enabled and not st.fault:
-            return True, f"the {name.get(int(n), 'efuse ' + str(n))} rail is on"
-    fault = [name.get(int(n), str(n)) for n, st in states if st.fault]
+            return True, f"the {n} supply is on"
+    fault = [n for n, st in states if st.fault]
     if fault:
-        return False, f"the {' and '.join(fault)} rail has tripped: clear the fault and power the target"
-    which = name.get(int(rail), "efuse " + str(rail)) if rail else "target"
-    return False, f"target power is off ({which}): power the target (power_on) and detect again"
+        return False, f"the {' and '.join(fault)} supply has tripped: clear the fault and power the target"
+    return False, f"target power is off ({supply or 'no supply on'}): power the target (power_on) and detect again"
 
 
 def run(env: DetectEnv, *, invasive: bool = True, methods: Optional[Sequence[str]] = None) -> DetectResult:

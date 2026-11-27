@@ -33,7 +33,7 @@ def measure_power(bench: Any, duration: float, **kwargs: Any) -> PowerProfile:
     :class:`~embeddedci.benchpod.PowerProfile`.
 
     Keyword arguments go to :meth:`BenchPod.measure_power
-    <embeddedci.benchpod.BenchPod.measure_power>`: ``efuse`` (default the wiring profile's rail),
+    <embeddedci.benchpod.BenchPod.measure_power>`: ``supply`` (default the wiring profile's supply; ``efuse`` is the deprecated name),
     ``rate_hz`` (100-500) and ``keep_samples`` (up to 4096 ``(t, amps, volts)`` points).
     """
     return bench.measure_power(duration, **kwargs)
@@ -42,11 +42,12 @@ def measure_power(bench: Any, duration: float, **kwargs: Any) -> PowerProfile:
 # -- phase factory -----------------------------------------------------------
 
 def measure_power_phase(plug: type, *, duration: float,
-                        efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 500.0,
+                        supply: Optional[str] = None, rate_hz: float = 500.0,
                         keep_samples: int = 0, avg_current_range: _Range = None,
                         peak_current_range: _Range = None, energy_range: _Range = None,
                         prefix: str = "power", attachment: Optional[str] = "power.json",
-                        name: str = "measure_power") -> object:
+                        name: str = "measure_power",
+                        efuse: Optional[Union[Efuse, int]] = None) -> object:
     """A phase that profiles the target's supply for ``duration`` seconds and records it.
 
     Records ``<prefix>_avg_current_a`` and ``<prefix>_peak_current_a`` (units A),
@@ -54,7 +55,7 @@ def measure_power_phase(plug: type, *, duration: float,
     ``peak_current_range`` (amps) or ``energy_range`` (joules) as ``(low, high)`` for pass/fail
     limits — e.g. ``avg_current_range=(0, 0.02)`` for a 20 mA sleep budget.
 
-    ``efuse`` defaults to the wiring profile's rail, ``rate_hz`` is the sample rate the pod aims
+    ``supply`` (``"5v"`` or ``"external"``) defaults to the wiring profile's, ``rate_hz`` is the sample rate the pod aims
     for (it reports the rate it achieved). With ``keep_samples`` above 0 the profile also carries a
     bin-averaged ``(t, amps, volts)`` trace, attached as ``attachment`` JSON (``None`` to skip).
     Whatever the DUT should be doing while it is measured — booting, sleeping, transmitting — start
@@ -76,14 +77,14 @@ def measure_power_phase(plug: type, *, duration: float,
     @htf.measures(*measures)
     @htf.plug(bench=plug)
     def _power(test, bench):
-        profile = measure_power(bench, duration, efuse=efuse, rate_hz=rate_hz,
-                                keep_samples=keep_samples)
+        kw = {"efuse": efuse} if efuse is not None else {"supply": supply}
+        profile = measure_power(bench, duration, rate_hz=rate_hz, keep_samples=keep_samples, **kw)
         test.measurements[f"{prefix}_avg_current_a"] = profile.avg_current
         test.measurements[f"{prefix}_peak_current_a"] = profile.peak_current
         test.measurements[f"{prefix}_avg_voltage_v"] = profile.avg_voltage
         test.measurements[f"{prefix}_energy_j"] = profile.energy
         if attachment and profile.samples:
-            payload = {"efuse": profile.efuse, "rate_hz": profile.rate_hz,
+            payload = {"supply": profile.supply, "rate_hz": profile.rate_hz,
                        "adc_rate_hz": profile.adc_rate_hz, "n": profile.n,
                        "duration": profile.duration,
                        "samples": [list(s) for s in profile.samples]}
@@ -93,8 +94,8 @@ def measure_power_phase(plug: type, *, duration: float,
             test.logger.error("the eFuse tripped during the profile (over-current or short)")
         if profile.truncated:
             test.logger.warning("the profile stopped at the pod's limit before %g s", duration)
-        test.logger.info("power on eFuse %d over %.3f s: avg %.4f A, peak %.4f A, %.4f V, %.4f J",
-                         profile.efuse, profile.duration, profile.avg_current,
+        test.logger.info("power on %s supply over %.3f s: avg %.4f A, peak %.4f A, %.4f V, %.4f J",
+                         profile.supply, profile.duration, profile.avg_current,
                          profile.peak_current, profile.avg_voltage, profile.energy)
         return htf.PhaseResult.CONTINUE
 

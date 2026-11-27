@@ -50,7 +50,7 @@ def test_lease_and_status(cloud):
 
 
 def test_commands_over_the_command_channel(cloud):
-    assert cloud.power_status().internal.ok
+    assert cloud.power_status().supplies["5v"].ok
 
 
 def test_analog_commands_over_the_command_channel(cloud):
@@ -83,7 +83,7 @@ def test_commands_work_while_a_uart_session_holds_the_tunnel(cloud, bench):
     rx, tx = bench.free_la
     skip_if_dut_output(cloud, rx, tx)
     with cloud.open_uart(rx=rx, tx=tx) as uart:
-        assert cloud.power_status().internal.ok
+        assert cloud.power_status().supplies["5v"].ok
         # Nothing is wired to these channels, so the content is not the point — but the session
         # must stay usable and return promptly rather than raising or hanging.
         assert isinstance(uart.read(timeout=0.2), str)

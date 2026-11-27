@@ -109,6 +109,7 @@ CODED: Dict[str, Any] = {
     "BP0088": (UsbCheckNoPowerError, {}),
     "BP0089": (WiringError, {}),
     "BP0090": (FirmwareError, {}),
+    "BP0091": (FirmwareError, {}),
 }
 
 

@@ -420,7 +420,7 @@ def test_measure_power_longer_than_the_transport_timeout_completes_over_tcp(pod_
 
     t = pod_with(handler, timeout=0.3)
     bp = BenchPod(transport=t, lease=False)
-    prof = bp.measure_power(0.8, efuse=1)
+    prof = bp.measure_power(0.8, supply="5v")
     assert seen["duration_ms"] == 800
     assert prof.duration == pytest.approx(0.8)
 

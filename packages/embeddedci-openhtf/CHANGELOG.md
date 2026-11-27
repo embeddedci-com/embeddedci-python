@@ -1,5 +1,12 @@
 # Changelog — `embeddedci-openhtf`
 
+## Unreleased
+
+- `power_phase`, `boot_banner_phase` and `measure_power_phase` take `supply=` (`"5v"` by default,
+  `"external"`, `"3v3"`, `"1v8"`); `efuse=` still works and warns (`DeprecationWarning`).
+  `flash_phase(target_power=...)` defaults to `"5v"` and takes a supply too. The `measure_power_phase`
+  attachment has `supply` instead of `efuse`. Needs the `embeddedci` that has `supply=`.
+
 ## 3.0.0
 
 - Needs embeddedci 4.0 (`embeddedci>=4.0.0,<5`), so BenchPod firmware 4.0: a pod with firmware 3.x

@@ -1,13 +1,13 @@
 """Power profiles: the DUT's supply current and voltage over time, with average, peak and energy.
 
-The pod samples the target-power rail's INA238 monitor a few hundred times a second — ask for
+The pod samples the target-power supply's INA238 monitor a few hundred times a second — ask for
 100-500 Hz and it delivers what its sampling loop allows, flattening near 365 Hz (``rate_hz`` in the
 result is the measured rate, ``adc_rate_hz`` the sensor's configured conversion rate). Each sample
 averages its whole conversion window and carries its own timestamp, so energy and charge are
 integrated over real time rather than estimated from snapshots; a load that switches faster than a
 few milliseconds is averaged, not resolved.
 
-Rail limits: the internal rail (eFuse 1, 5 V) trips at about 2.0 A and the external rail (eFuse 2,
+Supply limits: the ``"5v"`` supply (eFuse 1) trips at about 2.0 A and the ``"external"`` supply (eFuse 2,
 2.7-20 V) at about 3.0 A; a trip shorter than a sample does not show in the profile.
 """
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .constants import coerce_supply, supply_efuse, warn_efuse
 from .errors import BenchPodError
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -31,7 +32,11 @@ class PowerProfile:
     to the ``keep_samples`` that were asked for.
     """
 
-    efuse: int
+    #: The supply that was profiled (``"5v"`` or ``"external"``), or ``None`` for an external INA
+    #: monitor (then :attr:`monitor` names it). Exactly one of the two is set.
+    supply: Optional[str]
+    #: The external INA monitor that was profiled (its name), else ``None``.
+    monitor: Optional[str]
     #: Samples per second actually delivered (measured: ``n`` over ``duration``). The pod reads one
     #: sensor register per firmware pass, so this lands below the rate you asked for — roughly
     #: 350-450 Hz. Each sample carries its own timestamp, so the trace stays exact either way.
@@ -57,17 +62,25 @@ class PowerProfile:
     raw: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
+    def efuse(self) -> Optional[int]:
+        """Deprecated: :attr:`supply`. ``1`` for ``"5v"``, ``2`` for ``"external"``, ``None`` for a
+        monitor profile."""
+        warn_efuse("PowerProfile.efuse")
+        return supply_efuse(self.supply) if self.supply is not None else None
+
+    @property
     def avg_power(self) -> float:
         """Average power in watts (energy over duration)."""
         return self.energy / self.duration if self.duration > 0 else 0.0
 
     @classmethod
     def from_readings(cls, readings: Sequence[Tuple[float, Any]], *, adc_rate_hz: float = 0.0,
-                      keep_samples: int = 0, truncated: bool = False) -> "PowerProfile":
+                      keep_samples: int = 0, truncated: bool = False,
+                      monitor: str = "") -> "PowerProfile":
         """A profile from an external monitor's ``(t seconds, CurrentReading)`` pairs
         (:meth:`BenchPod.measure_power(monitor=...) <embeddedci.benchpod.BenchPod.measure_power>` and
         :meth:`BenchPod.power_profile(monitor=...) <embeddedci.benchpod.BenchPod.power_profile>`).
-        ``efuse`` is 0; energy and charge integrate the readings over their timestamps."""
+        ``monitor`` names the monitor (:attr:`PowerProfile.monitor`); energy and charge integrate the readings over their timestamps."""
         if not readings:
             raise BenchPodError("the current monitor returned no readings")
         ts = [float(t) for t, _ in readings]
@@ -93,7 +106,7 @@ class PowerProfile:
             trace = binned  # type: ignore[assignment]
         elif not keep_samples:
             trace = []
-        return cls(efuse=0, rate_hz=(n - 1) / dur if dur > 0 else 0.0, adc_rate_hz=adc_rate_hz, n=n,
+        return cls(supply=None, monitor=monitor or "external", rate_hz=(n - 1) / dur if dur > 0 else 0.0, adc_rate_hz=adc_rate_hz, n=n,
                    duration=dur, avg_current=charge / dur if dur > 0 else amps[0],
                    min_current=min(amps), peak_current=max(amps), avg_voltage=sum(volts) / n,
                    min_voltage=min(volts), max_voltage=max(volts), energy=energy, charge=charge,
@@ -116,8 +129,14 @@ class PowerProfile:
         if stats is None:
             raise BenchPodError("the pod's power_profile reply carried no statistics")
         samples = tuple((t / 1e6, i / 1e6, v / 1000.0) for t, i, v in zip(t_us, ua, mv))
+        if stats.get("supply"):
+            supply = coerce_supply(stats["supply"])
+        elif stats.get("efuse"):
+            supply = coerce_supply(int(stats["efuse"]))
+        else:
+            supply = None
         return cls(
-            efuse=int(stats.get("efuse", 0) or 0),
+            supply=supply, monitor=None,
             rate_hz=float(stats.get("sample_rate_hz", 0) or 0),
             adc_rate_hz=float(stats.get("adc_sample_rate_hz", stats.get("sample_rate_hz", 0)) or 0),
             n=int(stats.get("n", 0) or 0), duration=float(stats.get("duration_ms", 0) or 0) / 1000.0,
@@ -161,7 +180,7 @@ class PowerProfileSession:
         return self
 
     def status(self) -> Dict[str, Any]:
-        """``{"running", "efuse", "elapsed_ms", "n"}`` from the pod."""
+        """``{"running", "supply", "elapsed_ms", "n"}`` from the pod (``"efuse"`` too, deprecated)."""
         reply = self._pod.command({"cmd": "power_profile", "action": "status"})
         return reply if isinstance(reply, dict) else {}
 

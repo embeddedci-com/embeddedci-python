@@ -34,7 +34,7 @@
 #   UART RX  (pod -> DUT drives)    LA4                    wiring.uart_tx
 #   I2C SDA  (needs a pull-up)      LA2 (4.7k pull-up)     wiring.i2c_sda
 #   I2C SCL  (needs a pull-up)      LA1 (4.7k pull-up)     wiring.i2c_scl
-#   Target 5V power                 eFuse 1 (internal)     --benchpod-efuse
+#   Target 5V power                 5v supply              --benchpod-supply
 #
 # Switchable pull-ups exist only on LA1-LA6 (LA1/2 = 4.7k, LA3/4 = 2.2k,
 # LA5/6 = 10k). LA7/LA8 carry 10k pull-DOWNs and LA9-LA14 nothing, so the
@@ -72,7 +72,7 @@ def wiring(pins):
         swclk=pins.pin_11, swdio=pins.pin_12, nreset=True,
         uart_rx=pins.pin_5, uart_tx=pins.pin_4,
         i2c_sda=pins.pin_2, i2c_scl=pins.pin_1,  # LA1/LA2 — 4.7k pull-ups
-        efuse=pins.efuse,
+        supply=pins.supply,
     )
 
 
@@ -88,7 +88,7 @@ def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
             file=firmware,
             target="target/stm32f4x.cfg",
             swclk=wiring.swclk, swdio=wiring.swdio,
-            nreset=wiring.nreset, target_power=wiring.efuse,
+            nreset=wiring.nreset, target_power=wiring.supply,
             verify=False,  # programming is reliable; the read-back verify is the slow part
         )
 
@@ -107,7 +107,7 @@ def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
         #    and the boot banner is not missed. Stop at APP_OK, which the app prints
         #    last (after the BMP280 probe), so the capture contains both markers.
         boot = bp.power_cycle_and_capture(
-            rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
+            rx=wiring.uart_rx, tx=wiring.uart_tx, supply=wiring.supply,
             delay=1.5, duration=8.0, until=APP_OK,
         )
         assert boot.match(APP_OK), f"no APP_OK banner:\n{boot.text}"
@@ -116,9 +116,9 @@ def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
 
         # 4. Boot again and decode the I2C bus. The chip-id probe is a one-shot a few
         #    ms after power-up, so sweep a handful of back-to-back capture windows.
-        bp.power_off(wiring.efuse)
+        bp.power_off(wiring.supply)
         time.sleep(0.3)
-        bp.power_on(wiring.efuse)  # returns immediately; the captures below cover the boot
+        bp.power_on(wiring.supply)  # returns immediately; the captures below cover the boot
         txns = []
         chip_id = None
         for _ in range(6):
@@ -130,5 +130,5 @@ def test_bmp280_sensor_present(benchpod, benchpod_sensors, wiring, firmware):
         assert chip_id == [BMP280_CHIP_ID], f"expected a chip-id read of 0x58, decoded {chip_id}"
     finally:
         # Always leave the DUT powered down, pass or fail, so the bench is in a known state.
-        bp.power_off(wiring.efuse)
+        bp.power_off(wiring.supply)
         bp.disable_pullup(wiring.i2c_sda, wiring.i2c_scl)
