@@ -16,7 +16,7 @@ from embeddedci.benchpod.wiring import DEFAULT_PINS, ROLE_KEYS
 def test_nothing_is_wired_by_default():
     w = Wiring()
     assert all(getattr(w, k) is None for k in ROLE_KEYS)
-    assert (w.la_mv, w.la_voltage, w.efuse, w.i2c_addr, w.i2c_address) == (None, None, None, None, None)
+    assert (w.la_mv, w.la_voltage, w.supply, w.i2c_addr, w.i2c_address) == (None, None, None, None, None)
     assert w.uart_baud == 115200 and w.version == 2 and w.source == "undefined" and w.pins() == {}
     assert Wiring.undefined() == w
 
@@ -24,7 +24,7 @@ def test_nothing_is_wired_by_default():
 def test_the_default_preset_is_the_old_default_pins():
     w = Wiring.preset("embeddedci-default")
     assert (w.uart_rx, w.uart_tx, w.uart_baud, w.i2c_sda, w.i2c_scl) == (5, 4, 115200, 1, 2)
-    assert (w.swd_swclk, w.swd_swdio, w.efuse, w.la_voltage, w.i2c_address) == (11, 12, 1, 3.3, 0x76)
+    assert (w.swd_swclk, w.swd_swdio, w.supply, w.la_voltage, w.i2c_address) == (11, 12, "5v", 3.3, 0x76)
     assert w.source == "preset" and w.warnings() == []
     assert Wiring.preset() == w and not hasattr(Wiring, "defaults")
     with pytest.raises(ValueError, match="no wiring preset"):
@@ -57,10 +57,10 @@ def test_lookups_by_role_and_signal():
 
 def test_every_problem_is_reported_at_once():
     with pytest.raises(ValueError) as ei:
-        Wiring(la_mv=2500, efuse=3, uart_baud=10, uart_rx=15, i2c_addr="0x80",
+        Wiring(la_mv=2500, supply="3", uart_baud=10, uart_rx=15, i2c_addr="0x80",
                signals=[Signal("1bad", 20), Signal("uart_tx", 6, "sideways")])
     msg = str(ei.value)
-    for part in ("la_mv", "efuse", "uart_baud", "uart_rx", "i2c_addr", "signals[0].name",
+    for part in ("la_mv", "supply", "uart_baud", "uart_rx", "i2c_addr", "signals[0].name",
                  "signals[0].la", "signals[1].name", "signals[1].direction"):
         assert part in msg, part
 
@@ -264,11 +264,11 @@ powered = []
 class FakePod:
     def __init__(self, connection, **kwargs):
         self.capabilities = type("C", (), {"la_pins": False})()
-        self.wiring = Wiring(efuse=2)
-    def power_on(self, rail=None):
-        powered.append(("on", rail))
-    def power_off(self, rail=None):
-        powered.append(("off", rail))
+        self.wiring = Wiring(supply="external")
+    def power_on(self, supply=None):
+        powered.append(("on", supply))
+    def power_off(self, supply=None):
+        powered.append(("off", supply))
     def close(self):
         pass
 
@@ -276,17 +276,17 @@ pytest_plugin.BenchPod = FakePod
 """
 
 
-@pytest.mark.parametrize("flag, rail", [(None, 2), ("--benchpod-efuse=1", 1)])
+@pytest.mark.parametrize("flag, rail", [(None, "external"), ("--benchpod-efuse=1", "5v"), ("--benchpod-supply=3v3", "3v3")])
 def test_benchpod_target_powers_the_wiring_profiles_rail(pytester, flag, rail):
     pytester.makeconftest(TARGET_CONFTEST)
     pytester.makepyfile(f"""
 import conftest
 
 def test_target(benchpod_target):
-    assert conftest.powered == [("on", {rail})]
+    assert conftest.powered == [("on", {rail!r})]
 
 def test_after():
-    assert conftest.powered == [("on", {rail}), ("off", {rail})]
+    assert conftest.powered == [("on", {rail!r}), ("off", {rail!r})]
 """)
     args = ["-p", "no:cacheprovider", "--benchpod-connection=10.0.0.9"] + ([flag] if flag else [])
     pytester.runpytest(*args).assert_outcomes(passed=2)

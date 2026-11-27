@@ -141,11 +141,11 @@ class StatusResult(BaseModel):
         "web UI's Wiring tab shows it), file (BENCHPOD_WIRING), dict (set_wiring) or defaults."))
 
 
-class Pin21Result(BaseModel):
-    """J1 pin 21 on digital v4: the rail the pull-ups pull to."""
+class VrefOutResult(BaseModel):
+    """The I/O reference (VREF OUT, J1 pin 21) on BenchPod v4: the supply the pull-ups pull to."""
 
     source: str = Field(description="bank (follows the I/O bank, 1.8 or 3.3 V) or 5v.")
-    setting: float = Field(description="What pin 21 should be, volts.")
+    setting: float = Field(description="What VREF OUT should be, volts.")
     measured: Optional[float] = Field(None, description="What the pod measures, volts.")
     state: str = Field(description=(
         "ok; high: more than 0.2 V above its setting, a DUT signal above the I/O voltage lifts it "
@@ -157,7 +157,7 @@ class Pin21Result(BaseModel):
 class LaVoltageResult(BaseModel):
     voltage: Optional[float]
     readback: Optional[float] = None
-    pin21: Optional[Pin21Result] = Field(None, description="Digital v4 only: J1 pin 21.")
+    vref_out: Optional[VrefOutResult] = Field(None, description="BenchPod v4 only: the I/O reference (VREF OUT, J1 pin 21).")
 
 
 # -- wiring profile ----------------------------------------------------------------
@@ -204,9 +204,12 @@ class WiringResult(BaseModel):
     autosave: bool = Field(False, description="The server saves set_wiring's profile on the pod (--wiring-autosave).")
     la_voltage: Optional[float] = Field(description=(
         "LA I/O-bank voltage the profile asks for, in volts; null when it sets none."))
-    efuse: Optional[Union[int, str]] = Field(description=(
-        "Target-power rail the tools default to: 1 (internal 5 V), 2 (external) or, on a digital "
-        "board v4, j1_3v3 / j1_1v8 (J1 pins 17 and 18); null when the profile sets none (pass rail)."))
+    supply: Optional[str] = Field(description=(
+        "Target-power supply the tools default to: 5v, external or, on BenchPod v4, 3v3 / 1v8; "
+        "null when the profile sets none (pass supply)."))
+    efuse: Optional[int] = Field(None, description=(
+        "Deprecated, use supply: the eFuse number behind it (1 for 5v, 2 for external); null for "
+        "3v3 / 1v8 or no supply."))
     uart_baud: int
     i2c_address: Optional[int] = Field(description="The profile's I2C address (i2c_addr) as a 7-bit integer; null when unset.")
     swd_nreset: bool
@@ -346,31 +349,28 @@ class GpioReleaseResult(BaseModel):
 class PowerResult(BaseModel):
     profile: Optional[str] = Field(None, description="The wiring profile the board was powered on with.")
     la_voltage: Optional[float] = Field(None, description="The I/O voltage the profile set before power-on.")
-    rail: str = Field(description="The output switched: internal (internal 5 V, efuse 1), external (efuse 2), j1_3v3 (J1 pin 17) or j1_1v8 (J1 pin 18).")
-    efuse: Optional[int] = Field(None, description="The eFuse number of the rail (1 or 2); null for a J1 supply.")
+    supply: str = Field(description="The supply switched: 5v (eFuse 1), external (eFuse 2), 3v3 (J1 pin 17) or 1v8 (J1 pin 18).")
+    efuse: Optional[int] = Field(None, description="Deprecated, use supply: the eFuse number (1 or 2); null for 3v3 / 1v8.")
     on: bool
     delay: Optional[float] = None
 
 
-class J1RailsResult(BaseModel):
-    v3v3: bool = Field(description="J1 pin 17 (+3.3 V) is on.")
-    v1v8: bool = Field(description="J1 pin 18 (+1.8 V) is on.")
+class SupplyResult(BaseModel):
+    """One target-power supply. 3v3 and 1v8 are only switched: the other fields are null for them."""
 
-
-class RailResult(BaseModel):
     enabled: bool
-    fault: bool = Field(description="The eFuse tripped (over-current or short on the target rail).")
-    state_valid: bool
-    monitor_ok: bool
-    bus_voltage: float
-    current: float = Field(description="Amps.")
+    fault: Optional[bool] = Field(None, description="The eFuse tripped (over-current or short on the supply).")
+    state_valid: Optional[bool] = None
+    monitor_ok: Optional[bool] = None
+    bus_voltage: Optional[float] = None
+    current: Optional[float] = Field(None, description="Amps.")
 
 
 class PodPowerResult(BaseModel):
     monitor_ok: bool
     bus_voltage: float
-    current: float = Field(description="Amps the pod itself draws from 5 V (the DUT's internal rail bypasses it).")
-    total_current: Optional[float] = Field(None, description="Amps: pod + DUT internal rail, what the USB input delivers.")
+    current: float = Field(description="Amps the pod itself draws from 5 V (the DUT's 5v supply bypasses it).")
+    total_current: Optional[float] = Field(None, description="Amps: pod + DUT 5v supply, what the USB input delivers.")
 
 
 class MonitorPowerResult(BaseModel):
@@ -380,10 +380,12 @@ class MonitorPowerResult(BaseModel):
 
 
 class PowerStatusResult(BaseModel):
-    internal: RailResult = Field(description="The internal 5 V rail (efuse 1).")
-    external: RailResult = Field(description="The external rail (efuse 2).")
+    supplies: Dict[str, SupplyResult] = Field(description=(
+        "By name: 5v (eFuse 1) and external (eFuse 2) with on/off, tripped state and the current monitor; on "
+        "BenchPod v4 also 3v3 and 1v8, which only have enabled."))
+    internal: SupplyResult = Field(description="Deprecated, use supplies['5v'].")
+    external: SupplyResult = Field(description="Deprecated, use supplies['external'].")
     pod: Optional[PodPowerResult] = Field(None, description="The pod's own draw; null on boards that don't measure it.")
-    j1_rails: Optional[J1RailsResult] = Field(None, description="J1 pins 17 and 18 on the digital board v4; null on boards where both are always on.")
     monitors: Optional[Dict[str, MonitorPowerResult]] = Field(None, description="External INA current monitors attached with expansion, by name (null when none).")
 
 
@@ -393,10 +395,12 @@ class ResetResult(BaseModel):
 
 
 class PowerProfileResult(BaseModel):
-    """A target-power rail profiled over time. Currents are amps, voltages volts, energy joules,
-    charge coulombs, durations seconds."""
+    """A target-power supply (or an external INA monitor) profiled over time. Currents are amps,
+    voltages volts, energy joules, charge coulombs, durations seconds."""
 
-    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
+    supply: Optional[str] = Field(None, description="The supply used: 5v or external; null for a monitor profile.")
+    monitor: Optional[str] = Field(None, description="The external INA monitor used (its name); null for a supply profile.")
+    efuse: int = Field(description="Deprecated, use supply and monitor: the eFuse number (1 or 2), 0 for a monitor profile.")
     rate_hz: float = Field(description="Samples per second actually delivered (measured). The pod reads one sensor register per firmware pass, so this lands below what was asked for — roughly 350-450 Hz. Every sample carries its own timestamp, so the trace is exact regardless.")
     adc_rate_hz: float = Field(default=0.0, description="Conversion rate the current sensor was configured for — the ceiling, not what arrived.")
     n: int = Field(description="Raw samples the statistics cover.")
@@ -419,7 +423,9 @@ class PowerProfileResult(BaseModel):
 
 class PowerProfileStartResult(BaseModel):
     running: bool = True
-    efuse: int = Field(description="The rail used: internal 5 V (efuse 1) or external (efuse 2).")
+    supply: Optional[str] = Field(None, description="The supply used: 5v or external; null for a monitor profile.")
+    monitor: Optional[str] = Field(None, description="The external INA monitor used (its name); null for a supply profile.")
+    efuse: int = Field(description="Deprecated, use supply and monitor: the eFuse number (1 or 2), 0 for a monitor profile.")
     rate_hz: float = Field(description="Sample rate asked for; the achieved rate is in the stop result.")
     max_duration: float = Field(description="Seconds after which the pod stops sampling by itself.")
 
@@ -1100,7 +1106,7 @@ class DetectSkipped(BaseModel):
 
 class DetectToolResult(BaseModel):
     """What is wired to the pod. An empty findings list with skipped reasons is a normal result."""
-    powered: bool = Field(description="The target's power rail is on; when false nothing was probed.")
+    powered: bool = Field(description="The target's power supply is on; when false nothing was probed.")
     findings: List[DetectFindingInfo] = Field(default_factory=list)
     skipped: List[DetectSkipped] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)

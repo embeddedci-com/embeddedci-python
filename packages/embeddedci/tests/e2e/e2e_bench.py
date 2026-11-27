@@ -65,7 +65,7 @@ class Bench:
     swclk: int
     swdio: int
     nreset: bool          # DUT reset wired to the pod's reset pin (rev3 pods only)
-    efuse: int            # target-power rail the DUT is on
+    supply: str           # target-power supply the DUT is on ("5v", "external", "3v3", "1v8")
     target_cfg: str       # OpenOCD target config
     free_la: Optional[Tuple[int, int]]   # two LA channels nothing is wired to
     top_la: Optional[Tuple[int, int]]    # LA13/LA14 (firmware 3.1+), nothing driving them either
@@ -123,7 +123,7 @@ def bench_from_env(environ: Mapping[str, str]) -> Bench:
         swclk=int(env("SWCLK", "11")),
         swdio=int(env("SWDIO", "12")),
         nreset=env("NRESET", "0") == "1",
-        efuse=int(env("EFUSE", "1")),
+        supply=env("SUPPLY", {"1": "5v", "2": "external"}.get(env("EFUSE", "1"), "5v")),
         target_cfg=env("TARGET_CFG", "target/stm32f4x.cfg"),
         free_la=free,  # type: ignore[arg-type]
         top_la=top,  # type: ignore[arg-type]

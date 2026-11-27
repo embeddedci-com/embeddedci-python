@@ -39,7 +39,7 @@ wherever a channel does::
 
     @htf.plug(bench=bench)
     def run(test, bench):
-        bench.power_on()                     # the profile's rail
+        bench.power_on()                     # the profile's supply
         gpio(bench, "TRIGGER").pulse(0.001)  # the channel the profile names TRIGGER
 
 **LA voltage.** The pod refuses every LA-bank operation — flashing, the UART

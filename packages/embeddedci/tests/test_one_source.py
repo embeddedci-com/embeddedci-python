@@ -191,7 +191,7 @@ def test_lan_pod_uses_the_stored_profile_with_an_api_key(monkeypatch, http):
     pod = Pod()
     bp = BenchPod(transport=pod, lease=False)
     assert bp.wiring.source == "server"
-    assert bp.wiring.uart_rx == 3 and bp.wiring.efuse == 2 and bp.signal("READY").la == 10
+    assert bp.wiring.uart_rx == 3 and bp.wiring.supply == "external" and bp.signal("READY").la == 10
     method, url, auth, timeout = http.requests[0]
     assert (method, url, auth) == (
         "GET", f"https://staging.example/api/benchpod/devices/{DEVICE_ID}/wiring/profile", "ApiKey eci_test")

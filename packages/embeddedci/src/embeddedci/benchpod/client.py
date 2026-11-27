@@ -35,6 +35,7 @@ import os
 import re
 import threading
 import time
+import warnings
 import weakref
 from contextlib import contextmanager
 from dataclasses import replace
@@ -105,9 +106,12 @@ from .constants import (
     Waveshape,
     check_choice,
     coerce_efuse,
-    coerce_rail,
-    is_j1_rail,
     coerce_pin,
+    coerce_supply,
+    efuse_supply,
+    is_switched_supply,
+    supply_efuse,
+    warn_efuse,
 )
 from .connection import resolve_connection
 from .errors import (BenchPodError, ClientTooOldError, DirectionConflictError, FirmwareError, FirmwareTooOldError,
@@ -136,8 +140,9 @@ from .state import (
     ModuleInfo,
     PowerStatus,
     PullState,
-    RailPower,
     ResetState,
+    SupplyPower,
+    SupplyState,
     TargetStatus,
     UsbCcStatus,
 )
@@ -818,7 +823,7 @@ class BenchPod:
     @property
     def wiring(self) -> Wiring:
         """The bench's :class:`~embeddedci.benchpod.wiring.Wiring` profile: which DUT signal is on
-        which LA channel, the target-power rail and the LA I/O voltage.
+        which LA channel, the target-power supply and the LA I/O voltage.
 
         Resolved once, first match wins:
 
@@ -834,14 +839,14 @@ class BenchPod:
            (``api_key``/``BENCHPOD_API_KEY``, or the ``benchpod login`` session) and the device is
            on that account. ``source`` is then ``"server"``. Skipped with
            ``wiring_source="local"`` / ``BENCHPOD_WIRING_SOURCE=local``;
-        5. nothing: :meth:`Wiring.undefined` (no pin wired, no I/O voltage, no power rail). A call
+        5. nothing: :meth:`Wiring.undefined` (no pin wired, no I/O voltage, no power supply). A call
            that needs a pin then says which one to pass.
 
         The lookup in step 4 never raises: without credentials, with the pod not registered, the
         server unreachable or the device on another account, it logs why and goes on to step 5,
         and on a LAN/USB connection it gives up after about 3 seconds.
         Channel arguments fall back to it — ``open_uart()``, ``capture_uart()``, ``flash()``,
-        ``bp.sensors.start()``, the power rail — and :meth:`signal` / GPIO names come from it.
+        ``bp.sensors.start()``, the power supply — and :meth:`signal` / GPIO names come from it.
         Assign a profile to use another one for this connection (not saved; see :meth:`save_wiring`,
         :meth:`load_wiring`).
         """
@@ -1173,43 +1178,76 @@ class BenchPod:
                              "it in the profile")
         return la
 
-    def _rail(self, rail: Any = None, efuse: Any = None) -> Union[int, str]:
-        """The power output a call means: ``rail``, else ``efuse`` (the old name, same values as
-        before), else the wiring profile's. Both given is a :class:`ValueError`."""
-        if rail is not None and efuse is not None:
-            raise ValueError("pass rail= or efuse=, not both (efuse is the old name of rail)")
-        pick = rail if rail is not None else efuse
-        if pick is None:
-            pick = self.wiring.efuse
-            if pick is None:
-                raise ValueError("rail was not given and the wiring profile sets no power rail: pass rail="
-                                 "'internal' (5 V) or 'external' (supply), or on a digital board v4 "
-                                 "'j1_3v3' or 'j1_1v8', or set the rail in the profile")
-        elif rail is None:
-            return coerce_efuse(efuse)   # the old efuse= takes 1 and 2 only
-        return coerce_rail(pick)
+    def _power_arg(self, value: Any) -> Optional[str]:
+        """The supply a flash's ``target_power=`` names (``None``: leave power alone). The ints 1 and 2
+        and :class:`Efuse` still work and warn."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            warnings.warn("target_power=1/2 and INTERNAL/EXTERNAL are deprecated: use a supply "
+                          "('5v', 'external', '3v3' or '1v8')", DeprecationWarning, stacklevel=3)
+        return coerce_supply(value)
 
-    def _efuse(self, rail: Any = None, efuse: Any = None) -> int:
-        """A power output that has a current monitor: ``internal`` or ``external`` (1 or 2)."""
-        r = self._rail(rail, efuse)
-        if is_j1_rail(r):
-            raise ValueError(f"{r} has no current monitor (the J1 supplies are switched, not measured): "
-                             "measure it with an external current monitor, or use the internal or "
-                             "external rail")
-        return int(r)
+    def _supply(self, supply: Any = None, efuse: Any = None) -> str:
+        """The supply a call means: ``supply``, else ``efuse`` (the old name: 1 and 2, deprecated),
+        else the wiring profile's. Both given is a :class:`ValueError`."""
+        if supply is not None and efuse is not None:
+            raise ValueError("pass supply= or efuse=, not both (efuse is the old name of supply)")
+        if efuse is not None:
+            warn_efuse(stacklevel=4)
+            return efuse_supply(efuse)   # the old efuse= takes 1 and 2 only
+        if supply is None:
+            supply = self.wiring.supply
+            if supply is None:
+                raise ValueError("supply was not given and the wiring profile sets no power supply: pass "
+                                 "supply='5v' (the pod's 5 V) or 'external' (your own supply), or on "
+                                 "BenchPod v4 '3v3' or '1v8', or set the supply in the profile")
+        return coerce_supply(supply)
 
-    def _switch_rail(self, rail: Union[int, str], on: bool, delay_ms: int = 0) -> None:
-        if is_j1_rail(rail):
-            if not self.supports("dut_rails"):
-                raise ValueError("this BenchPod has no switchable J1 supplies (digital board v4 with "
-                                 "firmware that has feature dut_rails): pins 17 and 18 are always on")
-            req: Dict[str, Any] = {"cmd": "target_power", "rail": rail, "enabled": bool(on)}
+    def _metered_supply(self, supply: Any = None, efuse: Any = None) -> str:
+        """A supply that has a current monitor: ``"5v"`` or ``"external"``."""
+        r = self._supply(supply, efuse)
+        if is_switched_supply(r):
+            raise ValueError(f"the {r!r} supply has no current monitor (it is switched, not measured): "
+                             "measure it with an external current monitor, or use '5v' or 'external'")
+        return r
+
+    def _switch_supply(self, supply: str, on: bool, delay_ms: int = 0) -> None:
+        if is_switched_supply(supply):
+            if not self.supports("supply_3v3_1v8"):
+                raise ValueError("this BenchPod has no switchable 3.3 V and 1.8 V supplies (BenchPod v4 "
+                                 "with firmware that has feature supply_3v3_1v8): they are always on")
+            req: Dict[str, Any] = {"cmd": "target_power", "supply": supply, "enabled": bool(on)}
             if delay_ms:
                 req["delay_ms"] = int(delay_ms)
             with _classified_errors():
                 self.command(req)
             return
-        self._transport.target_power(int(rail), bool(on), delay_ms)
+        if self._knows_supply():
+            req = {"cmd": "target_power", "supply": supply, "enabled": bool(on)}
+            if delay_ms:
+                req["delay_ms"] = int(delay_ms)
+            with _classified_errors():
+                self.command(req)
+            return
+        self._transport.target_power(int(supply_efuse(supply) or 0), bool(on), delay_ms)
+
+    #: The features table revision whose firmware understands the ``supply`` key (older firmware
+    #: only knows ``efuse`` 1 and 2).
+    _SUPPLY_FEATURES_REV = 22
+
+    def _knows_supply(self) -> bool:
+        """The pod's firmware takes ``supply`` (features revision 22+). The console transport only
+        speaks ``efuse``."""
+        if type(self._transport).__name__ == "SerialTransport":
+            return False
+        return self.capabilities.features_rev >= self._SUPPLY_FEATURES_REV
+
+    def _supply_key(self, supply: str) -> Dict[str, Any]:
+        """``{"supply": name}`` for firmware that knows it, else ``{"efuse": 1 | 2}``."""
+        if self._knows_supply() or is_switched_supply(supply):
+            return {"supply": supply}
+        return {"efuse": supply_efuse(supply)}
 
     # -- LA I/O-bank voltage ------------------------------------------------
 
@@ -1217,10 +1255,10 @@ class BenchPod:
         """Select the LA I/O-bank voltage: ``1.8`` or ``3.3`` volts (1.8 V needs a rev3 pod), or
         ``5.0`` on a pod with the digital board v4 (feature ``la_5v``).
 
-        At 5.0 the bank stays at 3.3 V, J1 pin 21 (the pull-up rail) goes to 5 V, and outputs
+        At 5.0 the bank stays at 3.3 V, VREF OUT (J1 pin 21, the supply the pull-ups pull to) goes to 5 V, and outputs
         reach 5 V through their pull-ups: https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io
         Raises :class:`~embeddedci.benchpod.errors.FirmwareError` ``BP0028`` when 5 V did not come
-        up. :attr:`LaVoltage.pin21` reports pin 21.
+        up. :attr:`LaVoltage.vref_out` reports it.
 
         Match it to the DUT's I/O voltage. It must be set before any LA-bank operation (flashing,
         the UART proxy, LA capture, pull resistors, sensor emulation), or the pod refuses them with
@@ -1254,35 +1292,37 @@ class BenchPod:
 
     # -- power --------------------------------------------------------------
 
-    def target_power(self, efuse: Optional[Union[Efuse, int]] = None, *,
-                     on: bool, delay: Optional[float] = None, rail: Optional[Union[Efuse, int, str]] = None) -> None:
-        """Switch a power output on or off: ``rail`` is ``"internal"`` (eFuse 1, 5 V), ``"external"``
-        (eFuse 2) or, on the digital board v4, ``"j1_3v3"`` / ``"j1_1v8"`` (J1 pin 17 +3.3 V, current
-        limited to about 1.45 A, and pin 18 +1.8 V; feature ``dut_rails``). Omitted: the wiring
-        profile's rail. ``efuse`` is the old name of ``rail`` for 1 and 2 (passing both is a
-        :class:`ValueError`).
+    def target_power(self, supply: Optional[Union[str, Efuse, int]] = None, *,
+                     on: bool, delay: Optional[float] = None,
+                     efuse: Optional[Union[Efuse, int]] = None) -> None:
+        """Switch a supply on or off: ``supply`` is ``"5v"`` (the pod's 5 V through eFuse 1),
+        ``"external"`` (your own supply through eFuse 2) or, on BenchPod v4, ``"3v3"`` / ``"1v8"``
+        (the switched 3.3 V and 1.8 V outputs, J1 pins 17 and 18, current limited to about 1.45 A
+        for 3.3 V; feature ``supply_3v3_1v8``). Omitted: the wiring profile's supply. The old
+        forms still work: the ints 1 and 2, an :class:`Efuse` and ``"internal"``. ``efuse=`` is
+        the deprecated keyword for them (passing both it and ``supply`` is a :class:`ValueError`).
 
-        The J1 pins are on from boot and independent of the eFuses and of resets;
-        :attr:`TargetStatus.j1_rails` reports them. Older boards have them always on: raises
+        ``"3v3"`` and ``"1v8"`` are on from boot and independent of the eFuses and of resets;
+        :attr:`TargetStatus.supplies` reports them. Older boards have them always on: raises
         :class:`ValueError` there.
 
         ``delay`` (seconds) schedules the change pod-side and returns immediately — handy to
         power on *during* a UART capture.
         """
-        self._switch_rail(self._rail(rail, efuse), bool(on), _seconds_to_ms(delay, "delay"))
+        self._switch_supply(self._supply(supply, efuse), bool(on), _seconds_to_ms(delay, "delay"))
 
-    def power_on(self, efuse: Optional[Union[Efuse, int]] = None,
+    def power_on(self, supply: Optional[Union[str, Efuse, int]] = None,
                  *, delay: Optional[float] = None, wiring_profile: Optional[str] = None,
-                 rail: Optional[Union[Efuse, int, str]] = None) -> None:
+                 efuse: Optional[Union[Efuse, int]] = None) -> None:
         """Power the target on with its wiring profile applied first.
 
-        ``rail`` names the output as in :meth:`target_power` (``"internal"``, ``"external"``,
-        ``"j1_3v3"``, ``"j1_1v8"``); omitted, it is the profile's. ``efuse`` is its old name.
+        ``supply`` names the output as in :meth:`target_power` (``"5v"``, ``"external"``, ``"3v3"``,
+        ``"1v8"``); omitted, it is the profile's. ``efuse=`` is the deprecated keyword.
 
         In order: ``wiring_profile`` (a profile stored on the pod) becomes this connection's
         profile (:meth:`load_wiring`); the profile's I/O voltage is set when the pod has none or
         another one; its pull resistors (:attr:`Wiring.pulls`) are switched on and the others off;
-        then the rail goes on (omitted ``efuse``: the profile's rail), and the pod
+        then the supply goes on (omitted: the profile's supply), and the pod
         records which profile powered the board (``target_status``). The I/O voltage is never
         changed under a board that is already powered: that raises, set it with
         :meth:`set_la_voltage` yourself if you mean it.
@@ -1290,11 +1330,11 @@ class BenchPod:
         if wiring_profile:
             self.load_wiring(wiring_profile)
         w = self.wiring
-        rail = self._rail(rail, efuse)
+        supply = self._supply(supply, efuse)
         if w.la_voltage is not None:
             current = self.get_la_voltage().voltage
             if current is None or abs(current - w.la_voltage) > 0.05:
-                if current is not None and self._rail_on(rail):
+                if current is not None and self._supply_on(supply):
                     raise BenchPodError(
                         f"the board is powered with I/O at {current:g} V and the wiring profile wants "
                         f"{w.la_voltage:g} V: power it off first, or call set_la_voltage() if you mean it")
@@ -1304,13 +1344,13 @@ class BenchPod:
         self._apply_profile_pulls(w)
         cmd = self._pod_cmd()
         if (w.profile_name and cmd is not None and type(self._transport).__name__ != "SerialTransport"
-                and not is_j1_rail(rail)):
-            req: Dict[str, Any] = {"cmd": "target_power", "efuse": rail, "enabled": True,
+                and not is_switched_supply(supply)):
+            req: Dict[str, Any] = {"cmd": "target_power", **self._supply_key(supply), "enabled": True,
                                    "delay_ms": _seconds_to_ms(delay, "delay"), "profile": w.profile_name}
             with _classified_errors():
                 cmd(req)
             return
-        self._switch_rail(rail, True, _seconds_to_ms(delay, "delay"))
+        self._switch_supply(supply, True, _seconds_to_ms(delay, "delay"))
 
     def _apply_profile_pulls(self, w: Wiring) -> None:
         """Switch the pull resistors the profile lists on and the others off (``pulls`` None: leave
@@ -1330,28 +1370,25 @@ class BenchPod:
         _log.info("power_on: pull resistors from the wiring profile: %s",
                   ", ".join(f"LA{la} {d}" for la, d in sorted(wanted.items())) or "none")
 
-    def _rail_on(self, rail: Union[int, str]) -> bool:
+    def _supply_on(self, supply: str) -> bool:
         try:
-            ts = self.target_status()
-            if is_j1_rail(rail):
-                return bool(ts.j1_rails and (ts.j1_rails.v3v3 if rail == "j1_3v3" else ts.j1_rails.v1v8))
-            return bool(ts.efuse(rail).enabled)
+            return bool(self.target_status().supplies.get(supply, SupplyState(False)).enabled)
         except BenchPodError:
             return False
 
-    def power_off(self, efuse: Optional[Union[Efuse, int]] = None,
-                  *, delay: Optional[float] = None, rail: Optional[Union[Efuse, int, str]] = None) -> None:
-        """Power the target off: ``rail`` as in :meth:`target_power` (omitted: the profile's rail;
-        ``efuse`` is its old name)."""
-        self.target_power(efuse, on=False, delay=delay, rail=rail)
+    def power_off(self, supply: Optional[Union[str, Efuse, int]] = None,
+                  *, delay: Optional[float] = None, efuse: Optional[Union[Efuse, int]] = None) -> None:
+        """Power the target off: ``supply`` as in :meth:`target_power` (omitted: the profile's
+        supply; ``efuse=`` is the deprecated keyword)."""
+        self.target_power(supply, on=False, delay=delay, efuse=efuse)
 
     def target_status(self) -> TargetStatus:
-        """Both eFuse rails: enabled, tripped (``fault``), and whether the state was readable.
-        On the digital board v4 also ``j1_rails``: whether J1 pins 17 and 18 are on."""
+        """The supplies by name (:attr:`TargetStatus.supplies`): enabled, tripped (``fault``), and
+        whether the state was readable. On BenchPod v4 also ``"3v3"`` and ``"1v8"``: on or off."""
         return TargetStatus.from_reply(self.command({"cmd": "target_status"}))
 
     def power_status(self) -> PowerStatus:
-        """The INA power monitors: bus voltage and current on each target-power rail, and
+        """The INA power monitors: bus voltage and current on the ``"5v"`` and ``"external"`` supplies, and
         (:attr:`PowerStatus.monitors`) a live reading of each external INA monitor attached with
         :meth:`expansion`."""
         status = PowerStatus.from_reply(self.command({"cmd": "power_status"}))
@@ -1359,8 +1396,8 @@ class BenchPod:
             ext = {}
             for st in self._monitor_statuses():
                 r = st.reading
-                ext[st.name] = RailPower(ok=r is not None, bus_voltage=r.bus_voltage if r else 0.0,
-                                         current=r.current if r else 0.0)
+                ext[st.name] = SupplyPower(ok=r is not None, bus_voltage=r.bus_voltage if r else 0.0,
+                                           current=r.current if r else 0.0)
             status = dataclasses.replace(status, monitors=ext)
         return status
 
@@ -1949,7 +1986,7 @@ class BenchPod:
         target: str = "",
         file: str = "",
         load_address: str = "",
-        target_power: Optional[Union[Efuse, int]] = None,
+        target_power: Optional[Union[str, Efuse, int]] = None,
         verify: bool = True,
         reset: bool = True,
         connect_under_reset: Optional[bool] = None,
@@ -1989,8 +2026,9 @@ class BenchPod:
         ``nreset`` is a
         flag, not a pin: pass ``True`` when the target's reset line is wired to the pod's reset
         pin (DUT header J1 pin 22). ``target`` is an OpenOCD target config
-        (``target/stm32f4x.cfg``) and ``file`` the image. ``target_power`` of
-        ``benchpod.INTERNAL``/``EXTERNAL`` powers the target first. Omitted ``swclk``, ``swdio``,
+        (``target/stm32f4x.cfg``) and ``file`` the image. ``target_power`` (a supply:
+        ``"5v"``, ``"external"``, ``"3v3"`` or ``"1v8"`` as in :meth:`power_on`; the ints 1 and 2 and
+        ``benchpod.INTERNAL``/``EXTERNAL`` are deprecated) powers the target first. Omitted ``swclk``, ``swdio``,
         ``nreset`` and ``target`` come from the wiring profile (:attr:`wiring`).
 
         Instead of ``file``, flash a build uploaded to embeddedci.com (the ``upload-artifact``
@@ -2060,7 +2098,7 @@ class BenchPod:
                     target, file, device=device, clk=clk, data=data, reset_pin=reset_pin,
                     nreset=nreset, load_address=load_address, erase=erase, dry_run=dry_run,
                     run_after=reset,
-                    power=coerce_efuse(target_power) if target_power is not None else None)
+                    power=self._power_arg(target_power))
             except _prog.ProgFlashError as exc:
                 if check:
                     raise
@@ -2080,7 +2118,7 @@ class BenchPod:
         if nreset is None:
             nreset = self.wiring.swd_nreset
         target = target or self.wiring.swd_target
-        power = coerce_efuse(target_power) if target_power is not None else None
+        power = self._power_arg(target_power)
         pins = self._flash_pins(swclk, swdio, tck, tms, tdi, tdo, trst, target)
         self._ensure_bus_masters("JTAG" if pins["port"] == "jtag" else "SWD")
 
@@ -2194,7 +2232,7 @@ class BenchPod:
 
     def _flash_build_on_server(
         self, api: "ServerApi", art: Dict[str, Any], *, swclk: int, swdio: int, nreset: bool,
-        target: str, load_address: str, power: Optional[Efuse], verify: bool, reset: bool,
+        target: str, load_address: str, power: Optional[str], verify: bool, reset: bool,
         connect_under_reset: Optional[bool], openocd_bin: Optional[str],
         extra_configs: Sequence[str], extra_args: Sequence[str], timeout: float,
     ) -> FlashResult:
@@ -2217,8 +2255,10 @@ class BenchPod:
         body: Dict[str, Any] = {
             "job_id": art["job_id"], "pack_id": art["pack_id"], "artifact_name": art["name"],
             "target": target, "load_addr": load_address, "swclk": swclk, "swdio": swdio,
-            "nreset": nreset, "efuse": int(power) if power is not None else 0,
+            "nreset": nreset, "efuse": (supply_efuse(power) or 0) if power is not None else 0,
         }
+        if power is not None and is_switched_supply(power):
+            self._switch_supply(power, True)   # the server only switches the eFuses
         if connect_under_reset is not None:
             body["connect_under_reset"] = bool(connect_under_reset)
         _log.info("flash: embeddedci.com flashes %s from build %s", art.get("name"), art.get("job_id"))
@@ -2340,7 +2380,7 @@ class BenchPod:
 
     def _flash_prog(self, target: str, file: str, *, device: str, clk: Any, data: Any,
                     reset_pin: Any, nreset: Optional[bool], load_address: str, erase: str,
-                    dry_run: bool, run_after: bool, power: Optional[Efuse]) -> FlashResult:
+                    dry_run: bool, run_after: bool, power: Optional[str]) -> FlashResult:
         """flash() for a chip with its own programming pins: the pod's prog_flash, see
         :mod:`embeddedci.benchpod.prog`."""
         proto = _prog.protocol_for(target)
@@ -2361,7 +2401,7 @@ class BenchPod:
         self._ensure_image(FpgaImage.DEEP_REPLAY, needed_for="flashing over programming pins",
                            switch=True)
         if power is not None:
-            self._transport.target_power(power, True)
+            self._switch_supply(power, True)
             time.sleep(_flash.TARGET_POWER_SETTLE)
         try:
             volts = self.get_la_voltage().voltage
@@ -2468,10 +2508,16 @@ class BenchPod:
             feature="jtag", firmware_version=self.capabilities.firmware_version)
 
     def _flash_local(self, *, pins: Dict[str, Any], nreset: bool, target: str, file: str,
-                     load_address: str, power: Optional[Efuse], verify: bool, reset: bool,
+                     load_address: str, power: Optional[str], verify: bool, reset: bool,
                      connect_under_reset: Optional[bool], clear_reset_events: bool,
                      openocd_bin: Optional[str], extra_configs: Sequence[str],
                      extra_args: Sequence[str], timeout: float, connect_attempts: int) -> FlashResult:
+        if power is not None and is_switched_supply(power):
+            self._switch_supply(power, True)   # flash.flash() only switches the eFuses
+            time.sleep(_flash.TARGET_POWER_SETTLE)
+            power_arg, wait = None, True
+        else:
+            power_arg, wait = (supply_efuse(power) if power is not None else None), False
         with _classified_errors():
             return _flash.flash(
                 self._transport,
@@ -2479,7 +2525,7 @@ class BenchPod:
                 tdi=pins["tdi"], tdo=pins["tdo"], trst=pins["trst"], port=pins["port"],
                 nreset=nreset,
                 target=target, file=file, load_address=load_address,
-                target_power=power, verify=verify, reset=reset,
+                target_power=power_arg, powered=wait, verify=verify, reset=reset,
                 connect_under_reset=connect_under_reset,
                 clear_reset_events=clear_reset_events,
                 openocd_bin=openocd_bin,
@@ -3213,10 +3259,10 @@ class BenchPod:
         *,
         rx: Union[Pin, int, str, None] = None,
         tx: Union[Pin, int, str, None] = None,
-        efuse: Optional[Union[Efuse, int]] = None,
+        supply: Optional[Union[str, Efuse, int]] = None,
         delay: float = 1.0,
         duration: float = 4.0,
-        rail: Optional[Union[Efuse, int, str]] = None,
+        efuse: Optional[Union[Efuse, int]] = None,
         baud: Optional[int] = None,
         until: Optional[_uart.Until] = None,
         off_settle: float = 0.3,
@@ -3225,20 +3271,20 @@ class BenchPod:
     ) -> _uart.UartCapture:
         """Power-cycle the target while capturing its boot output.
 
-        Powers the eFuse off, waits ``off_settle`` seconds, schedules a power-on ``delay`` seconds
+        Powers the supply off, waits ``off_settle`` seconds, schedules a power-on ``delay`` seconds
         out (pod-side timer), then captures UART for ``duration`` seconds — so the power-on and
         the DUT's boot banner land *inside* the window. ``duration`` must exceed ``delay``.
-        ``rail`` is as in :meth:`target_power` (omitted: the wiring profile's, which can be a J1
-        supply of the digital board v4); ``efuse`` is its old name.
+        ``supply`` is as in :meth:`target_power` (omitted: the wiring profile's, which can be the
+        switched ``"3v3"`` / ``"1v8"`` of BenchPod v4); ``efuse=`` is the deprecated keyword.
         """
         if duration <= delay:
             raise ValueError(f"duration ({duration!r}s) must exceed delay ({delay!r}s) or the "
                              "power-on lands after the capture window")
-        rail = self._rail(rail, efuse)
-        self.power_off(rail=rail)
+        supply = self._supply(supply, efuse)
+        self.power_off(supply)
         if off_settle:
             time.sleep(off_settle)
-        self.power_on(rail=rail, delay=delay)
+        self.power_on(supply, delay=delay)
         return self.capture_uart(rx=rx, tx=tx, baud=baud, duration=duration, until=until,
                                  parity=parity, stop_bits=stop_bits)
 
@@ -4859,7 +4905,7 @@ class BenchPod:
         configure the chip. One chip per call: ``addr`` and ``shunt_ohm`` are single values, and
         several chips are several calls; a call for an address (and channel) that is attached
         replaces it, which reconfigures the chip. The monitor is named ``"ina226@0x40"`` unless
-        ``name`` says otherwise; ``monitor="ext"`` selects it when exactly one is attached. They
+        ``name`` says otherwise; ``monitor=True`` selects it when exactly one is attached. They
         share one bus, so they need the same ``sda``/``scl``, and sit beside an attached GPIO
         expander. The LA voltage must be 3.3 V or 5 V. ``expansion()`` lists them with a live reading
         (:attr:`ExpansionStatus.monitors`); ``expansion(None)`` detaches everything, and
@@ -5043,9 +5089,9 @@ class BenchPod:
             raise ValueError("shunt_ohm is the shunt resistor in ohms, e.g. shunt_ohm=10.0")
         elif isinstance(shunt, bool) or not isinstance(shunt, (int, float)) or not 0 < float(shunt) <= 1e6:
             raise ValueError(f"shunt_ohm is in ohms, greater than 0, got {shunt!r}")
-        if name is not None and (not isinstance(name, str) or not name.strip() or name.strip().lower() == "ext"
+        if name is not None and (not isinstance(name, str) or not name.strip()
                                  or _expansion.ext_index(name) is not None):
-            raise ValueError(f"name {name!r} is not usable (empty, 'ext' or EXTn)")
+            raise ValueError(f"name {name!r} is not usable (empty, or EXTn, an expander pin name)")
         hz_i = int(hz if hz is not None else block.get("hz") or 400_000)
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= hz_i <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")
@@ -5171,13 +5217,13 @@ class BenchPod:
         self.monitors_status = " | ".join(parts)
 
     @staticmethod
-    def _monitor_exclusive(efuse: Any, rail: Any) -> None:
-        if efuse is not None or rail is not None:
-            raise ValueError("monitor= and rail= (or efuse=) are exclusive: pick the pod's power rail or "
-                             "an external INA monitor (monitor=), not both")
+    def _monitor_exclusive(efuse: Any, supply: Any) -> None:
+        if efuse is not None or supply is not None:
+            raise ValueError("monitor= and supply= (or efuse=) are exclusive: pick one of the pod's "
+                             "supplies or an external INA monitor (monitor=), not both")
 
-    def _monitor(self, name: Optional[str]) -> "_cmon.CurrentMonitor":
-        """The attached monitor called ``name``: ``"ext"`` (or ``None``) when exactly one is attached."""
+    def _monitor(self, name: Union[str, bool, None]) -> "_cmon.CurrentMonitor":
+        """The attached monitor called ``name``; ``True`` means the only attached one."""
         if not self._monitors and not self._monitors_synced:
             self._sync_profile_monitors(load=True)
         mons = self._monitors
@@ -5186,7 +5232,7 @@ class BenchPod:
             raise _expansion.ExpansionError(
                 "no external current monitor is attached" + why + ": add one to the wiring profile's "
                 "monitors, or attach it with expansion('ina226', shunt_ohm=...)")
-        if name is None or (isinstance(name, str) and name.lower() == "ext"):
+        if name is True or name is None:
             if len(mons) == 1:
                 return mons[0]
             raise ValueError("several current monitors are attached: name one of "
@@ -5195,7 +5241,7 @@ class BenchPod:
             if m_.name == name:
                 return m_
         raise ValueError(f"no current monitor named {name!r}: attached are "
-                         + ", ".join(repr(m_.name) for m_ in mons) + " ('ext' when there is one)")
+                         + ", ".join(repr(m_.name) for m_ in mons) + " (monitor=True when there is one)")
 
     def _monitor_statuses(self, *, read: bool = True) -> Tuple["_cmon.MonitorStatus", ...]:
         return tuple(m_.status(read=read) for m_ in list(self._monitors))
@@ -5208,7 +5254,7 @@ class BenchPod:
             return _expansion.ExpansionStatus(attached=False)
         base = exp.status() if exp is not None else _expansion.ExpansionStatus(
             attached=True, bus="i2c", la={"sda": mons[0].sda, "scl": mons[0].scl})
-        return dataclasses.replace(base, monitors=mons)
+        return dataclasses.replace(base, monitors={m_.name: m_ for m_ in mons})
 
     def _forget_monitor(self, mon: _cmon.CurrentMonitor) -> None:
         if mon in self._monitors:
@@ -5398,38 +5444,40 @@ class BenchPod:
 
     # -- power profiles -------------------------------------------------------
 
-    def measure_power(self, duration: float, *, efuse: Optional[Union[Efuse, int]] = None,
-                      rail: Optional[Union[Efuse, int, str]] = None,
+    def measure_power(self, duration: float, *, supply: Optional[Union[str, Efuse, int]] = None,
+                      efuse: Optional[Union[Efuse, int]] = None,
                       rate_hz: float = 500.0, keep_samples: int = 0,
-                      monitor: Optional[str] = None) -> PowerProfile:
-        """Profile a target-power rail for ``duration`` seconds (blocking) and return the
+                      monitor: Union[str, bool, None] = None) -> PowerProfile:
+        """Profile a target-power supply for ``duration`` seconds (blocking) and return the
         :class:`~embeddedci.benchpod.power.PowerProfile`: average, minimum and peak current, voltage,
-        energy and charge. ``rail`` (``efuse`` is its old name) defaults to the wiring profile's rail; ``keep_samples`` (up to
-        4096) also returns a bin-averaged trace.
+        energy and charge. ``supply`` (``"5v"`` or ``"external"``; ``efuse=`` is the deprecated
+        keyword) defaults to the wiring profile's supply; ``keep_samples`` (up to
+        4096) also returns a bin-averaged trace. ``"3v3"`` and ``"1v8"`` have no current monitor.
 
         ``monitor`` profiles an external INA monitor (attached with :meth:`expansion`) instead of a
-        pod rail, for µA currents: ``"ext"`` when exactly one is attached, else its name
-        (``"ina226@0x40"``). ``rate_hz`` then defaults to one read per conversion cycle (200 at
-        most), and ``rail``/``efuse`` do not apply (passing one is a ``ValueError``); the profile's
-        ``efuse`` is 0."""
+        pod supply, for µA currents: its name (``"ina226@0x40"``, or the ``name=`` it was attached
+        with), or ``True`` when exactly one is attached. ``rate_hz`` then defaults to one read per
+        conversion cycle (200 at most), and ``supply``/``efuse`` do not apply (passing one is a
+        ``ValueError``); the profile's :attr:`~embeddedci.benchpod.power.PowerProfile.monitor` names
+        it and its ``supply`` is ``None``."""
         if not 0 < duration <= 600:
             raise ValueError(f"duration must be > 0 and <= 600 seconds, got {duration!r}")
-        if monitor is not None:
-            self._monitor_exclusive(efuse, rail)
+        if monitor is not None and monitor is not False:
+            self._monitor_exclusive(efuse, supply)
             if not 0 <= int(keep_samples) <= 4096:
                 raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
             mon = self._monitor(monitor)
             return PowerProfile.from_readings(
                 mon.readings(duration, rate_hz=None if rate_hz == 500.0 else rate_hz),
-                adc_rate_hz=1.0 / mon.cycle, keep_samples=int(keep_samples))
-        req = self._power_request(efuse, rate_hz, keep_samples, rail)
+                adc_rate_hz=1.0 / mon.cycle, keep_samples=int(keep_samples), monitor=mon.name)
+        req = self._power_request(supply, efuse, rate_hz, keep_samples)
         req["duration_ms"] = max(1, int(round(duration * 1000)))
         return PowerProfile.from_chunks(self._power_profile_chunks(req))
 
-    def power_profile(self, *, efuse: Optional[Union[Efuse, int]] = None,
-                      rail: Optional[Union[Efuse, int, str]] = None, rate_hz: float = 500.0,
+    def power_profile(self, *, supply: Optional[Union[str, Efuse, int]] = None,
+                      efuse: Optional[Union[Efuse, int]] = None, rate_hz: float = 500.0,
                       keep_samples: int = 4096, max_duration: float = 60.0,
-                      monitor: Optional[str] = None) -> Any:
+                      monitor: Union[str, bool, None] = None) -> Any:
         """A power profile around a block of code::
 
             with bp.power_profile() as prof:
@@ -5438,34 +5486,34 @@ class BenchPod:
 
         Sampling stops by itself after ``max_duration`` seconds (``result.truncated``).
         ``monitor`` profiles an external INA monitor instead (as in :meth:`measure_power`): a
-        background thread reads it once per conversion cycle; ``rail``/``efuse`` do not apply.
+        background thread reads it once per conversion cycle; ``supply``/``efuse`` do not apply.
         """
         if not 0 < max_duration <= 600:
             raise ValueError(f"max_duration must be > 0 and <= 600 seconds, got {max_duration!r}")
-        if monitor is not None:
-            self._monitor_exclusive(efuse, rail)
+        if monitor is not None and monitor is not False:
+            self._monitor_exclusive(efuse, supply)
             if not 0 <= int(keep_samples) <= 4096:
                 raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
             return _cmon.MonitorProfileSession(
                 self._monitor(monitor), rate_hz=None if rate_hz == 500.0 else rate_hz,
                 keep_samples=int(keep_samples), max_duration=max_duration)
-        req = self._power_request(efuse, rate_hz, keep_samples, rail)
+        req = self._power_request(supply, efuse, rate_hz, keep_samples)
         req["max_duration_ms"] = int(round(max_duration * 1000))
         return PowerProfileSession(self, req)
 
-    def _power_request(self, efuse: Optional[Union[Efuse, int]], rate_hz: float,
-                       keep_samples: int, rail: Any = None) -> Dict[str, Any]:
+    def _power_request(self, supply: Any, efuse: Any, rate_hz: float,
+                       keep_samples: int) -> Dict[str, Any]:
         if not 100 <= rate_hz <= 500:
             raise ValueError(f"rate_hz must be 100..500, got {rate_hz!r} (the pod samples one "
                              "reading per firmware pass; above ~200 Hz it delivers what it can, "
                              "flattening near 365 Hz, and the result's rate_hz says what you got)")
         if not 0 <= int(keep_samples) <= 4096:
             raise ValueError(f"keep_samples must be 0..4096, got {keep_samples!r}")
-        rail = self._efuse(rail, efuse)   # a J1 supply has no current monitor: refused here
+        name = self._metered_supply(supply, efuse)   # 3v3 / 1v8 have no current monitor: refused here
         self._require_capability("power_profile", "power profiles")
         # The API takes hertz as a float like every other rate, but the firmware's JSON parser
         # wants a whole number here — send 1000, not 1000.0.
-        return {"cmd": "power_profile", "efuse": rail, "sample_rate_hz": int(round(rate_hz)),
+        return {"cmd": "power_profile", **self._supply_key(name), "sample_rate_hz": int(round(rate_hz)),
                 "keep_samples": int(keep_samples)}
 
     def _power_profile_chunks(self, req: Dict[str, Any]) -> Iterator[Dict[str, Any]]:

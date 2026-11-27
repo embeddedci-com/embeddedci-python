@@ -45,7 +45,7 @@ def make_smoke_phase(bench: type):
     def _phase(test, bench):
         # power-cycle and capture the boot output in one shot (delay/duration in seconds)
         cap = bench.power_cycle_and_capture(
-            rx=UART_RX, tx=UART_TX, efuse=benchpod.INTERNAL,
+            rx=UART_RX, tx=UART_TX, supply="5v",
             delay=1.0, duration=5.0, until=BOOT_BANNER,
         )
         record_uart(test, cap, name="boot_ok")     # sets boot_ok + attaches uart.txt
@@ -55,7 +55,7 @@ def make_smoke_phase(bench: type):
         test.measurements.vbat_v = int(m.group(1)) / 1000.0 if m else 0.0
 
         # the SDK returns typed state in volts/amps
-        rail = bench.power_status().rail(benchpod.INTERNAL)
+        rail = bench.power_status().supply("5v")
         test.measurements.target_rail_v = rail.bus_voltage
         test.logger.info("target rail %.3f V, %.1f mA", rail.bus_voltage, rail.current * 1e3)
 

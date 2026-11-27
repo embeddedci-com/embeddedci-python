@@ -10,7 +10,7 @@ import dataclasses
 from typing import Any, List, Optional, Sequence, Tuple
 
 from embeddedci.benchpod import Capture, LaCapture, PowerProfile, Trigger, Wiring
-from embeddedci.benchpod.constants import PULL_TABLE
+from embeddedci.benchpod.constants import PULL_TABLE, supply_efuse
 
 try:   # embeddedci 3.0.3+: the board's pull table (directions per channel)
     from embeddedci.benchpod.constants import PULL_TABLE
@@ -125,6 +125,11 @@ def _bias(la: int) -> Optional[str]:
     return None if not hw else f"{hw.ohms} {hw.default}"
 
 
+def _efuse_of(supply: Optional[str]) -> Optional[int]:
+    """The eFuse number behind a supply (the deprecated ``efuse`` field), ``None`` for 3v3 / 1v8."""
+    return None if supply is None else supply_efuse(supply)
+
+
 def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
     """The effective profile, its 14-row pin table and anything risky about it."""
     pins = wiring.pins()
@@ -132,7 +137,7 @@ def wiring_summary(wiring: Wiring, *, saved: bool = False) -> m.WiringResult:
     return m.WiringResult(
         source=wiring.source, version=wiring.version, profile_name=wiring.profile_name,
         profile_rev=wiring.profile_rev, la_voltage=wiring.la_voltage,
-        efuse=wiring.efuse, uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
+        supply=wiring.supply, efuse=_efuse_of(wiring.supply), uart_baud=wiring.uart_baud, i2c_address=wiring.i2c_address,
         swd_nreset=wiring.swd_nreset, swd_target=wiring.swd_target,
         debug_port=getattr(wiring, "debug_port", None),
         pins=[m.WiringPin(la=la, wired_to=pins.get(la), pull=_bias(la), dut_dir=dirs.get(la))
@@ -157,7 +162,8 @@ def power_summary(profile: PowerProfile, points: int) -> m.PowerProfileResult:
     """A power profile's statistics plus its trace averaged down to at most ``points`` points."""
     current, voltage, step = _trace(profile, points)
     return m.PowerProfileResult(
-        efuse=profile.efuse, rate_hz=profile.rate_hz, adc_rate_hz=profile.adc_rate_hz,
+        supply=profile.supply, monitor=profile.monitor, efuse=_efuse_of(profile.supply) or 0,
+        rate_hz=profile.rate_hz, adc_rate_hz=profile.adc_rate_hz,
         n=profile.n, duration=profile.duration,
         avg_current=round(profile.avg_current, _A_DIGITS),
         min_current=round(profile.min_current, _A_DIGITS),

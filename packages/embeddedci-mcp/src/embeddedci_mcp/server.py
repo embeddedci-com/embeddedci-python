@@ -70,6 +70,7 @@ from embeddedci.benchpod.capabilities import Capabilities
 from embeddedci.benchpod.client import API_BASE_ENV, API_KEY_ENV
 from embeddedci.benchpod.cloud_auth import DEFAULT_API_BASE
 from embeddedci.benchpod.connection import CLOUD_PREFIX
+from embeddedci.benchpod.constants import efuse_supply, supply_efuse
 from embeddedci.benchpod import errors as _errors
 from embeddedci.benchpod import protocol as _protocol
 from embeddedci.benchpod.errors import FirmwareError
@@ -96,15 +97,15 @@ LaRef = Annotated[Union[Annotated[int, Field(ge=1, le=14)], str], Field(descript
     "('uart_rx', 'i2c_sda', 'swd_swclk'). Call `wiring` to see the names. The gpio_* tools also "
     "take expander pins ('EXT1') once one is attached (expansion)."))]
 PullPin = Annotated[int, Field(ge=1, le=14)]
-EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power rail: internal 5 V (efuse 1) or external (efuse 2).")]
+EfuseRail = Annotated[Literal[1, 2], Field(description="Target-power supply: eFuse 1 (the 5v supply) or eFuse 2 (external).")]
 WiredEfuse = Annotated[Optional[Literal[1, 2]], Field(description=(
-    "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail."))]
-PowerRail = Annotated[Optional[Literal["internal", "external", "j1_3v3", "j1_1v8"]], Field(description=(
-    "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 "
-    "(J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on "
-    "from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. "
-    "Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has "
-    "the J1 supplies)."))]
+    "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply."))]
+PowerSupply = Annotated[Optional[Literal["5v", "external", "3v3", "1v8"]], Field(description=(
+    "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on "
+    "BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). "
+    "3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. "
+    "Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has "
+    "3v3 and 1v8)."))]
 BaudRate = Annotated[int, Field(ge=300, le=4_000_000)]
 WiredBaud = Annotated[Optional[int], Field(ge=300, le=4_000_000, description=(
     "UART baud rate; omit for the wiring profile's uart_baud."))]
@@ -541,41 +542,41 @@ async def status() -> m.StatusResult:
     return await _call(_status)
 
 
-def _pin21(state: Any) -> Optional[m.Pin21Result]:
-    p = getattr(state, "pin21", None)   # embeddedci before digital v4 support has none
+def _vref_out(state: Any) -> Optional[m.VrefOutResult]:
+    p = getattr(state, "vref_out", None)   # embeddedci before BenchPod v4 support has none
     if p is None:
         return None
-    return m.Pin21Result(source=p.source, setting=p.setting, measured=p.measured, state=p.state, up=p.up)
+    return m.VrefOutResult(source=p.source, setting=p.setting, measured=p.measured, state=p.state, up=p.up)
 
 
 @mcp.tool(annotations=_ann("Set LA I/O voltage", idempotent=True))
 async def set_la_voltage(la_voltage: Annotated[Optional[Literal[1.8, 3.3, 5.0]], Field(description=(
-        "The DUT's I/O voltage. 5.0 needs a pod with the digital board v4 (status capabilities "
-        "vref_out). Omit it to read the current voltage and pin 21 without changing anything."))] = None,
+        "The DUT's I/O voltage. 5.0 needs a pod with BenchPod v4 (status capabilities "
+        "vref_out). Omit it to read the current voltage and VREF OUT without changing anything."))] = None,
 ) -> m.LaVoltageResult:
-    """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod, 5.0 a digital
-    v4 board).
+    """Select the LA I/O-bank voltage to match the DUT's I/O (1.8 V needs a rev3 pod, 5.0 a BenchPod
+    v4).
 
     Usually not needed: connect sets it from the wiring profile's la_mv, and firmware 3.10.10+
     takes it from the profile on the first LA operation. Call it when the profile sets none (ask
     the user), or to override the profile for this session.
 
     At 5.0 outputs reach 5 V only through their pull-ups: switch on the pull-up (set_pull up) on
-    outputs into 5 V CMOS-level inputs. Point the user to https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io for the details. On digital
-    v4 the result has pin21; when its state is high, tell the user a DUT signal is above the I/O
+    outputs into 5 V CMOS-level inputs. Point the user to https://embeddedci.com/docs/benchpod-targets/5v-rs485#5v-io for the details. On BenchPod
+    v4 the result has vref_out (the I/O reference, VREF OUT); when its state is high, tell the user a DUT signal is above the I/O
     voltage (select 5.0 or remove the signal).
     """
     if la_voltage is None:
         state = await _call(lambda: SESSION.require().get_la_voltage())
     else:
         state = await _call(lambda: SESSION.require().set_la_voltage(la_voltage))
-    return m.LaVoltageResult(voltage=state.voltage, readback=state.readback, pin21=_pin21(state))
+    return m.LaVoltageResult(voltage=state.voltage, readback=state.readback, vref_out=_vref_out(state))
 
 
 # -- wiring profile -------------------------------------------------------------------
 
 #: Changes that are never saved on their own (autosave): what can hurt a board, or a new board.
-_NEVER_AUTOSAVE = ("la_mv", "efuse", "swd_target")
+_NEVER_AUTOSAVE = ("la_mv", "supply", "efuse", "swd_target")
 
 
 def _pod_wiring_state(pod: Any, result: m.WiringResult) -> m.WiringResult:
@@ -604,7 +605,7 @@ def _pod_wiring_state(pod: Any, result: m.WiringResult) -> m.WiringResult:
                                                              "spi_sclk", "spi_mosi",
                                                              "spi_miso", "spi_cs", "signals")]
         if any(k in _NEVER_AUTOSAVE for k in result.unsaved_changes) or len(roles) >= 4:
-            result.hint += (" This looks like a different board (I/O voltage, power rail, SWD target or "
+            result.hint += (" This looks like a different board (I/O voltage, power supply, SWD target or "
                             "most pins changed): prefer save_wiring(name='<board>') over overwriting "
                             f"{target!r}.")
     return result
@@ -616,10 +617,10 @@ async def wiring() -> m.WiringResult:
 
     Returns the profile this connection uses (normally a profile stored on the pod: profile_name,
     the pod's default unless connect named another): a 14-row pin table, the named signals, the
-    power rail, the UART baud and the SWD target, warnings about risky wiring, the pod's stored
+    power supply, the UART baud and the SWD target, warnings about risky wiring, the pod's stored
     profiles and unsaved_changes (what set_wiring changed that is not stored yet), and header_map:
     the profile on the pod's real I/O header as text, to show the user how to wire their board. Every tool whose
-    channel, baud, rail or SWD arguments are omitted takes them from this profile; what the profile
+    channel, baud, supply or SWD arguments are omitted takes them from this profile; what the profile
     does not set is undefined, and a tool that needs it says so: ask the user, never guess a pin.
     """
     def op() -> m.WiringResult:
@@ -641,7 +642,7 @@ async def wiring() -> m.WiringResult:
 @mcp.tool(annotations=_ann("Set the wiring profile", idempotent=True, cloud=True))
 async def set_wiring(
     profile: Annotated[Dict[str, Any], Field(description=(
-        "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, "
+        "The profile as a JSON object (schema version 2): la_mv, supply (5v, external, 3v3 or 1v8), uart_rx/uart_tx/uart_baud, "
         "i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, debug_port (\"swd\" or \"jtag\": what flash uses when "
         "the call passes no pins; null: automatic), spi_*, and signals "
         "[{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches "
@@ -658,7 +659,7 @@ async def set_wiring(
 
     The profile is validated first: two roles or signals on one LA channel, an out-of-range pin or
     an unknown key are rejected with a message naming every problem. Autosave never stores a change
-    of the I/O voltage, the power rail or the SWD target: call save_wiring for those.
+    of the I/O voltage, the power supply or the SWD target: call save_wiring for those.
     """
     def op() -> m.WiringResult:
         pod = SESSION.require()
@@ -677,7 +678,7 @@ async def set_wiring(
         result.monitors = pod.monitors_status or None
         result = _pod_wiring_state(pod, result)
         if SESSION.wiring_autosave and risky and not save:
-            result.hint = ("not autosaved: the I/O voltage, power rail or SWD target changed. " +
+            result.hint = ("not autosaved: the I/O voltage, power supply or SWD target changed. " +
                            (result.hint or "Call save_wiring once the user confirms it."))
         return result
 
@@ -761,30 +762,37 @@ async def delete_wiring(
 
 # -- power ----------------------------------------------------------------------------
 
-_RAIL_NAMES = {1: "internal", 2: "external"}
+def _supply_arg(supply: Optional[str], efuse: Optional[int]) -> Optional[str]:
+    """The supply a tool call names (``efuse`` is the deprecated 1 / 2), ``None`` when it names none."""
+    if supply is not None and efuse is not None:
+        raise ValueError("pass supply or efuse, not both (efuse is the deprecated name of supply)")
+    if efuse is not None:
+        return efuse_supply(efuse)
+    return supply
 
 
-def _rail_name(rail: Any) -> str:
-    return _RAIL_NAMES.get(rail, rail) if not isinstance(rail, str) else rail
+def _flash_supply(target_power: Any) -> Optional[str]:
+    """A flash tool's ``target_power``: a supply, or the deprecated 1 / 2 as one."""
+    return efuse_supply(target_power) if isinstance(target_power, int) else target_power
 
 
 def _switch_power(efuse: Optional[int], on: bool, delay: Optional[float],
-                  wiring_profile: Optional[str] = None, rail: Optional[str] = None) -> m.PowerResult:
+                  wiring_profile: Optional[str] = None, supply: Optional[str] = None) -> m.PowerResult:
     pod = SESSION.require()
-    chosen = pod._rail(rail, efuse)   # raises when both are given or none is known
+    chosen = pod._supply(_supply_arg(supply, efuse))   # raises when none is known
     if on:
-        pod.power_on(rail=chosen, delay=delay, wiring_profile=wiring_profile)
+        pod.power_on(chosen, delay=delay, wiring_profile=wiring_profile)
     else:
-        pod.target_power(on=False, delay=delay, rail=chosen)
+        pod.target_power(chosen, on=False, delay=delay)
     w = pod.wiring
-    return m.PowerResult(rail=_rail_name(chosen), efuse=chosen if isinstance(chosen, int) else None, on=on,
+    return m.PowerResult(supply=chosen, efuse=supply_efuse(chosen), on=on,
                          delay=delay, profile=w.profile_name or None,
                          la_voltage=w.la_voltage if on else None)
 
 
 @mcp.tool(annotations=_ann("Power target on", destructive=True, idempotent=True))
 async def power_on(
-    rail: PowerRail = None,
+    supply: PowerSupply = None,
     delay_s: Annotated[Optional[float], Field(description=(
         "Seconds: schedule the power-on pod-side and return at once (e.g. to power on during a capture)."))] = None,
     wiring_profile: Annotated[Optional[str], Field(description=(
@@ -794,32 +802,42 @@ async def power_on(
 ) -> m.PowerResult:
     """Power the board on with its wiring profile applied first: the profile's I/O voltage is set
     (when the pod has none or another one), its pull resistors (pulls; at 1.8 V only on firmware newer than 3.10.12) are set, then the
-    rail goes on, and the pod records the profile.
-    The result names the rail, the profile and the I/O voltage. Never changes the I/O voltage under
+    supply goes on, and the pod records the profile.
+    The result names the supply, the profile and the I/O voltage. Never changes the I/O voltage under
     a board that is already powered."""
-    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile, rail))
+    return await _call(lambda: _switch_power(efuse, True, delay_s, wiring_profile, supply))
 
 
 @mcp.tool(annotations=_ann("Power target off", destructive=True, idempotent=True))
 async def power_off(
-    rail: PowerRail = None,
+    supply: PowerSupply = None,
     delay_s: Annotated[Optional[float], Field(description="Seconds: schedule the power-off pod-side.")] = None,
     efuse: WiredEfuse = None,
 ) -> m.PowerResult:
-    """Switch the target's power rail off. The result says which rail was used."""
-    return await _call(lambda: _switch_power(efuse, False, delay_s, None, rail))
+    """Switch the target's power supply off. The result says which supply was used."""
+    return await _call(lambda: _switch_power(efuse, False, delay_s, None, supply))
 
 
-MonitorArg = Annotated[Optional[str], Field(description=(
-    "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, "
-    "for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). "
-    "Omit efuse then."))]
+MonitorArg = Annotated[Optional[Union[str, bool]], Field(description=(
+    "Profile an external INA current monitor (attached with expansion) instead of one of the pod's supplies, "
+    "for uA currents: its name ('ina226@0x40', or the name it was given), or true when exactly one is "
+    "attached. Omit supply and efuse then."))]
+
+
+def _monitor_call(supply: Optional[str], efuse: Optional[int], monitor: Any) -> Dict[str, Any]:
+    """The supply / efuse / monitor keywords of an SDK power call (the SDK refuses a monitor with a supply)."""
+    if monitor is not None and monitor is not False:
+        if supply is not None or efuse is not None:
+            raise ValueError("monitor and supply (or efuse) are exclusive: pick one of the pod's supplies "
+                             "or an external INA monitor, not both")
+        return {"monitor": monitor}
+    return {"supply": _supply_arg(supply, efuse)}
 
 
 @mcp.tool(annotations=_ann("Profile the target's power"))
 async def measure_power(
     duration_s: Annotated[float, Field(gt=0, le=600, description="Seconds to sample (blocking).")],
-    rail: PowerRail = None,
+    supply: PowerSupply = None,
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling "
@@ -836,20 +854,20 @@ async def measure_power(
 
     Use this for a self-contained window (a boot, a sleep interval). To profile across other tool
     calls, bracket them with power_profile_start / power_profile_stop. With monitor, the profile comes
-    from an external INA current monitor (attached with expansion) for uA currents; efuse in the
-    result is 0.
+    from an external INA current monitor (attached with expansion) for uA currents; supply in the
+    result is then null and monitor names it.
     """
     def op() -> m.PowerProfileResult:
         pod = SESSION.require()
-        return power_summary(pod.measure_power(duration_s, efuse=efuse, rail=rail, rate_hz=rate_hz,
-                                               keep_samples=points, monitor=monitor), points)
+        return power_summary(pod.measure_power(duration_s, rate_hz=rate_hz, keep_samples=points,
+                                               **_monitor_call(supply, efuse, monitor)), points)
 
     return await _call_reporting(ctx, "profiling power", op)
 
 
 @mcp.tool(annotations=_ann("Start a power profile"))
 async def power_profile_start(
-    rail: PowerRail = None,
+    supply: PowerSupply = None,
     efuse: WiredEfuse = None,
     rate_hz: Annotated[float, Field(ge=100, le=500, description=(
         "Samples per second; accurate to ~200 Hz, flattening near 365 Hz above that."))] = 500.0,
@@ -857,22 +875,22 @@ async def power_profile_start(
         "Seconds after which the pod stops sampling by itself (the result is then truncated)."))] = 60.0,
     monitor: MonitorArg = None,
 ) -> m.PowerProfileStartResult:
-    """Start sampling the target-power rail in the background, then run the steps you want to
+    """Start sampling a target-power supply in the background, then run the steps you want to
     profile and call power_profile_stop. Replaces any profile already running. With monitor, an
-    external INA current monitor (attached with expansion) is sampled instead (efuse 0 in the result)."""
+    external INA current monitor (attached with expansion) is sampled instead (monitor in the result)."""
     def op() -> m.PowerProfileStartResult:
         pod = SESSION.require()
-        if monitor is not None:
-            if efuse is not None or rail is not None:
-                raise ValueError("monitor= and rail= (or efuse=) are exclusive: pick the pod's power rail "
-                                 "or an external INA monitor, not both")
+        kw = _monitor_call(supply, efuse, monitor)
+        if "monitor" in kw:
             SESSION.power_profile = pod.power_profile(
-                rate_hz=rate_hz, max_duration=max_duration_s, monitor=monitor).start()
-            return m.PowerProfileStartResult(efuse=0, rate_hz=rate_hz, max_duration=max_duration_s)
-        chosen = pod._efuse(rail, efuse)   # a J1 supply has no current monitor: refused here
-        SESSION.power_profile = pod.power_profile(rail=chosen, rate_hz=rate_hz,
+                rate_hz=rate_hz, max_duration=max_duration_s, monitor=kw["monitor"]).start()
+            return m.PowerProfileStartResult(efuse=0, monitor=pod._monitor(kw["monitor"]).name,
+                                             rate_hz=rate_hz, max_duration=max_duration_s)
+        chosen = pod._metered_supply(kw["supply"])   # 3v3 / 1v8 have no current monitor: refused here
+        SESSION.power_profile = pod.power_profile(supply=chosen, rate_hz=rate_hz,
                                                   max_duration=max_duration_s).start()
-        return m.PowerProfileStartResult(efuse=chosen, rate_hz=rate_hz, max_duration=max_duration_s)
+        return m.PowerProfileStartResult(supply=chosen, efuse=supply_efuse(chosen), rate_hz=rate_hz,
+                                         max_duration=max_duration_s)
 
     return await _call(op)
 
@@ -894,28 +912,32 @@ async def power_profile_stop(
 
 @mcp.tool(annotations=_ann("Power status", read_only=True))
 async def power_status() -> m.PowerStatusResult:
-    """Both target-power rails, internal 5 V (efuse 1) and external (efuse 2): on/off and tripped
-    state, bus voltage and current draw. On the digital board v4 also j1_rails: whether J1 pin 17
-    (+3.3 V) and pin 18 (+1.8 V) are on. Also a live reading of each external INA current monitor
-    attached with expansion or the wiring profile (monitors)."""
+    """The target-power supplies: 5v (the pod's 5 V, eFuse 1) and external (eFuse 2) with on/off, tripped
+    state, bus voltage and current draw, and on BenchPod v4 also 3v3 and 1v8 (on or off, no current
+    monitor). All in supplies, by name; internal and external are the deprecated copies of 5v and
+    external. Also a live reading of each external INA current monitor attached with expansion or the
+    wiring profile (monitors)."""
     def op() -> m.PowerStatusResult:
         pod = SESSION.require()
         ts, ps = pod.target_status(), pod.power_status()
 
-        def rail(n: int) -> m.RailResult:
-            e, r = ts.efuse(n), ps.rail(n)
-            return m.RailResult(enabled=e.enabled, fault=e.fault, state_valid=e.valid,
-                                monitor_ok=r.ok, bus_voltage=r.bus_voltage, current=r.current)
+        def supply(name: str) -> m.SupplyResult:
+            e = ts.supplies[name]
+            r = ps.supplies.get(name)
+            if r is None:   # 3v3 / 1v8: switched, not measured
+                return m.SupplyResult(enabled=e.enabled)
+            return m.SupplyResult(enabled=e.enabled, fault=e.fault, state_valid=e.valid,
+                                  monitor_ok=r.ok, bus_voltage=r.bus_voltage, current=r.current)
 
         pod = None
         if ps.pod is not None:
             pod = m.PodPowerResult(monitor_ok=ps.pod.ok, bus_voltage=ps.pod.bus_voltage,
                                    current=ps.pod.current, total_current=ps.total_current)
-        j1 = ts.j1_rails
         mons = {name: m.MonitorPowerResult(monitor_ok=r.ok, bus_voltage=r.bus_voltage, current=r.current)
                 for name, r in ps.monitors.items()}
-        return m.PowerStatusResult(internal=rail(1), external=rail(2), pod=pod, monitors=mons or None,
-                                   j1_rails=m.J1RailsResult(v3v3=j1.v3v3, v1v8=j1.v1v8) if j1 else None)
+        supplies = {name: supply(name) for name in ts.supplies}
+        return m.PowerStatusResult(supplies=supplies, internal=supplies["5v"], external=supplies["external"],
+                                   pod=pod, monitors=mons or None)
 
     return await _call(op)
 
@@ -1174,8 +1196,9 @@ async def flash(
         "The target's reset line is wired to the pod's reset pin: enables connect-under-reset. "
         "Omit for the profile's swd_nreset."))] = None,
     load_address: Annotated[str, Field(description="Load address for raw .bin images, e.g. 0x08000000.")] = "",
-    target_power: Annotated[Optional[Literal[1, 2]], Field(description=(
-        "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2)."))] = None,
+    target_power: Annotated[Optional[Union[Literal["5v", "external", "3v3", "1v8"], Literal[1, 2]]], Field(description=(
+        "Power this supply on before flashing: 5v (the pod's 5 V, eFuse 1), external (eFuse 2) or, on "
+        "BenchPod v4, 3v3 / 1v8. The numbers 1 and 2 are the deprecated names of 5v and external."))] = None,
     verify: bool = True,
     reset: bool = True,
     connect_under_reset: Optional[bool] = None,
@@ -1289,7 +1312,7 @@ async def flash(
                 raise ValueError(f"flashing with target {target} needs a newer embeddedci SDK; "
                                  "upgrade embeddedci")
             r = pod.flash(target=target, file=file, load_address=load_address, nreset=nreset,
-                          reset=reset, check=False, target_power=target_power, device=device,
+                          reset=reset, check=False, target_power=_flash_supply(target_power), device=device,
                           clk=None if clk is None else _la(pod, clk),
                           data=None if data is None else _la(pod, data),
                           reset_pin=None if reset_pin is None else _la(pod, reset_pin),
@@ -1335,7 +1358,7 @@ async def flash(
             **pins,
             nreset=pod.wiring.swd_nreset if nreset is None else nreset,
             target=target or pod.wiring.swd_target, file=file,
-            load_address=load_address, target_power=target_power, verify=verify, reset=reset,
+            load_address=load_address, target_power=_flash_supply(target_power), verify=verify, reset=reset,
             connect_under_reset=connect_under_reset, extra_configs=tuple(extra_configs or ()),
             extra_args=tuple(extra_args or ()), timeout=timeout_s,
             connect_attempts=connect_attempts, check=False,
@@ -1372,7 +1395,7 @@ async def detect(
 ) -> m.DetectToolResult:
     """Find out which chip is wired to the pod, from the wiring profile.
 
-    Needs target power on (power_on) and the LA voltage set; with the rail off nothing is probed
+    Needs target power on (power_on) and the LA voltage set; with the supply off nothing is probed
     (powered=false). `swd` and `jtag` read the debug port's IDs without halting, resetting or
     writing the chip (pod firmware with the `dap_id` feature; older firmware is reported in
     skipped) and name the chip from its ID register (an STM32's DEV_ID, a Nordic part) or JTAG
@@ -1557,7 +1580,7 @@ async def capture_uart(
 async def power_cycle_and_capture(
     rx: UartRx = None,
     tx: UartTx = None,
-    rail: PowerRail = None,
+    supply: PowerSupply = None,
     efuse: WiredEfuse = None,
     delay_s: Annotated[float, Field(ge=0, le=60, description="Seconds into the capture the power comes back.")] = 1.0,
     duration_s: Annotated[float, Field(gt=0, le=600, description="Capture window in seconds; must exceed delay_s.")] = 4.0,
@@ -1570,7 +1593,7 @@ async def power_cycle_and_capture(
 ) -> m.UartCaptureResult:
     """Power the target off, then capture UART while it powers back on — the boot banner lands in the window.
 
-    The channels, baud, frame (parity, stop bits) and power rail come from the wiring profile when
+    The channels, baud, frame (parity, stop bits) and power supply come from the wiring profile when
     omitted.
     """
     pattern = _compile(until_regex)
@@ -1578,7 +1601,7 @@ async def power_cycle_and_capture(
     def op() -> m.UartCaptureResult:
         pod = SESSION.require()
         return _uart_result(pod.power_cycle_and_capture(
-            rx=rx, tx=tx, efuse=efuse, rail=rail, delay=delay_s, duration=duration_s, baud=baud, until=pattern,
+            rx=rx, tx=tx, supply=_supply_arg(supply, efuse), delay=delay_s, duration=duration_s, baud=baud, until=pattern,
             off_settle=off_settle_s, **_uart_frame(pod, "power_cycle_and_capture", parity, stop_bits)))
 
     return await _call_reporting(ctx, "power-cycling", op)
@@ -2123,8 +2146,8 @@ async def usb_flash(
 @mcp.tool(annotations=_ann("Check the board's USB firmware", destructive=True))
 async def usb_check(
     test: Annotated[Literal["enumerate", "power", "suspend", "reset", "replug"], Field(description=(
-        "enumerate: power-cycles the board through the internal 5 V (efuse 1) rail and times power-on to pull-up, descriptor "
-        "and mounted. power: the board's current (internal 5 V, efuse 1) against the configuration's bMaxPower. suspend: the "
+        "enumerate: power-cycles the board through the 5v supply (eFuse 1) and times power-on to pull-up, descriptor "
+        "and mounted. power: the board's current (5v supply, eFuse 1) against the configuration's bMaxPower. suspend: the "
         "suspended current against the 2.5 mA a bus-powered device may draw, resume, and the board "
         "still answers. reset: port resets and the time to enumerate again. replug: VBUS dropouts "
         "of off_ms: does the board come back."))],
@@ -2148,7 +2171,7 @@ async def usb_check(
 ) -> m.UsbCheckToolResult:
     """Check the USB firmware of the board on the pod's host port, with numbers a computer cannot
     get. Needs pod firmware 4.0.3 or later, a LAN or cloud connection, and the board's USB power
-    (VBUS) wired to the internal 5 V (efuse 1) target power and switched on (power_on; every test
+    (VBUS) wired to the 5v supply (eFuse 1) target power and switched on (power_on; every test
     but reset). Starts host mode when it is off. The check runs in the background of the
     pod and this call returns when it ends: passed is the verdict, result the numbers. A board that
     fails is a normal result (passed false). While it runs, usb_flash and the USB serial port are
@@ -2478,7 +2501,7 @@ def _expansion_result(st: Any) -> m.ExpansionResult:
     return m.ExpansionResult(attached=True, chip=st.chip, bus=st.bus, la=dict(st.la),
                              addrs=list(st.addrs), count=st.count, hz=st.hz, pullups=st.pullups,
                              pins=[ext_pin_state(p) for p in st.pins] or None, notes=list(st.notes) or None,
-                             monitors=[_monitor_result(x) for x in st.monitors] or None)
+                             monitors=[_monitor_result(x) for x in st.monitors.values()] or None)
 
 
 @mcp.tool(annotations=_ann("GPIO expander board", destructive=True, idempotent=True))
@@ -2543,8 +2566,8 @@ async def expansion(
     currents the pod's own monitors cannot resolve (they step about 125 uA): wire a shunt in series
     between the pod's target-power output (J5/J6) and the DUT and the chip across it (bus pin on the DUT
     side); with 10 ohm an ina226 resolves 0.25 uA up to about 8 mA. They add no EXT pins. Read them with
-    measure_power(monitor='ext'), power_status and power_profile_start(monitor=...): 'ext' is the
-    monitor when exactly one is attached, else its name ('ina226@0x40'). The LA voltage must be 3.3 V or
+    measure_power(monitor=<name>), power_status and power_profile_start(monitor=...): the monitor's name
+    ('ina226@0x40', or its name=), or true when exactly one is attached. The LA voltage must be 3.3 V or
     5 V (not 1.8 V). Several monitors share one bus (same sda/scl), also with a GPIO expander; an INA call
     adds a monitor, the same address reconfigures it, detach=true removes everything and detach=true with
     addr or name one monitor. set_wiring/save_wiring store what is attached in the profile.

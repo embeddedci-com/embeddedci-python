@@ -28,7 +28,7 @@ The ``wiring`` fixture below is THIS bench's map; edit it for your board.
   USART1 RX = PA10  <- pod drives              LA4    (wiring.uart_tx)
   I2C1 SDA  = PB9   <-> LA2 (4.7k pull-up)     LA2    (wiring.i2c_sda)
   I2C1 SCL  = PB8   <-> LA1 (4.7k pull-up)     LA1    (wiring.i2c_scl)
-  Target 5V power                              --benchpod-efuse (1 = internal)
+  Target 5V power                              --benchpod-supply (5v)
 
 I2C needs pull-ups, and only LA1-6 have them (LA1/2=4.7k, LA3/4=2.2k, LA5/6=10k);
 LA7/8 have 10k pull-downs and LA9-14 have none. So the I2C lines must sit on a
@@ -67,7 +67,7 @@ def wiring(pins):
         uart_tx=pins.pin_4,    # pod drives the DUT's RX
         i2c_sda=pins.pin_2,    # LA2 — 4.7k pull-up
         i2c_scl=pins.pin_1,    # LA1 — 4.7k pull-up
-        efuse=pins.efuse,
+        supply=pins.supply,
     )
 
 # Seconds from power-on to APP_OK. The app probes its sensors with retries, so the "no sensor"
@@ -99,7 +99,7 @@ def _flash(device, wiring, firmware):
         swclk=wiring.swclk,
         swdio=wiring.swdio,
         nreset=wiring.nreset,
-        target_power=wiring.efuse,
+        target_power=wiring.supply,
         verify=False,
     )
     assert result.ok
@@ -123,7 +123,7 @@ def test_app_boots_with_bmp280(benchpod, benchpod_sensors, wiring, firmware):
     # Wait for APP_OK: it is the LAST thing the app prints, so a capture that stops at the
     # earlier BMP280 line would not contain it.
     cap = device.power_cycle_and_capture(
-        rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
+        rx=wiring.uart_rx, tx=wiring.uart_tx, supply=wiring.supply,
         delay=1.5, duration=BOOT_TIMEOUT, until=APP_OK,
     )
 
@@ -142,7 +142,7 @@ def test_app_boots_without_bmp280(benchpod, wiring, firmware):
         device.sensors.stop()  # ensure nothing answers on I2C
 
     cap = device.power_cycle_and_capture(
-        rx=wiring.uart_rx, tx=wiring.uart_tx, efuse=wiring.efuse,
+        rx=wiring.uart_rx, tx=wiring.uart_tx, supply=wiring.supply,
         delay=1.5, duration=BOOT_TIMEOUT, until=APP_OK,
     )
 
@@ -169,9 +169,9 @@ def test_bmp280_i2c_bus_decode(benchpod, benchpod_sensors, wiring, firmware):
 
     txns, chip_id, lead, misses = [], None, BMP280_PROBE_AT, []
     for _ in range(4):
-        device.power_off(wiring.efuse)
+        device.power_off(wiring.supply)
         time.sleep(0.5)
-        device.power_on(wiring.efuse)      # returns immediately
+        device.power_on(wiring.supply)      # returns immediately
         time.sleep(lead)                   # let the DUT get as far as its sensor probe
         txns = sensor.i2c_transactions(4096)
         chip_id = i2c.read_register(txns, bp.BMP280_ADDR_PRIMARY, BMP280_CHIP_ID_REG)

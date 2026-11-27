@@ -27,7 +27,7 @@ from typing import Optional, Union
 
 import openhtf as htf
 
-from embeddedci.benchpod.constants import Efuse, Pin
+from embeddedci.benchpod.constants import Efuse, Pin, efuse_supply
 
 from .measurements import (
     flash_ok_measurement,
@@ -41,23 +41,34 @@ __all__ = ["power_phase", "flash_phase", "boot_banner_phase"]
 _PinT = Union[Pin, int]
 
 
-def power_phase(plug: type, *, efuse: Union[Efuse, int] = Efuse.INTERNAL,
-                on: bool = True, name: Optional[str] = None) -> object:
-    """A phase that powers the target eFuse on (or off)."""
+def _supply(supply: Optional[str], efuse: Optional[Union[Efuse, int]]) -> str:
+    """``supply``, or the deprecated ``efuse`` (1 / 2) as a supply; default ``"5v"``."""
+    if supply is not None and efuse is not None:
+        raise ValueError("pass supply= or efuse=, not both (efuse is the old name of supply)")
+    if efuse is not None:
+        warnings.warn("efuse= is deprecated: use supply= ('5v', 'external', '3v3' or '1v8')",
+                      DeprecationWarning, stacklevel=3)
+        return efuse_supply(efuse)
+    return supply if supply is not None else "5v"
+
+
+def power_phase(plug: type, *, supply: Optional[str] = None, on: bool = True,
+                name: Optional[str] = None, efuse: Optional[Union[Efuse, int]] = None) -> object:
+    """A phase that powers the target supply (``"5v"`` by default) on or off."""
+    supply = _supply(supply, efuse)
 
     @htf.PhaseOptions(name=name or ("power_on" if on else "power_off"))
     @htf.plug(bench=plug)
     def _power(test, bench):
-        (bench.power_on if on else bench.power_off)(efuse)
-        test.logger.info("target power %s (efuse %s)", "on" if on else "off",
-                         int(efuse))
+        (bench.power_on if on else bench.power_off)(supply)
+        test.logger.info("target power %s (%s supply)", "on" if on else "off", supply)
 
     return _power
 
 
 def flash_phase(plug: type, *, file: str, target: str,
                 swclk: _PinT, swdio: _PinT, nreset: bool = False,
-                target_power: Optional[Union[Efuse, int]] = Efuse.INTERNAL,
+                target_power: Optional[Union[str, Efuse, int]] = "5v",
                 name: str = "flash", stop_on_fail: bool = True,
                 **flash_kwargs) -> object:
     """A phase that flashes the DUT over SWD and records the result.
@@ -92,9 +103,10 @@ def flash_phase(plug: type, *, file: str, target: str,
 def boot_banner_phase(plug: type, *, rx: _PinT, tx: _PinT, expect,
                       baud: int = 115200, duration: float = 5.0,
                       power_cycle: bool = True,
-                      efuse: Union[Efuse, int] = Efuse.INTERNAL,
+                      supply: Optional[str] = None,
                       delay: float = 1.0, name: str = "boot",
-                      measurement: str = "boot_ok") -> object:
+                      measurement: str = "boot_ok",
+                      efuse: Optional[Union[Efuse, int]] = None) -> object:
     """A phase that captures the DUT's UART and checks for ``expect``.
 
     ``rx`` is the LA channel wired to the DUT's TX; ``tx`` drives the DUT's RX.
@@ -102,7 +114,9 @@ def boot_banner_phase(plug: type, *, rx: _PinT, tx: _PinT, expect,
     ``power_cycle`` is true the target is power-cycled so the boot banner lands
     inside the capture window; otherwise it captures the already-powered DUT.
     Records ``measurement`` (True if ``expect`` was seen) and attaches the text.
+    ``supply`` is the target-power supply to cycle (default ``"5v"``).
     """
+    supply = _supply(supply, efuse)
 
     @htf.PhaseOptions(name=name)
     @htf.measures(uart_matched_measurement(measurement))
@@ -110,7 +124,7 @@ def boot_banner_phase(plug: type, *, rx: _PinT, tx: _PinT, expect,
     def _boot(test, bench):
         if power_cycle:
             cap = bench.power_cycle_and_capture(
-                rx=rx, tx=tx, efuse=efuse, delay=delay, duration=duration,
+                rx=rx, tx=tx, supply=supply, delay=delay, duration=duration,
                 baud=baud, until=expect,
             )
         else:

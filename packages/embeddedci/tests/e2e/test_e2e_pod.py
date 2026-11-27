@@ -79,7 +79,7 @@ def test_1v8_bank(pod, rev3):
 def test_target_and_power_status_are_typed(pod, bench):
     ts, ps = pod.target_status(), pod.power_status()
     assert isinstance(ts, TargetStatus) and isinstance(ps, PowerStatus)
-    rail = ps.rail(bench.efuse)
+    rail = ps.supply(bench.supply)
     assert rail.ok and isinstance(rail.bus_voltage, float) and isinstance(rail.current, float)
 
 

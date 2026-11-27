@@ -1,5 +1,5 @@
 """The wiring profile: the `wiring` / `set_wiring` tools, the resource, and the tools whose
-channel, baud, rail and SWD arguments now default to the profile."""
+channel, baud, supply and SWD arguments now default to the profile."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def test_wiring_resource_shows_the_connected_profile_first(connected):
     _set()
     text = wiring_resource()
     assert text.index("This bench's wiring profile") < text.index("BenchPod wiring reference")
-    assert "LA7   uart_rx" in text and "eFuse 2" in text
+    assert "LA7   uart_rx" in text and "supply external" in text
 
 
 def test_wiring_resource_is_registered():

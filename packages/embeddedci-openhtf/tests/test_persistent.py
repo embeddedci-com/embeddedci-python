@@ -25,7 +25,7 @@ def test_persistent_reuses_one_connection():
     bench = benchpod_plug(transport=tx, persistent=True)
     try:
         for _ in range(3):
-            rec = _run(power_phase(bench, efuse=1, on=True))
+            rec = _run(power_phase(bench, supply="5v", on=True))
             assert rec.outcome == tr.Outcome.PASS
             assert tx.closed is False           # stays open between executions
         # all three executions drove the same transport
@@ -66,8 +66,8 @@ def test_plugs_with_the_same_settings_share_one_connection():
     first = benchpod_plug(transport=tx, persistent=True, la_voltage=3.3)
     second = benchpod_plug(transport=tx, persistent=True, la_voltage=3.3)
     try:
-        _run(power_phase(first, efuse=1, on=True))
-        _run(power_phase(second, efuse=1, on=True))
+        _run(power_phase(first, supply="5v", on=True))
+        _run(power_phase(second, supply="5v", on=True))
         assert len(_PERSISTENT_POOL) == 1
         assert len(tx.power_calls) == 2
     finally:

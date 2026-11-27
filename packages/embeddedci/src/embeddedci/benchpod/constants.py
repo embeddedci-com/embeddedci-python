@@ -17,17 +17,18 @@ Units, everywhere in the public API: **volts**, **seconds**, **hertz**.
 
 from __future__ import annotations
 
+import warnings
 from enum import Enum, IntEnum
-from typing import Any, Dict, Literal, NamedTuple, Sequence, Tuple, Union, get_args
+from typing import Any, Dict, Literal, NamedTuple, Optional, Sequence, Tuple, Union, get_args
 
 from .errors import BenchPodError
 
 
 class Efuse(IntEnum):
-    """Target-power eFuse rail."""
+    """The old way to name a target-power supply (pass ``supply="5v"`` / ``"external"`` instead)."""
 
-    INTERNAL = 1  # internal 5V supply
-    EXTERNAL = 2  # external supply
+    INTERNAL = 1  # the "5v" supply
+    EXTERNAL = 2  # the "external" supply
 
 
 class FpgaImage(IntEnum):
@@ -162,7 +163,7 @@ ADC_SOURCE_PATHS: Dict[str, str] = {"ext": "adc_ext", "cal1": "cal1", "cal2": "c
 #: LA I/O-bank voltages the pod supports (volts). 1.8 V needs a rev3 pod.
 LA_VOLTAGES: Tuple[float, ...] = (1.8, 3.3)
 #: 5 V I/O: digital board v4 and later (feature ``la_5v``). The bank stays at 3.3 V and pin 21,
-#: the rail the pull-ups pull to, goes to 5 V.
+#: the supply the pull-ups pull to, goes to 5 V.
 LA_VOLTAGE_5V: float = 5.0
 
 #: Pull directions a host asks for (``BenchPod.set_pull``). The pod picks the resistor value.
@@ -217,34 +218,56 @@ def coerce_efuse(value: Union[Efuse, int]) -> int:
     return ivalue
 
 
-#: The four power outputs a profile or a power call can name: the two target-power eFuses and, on
-#: the digital board v4, the switched supply pins on J1 (pin 17 +3.3 V, pin 18 +1.8 V).
-J1_RAILS = ("j1_3v3", "j1_1v8")
-_RAIL_NAMES = {"internal": 1, "external": 2}
+#: The four supplies a profile or a power call can name: the pod's 5 V (through eFuse 1), the user's
+#: own supply (through eFuse 2) and, on BenchPod v4, the switched 3.3 V and 1.8 V outputs.
+SUPPLIES = ("5v", "external", "3v3", "1v8")
+#: The two switched supplies that need feature ``supply_3v3_1v8`` and have no current monitor.
+SWITCHED_SUPPLIES = ("3v3", "1v8")
+_SUPPLY_BY_EFUSE = {1: "5v", 2: "external"}
+_EFUSE_BY_SUPPLY = {"5v": 1, "external": 2}
+_SUPPLY_ALIASES = {"internal": "5v"}   # the old name of eFuse 1
 
 
-def coerce_rail(value: Any) -> Union[int, str]:
-    """Validate and normalize a power output to ``1`` (internal 5 V), ``2`` (external) or
-    ``"j1_3v3"`` / ``"j1_1v8"`` (J1 pins 17 and 18). Accepts ``"internal"``, ``"external"``, an
-    :class:`Efuse` or 1 and 2 (:class:`ValueError` otherwise)."""
+def coerce_supply(value: Any) -> str:
+    """Validate and normalize a supply to ``"5v"``, ``"external"``, ``"3v3"`` or ``"1v8"``.
+
+    Also accepts the old names: ``"internal"`` (= ``"5v"``), an :class:`Efuse` and the ints 1 and 2.
+    :class:`ValueError` otherwise, listing the four values."""
     if isinstance(value, str):
         v = value.strip().lower()
-        if v in J1_RAILS:
+        v = _SUPPLY_ALIASES.get(v, v)
+        if v in SUPPLIES:
             return v
-        if v in _RAIL_NAMES:
-            return _RAIL_NAMES[v]
     elif not isinstance(value, bool):
         try:
-            if int(value) in (1, 2):
-                return int(value)
+            if int(value) in _SUPPLY_BY_EFUSE:
+                return _SUPPLY_BY_EFUSE[int(value)]
         except (TypeError, ValueError):
             pass
-    raise ValueError(f"rail must be 'internal', 'external', 'j1_3v3' or 'j1_1v8', got {value!r}")
+    raise ValueError("supply must be one of " + ", ".join(repr(s) for s in SUPPLIES)
+                     + f" (or the old efuse 1 and 2); got {value!r}")
 
 
-def is_j1_rail(value: Any) -> bool:
-    """Whether ``value`` (a normalized rail) is one of the J1 supplies."""
-    return isinstance(value, str) and value in J1_RAILS
+def supply_efuse(supply: str) -> Optional[int]:
+    """The eFuse number behind a supply (``"5v"`` is 1, ``"external"`` is 2), ``None`` for the
+    switched ``"3v3"`` / ``"1v8"``."""
+    return _EFUSE_BY_SUPPLY.get(supply)
+
+
+def efuse_supply(efuse: Union[Efuse, int]) -> str:
+    """The supply behind an eFuse number (1 is ``"5v"``, 2 is ``"external"``)."""
+    return _SUPPLY_BY_EFUSE[coerce_efuse(efuse)]
+
+
+def is_switched_supply(value: Any) -> bool:
+    """Whether ``value`` (a normalized supply) is the switched ``"3v3"`` or ``"1v8"``."""
+    return isinstance(value, str) and value in SWITCHED_SUPPLIES
+
+
+def warn_efuse(name: str = "efuse", new: str = "supply", stacklevel: int = 3) -> None:
+    """The deprecation warning for the old ``efuse`` name, pointing at the caller's caller."""
+    warnings.warn(f"{name} is deprecated: use {new} ('5v', 'external', '3v3' or '1v8')",
+                  DeprecationWarning, stacklevel=stacklevel)
 
 
 def coerce_pin(value: Union[Pin, int], name: str = "pin") -> int:

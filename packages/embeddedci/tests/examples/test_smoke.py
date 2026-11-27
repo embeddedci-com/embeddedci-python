@@ -13,7 +13,7 @@ particular firmware, and every check skips cleanly when its prerequisite is miss
     BENCHPOD_TARGET_CFG=target/stm32f4x.cfg pytest --benchpod-connection=192.168.1.213 \\
         --benchpod-firmware=build/app.elf tests/examples
 
-Nothing here hard-codes an LA channel or a power rail: they all come from the wiring profile, which
+Nothing here hard-codes an LA channel or a power supply: they all come from the wiring profile, which
 is the same thing your own tests will use. Without a connection configured the whole file skips.
 """
 
@@ -46,46 +46,46 @@ def test_wiring_profile_is_consistent(benchpod):
     # no --benchpod-wiring file and no profile stored on the server, so these channels are a guess.
     if wiring.source == "defaults":
         print(f"\nwiring profile: defaults — UART rx=LA{wiring.uart_rx} tx=LA{wiring.uart_tx}, "
-              f"SWD clk=LA{wiring.swd_swclk} dio=LA{wiring.swd_swdio}, eFuse {wiring.efuse}. "
+              f"SWD clk=LA{wiring.swd_swclk} dio=LA{wiring.swd_swdio}, supply {wiring.supply}. "
               "Pass --benchpod-wiring=wiring.json if your bench differs.")
 
 
 def test_target_power_switches(benchpod):
-    """Turning the DUT rail on and off is visible in the pod's own eFuse and monitor readings."""
-    rail = benchpod.wiring.efuse
+    """Turning the DUT supply on and off is visible in the pod's own eFuse and monitor readings."""
+    supply = benchpod.wiring.supply
     try:
-        benchpod.power_on(rail)
+        benchpod.power_on(supply)
         status = benchpod.target_status()
         if not status.supported:
             pytest.skip("this pod cannot read its eFuse state back")
-        assert status.efuse(rail).enabled, status
-        assert not status.efuse(rail).fault, "the eFuse tripped when the rail came up"
+        assert status.supply(supply).enabled, status
+        assert not status.supply(supply).fault, "the eFuse tripped when the supply came up"
 
-        # The rail takes ~20 ms to come up; a fast link (the USB network) can read it sooner.
+        # The supply takes ~20 ms to come up; a fast link (the USB network) can read it sooner.
         deadline = time.monotonic() + 0.5
         while True:
-            monitor = benchpod.power_status().rail(rail)
+            monitor = benchpod.power_status().supply(supply)
             if not monitor.ok or 4.0 < monitor.bus_voltage or time.monotonic() > deadline:
                 break
             time.sleep(0.02)
         if monitor.ok:
-            assert 4.0 < monitor.bus_voltage < 5.5, f"rail reads {monitor.bus_voltage:.2f} V"
+            assert 4.0 < monitor.bus_voltage < 5.5, f"supply reads {monitor.bus_voltage:.2f} V"
     finally:
-        benchpod.power_off(rail)
+        benchpod.power_off(supply)
 
-    assert not benchpod.target_status().efuse(rail).enabled
+    assert not benchpod.target_status().supply(supply).enabled
 
 
-def test_power_profile_measures_the_rail(benchpod):
-    """A short profile of the powered rail reports a plausible voltage and no fault."""
+def test_power_profile_measures_the_supply(benchpod):
+    """A short profile of the powered supply reports a plausible voltage and no fault."""
     if not benchpod.capabilities.power_profile:
         pytest.skip("this pod's firmware has no power profiles (capability power_profile)")
-    rail = benchpod.wiring.efuse
+    supply = benchpod.wiring.supply
     try:
-        benchpod.power_on(rail)
-        profile = benchpod.measure_power(0.5, efuse=rail)
+        benchpod.power_on(supply)
+        profile = benchpod.measure_power(0.5, supply=supply)
     finally:
-        benchpod.power_off(rail)
+        benchpod.power_off(supply)
 
     assert profile.n > 0, profile
     assert 4.0 < profile.avg_voltage < 5.5, profile

@@ -24,7 +24,7 @@ def test_power_and_boot_pass():
     tx = FakeTransport(banner=b"reset\r\nAPP_OK build 7\r\n")
     bench = benchpod_plug(transport=tx)
     rec = _run(
-        power_phase(bench, efuse=1, on=True),
+        power_phase(bench, supply="5v", on=True),
         boot_banner_phase(bench, rx=1, tx=2, expect="APP_OK",
                           power_cycle=False, duration=2.0),
     )
@@ -56,7 +56,7 @@ def test_power_cycle_capture_path():
     bench = benchpod_plug(transport=tx)
     rec = _run(
         boot_banner_phase(bench, rx=5, tx=4, expect="APP_OK",
-                          power_cycle=True, efuse=1, delay=0.2,
+                          power_cycle=True, supply="5v", delay=0.2,
                           duration=2.0),
     )
     assert rec.outcome == tr.Outcome.PASS
@@ -67,6 +67,6 @@ def test_power_cycle_capture_path():
 def test_power_off_phase():
     tx = FakeTransport()
     bench = benchpod_plug(transport=tx)
-    rec = _run(power_phase(bench, efuse=2, on=False))
+    rec = _run(power_phase(bench, supply="external", on=False))
     assert rec.outcome == tr.Outcome.PASS
     assert tx.power_calls == [{"efuse": 2, "on": False, "delay_ms": 0}]

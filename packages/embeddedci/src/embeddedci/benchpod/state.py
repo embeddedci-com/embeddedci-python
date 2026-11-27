@@ -8,10 +8,11 @@ firmware adds before the SDK names them.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .constants import Efuse, coerce_efuse
+from .constants import SUPPLIES, SWITCHED_SUPPLIES, Efuse, coerce_supply, efuse_supply
 
 
 def _d(reply: Any) -> Dict[str, Any]:
@@ -37,13 +38,13 @@ def _raw() -> Any:
 
 
 @dataclass(frozen=True)
-class Pin21:
-    """J1 pin 21 on digital v4 (:attr:`LaVoltage.pin21`): the rail every pull-up pulls to, and a
+class VrefOut:
+    """The I/O reference (VREF OUT, J1 pin 21) on BenchPod v4 (:attr:`LaVoltage.vref_out`): the supply every pull-up pulls to, and a
     reference the DUT can use. It follows the I/O voltage, or is 5 V in 5 V mode."""
 
     #: ``"bank"`` (follows the I/O bank, 1.8 or 3.3 V) or ``"5v"``.
     source: str
-    #: What pin 21 should be, in volts.
+    #: What VREF OUT should be, in volts.
     setting: float
     #: What the pod measures, in volts (``None`` without a reading).
     measured: Optional[float]
@@ -52,7 +53,7 @@ class Pin21:
     #: 5 V that did not come up; ``"short"``: shorted or held down (the pulls are off);
     #: ``"unknown"``: no reading yet.
     state: str
-    #: Pin 21 is high enough for the pull resistors to work.
+    #: VREF OUT is high enough for the pull resistors to work.
     up: bool
 
     @property
@@ -60,13 +61,17 @@ class Pin21:
         return self.state == "ok"
 
     @classmethod
-    def from_reply(cls, d: Any) -> Optional["Pin21"]:
+    def from_reply(cls, d: Any) -> Optional["VrefOut"]:
         if not isinstance(d, dict):
             return None
         mv = _opt_int(d, "mv")
         return cls(source=str(d.get("source") or "bank"), setting=(_opt_int(d, "set_mv") or 0) / 1000.0,
                    measured=mv / 1000.0 if mv is not None and mv >= 0 else None,
                    state=str(d.get("state") or "unknown"), up=d.get("up") is True)
+
+
+#: The old name of :class:`VrefOut` (when it was called after the J1 pin).
+Pin21 = VrefOut
 
 
 @dataclass(frozen=True)
@@ -80,13 +85,20 @@ class LaVoltage:
     #: The measured bank voltage in volts, or ``None`` when the board cannot measure it. In 5 V
     #: mode the bank is at 3.3 V while :attr:`voltage` is 5.0.
     readback: Optional[float] = None
-    #: J1 pin 21 on digital v4 (``None`` on other boards).
-    pin21: Optional["Pin21"] = None
+    #: The I/O reference (VREF OUT) on BenchPod v4 (``None`` on other boards).
+    vref_out: Optional["VrefOut"] = None
     raw: Dict[str, Any] = _raw()
 
     @property
     def is_set(self) -> bool:
         return self.voltage is not None
+
+    @property
+    def pin21(self) -> Optional["VrefOut"]:
+        """Deprecated: use :attr:`vref_out`."""
+        warnings.warn("LaVoltage.pin21 is deprecated: use LaVoltage.vref_out", DeprecationWarning,
+                      stacklevel=2)
+        return self.vref_out
 
     @classmethod
     def from_reply(cls, reply: Any) -> "LaVoltage":
@@ -97,68 +109,93 @@ class LaVoltage:
         # not a bank sitting at 0 V.
         return cls(voltage=mv / 1000.0 if mv else None,
                    readback=rb / 1000.0 if rb is not None and rb > 0 else None,
-                   pin21=Pin21.from_reply(d.get("vref_out")), raw=d)
+                   vref_out=VrefOut.from_reply(d.get("vref_out")), raw=d)
 
 
 @dataclass(frozen=True)
-class EfuseState:
-    """One target-power eFuse."""
+class SupplyState:
+    """One target-power supply (:attr:`TargetStatus.supplies`). ``"3v3"`` and ``"1v8"`` are only
+    switched on or off: ``fault`` is False and ``valid`` True for them."""
 
     enabled: bool
-    #: The eFuse tripped (over-current / short on the target rail).
-    fault: bool
+    #: The eFuse tripped (over-current / short on the supply). Always False for ``"3v3"``/``"1v8"``.
+    fault: bool = False
     #: The state pins were readable (``enabled``/``fault`` are meaningful).
-    valid: bool
+    valid: bool = True
 
 
-@dataclass(frozen=True)
-class J1Rails:
-    """The two switched supply pins on J1 of the digital board v4: ``v3v3`` is pin 17 (+3.3 V) and
-    ``v1v8`` pin 18 (+1.8 V); ``True`` when on. Both are on from boot."""
+#: The old name of :class:`SupplyState`.
+EfuseState = SupplyState
 
-    v3v3: bool
-    v1v8: bool
 
-    @classmethod
-    def from_reply(cls, d: Any) -> Optional["J1Rails"]:
-        if not isinstance(d, dict):
-            return None
-        return cls(v3v3=d.get("v3v3") is True, v1v8=d.get("v1v8") is True)
+def _supply_names(has_switched: bool) -> Tuple[str, ...]:
+    return SUPPLIES if has_switched else SUPPLIES[:2]
 
 
 @dataclass(frozen=True)
 class TargetStatus:
-    """Both eFuse rails (``BenchPod.target_status``)."""
+    """The target-power supplies (``BenchPod.target_status``)."""
 
-    internal: EfuseState
-    external: EfuseState
+    #: By name: ``"5v"`` and ``"external"`` always; ``"3v3"`` and ``"1v8"`` on BenchPod v4 (feature
+    #: ``supply_3v3_1v8``), which are on from boot.
+    supplies: Dict[str, SupplyState]
     #: False on boards that cannot read the eFuse state back.
     supported: bool = True
-    #: J1 pins 17 and 18 on the digital board v4 (``None`` on boards where both are always on).
-    j1_rails: Optional[J1Rails] = None
     raw: Dict[str, Any] = _raw()
 
-    def efuse(self, efuse: "Efuse | int") -> EfuseState:
-        """The state of eFuse ``1`` (internal) or ``2`` (external)."""
-        return self.internal if coerce_efuse(efuse) == Efuse.INTERNAL else self.external
+    @property
+    def internal(self) -> SupplyState:
+        """Deprecated: ``supplies["5v"]``."""
+        warnings.warn("TargetStatus.internal is deprecated: use supplies['5v']", DeprecationWarning,
+                      stacklevel=2)
+        return self.supplies["5v"]
+
+    @property
+    def external(self) -> SupplyState:
+        """Deprecated: ``supplies["external"]``."""
+        warnings.warn("TargetStatus.external is deprecated: use supplies['external']",
+                      DeprecationWarning, stacklevel=2)
+        return self.supplies["external"]
+
+    def supply(self, supply: "str | Efuse | int") -> SupplyState:
+        """The state of one supply: ``"5v"``, ``"external"``, ``"3v3"`` or ``"1v8"`` (the old eFuse
+        numbers 1 and 2 work too). :class:`ValueError` for one this pod does not have."""
+        name = coerce_supply(supply)
+        if name not in self.supplies:
+            raise ValueError(f"this BenchPod has no {name!r} supply (it has "
+                             + ", ".join(repr(k) for k in self.supplies) + ")")
+        return self.supplies[name]
+
+    def efuse(self, efuse: "Efuse | int") -> SupplyState:
+        """Deprecated: :meth:`supply`. The state of eFuse ``1`` (``"5v"``) or ``2`` (``"external"``)."""
+        warnings.warn("TargetStatus.efuse() is deprecated: use supply()", DeprecationWarning,
+                      stacklevel=2)
+        return self.supplies[efuse_supply(efuse)]
 
     @classmethod
     def from_reply(cls, reply: Any) -> "TargetStatus":
         d = _d(reply)
-
-        def one(key: str) -> EfuseState:
-            e = _d(d.get(key))
-            return EfuseState(enabled=bool(e.get("enabled", 0)), fault=bool(e.get("fault", 0)),
-                              valid=bool(e.get("valid", 0)))
-
-        return cls(internal=one("efuse1"), external=one("efuse2"),
-                   supported=bool(d.get("status_supported", True)),
-                   j1_rails=J1Rails.from_reply(d.get("j1_rails")), raw=d)
+        new = d.get("supplies")
+        out: Dict[str, SupplyState] = {}
+        if isinstance(new, Mapping):
+            for name in SUPPLIES:
+                if name not in new:
+                    continue
+                e = _d(new.get(name))
+                out[name] = SupplyState(enabled=bool(e.get("enabled", 0)), fault=bool(e.get("fault", 0)),
+                                        valid=bool(e.get("valid", name in SWITCHED_SUPPLIES)))
+        for name, key in (("5v", "efuse1"), ("external", "efuse2")):   # firmware before ``supplies``
+            if name not in out:
+                e = _d(d.get(key))
+                out[name] = SupplyState(enabled=bool(e.get("enabled", 0)), fault=bool(e.get("fault", 0)),
+                                        valid=bool(e.get("valid", 0)))
+        order = {n: out[n] for n in SUPPLIES if n in out}
+        return cls(supplies=order, supported=bool(d.get("status_supported", True)), raw=d)
 
 
 @dataclass(frozen=True)
-class RailPower:
-    """One INA power-monitor rail."""
+class SupplyPower:
+    """One INA power-monitor reading: a supply of the pod, the pod itself or an external monitor."""
 
     #: The monitor answered; ``bus_voltage``/``current`` are meaningful.
     ok: bool
@@ -167,40 +204,72 @@ class RailPower:
     current: float
 
 
+#: The old name of :class:`SupplyPower`.
+RailPower = SupplyPower
+
+
 @dataclass(frozen=True)
 class PowerStatus:
-    """The INA power monitors on both target-power rails (``BenchPod.power_status``)."""
+    """The INA power monitors on the target-power supplies (``BenchPod.power_status``)."""
 
-    internal: RailPower
-    external: RailPower
+    #: ``"5v"`` and ``"external"``: the two supplies that have a monitor (``"3v3"``/``"1v8"`` have none).
+    supplies: Dict[str, SupplyPower]
     #: The pod's own 5 V draw, on boards that measure it (``Capabilities.pod_current``); ``None``
-    #: otherwise. The DUT's internal rail bypasses this monitor.
-    pod: Optional[RailPower] = None
-    #: Pod + DUT internal rail in amps: what the USB input delivers. ``None`` unless the pod
+    #: otherwise. The DUT's ``"5v"`` supply bypasses this monitor.
+    pod: Optional[SupplyPower] = None
+    #: Pod + DUT ``"5v"`` supply in amps: what the USB input delivers. ``None`` unless the pod
     #: reported it (both monitors read).
     total_current: Optional[float] = None
     #: The attached external INA monitors by name (:meth:`BenchPod.expansion`), live: ``ok`` is False
     #: when a chip did not answer. Empty when none is attached.
-    monitors: Dict[str, RailPower] = field(default_factory=dict)
+    monitors: Dict[str, SupplyPower] = field(default_factory=dict)
     raw: Dict[str, Any] = _raw()
 
-    def rail(self, efuse: "Efuse | int") -> RailPower:
-        """The monitor on eFuse ``1`` (internal) or ``2`` (external)."""
-        return self.internal if coerce_efuse(efuse) == Efuse.INTERNAL else self.external
+    @property
+    def internal(self) -> SupplyPower:
+        """Deprecated: ``supplies["5v"]``."""
+        warnings.warn("PowerStatus.internal is deprecated: use supplies['5v']", DeprecationWarning,
+                      stacklevel=2)
+        return self.supplies["5v"]
+
+    @property
+    def external(self) -> SupplyPower:
+        """Deprecated: ``supplies["external"]``."""
+        warnings.warn("PowerStatus.external is deprecated: use supplies['external']",
+                      DeprecationWarning, stacklevel=2)
+        return self.supplies["external"]
+
+    def supply(self, supply: "str | Efuse | int") -> SupplyPower:
+        """The monitor of ``"5v"`` or ``"external"`` (the old eFuse numbers 1 and 2 work too).
+        :class:`ValueError` for ``"3v3"`` / ``"1v8"``: they have no current monitor."""
+        name = coerce_supply(supply)
+        if name not in self.supplies:
+            raise ValueError(f"the {name!r} supply has no current monitor (use an external INA "
+                             "monitor, see BenchPod.expansion)")
+        return self.supplies[name]
+
+    def rail(self, efuse: "Efuse | int") -> SupplyPower:
+        """Deprecated: :meth:`supply`. The monitor on eFuse ``1`` (``"5v"``) or ``2`` (``"external"``)."""
+        warnings.warn("PowerStatus.rail() is deprecated: use supply()", DeprecationWarning,
+                      stacklevel=2)
+        return self.supplies[efuse_supply(efuse)]
 
     @classmethod
     def from_reply(cls, reply: Any) -> "PowerStatus":
         d = _d(reply)
 
-        def one(key: str) -> RailPower:
-            r = _d(d.get(key))
-            return RailPower(ok=bool(r.get("ok", False)),
-                             bus_voltage=(_opt_int(r, "bus_mv") or 0) / 1000.0,
-                             current=(_opt_int(r, "current_ua") or 0) / 1e6)
+        def one(r: Any) -> SupplyPower:
+            r = _d(r)
+            return SupplyPower(ok=bool(r.get("ok", False)),
+                               bus_voltage=(_opt_int(r, "bus_mv") or 0) / 1000.0,
+                               current=(_opt_int(r, "current_ua") or 0) / 1e6)
 
-        pod = one("pod") if isinstance(d.get("pod"), Mapping) else None
+        new = _d(d.get("supplies"))
+        out = {"5v": one(new.get("5v", d.get("internal"))),
+               "external": one(new.get("external", d.get("external")))}
+        pod = one(d.get("pod")) if isinstance(d.get("pod"), Mapping) else None
         total_ua = _opt_int(_d(d.get("pod")), "total_ua")
-        return cls(internal=one("internal"), external=one("external"), pod=pod,
+        return cls(supplies=out, pod=pod,
                    total_current=None if total_ua is None else total_ua / 1e6, raw=d)
 
 
@@ -696,7 +765,7 @@ class LoopState:
 
 
 __all__: List[str] = [
-    "LaVoltage", "EfuseState", "TargetStatus", "RailPower", "PowerStatus", "ResetState",
+    "LaVoltage", "SupplyState", "EfuseState", "TargetStatus", "SupplyPower", "RailPower", "PowerStatus", "ResetState",
     "UsbCcStatus", "PullState", "AnalogPathState", "DacOutput", "AdcReading", "Calibration", "FpgaImageInfo",
     "LoopState",
 ]

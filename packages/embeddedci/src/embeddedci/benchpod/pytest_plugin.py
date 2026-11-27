@@ -24,7 +24,7 @@ from .client import BenchPod
 from .cli_config import SAVED_KEYWORD, config_path, saved_connection
 from .connection import ENV_VAR
 from .wiring import Wiring
-from .constants import PULL_TABLE
+from .constants import PULL_TABLE, efuse_supply, supply_efuse, warn_efuse
 from .runs import pytest_runs as _runs
 from .runs.pytest_runs import measure  # noqa: F401 -- a fixture of this plugin
 
@@ -35,7 +35,7 @@ _PULLDOWN_CHANNELS = frozenset(la for la, hw in PULL_TABLE.items() if "down" in 
 
 class BenchPodPins:
     """The pod's 14 generic logic-analyzer channels (``pin_1`` .. ``pin_14``)
-    plus the target-power ``efuse``.
+    plus the target-power ``supply``.
 
     The pod has **no dedicated SWD/UART/I2C pins** — it exposes 14 identical LA
     channels (LA1..LA14) and any DUT signal can be wired to any of them. So this
@@ -71,12 +71,21 @@ class BenchPodPins:
         ch: ohms for ch, ohms in _PULL_OHMS.items() if ch in _PULLDOWN_CHANNELS
     }
 
-    def __init__(self, efuse: int = 1) -> None:
+    def __init__(self, supply: str = "5v", *, efuse: Optional[int] = None) -> None:
         # LA1..LA14 are identity-numbered: pin_<n> is simply channel <n>.
         for channel in range(1, 15):
             setattr(self, f"pin_{channel}", channel)
-        #: target-power eFuse rail (1 = internal 5V, 2 = external).
-        self.efuse = efuse
+        if efuse is not None:
+            warn_efuse()
+            supply = efuse_supply(efuse)
+        #: The target-power supply: ``"5v"``, ``"external"``, ``"3v3"`` or ``"1v8"``.
+        self.supply = supply
+
+    @property
+    def efuse(self) -> Optional[int]:
+        """Deprecated: :attr:`supply`. 1 for ``"5v"``, 2 for ``"external"``, ``None`` otherwise."""
+        warn_efuse("BenchPodPins.efuse")
+        return supply_efuse(self.supply)
 
     @staticmethod
     def has_pullup(channel: int) -> bool:
@@ -155,8 +164,12 @@ def pytest_addoption(parser: "pytest.Parser") -> None:
     group.addoption(
         "--benchpod-efuse", action="store", type=int, default=None,
         dest="benchpod_efuse",
-        help="Target-power eFuse rail: 1 = internal 5V, 2 = external (default: the wiring "
-        "profile's rail, which is 1 unless the profile says otherwise).",
+        help="Older spelling of --benchpod-supply: 1 = 5v, 2 = external.",
+    )
+    group.addoption(
+        "--benchpod-supply", action="store", choices=("5v", "external", "3v3", "1v8"), default=None,
+        dest="benchpod_supply",
+        help="Target-power supply (default: the wiring profile's supply).",
     )
     group.addoption(
         "--benchpod-la-voltage", action="store", type=float, default=None,
@@ -487,25 +500,29 @@ def _release_gpio(device: BenchPod) -> None:
 def benchpod_target(benchpod: BenchPod, pytestconfig: "pytest.Config") -> Iterator[BenchPod]:
     """A BenchPod whose target is powered on for the test, off at teardown.
 
-    The rail is ``--benchpod-efuse`` when given, else the wiring profile's — the same rail
+    The supply is ``--benchpod-supply`` when given, else the wiring profile's — the same supply
     ``power_cycle_and_capture`` and ``measure_power`` default to.
     """
-    rail = pytestconfig.getoption("benchpod_efuse") or benchpod.wiring.efuse
-    benchpod.power_on(rail=rail)
+    efuse = pytestconfig.getoption("benchpod_efuse")
+    supply = (pytestconfig.getoption("benchpod_supply") or (efuse_supply(efuse) if efuse else None)
+              or benchpod.wiring.supply)
+    benchpod.power_on(supply)
     try:
         yield benchpod
     finally:
-        benchpod.power_off(rail=rail)
+        benchpod.power_off(supply)
 
 
 @pytest.fixture(scope="session")
 def benchpod_pins(pytestconfig: "pytest.Config") -> BenchPodPins:
-    """The pod's generic LA channels (``pin_1`` .. ``pin_14``) and the eFuse rail.
+    """The pod's generic LA channels (``pin_1`` .. ``pin_14``) and the target-power supply.
 
     Channels are not roles — map your bench wiring (which signal is on which LA
-    channel) in the test itself. The eFuse rail comes from ``--benchpod-efuse`` (default 1).
+    channel) in the test itself. The supply comes from ``--benchpod-supply`` (or the older ``--benchpod-efuse``; default ``"5v"``).
     """
-    return BenchPodPins(efuse=pytestconfig.getoption("benchpod_efuse") or 1)
+    efuse = pytestconfig.getoption("benchpod_efuse")
+    return BenchPodPins(supply=pytestconfig.getoption("benchpod_supply")
+                        or (efuse_supply(efuse) if efuse else "5v"))
 
 
 @pytest.fixture(scope="session")

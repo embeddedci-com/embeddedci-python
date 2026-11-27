@@ -100,7 +100,7 @@ def test_ina226_attach_configures_and_reads():
     assert mon.read().current == pytest.approx(-2e-6)         # signed
     st = bp.expansion()                                       # the status lists it with a live reading
     assert st.attached and st.chip is None and st.pins == () and st.la == {"sda": 1, "scl": 2}
-    [m] = st.monitors
+    [m] = st.monitors.values()
     assert m.name == "ina226@0x40" and m.shunt_ohm == 10 and m.averaging == 16
     assert m.reading.current == pytest.approx(-2e-6) and m.error is None
 
@@ -212,7 +212,7 @@ def test_one_chip_per_call_replace_and_detach_one():
     bp.expansion("ina226", addr=0x41, shunt_ohm=10, name="dut")
     assert [m.name for m in bp._monitors] == ["ina226@0x40", "dut"]
     st = bp.expansion()
-    assert [round(m.reading.current * 1e6, 3) for m in st.monitors] == [1.0, 10.0]
+    assert [round(m.reading.current * 1e6, 3) for m in st.monitors.values()] == [1.0, 10.0]
     assert sum(c["cmd"] == "i2c_start" for c in fake.commands) == 1
     with pytest.raises(ExpansionError, match="same two pins"):
         bp.expansion("ina226", addr=0x42, shunt_ohm=10, sda=3, scl=4)
@@ -239,17 +239,19 @@ def test_expansion_none_detaches_everything():
 def test_monitor_selection():
     bp, fake = pod_with({0x40: ina226(), 0x41: ina226()})
     with pytest.raises(ExpansionError, match="no external current monitor"):
-        bp.measure_power(0.1, monitor="ext")
+        bp.measure_power(0.1, monitor=True)
     bp.expansion("ina226", addr=0x40, shunt_ohm=10)
-    assert bp._monitor("ext").addr == 0x40 and bp._monitor(None).addr == 0x40
+    assert bp._monitor(True).addr == 0x40 and bp._monitor(None).addr == 0x40
+    with pytest.raises(ValueError, match="no current monitor named 'ext'"):    # no "ext" alias
+        bp._monitor("ext")
     bp.expansion("ina226", addr=0x41, shunt_ohm=10)
     with pytest.raises(ValueError, match="several current monitors"):
-        bp._monitor("ext")
+        bp._monitor(True)
     assert bp._monitor("ina226@0x41").addr == 0x41
     with pytest.raises(ValueError, match="no current monitor named 'x'"):
         bp._monitor("x")
-    with pytest.raises(ValueError, match="name 'ext' is not usable|not usable"):
-        bp.expansion("ina226", addr=0x42, shunt_ohm=10, name="ext")
+    with pytest.raises(ValueError, match="not usable"):        # EXTn are expander pin names
+        bp.expansion("ina226", addr=0x42, shunt_ohm=10, name="EXT3")
 
 
 def test_measure_power_monitor_and_profile_session():
@@ -263,27 +265,27 @@ def test_measure_power_monitor_and_profile_session():
         chip.regs[1] = next(seq)
 
     mon.sleep, mon.clock = sleep, lambda: now[0]
-    prof = bp.measure_power(0.02, monitor="ext", keep_samples=2)
-    assert prof.efuse == 0 and prof.n == 4 and prof.duration == pytest.approx(0.015)
+    prof = bp.measure_power(0.02, monitor=True, keep_samples=2)
+    assert prof.supply is None and prof.monitor == "ina226@0x40" and prof.n == 4 and prof.duration == pytest.approx(0.015)
     assert prof.min_current == pytest.approx(1e-6) and prof.peak_current == pytest.approx(3e-6)
     assert prof.avg_voltage == pytest.approx(3.3) and len(prof.samples) == 2
     assert prof.charge == pytest.approx((1.5e-6 + 2.5e-6 + 2.5e-6) * 0.005)
     assert prof.avg_current == pytest.approx(prof.charge / prof.duration)
-    with pytest.raises(ValueError, match=r"monitor= and rail= \(or efuse=\) are exclusive"):
-        bp.measure_power(0.1, monitor="ext", efuse=1)
-    with pytest.raises(ValueError, match=r"monitor= and rail= \(or efuse=\) are exclusive"):
-        bp.measure_power(0.1, monitor="ext", rail="internal")
+    with pytest.raises(ValueError, match=r"monitor= and supply= \(or efuse=\) are exclusive"):
+        bp.measure_power(0.1, monitor=True, efuse=1)
+    with pytest.raises(ValueError, match=r"monitor= and supply= \(or efuse=\) are exclusive"):
+        bp.measure_power(0.1, monitor=True, supply="5v")
 
     chip.regs[1] = 4                                           # a profile around a block of code
-    with bp.power_profile(monitor="ext") as p:
+    with bp.power_profile(monitor=True) as p:
         deadline = time.time() + 2
         while p.status()["n"] < 3 and time.time() < deadline:
             time.sleep(0.005)
     res = p.result
-    assert res.efuse == 0 and res.n >= 3 and res.avg_voltage == pytest.approx(3.3)
+    assert res.supply is None and res.monitor == "ina226@0x40" and res.n >= 3 and res.avg_voltage == pytest.approx(3.3)
     assert res.min_current == pytest.approx(1e-6) and not res.truncated
-    with pytest.raises(ValueError, match=r"monitor= and rail= \(or efuse=\) are exclusive"):
-        bp.power_profile(monitor="ext", efuse=2)
+    with pytest.raises(ValueError, match=r"monitor= and supply= \(or efuse=\) are exclusive"):
+        bp.power_profile(monitor=True, efuse=2)
 
 
 def test_power_status_lists_the_monitors():
@@ -293,7 +295,7 @@ def test_power_status_lists_the_monitors():
     fake.command = lambda req: ({"internal": {"ok": True, "bus_mv": 5000, "current_ua": 1000},
                                  "external": {"ok": False}} if req["cmd"] == "power_status" else orig(req))
     ps = bp.power_status()
-    assert ps.internal.current == pytest.approx(1e-3)
+    assert ps.supplies["5v"].current == pytest.approx(1e-3)
     assert ps.monitors["ina226@0x40"].ok and ps.monitors["ina226@0x40"].current == pytest.approx(1e-6)
     chip.regs.pop(1)
     fake.chips = {}                                            # the chip stops answering
@@ -342,7 +344,7 @@ def test_wiring_monitors_validate_and_round_trip():
         ({"chip": "ina226", "addr": 64}, "shunt_ohm is required"),
         ({"chip": "ina260", "addr": 64, "shunt_ohm": 10}, "has its own 2 mohm shunt"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "channel": 2}, "channel is 1..1"),
-        ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "name": "ext"}, "name must start with a letter"),
+        ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "name": "9volt"}, "name must start with a letter"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "averaging": 3}, "averaging is one of 1, 4, 16"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "sda": 3, "scl": 3}, "sda and scl must be different"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1000, "max_current": 1}, "takes at most 81.92 mV"),
@@ -368,14 +370,14 @@ def test_connect_attaches_the_profiles_monitors():
     assert bp.monitors_status == "attached dut" and [m.name for m in bp._monitors] == ["dut"]
     assert bp._monitors[0].from_profile and bp._monitors[0].averaging == 64
     assert bp._monitors[0].sda == 13 and fake.pullups == set()       # LA13: no pod pull-ups, external
-    assert bp.measure_power(0.01, monitor="ext").avg_current == pytest.approx(1e-6)
+    assert bp.measure_power(0.01, monitor="dut").avg_current == pytest.approx(1e-6)
 
 
 def test_a_monitor_that_fails_to_attach_is_said_when_used():
     bp, fake = profile_pod({}, [{"chip": "ina226", "addr": 64, "shunt_ohm": 10}])    # nothing answers
     assert bp.monitors_status.startswith("not attached: ina226@0x40: no ina226 answers at 0x40")
     with pytest.raises(ExpansionError, match="the profile's monitors: not attached: ina226@0x40"):
-        bp.measure_power(0.1, monitor="ext")
+        bp.measure_power(0.1, monitor=True)
 
 
 def test_a_new_profile_replaces_the_profile_monitors_but_not_manual_ones():

@@ -2961,6 +2961,15 @@
           "anyOf": [
             {
               "enum": [
+                "5v",
+                "external",
+                "3v3",
+                "1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
                 1,
                 2
               ],
@@ -2971,7 +2980,7 @@
             }
           ],
           "default": null,
-          "description": "Power this rail on before flashing: internal 5 V (efuse 1) or external (efuse 2).",
+          "description": "Power this supply on before flashing: 5v (the pod's 5 V, eFuse 1), external (eFuse 2) or, on BenchPod v4, 3v3 / 1v8. The numbers 1 and 2 are the deprecated names of 5v and external.",
           "title": "Target Power"
         },
         "tck": {
@@ -4172,7 +4181,7 @@
             }
           ],
           "default": null,
-          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply.",
           "title": "Efuse"
         },
         "monitor": {
@@ -4181,11 +4190,14 @@
               "type": "string"
             },
             {
+              "type": "boolean"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). Omit efuse then.",
+          "description": "Profile an external INA current monitor (attached with expansion) instead of one of the pod's supplies, for uA currents: its name ('ina226@0x40', or the name it was given), or true when exactly one is attached. Omit supply and efuse then.",
           "title": "Monitor"
         },
         "points": {
@@ -4196,14 +4208,22 @@
           "title": "Points",
           "type": "integer"
         },
-        "rail": {
+        "rate_hz": {
+          "default": 500.0,
+          "description": "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, adc_rate_hz what the sensor was configured for. With monitor: at most 200, default one read per conversion cycle.",
+          "maximum": 500,
+          "minimum": 100,
+          "title": "Rate Hz",
+          "type": "number"
+        },
+        "supply": {
           "anyOf": [
             {
               "enum": [
-                "internal",
+                "5v",
                 "external",
-                "j1_3v3",
-                "j1_1v8"
+                "3v3",
+                "1v8"
               ],
               "type": "string"
             },
@@ -4212,16 +4232,8 @@
             }
           ],
           "default": null,
-          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
-          "title": "Rail"
-        },
-        "rate_hz": {
-          "default": 500.0,
-          "description": "Samples per second. Accurate to ~200 Hz; above that the pod delivers what its sampling loop allows, flattening near 365 Hz. rate_hz in the result is what you actually got, adc_rate_hz what the sensor was configured for. With monitor: at most 200, default one read per conversion cycle.",
-          "maximum": 500,
-          "minimum": 100,
-          "title": "Rate Hz",
-          "type": "number"
+          "description": "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). 3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has 3v3 and 1v8).",
+          "title": "Supply"
         }
       },
       "required": [
@@ -4286,7 +4298,7 @@
             }
           ],
           "default": null,
-          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply.",
           "title": "Efuse"
         },
         "off_settle_s": {
@@ -4313,25 +4325,6 @@
           "default": null,
           "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "title": "Parity"
-        },
-        "rail": {
-          "anyOf": [
-            {
-              "enum": [
-                "internal",
-                "external",
-                "j1_3v3",
-                "j1_1v8"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
-          "title": "Rail"
         },
         "rx": {
           "anyOf": [
@@ -4372,6 +4365,25 @@
           "default": null,
           "description": "Stop bits after the data (and parity) bits; omit for the profile's uart_stop_bits (1 unless set).",
           "title": "Stop Bits"
+        },
+        "supply": {
+          "anyOf": [
+            {
+              "enum": [
+                "5v",
+                "external",
+                "3v3",
+                "1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). 3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has 3v3 and 1v8).",
+          "title": "Supply"
         },
         "tx": {
           "anyOf": [
@@ -4451,17 +4463,17 @@
             }
           ],
           "default": null,
-          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply.",
           "title": "Efuse"
         },
-        "rail": {
+        "supply": {
           "anyOf": [
             {
               "enum": [
-                "internal",
+                "5v",
                 "external",
-                "j1_3v3",
-                "j1_1v8"
+                "3v3",
+                "1v8"
               ],
               "type": "string"
             },
@@ -4470,8 +4482,8 @@
             }
           ],
           "default": null,
-          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
-          "title": "Rail"
+          "description": "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). 3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has 3v3 and 1v8).",
+          "title": "Supply"
         }
       },
       "title": "power_offArguments",
@@ -4515,17 +4527,17 @@
             }
           ],
           "default": null,
-          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply.",
           "title": "Efuse"
         },
-        "rail": {
+        "supply": {
           "anyOf": [
             {
               "enum": [
-                "internal",
+                "5v",
                 "external",
-                "j1_3v3",
-                "j1_1v8"
+                "3v3",
+                "1v8"
               ],
               "type": "string"
             },
@@ -4534,8 +4546,8 @@
             }
           ],
           "default": null,
-          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
-          "title": "Rail"
+          "description": "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). 3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has 3v3 and 1v8).",
+          "title": "Supply"
         },
         "wiring_profile": {
           "anyOf": [
@@ -4579,7 +4591,7 @@
             }
           ],
           "default": null,
-          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use supply: eFuse 1 is 5v, eFuse 2 is external. Omit for the wiring profile's supply.",
           "title": "Efuse"
         },
         "max_duration_s": {
@@ -4596,31 +4608,15 @@
               "type": "string"
             },
             {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Profile an external INA current monitor (attached with expansion) instead of the pod's rail, for uA currents: 'ext' when exactly one is attached, else its name ('ina226@0x40'). Omit efuse then.",
-          "title": "Monitor"
-        },
-        "rail": {
-          "anyOf": [
-            {
-              "enum": [
-                "internal",
-                "external",
-                "j1_3v3",
-                "j1_1v8"
-              ],
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
-          "title": "Rail"
+          "description": "Profile an external INA current monitor (attached with expansion) instead of one of the pod's supplies, for uA currents: its name ('ina226@0x40', or the name it was given), or true when exactly one is attached. Omit supply and efuse then.",
+          "title": "Monitor"
         },
         "rate_hz": {
           "default": 500.0,
@@ -4629,6 +4625,25 @@
           "minimum": 100,
           "title": "Rate Hz",
           "type": "number"
+        },
+        "supply": {
+          "anyOf": [
+            {
+              "enum": [
+                "5v",
+                "external",
+                "3v3",
+                "1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power supply: 5v (the pod's 5 V through eFuse 1), external (your own supply through eFuse 2) or, on BenchPod v4, 3v3 (switched 3.3 V, J1 pin 17, about 1.45 A limit) or 1v8 (switched 1.8 V, J1 pin 18). 3v3 and 1v8 are on from boot and independent of the eFuses and of resets, and have no current monitor. Omit for the wiring profile's supply (wiring shows it; power_status says whether the board has 3v3 and 1v8).",
+          "title": "Supply"
         }
       },
       "title": "power_profile_startArguments",
@@ -5676,7 +5691,7 @@
             }
           ],
           "default": null,
-          "description": "The DUT's I/O voltage. 5.0 needs a pod with the digital board v4 (status capabilities vref_out). Omit it to read the current voltage and pin 21 without changing anything.",
+          "description": "The DUT's I/O voltage. 5.0 needs a pod with BenchPod v4 (status capabilities vref_out). Omit it to read the current voltage and VREF OUT without changing anything.",
           "title": "La Voltage"
         }
       },
@@ -5737,7 +5752,7 @@
       "properties": {
         "profile": {
           "additionalProperties": true,
-          "description": "The profile as a JSON object (schema version 2): la_mv, efuse, uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, debug_port (\"swd\" or \"jtag\": what flash uses when the call passes no pins; null: automatic), spi_*, and signals [{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: power_on leaves the pulls as they are). What it leaves out is undefined (not wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins.",
+          "description": "The profile as a JSON object (schema version 2): la_mv, supply (5v, external, 3v3 or 1v8), uart_rx/uart_tx/uart_baud, i2c_sda/i2c_scl/i2c_addr, swd_swclk/swd_swdio/swd_nreset/swd_target, jtag_tck/jtag_tms/jtag_tdi/jtag_tdo/jtag_trst, debug_port (\"swd\" or \"jtag\": what flash uses when the call passes no pins; null: automatic), spi_*, and signals [{name, la, direction, active_low, description}], pulls (the pull resistors power_on switches on, the others off: {\"1\": \"up\", \"2\": \"up\", \"8\": \"down\"}, or a list of channels that pull their own way, e.g. [1, 2]; today LA1-LA6 pull up, LA7/LA8 down; left out: power_on leaves the pulls as they are). What it leaves out is undefined (not wired); a pin set to null is not wired. {\"version\": 1} objects fill in the old default pins.",
           "title": "Profile",
           "type": "object"
         },
@@ -6753,7 +6768,7 @@
           "title": "Settle Ms"
         },
         "test": {
-          "description": "enumerate: power-cycles the board through the internal 5 V (efuse 1) rail and times power-on to pull-up, descriptor and mounted. power: the board's current (internal 5 V, efuse 1) against the configuration's bMaxPower. suspend: the suspended current against the 2.5 mA a bus-powered device may draw, resume, and the board still answers. reset: port resets and the time to enumerate again. replug: VBUS dropouts of off_ms: does the board come back.",
+          "description": "enumerate: power-cycles the board through the 5v supply (eFuse 1) and times power-on to pull-up, descriptor and mounted. power: the board's current (5v supply, eFuse 1) against the configuration's bMaxPower. suspend: the suspended current against the 2.5 mA a bus-powered device may draw, resume, and the board still answers. reset: port resets and the time to enumerate again. replug: VBUS dropouts of off_ms: does the board come back.",
           "enum": [
             "enumerate",
             "power",

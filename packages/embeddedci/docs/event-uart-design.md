@@ -35,10 +35,9 @@ An event-based session: open the UART (start buffering in the background),
 power the target with a plain non-delayed `power_on`, then read.
 
 ```python
-from embeddedci.benchpod import INTERNAL
 
 with bp.open_uart(rx=5, tx=4, baud=115200) as uart:
-    bp.power_on(INTERNAL)                    # immediate — no pod-side delay
+    bp.power_on("5v")                    # immediate — no pod-side delay
     assert uart.read_until("APP_OK", timeout=6)
     # ... later, a second read from the same stream:
     uart.write(b"status\r\n")
@@ -168,20 +167,19 @@ backward-compatible.
 ## Worked example (the motivating case)
 
 ```python
-from embeddedci.benchpod import INTERNAL
 
 
 def test_boot_banner(benchpod):
     bp = benchpod
     with bp.open_uart(rx=5, tx=4, baud=115200) as uart:   # listening starts now
-        bp.power_on(INTERNAL)                              # immediate eFuse start
+        bp.power_on("5v")                              # immediate eFuse start
         m = uart.read_until(r"APP_OK", timeout=6)
         assert m, f"no boot banner; got:\n{uart.text}"
 
         # a second, independent read on the same live stream
         uart.write(b"ping\r\n")
         assert uart.expect("pong", timeout=2)
-    bp.power_off(INTERNAL)
+    bp.power_off("5v")
 ```
 
 No `delay=`, no `power_cycle_and_capture` — the banner is caught because listening

@@ -52,7 +52,7 @@ def test_measure_power_returns_si_units():
 def test_measure_power_passes_its_keywords_through():
     tx = FakeTransport()
     plug = benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1})()
-    profile = measure_power(plug, 0.5, efuse=2, rate_hz=500, keep_samples=2)
+    profile = measure_power(plug, 0.5, supply="external", rate_hz=500, keep_samples=2)
     req = _request(tx)
     assert req["efuse"] == 2 and req["sample_rate_hz"] == 500 and req["keep_samples"] == 2
     assert req["duration_ms"] == 500
@@ -99,11 +99,11 @@ def test_measure_power_phase_limits_pass_and_fail():
 def test_measure_power_phase_attaches_the_kept_samples():
     tx = FakeTransport()
     rec = _run(measure_power_phase(benchpod_plug(transport=tx, wiring={"version": 2, "efuse": 1}), duration=1.0, keep_samples=2,
-                                   efuse=2, rate_hz=500, prefix="sleep"))
+                                   supply="external", rate_hz=500, prefix="sleep"))
     phase = _phase(rec, "measure_power")
     assert _value(phase, "sleep_avg_current_a") == pytest.approx(0.052)
     payload = json.loads(phase.attachments["power.json"].data)
-    assert payload["efuse"] == 2 and payload["samples"][0] == [0.0, 0.04, 5.01]
+    assert payload["supply"] == "external" and payload["samples"][0] == [0.0, 0.04, 5.01]
     assert _request(tx)["sample_rate_hz"] == 500
 
 

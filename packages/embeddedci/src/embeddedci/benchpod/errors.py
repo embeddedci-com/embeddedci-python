@@ -674,8 +674,9 @@ _BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
     "BP0087": (UsbCheckRefusedError,                             # usb_check_refused {why}
                lambda v, cmd: {"why": _str(v.get("why"))}),
     "BP0088": (UsbCheckNoPowerError, _NO_FIELDS),                # usb_check_no_efuse_power
-    "BP0089": (WiringError, _NO_FIELDS),                         # wiring_bad_rail {rail}
-    "BP0090": (FirmwareError, _NO_FIELDS),                       # power_no_meter {rail}
+    "BP0089": (WiringError, _NO_FIELDS),                         # wiring_bad_supply {supply}
+    "BP0090": (FirmwareError, _NO_FIELDS),                       # power_no_meter {supply}
+    "BP0091": (FirmwareError, _NO_FIELDS),                       # power_supply_and_efuse
 }
 
 

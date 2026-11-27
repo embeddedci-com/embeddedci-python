@@ -132,7 +132,7 @@
     "enable_pullup": "(self, *las: 'Union[Pin, int]') -> 'None'",
     "enabled_pulls": "(self) -> 'List[int]'",
     "expansion": "(self, chip: 'Optional[str]' = '', *, addr: 'Union[int, Sequence[int], None]' = None, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, spi: 'Union[Sequence[Union[Pin, int, str]], Mapping[str, Union[Pin, int, str]], None]' = None, load: 'Union[Pin, int, str, None]' = None, count: 'Optional[int]' = None, hz: 'Optional[int]' = None, pullups: 'Optional[str]' = None, names: 'Union[Mapping[Any, str], Sequence[Optional[str]], None]' = None, shunt_ohm: 'Union[float, Sequence[float], None]' = None, channel: 'Union[int, Sequence[int], None]' = None, averaging: 'Optional[int]' = None, conversion_time: 'Optional[float]' = None, max_current: 'Optional[float]' = None, name: 'Optional[str]' = None) -> \"'_expansion.ExpansionStatus'\"",
-    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, tck: 'Union[Pin, int, str, None]' = None, tms: 'Union[Pin, int, str, None]' = None, tdi: 'Union[Pin, int, str, None]' = None, tdo: 'Union[Pin, int, str, None]' = None, trst: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None, device: 'str' = '', clk: 'Union[Pin, int, str, None]' = None, data: 'Union[Pin, int, str, None]' = None, reset_pin: 'Union[Pin, int, str, None]' = None, erase: 'str' = 'chip', dry_run: 'bool' = False) -> 'FlashResult'",
+    "flash": "(self, *, swclk: 'Union[Pin, int, str, None]' = None, swdio: 'Union[Pin, int, str, None]' = None, tck: 'Union[Pin, int, str, None]' = None, tms: 'Union[Pin, int, str, None]' = None, tdi: 'Union[Pin, int, str, None]' = None, tdo: 'Union[Pin, int, str, None]' = None, trst: 'Union[Pin, int, str, None]' = None, nreset: 'Optional[bool]' = None, target: 'str' = '', file: 'str' = '', load_address: 'str' = '', target_power: 'Optional[Union[str, Efuse, int]]' = None, verify: 'bool' = True, reset: 'bool' = True, connect_under_reset: 'Optional[bool]' = None, clear_reset_events: 'bool' = True, openocd_bin: 'Optional[str]' = None, extra_configs: 'Sequence[str]' = (), extra_args: 'Sequence[str]' = (), timeout: 'float' = 300.0, connect_attempts: 'int' = 5, check: 'bool' = True, build: 'str' = '', repo: 'str' = '', ref: 'str' = '', artifact: 'str' = '', server_side: 'Optional[bool]' = None, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, boot: 'Union[Pin, int, str, None]' = None, device: 'str' = '', clk: 'Union[Pin, int, str, None]' = None, data: 'Union[Pin, int, str, None]' = None, reset_pin: 'Union[Pin, int, str, None]' = None, erase: 'str' = 'chip', dry_run: 'bool' = False) -> 'FlashResult'",
     "fpga_image": "(self, image: 'Union[FpgaImage, int]') -> 'FpgaImageInfo'",
     "generate": "(self, waveform: 'Waveshape' = 'sine', *, freq_hz: 'float', amplitude: 'float', offset: 'Optional[float]' = None, dac_path: 'Optional[DacPath]' = None, duration: 'Optional[float]' = None, sample_rate_hz: 'Optional[float]' = None, on_capture: 'bool' = False, route: 'bool' = True) -> 'DacHandle'",
     "get_la_voltage": "(self) -> 'LaVoltage'",
@@ -151,7 +151,7 @@
     "loop_input": "(self, input_code: 'Optional[int]' = None, *, source: 'Optional[LoopSource]' = None, step: 'Optional[int]' = None) -> 'LoopState'",
     "loop_probe": "(self) -> '_control_loop.IVPoint'",
     "mac_addresses": "(self, status: 'Optional[Mapping[str, Any]]' = None) -> \"'MacAddresses'\"",
-    "measure_power": "(self, duration: 'float', *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0, monitor: 'Optional[str]' = None) -> 'PowerProfile'",
+    "measure_power": "(self, duration: 'float', *, supply: 'Optional[Union[str, Efuse, int]]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 0, monitor: 'Union[str, bool, None]' = None) -> 'PowerProfile'",
     "module": "(self) -> 'ModuleInfo'",
     "open_can": "(self, *, bitrate: 'int' = 500000, mode: 'CanMode' = 'normal', term: 'bool' = False, fd: 'bool' = False, data_bitrate: 'Optional[int]' = None) -> '_can.CanBus'",
     "open_i2c": "(self, sda: 'Union[Pin, int, str, None]' = None, scl: 'Union[Pin, int, str, None]' = None, *, hz: 'int' = 100000, pullups: 'str' = 'pod') -> '_i2c_master.I2CMaster'",
@@ -162,10 +162,10 @@
     "pin_directions": "(self, wiring: 'Optional[Wiring]' = None) -> 'Dict[int, str]'",
     "pin_levels": "(self) -> 'Dict[int, int]'",
     "ping": "(self) -> 'Any'",
-    "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, rail: 'Optional[Union[Efuse, int, str]]' = None, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None) -> '_uart.UartCapture'",
-    "power_off": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
-    "power_on": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
-    "power_profile": "(self, *, efuse: 'Optional[Union[Efuse, int]]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0, monitor: 'Optional[str]' = None) -> 'Any'",
+    "power_cycle_and_capture": "(self, *, rx: 'Union[Pin, int, str, None]' = None, tx: 'Union[Pin, int, str, None]' = None, supply: 'Optional[Union[str, Efuse, int]]' = None, delay: 'float' = 1.0, duration: 'float' = 4.0, efuse: 'Optional[Union[Efuse, int]]' = None, baud: 'Optional[int]' = None, until: 'Optional[_uart.Until]' = None, off_settle: 'float' = 0.3, parity: 'Optional[str]' = None, stop_bits: 'Optional[int]' = None) -> '_uart.UartCapture'",
+    "power_off": "(self, supply: 'Optional[Union[str, Efuse, int]]' = None, *, delay: 'Optional[float]' = None, efuse: 'Optional[Union[Efuse, int]]' = None) -> 'None'",
+    "power_on": "(self, supply: 'Optional[Union[str, Efuse, int]]' = None, *, delay: 'Optional[float]' = None, wiring_profile: 'Optional[str]' = None, efuse: 'Optional[Union[Efuse, int]]' = None) -> 'None'",
+    "power_profile": "(self, *, supply: 'Optional[Union[str, Efuse, int]]' = None, efuse: 'Optional[Union[Efuse, int]]' = None, rate_hz: 'float' = 500.0, keep_samples: 'int' = 4096, max_duration: 'float' = 60.0, monitor: 'Union[str, bool, None]' = None) -> 'Any'",
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "read_gpio": "(self, la: 'Union[Pin, int, str]') -> 'int'",
@@ -196,7 +196,7 @@
     "store_adc_compensation": "(self, hf_dc_gain: 'float', c_top_pf: 'float') -> 'Calibration'",
     "stored_wiring": "(self, name: 'Optional[str]' = None) -> 'Optional[Wiring]'",
     "supports": "(self, feature: 'str') -> 'bool'",
-    "target_power": "(self, efuse: 'Optional[Union[Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None, rail: 'Optional[Union[Efuse, int, str]]' = None) -> 'None'",
+    "target_power": "(self, supply: 'Optional[Union[str, Efuse, int]]' = None, *, on: 'bool', delay: 'Optional[float]' = None, efuse: 'Optional[Union[Efuse, int]]' = None) -> 'None'",
     "target_status": "(self) -> 'TargetStatus'",
     "transport": "property",
     "usb_cc": "(self) -> 'UsbCcStatus'",
@@ -339,7 +339,7 @@
       "nrst_pin",
       "usb_cc",
       "vref_out",
-      "dut_rails",
+      "supply_3v3_1v8",
       "spi_master",
       "spi_stream",
       "uart_frame",
@@ -767,13 +767,6 @@
     ],
     "loop_input": "property"
   },
-  "J1Rails": {
-    "__fields__": [
-      "v3v3",
-      "v1v8"
-    ],
-    "from_reply": "(cls, d: 'Any') -> \"Optional['J1Rails']\""
-  },
   "LOG_LEVELS": "('error', 'warn', 'info', 'debug')",
   "LaCapture": {
     "__fields__": [
@@ -819,11 +812,12 @@
     "__fields__": [
       "voltage",
       "readback",
-      "pin21",
+      "vref_out",
       "raw"
     ],
     "from_reply": "(cls, reply: 'Any') -> \"'LaVoltage'\"",
-    "is_set": "property"
+    "is_set": "property",
+    "pin21": "property"
   },
   "LanClient": {
     "__fields__": [
@@ -1057,7 +1051,8 @@
   "PodNotPairedError": {},
   "PowerProfile": {
     "__fields__": [
-      "efuse",
+      "supply",
+      "monitor",
       "rate_hz",
       "adc_rate_hz",
       "n",
@@ -1076,8 +1071,9 @@
       "raw"
     ],
     "avg_power": "property",
+    "efuse": "property",
     "from_chunks": "(cls, chunks: 'Iterable[Dict[str, Any]]') -> \"'PowerProfile'\"",
-    "from_readings": "(cls, readings: 'Sequence[Tuple[float, Any]]', *, adc_rate_hz: 'float' = 0.0, keep_samples: 'int' = 0, truncated: 'bool' = False) -> \"'PowerProfile'\""
+    "from_readings": "(cls, readings: 'Sequence[Tuple[float, Any]]', *, adc_rate_hz: 'float' = 0.0, keep_samples: 'int' = 0, truncated: 'bool' = False, monitor: 'str' = '') -> \"'PowerProfile'\""
   },
   "PowerProfileSession": {
     "__init__": "(self, pod: \"'BenchPod'\", request: 'Dict[str, Any]') -> 'None'",
@@ -1088,15 +1084,17 @@
   },
   "PowerStatus": {
     "__fields__": [
-      "internal",
-      "external",
+      "supplies",
       "pod",
       "total_current",
       "monitors",
       "raw"
     ],
+    "external": "property",
     "from_reply": "(cls, reply: 'Any') -> \"'PowerStatus'\"",
-    "rail": "(self, efuse: \"'Efuse | int'\") -> 'RailPower'"
+    "internal": "property",
+    "rail": "(self, efuse: \"'Efuse | int'\") -> 'SupplyPower'",
+    "supply": "(self, supply: \"'str | Efuse | int'\") -> 'SupplyPower'"
   },
   "ProgDeviceError": {},
   "ProgFlashError": {
@@ -1148,6 +1146,7 @@
     "from_reply": "(cls, reply: 'Any') -> \"'ResetState'\""
   },
   "SENSOR_LIBRARY_VERSION": "0.1.0",
+  "SUPPLIES": "('5v', 'external', '3v3', '1v8')",
   "Segment": {
     "__fields__": [
       "shape",
@@ -1300,16 +1299,31 @@
       "seconds"
     ]
   },
+  "SupplyPower": {
+    "__fields__": [
+      "ok",
+      "bus_voltage",
+      "current"
+    ]
+  },
+  "SupplyState": {
+    "__fields__": [
+      "enabled",
+      "fault",
+      "valid"
+    ]
+  },
   "TargetStatus": {
     "__fields__": [
-      "internal",
-      "external",
+      "supplies",
       "supported",
-      "j1_rails",
       "raw"
     ],
-    "efuse": "(self, efuse: \"'Efuse | int'\") -> 'EfuseState'",
-    "from_reply": "(cls, reply: 'Any') -> \"'TargetStatus'\""
+    "efuse": "(self, efuse: \"'Efuse | int'\") -> 'SupplyState'",
+    "external": "property",
+    "from_reply": "(cls, reply: 'Any') -> \"'TargetStatus'\"",
+    "internal": "property",
+    "supply": "(self, supply: \"'str | Efuse | int'\") -> 'SupplyState'"
   },
   "TargetUnreachableError": {},
   "TlsPinMismatchError": {
@@ -1594,6 +1608,17 @@
     "__init__": "(self, message: 'str', *, cmd: 'Optional[str]' = None, why: 'str' = '') -> 'None'"
   },
   "UsbTimeout": {},
+  "VrefOut": {
+    "__fields__": [
+      "source",
+      "setting",
+      "measured",
+      "state",
+      "up"
+    ],
+    "from_reply": "(cls, d: 'Any') -> \"Optional['VrefOut']\"",
+    "ok": "property"
+  },
   "Waveform": {
     "__fields__": [
       "id",
@@ -1631,7 +1656,7 @@
   "Wiring": {
     "__fields__": [
       "la_mv",
-      "efuse",
+      "supply",
       "uart_rx",
       "uart_tx",
       "uart_baud",
@@ -1668,6 +1693,7 @@
     "coerce": "(cls, value: \"Union['Wiring', Mapping[str, Any], str, Path]\") -> \"'Wiring'\"",
     "describe": "(self) -> 'str'",
     "dut_dir": "(self, name: 'str') -> 'str'",
+    "efuse": "property",
     "from_dict": "(cls, data: 'Mapping[str, Any]', *, source: 'str' = 'dict', strict: 'bool' = True) -> \"'Wiring'\"",
     "i2c_address": "property",
     "la": "(self, name: 'str') -> 'int'",
@@ -1770,7 +1796,6 @@
     "I2CTransaction",
     "INTERNAL",
     "IVPoint",
-    "J1Rails",
     "LOG_LEVELS",
     "LaCapture",
     "LaPinState",
@@ -1830,6 +1855,7 @@
     "ReplyTooLargeError",
     "ResetState",
     "SENSOR_LIBRARY_VERSION",
+    "SUPPLIES",
     "Segment",
     "SendResult",
     "Sensor",
@@ -1845,6 +1871,8 @@
     "SpiSend",
     "SpiSession",
     "SpiStreamResult",
+    "SupplyPower",
+    "SupplyState",
     "TargetStatus",
     "TargetUnreachableError",
     "TlsPinMismatchError",
@@ -1884,6 +1912,7 @@
     "UsbSerialBusyError",
     "UsbSerialUnavailableError",
     "UsbTimeout",
+    "VrefOut",
     "Waveform",
     "WaveformLibrary",
     "Waveshape",

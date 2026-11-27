@@ -1,7 +1,7 @@
 """Wiring profiles — which DUT signal is on which of the pod's 14 LA channels.
 
 The pod has no role-named pins: any DUT signal can be on any of LA1..LA14. A wiring profile writes that
-mapping down once — the UART, I2C, SWD and SPI roles, the target-power rail, the LA I/O voltage and
+mapping down once — the UART, I2C, SWD and SPI roles, the target-power supply, the LA I/O voltage and
 named signals such as ``TRIGGER`` — so tests use names and defaults instead of channel numbers::
 
     bp = BenchPod("192.168.1.50", wiring="wiring.json")
@@ -11,7 +11,7 @@ named signals such as ``TRIGGER`` — so tests use names and defaults instead of
 
 Profiles live on the pod (firmware with the wiring commands): up to 16 named profiles, one of them
 the default, the same over LAN, USB and the cloud. Schema version 2: what a profile does not set is
-undefined (that pin is not wired, no I/O voltage, no power rail). A version 1 object (or one without
+undefined (that pin is not wired, no I/O voltage, no power supply). A version 1 object (or one without
 a version) still means what it did: what it leaves out takes the default pins' values
 (:meth:`Wiring.preset`). See :class:`Wiring`.
 """
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 
-from .constants import PULL_TABLE
+from .constants import PULL_TABLE, SUPPLIES, coerce_supply, supply_efuse, warn_efuse
 
 PULL_CHANNELS = tuple(PULL_TABLE)
 
@@ -34,7 +34,7 @@ WIRING_VERSIONS = (1, 2)
 #: The default pins: what the pod assumed before profiles left nothing undefined, and what a
 #: version 1 profile fills in. Not the wiring of any particular bench.
 DEFAULT_PINS: Mapping[str, Any] = {
-    "la_mv": 3300, "efuse": 1, "uart_rx": 5, "uart_tx": 4, "i2c_sda": 1, "i2c_scl": 2,
+    "la_mv": 3300, "supply": "5v", "uart_rx": 5, "uart_tx": 4, "i2c_sda": 1, "i2c_scl": 2,
     "i2c_addr": "0x76", "swd_swclk": 11, "swd_swdio": 12,
 }
 #: Presets: complete profiles to start a new one from (:meth:`Wiring.preset`). Copied, never linked.
@@ -177,10 +177,9 @@ class MonitorSpec:
                 self.shunt_ohm, (int, float)) or not 0 < self.shunt_ohm <= 1e6:
             errs.append(f"{prefix}.shunt_ohm is required: the shunt resistor in ohms (greater than 0), "
                         f"got {self.shunt_ohm!r}")
-        if self.name is not None and (not isinstance(self.name, str) or not _MONITOR_NAME.match(self.name)
-                                      or self.name.lower() == "ext"):
+        if self.name is not None and (not isinstance(self.name, str) or not _MONITOR_NAME.match(self.name)):
             errs.append(f"{prefix}.name must start with a letter, use letters, digits and _ . @ -, be at "
-                        f"most 32 characters and not be 'ext', got {self.name!r}")
+                        f"most 32 characters, got {self.name!r}")
         if self.channel is not None and (not _is_int(self.channel) or not 1 <= self.channel <= chip.channels
                                          or (chip.channels == 1 and self.channel != 1)):
             errs.append(f"{prefix}.channel is 1..{chip.channels} for the {chip.name}, got {self.channel!r}")
@@ -247,7 +246,7 @@ class Wiring:
     :attr:`BenchPod.wiring <embeddedci.benchpod.BenchPod.wiring>` load one from the pod.
 
     What is not set is undefined: ``Wiring()`` wires nothing, has no I/O voltage (``la_mv`` None) and
-    no power rail (``efuse`` None); a call that needs one of them says so. Only plain call settings
+    no power supply (``supply`` None); a call that needs one of them says so. Only plain call settings
     keep a value (``uart_baud`` 115200, ``swd_nreset`` False, ``swd_target`` auto-detect). Start from
     the default pins with ``Wiring.preset("embeddedci-default")``. Construction validates the whole profile and
     raises :class:`ValueError` listing every problem — including two roles or signals on one LA
@@ -255,10 +254,12 @@ class Wiring:
     """
 
     la_mv: Optional[int] = None
-    #: The profile's target-power rail: ``1`` (internal 5 V), ``2`` (external), or on the digital
-    #: board v4 ``"j1_3v3"`` / ``"j1_1v8"`` (the switched J1 pins 17 and 18). Every power call that
-    #: names no rail uses it. Stored under the key ``efuse``; 1 and 2 stay numbers.
-    efuse: Optional[Union[int, str]] = None
+    #: The profile's target-power supply: ``"5v"`` (the pod's 5 V), ``"external"`` (your own supply)
+    #: or, on BenchPod v4, ``"3v3"`` / ``"1v8"`` (the switched 3.3 V and 1.8 V outputs). Every power
+    #: call that names no supply uses it. Stored under the key ``supply`` (and, for ``"5v"`` and
+    #: ``"external"``, the old key ``efuse`` 1 / 2 next to it). The old names ``"internal"``, 1 and 2
+    #: are accepted and become ``"5v"`` / ``"external"``. :attr:`efuse` is the deprecated view.
+    supply: Optional[str] = None
     uart_rx: Optional[int] = None
     uart_tx: Optional[int] = None
     uart_baud: int = 115200
@@ -313,6 +314,11 @@ class Wiring:
     def __post_init__(self) -> None:
         object.__setattr__(self, "signals", tuple(self.signals))
         object.__setattr__(self, "monitors", _parse_monitors(self.monitors))
+        if self.supply is not None:
+            try:
+                object.__setattr__(self, "supply", coerce_supply(self.supply))
+            except ValueError:
+                pass   # _errors() reports it with the other problems
         if isinstance(self.pulls, (list, tuple)):
             pulls = tuple(self.pulls)
             if all(_is_int(x) for x in pulls):
@@ -330,18 +336,25 @@ class Wiring:
         if errors:
             raise ValueError("invalid wiring: " + "; ".join(errors))
 
+    @property
+    def efuse(self) -> Optional[int]:
+        """Deprecated: :attr:`supply`. ``1`` for ``"5v"``, ``2`` for ``"external"``, ``None`` when
+        no supply is set or it is ``"3v3"`` / ``"1v8"`` (which have no eFuse)."""
+        warn_efuse("Wiring.efuse")
+        return supply_efuse(self.supply) if self.supply is not None else None
+
     # -- construction ---------------------------------------------------------
 
     @classmethod
     def undefined(cls) -> "Wiring":
-        """A profile with nothing wired, no I/O voltage and no power rail."""
+        """A profile with nothing wired, no I/O voltage and no power supply."""
         return cls(source="undefined")
 
     @classmethod
     def preset(cls, name: str = "embeddedci-default") -> "Wiring":
         """A complete profile to start from: ``"embeddedci-default"`` is the default pins, what the
         pod assumed before version 2 (UART RX on LA5 and TX on LA4, I2C SDA on LA1 and SCL on LA2,
-        SWD on LA11/LA12, 3.3 V, internal 5 V). It is not the wiring of any particular bench: check
+        SWD on LA11/LA12, 3.3 V, the 5v supply). It is not the wiring of any particular bench: check
         it against yours, then save a copy under your board's name:
         ``bp.save_wiring(Wiring.preset().with_changes(uart_rx=3), name="nucleo")``."""
         try:
@@ -364,15 +377,32 @@ class Wiring:
         if not _is_int(version) or version not in WIRING_VERSIONS:
             raise ValueError(f"invalid wiring: version must be 1 or 2, got {version!r}")
         if version == 1:
-            data = {**DEFAULT_PINS, **data, "version": WIRING_VERSION}
+            base = dict(DEFAULT_PINS)
+            if "efuse" in data or "supply" in data:
+                base.pop("supply", None)   # the file names its own supply
+            data = {**base, **data, "version": WIRING_VERSION}
+        data = dict(data)
+        if "efuse" in data:   # the old key: 1 / 2 (or "internal" / "external"); null means not set
+            raw = data.pop("efuse")
+            if raw is not None:
+                try:
+                    legacy = coerce_supply(raw)
+                    if legacy not in ("5v", "external"):
+                        raise ValueError(raw)
+                except ValueError:
+                    raise ValueError(f"invalid wiring: efuse must be 1 (5v) or 2 (external), got {raw!r} "
+                                     "(use supply for the others)") from None
+                if data.get("supply") is None:
+                    data["supply"] = legacy
+                elif coerce_supply(data["supply"]) != legacy:
+                    raise ValueError(f"invalid wiring: supply {data['supply']!r} and efuse {raw!r} name "
+                                     "different supplies: give supply only")
         scalar = {f.name for f in fields(cls)} - {"signals", "monitors", "extra", "source", "dut_dirs", "profile_name", "profile_rev"}
         kwargs: Dict[str, Any] = {}
         extra: Dict[str, Any] = {}
         unknown: List[str] = []
         for key, value in data.items():
             if key in scalar:
-                if key == "efuse" and value in ("internal", "external"):
-                    value = 1 if value == "internal" else 2   # stored as the number older tools read
                 kwargs[key] = value
             elif key == "signals":
                 kwargs["signals"] = tuple(_parse_signals(value, unknown))
@@ -423,7 +453,14 @@ class Wiring:
         return cls.from_dict(data, source="file")
 
     def with_changes(self, **changes: Any) -> "Wiring":
-        """A copy with some fields changed (validated again)."""
+        """A copy with some fields changed (validated again). ``efuse=`` is the deprecated name of
+        ``supply=``."""
+        if "efuse" in changes:
+            if changes.get("supply") is not None:
+                raise ValueError("pass supply= or efuse=, not both (efuse is the old name of supply)")
+            warn_efuse()
+            old = changes.pop("efuse")
+            changes["supply"] = None if old is None else coerce_supply(old)
         return replace(self, **changes)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -433,6 +470,9 @@ class Wiring:
             if f.name in ("signals", "monitors", "extra", "source", "version", "dut_dirs", "pulls", "profile_name", "profile_rev"):
                 continue
             out[f.name] = getattr(self, f.name)
+        n = supply_efuse(self.supply) if self.supply is not None else None
+        if n is not None:
+            out["efuse"] = n   # the old key, for tools that read only that
         out["signals"] = [s.to_dict() for s in self.signals]
         if self.monitors:
             out["monitors"] = [m.to_dict() for m in self.monitors]
@@ -551,9 +591,7 @@ class Wiring:
         pins = self.pins()
         dirs = self.pin_dut_dirs()
         io = f"{self.la_voltage:g} V" if self.la_voltage is not None else "not set"
-        rail = ("not set" if self.efuse is None else f"J1 {self.efuse[3:].replace('v', '.')} V pin"
-                if isinstance(self.efuse, str) else f"eFuse {self.efuse}")
-        lines = [f"LA I/O {io}, target power {rail}"]
+        lines = [f"LA I/O {io}, target power supply {self.supply or 'not set'}"]
         for la in range(1, 15):
             hw = PULL_TABLE.get(la)
             bias = f"{hw.ohms} pull-{'/'.join(hw.dirs)}" if hw else "no pull"
@@ -599,10 +637,9 @@ class Wiring:
         if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300, 5000)):
             errs.append(f"la_mv must be 1800, 3300 or 5000 (5 V: digital board v4; or None: not set), "
                         f"got {self.la_mv!r}")
-        if self.efuse is not None and not (
-                (_is_int(self.efuse) and self.efuse in (1, 2)) or self.efuse in ("j1_3v3", "j1_1v8")):
-            errs.append(f"efuse (the target-power rail) must be 1 (internal), 2 (external), 'j1_3v3' or "
-                        f"'j1_1v8' (J1 supplies, digital board v4) (or None: not set), got {self.efuse!r}")
+        if self.supply is not None and self.supply not in SUPPLIES:
+            errs.append("supply (the target-power supply) must be "
+                        + ", ".join(repr(x) for x in SUPPLIES) + f" (or None: not set), got {self.supply!r}")
         if not _is_int(self.uart_baud) or not 300 <= self.uart_baud <= 4_000_000:
             errs.append(f"uart_baud must be 300..4000000, got {self.uart_baud!r}")
         if self.uart_parity not in ("none", "even", "odd"):
@@ -688,6 +725,21 @@ class Wiring:
                             "or set a role that isn't wired to None)")
             others.append(name)
         return errs
+
+
+def _wiring_init_with_efuse(original: Any) -> Any:
+    def __init__(self: "Wiring", *args: Any, efuse: Any = None, **kwargs: Any) -> None:
+        if efuse is not None:
+            if kwargs.get("supply") is not None:
+                raise ValueError("pass supply= or efuse=, not both (efuse is the old name of supply)")
+            warn_efuse()
+            kwargs["supply"] = efuse
+        original(self, *args, **kwargs)
+    __init__.__doc__ = original.__doc__
+    return __init__
+
+
+Wiring.__init__ = _wiring_init_with_efuse(Wiring.__init__)  # type: ignore[method-assign]
 
 
 def _parse_signals(value: Any, unknown: List[str]) -> List[Signal]:
