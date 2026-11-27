@@ -1,6 +1,6 @@
 # Changelog — `embeddedci-mcp`
 
-## Unreleased
+## 4.0.7
 
 - **Power tools take one `supply` argument** naming the output: `5v` (the pod's 5 V, eFuse 1),
   `external` (eFuse 2) and, on BenchPod v4, `3v3` / `1v8` (J1 pins 17 and 18, on from boot,
