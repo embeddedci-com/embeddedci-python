@@ -198,8 +198,12 @@ def test_chip_list_is_the_one_source():
     with pytest.raises(ValueError, match="the SDK drives: tca9555"):
         expansion_chip("ds2413")
     for c in EXPANSION_CHIPS:
-        assert c.bus in ("i2c", "spi") and c.directions in ("in/out", "quasi", "out", "in")
-        assert set(c.voltages) <= {1.8, 3.3} and c.voltages
+        assert c.bus in ("i2c", "spi") and c.kind in ("gpio", "current")
+        if c.kind == "gpio":
+            assert c.directions in ("in/out", "quasi", "out", "in") and c.pins
+            assert set(c.voltages) <= {1.8, 3.3} and c.voltages
+        else:
+            assert c.pins == 0 and c.bus == "i2c" and set(c.voltages) <= {3.3, 5.0} and c.voltages
 
 
 # -- attach / status / detach --------------------------------------------------------------------
@@ -254,7 +258,7 @@ def test_argument_validation():
         attach(count=2)
     with pytest.raises(ValueError, match="name the chip"):
         BenchPod(transport=ExpPod({})).expansion(addr=0x20)
-    with pytest.raises(ValueError, match="takes no other"):
+    with pytest.raises(ValueError, match="no current monitor at addr=32"):
         BenchPod(transport=ExpPod({})).expansion(None, addr=0x20)
 
 

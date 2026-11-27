@@ -69,6 +69,16 @@ class ExpansionChip:
     aliases: Tuple[str, ...] = ()
     #: One line for the docs.
     note: str = ""
+    #: ``"gpio"`` (adds EXT pins) or ``"current"`` (an INA current/power monitor: no pins, read
+    #: with ``measure_power(monitor=...)``, ``power_status()`` and ``power_profile(monitor=...)``).
+    kind: str = "gpio"
+    #: Current monitors: channels one chip has, the shunt inside the chip in ohms (0: external),
+    #: the largest shunt voltage in volts (0: no limit checked), and ``(register, mask, value)``
+    #: ID registers probed on attach (manufacturer and die ID where the chip has them).
+    channels: int = 1
+    internal_ohm: float = 0.0
+    shunt_max: float = 0.0
+    ids: Tuple[Tuple[int, int, int], ...] = ()
 
     @property
     def chained(self) -> bool:
@@ -81,6 +91,10 @@ def _range(lo: int, hi: int) -> Tuple[int, ...]:
 
 
 _BOTH = (1.8, 3.3)
+_INA_V = (3.3, 5.0)
+_NEW = "4.0.7"
+_TI = (0xFE, 0xFFFF, 0x5449)     # manufacturer ID (INA226, INA260, INA3221)
+_TI_B = (0x3E, 0xFFFF, 0x5449)   # the same at 0x3E (INA228, INA238)
 
 #: Every expander chip the SDK drives, in the order the docs list them. The one source of truth for
 #: the docs page and the MCP/CLI help.
@@ -108,6 +122,29 @@ EXPANSION_CHIPS: Tuple[ExpansionChip, ...] = (
     ExpansionChip("74hc165", "spi", 8, 5, (), (3.3,), "in", 6_000_000, _FIRST,
                   note="shift-register chain, inputs only; CS to CLK INH, load= to SH/LD, MOSI a "
                        "free pin"),
+    # INA current/power monitors (kind "current"): a shunt in series with the DUT's supply, read with
+    # measure_power(monitor=...). All run from 2.7-5.5 V (INA219: 3-5.5 V): not at 1.8 V.
+    ExpansionChip("ina226", "i2c", 0, 2, _range(0x40, 0x4F), _INA_V, "", 400_000, _NEW, kind="current",
+                  shunt_max=81.92e-3, ids=(_TI, (0xFF, 0xFFFF, 0x2260)),
+                  note="current monitor: 16-bit, shunt 2.5 µV/step (0.25 µA with 10 ohm), +-81.92 mV, "
+                       "bus to 36 V"),
+    ExpansionChip("ina228", "i2c", 0, 2, _range(0x40, 0x4F), _INA_V, "", 400_000, _NEW, kind="current",
+                  shunt_max=163.84e-3, ids=(_TI_B, (0x3F, 0xFFF0, 0x2280)),
+                  note="current monitor: 20-bit, shunt 78 nV/step on the +-40.96 mV range, bus to 85 V"),
+    ExpansionChip("ina238", "i2c", 0, 2, _range(0x40, 0x4F), _INA_V, "", 400_000, _NEW, kind="current",
+                  shunt_max=163.84e-3, ids=(_TI_B, (0x3F, 0xFFF0, 0x2380)),
+                  note="current monitor: 16-bit, shunt 1.25 µV/step on the +-40.96 mV range, bus to 85 V"),
+    ExpansionChip("ina219", "i2c", 0, 2, _range(0x40, 0x4F), _INA_V, "", 400_000, _NEW, kind="current",
+                  shunt_max=320e-3,
+                  note="current monitor: shunt 10 µV/step (1 µA with 10 ohm), +-320 mV, bus to 32 V; "
+                       "3-5.5 V; no ID register, so only the address is probed"),
+    ExpansionChip("ina260", "i2c", 0, 2, _range(0x40, 0x4F), _INA_V, "", 400_000, _NEW, kind="current",
+                  internal_ohm=0.002, ids=(_TI, (0xFF, 0xFFF0, 0x2270)),
+                  note="current monitor, internal 2 mohm shunt, 1.25 mA/step, +-15 A: for amps, not µA"),
+    ExpansionChip("ina3221", "i2c", 0, 2, _range(0x40, 0x43), _INA_V, "", 400_000, _NEW, kind="current",
+                  channels=3, shunt_max=163.8e-3, ids=(_TI, (0xFF, 0xFFFF, 0x3220)),
+                  note="current monitor, 3 channels, shunt 40 µV/step (4 µA with 10 ohm), bus to 26 V; "
+                       "averaging and conversion time apply to all three"),
 )
 
 #: Chips in one shift-register chain at most (one SPI transfer).
@@ -181,6 +218,8 @@ class ExpansionStatus:
     pins: Tuple[ExtPinState, ...] = ()
     #: Things worth knowing (a quasi-bidirectional chip's weak high, levels that were not read).
     notes: Tuple[str, ...] = ()
+    #: The attached INA current monitors (:class:`~embeddedci.benchpod.current_monitor.MonitorStatus`).
+    monitors: Tuple[Any, ...] = ()
 
     @property
     def names(self) -> List[str]:
@@ -478,7 +517,6 @@ class Expansion:
         self.pod_pullups: Optional[Tuple[int, int]] = None
         #: True once the SDK claimed the 74HC165's load pin as a GPIO output (released on detach).
         self.load_claimed = False
-        self._own_i2c: Optional["I2CMaster"] = None
         self._own_spi: Optional["SpiSession"] = None
         self.devices: List[_Device] = []
         base = 1
@@ -502,29 +540,15 @@ class Expansion:
 
     # -- the bus ---------------------------------------------------------------------------------
     def _i2c(self) -> "I2CMaster":
-        pod = self._pod
-        theirs = pod._i2c_master_ref() if pod._i2c_master_ref is not None else None
-        if theirs is not None and not theirs.closed:
-            if (theirs.sda, theirs.scl) == (self.la["sda"], self.la["scl"]):
-                return theirs  # the DUT and the expander share the user's bus
-            raise ExpansionError(
-                f"this BenchPod has an I2C session open on LA{theirs.sda} SDA / LA{theirs.scl} SCL, "
-                f"and the {self.chip.name} is on LA{self.la['sda']} / LA{self.la['scl']}: the pod has "
-                "one I2C master. Close that session, or attach the expander to the same two pins")
-        self._check_engine_free("I2C")
-        if self._own_i2c is None or self._own_i2c.closed:
-            self._own_i2c = pod._start_i2c(self.la["sda"], self.la["scl"], hz=self.hz,
-                                           pullups=self.pullups or "external")
-        return self._own_i2c
+        return self._pod._own_i2c_session(self.la["sda"], self.la["scl"], hz=self.hz,
+                                          pullups=self.pullups or "external",
+                                          who=f"the {self.chip.name} on EXT pins",
+                                          err=ExpansionError)
 
     def _check_engine_free(self, bus: str) -> None:
         pod = self._pod
-        if bus == "I2C":
-            other = pod._spi_session_ref() if pod._spi_session_ref is not None else None
-            what = "an SPI session open (open_spi)"
-        else:
-            other = pod._i2c_master_ref() if pod._i2c_master_ref is not None else None
-            what = "an I2C session open (open_i2c)"
+        other = pod._i2c_master_ref() if pod._i2c_master_ref is not None else None
+        what = "an I2C session open (open_i2c)"
         if other is not None and not other.closed:
             raise ExpansionError(
                 f"the {self.chip.name} on EXT pins needs the pod's {bus} master, but this BenchPod "
@@ -556,12 +580,8 @@ class Expansion:
     def release_bus(self) -> None:
         """Close the SDK's own bus session (not the user's), so flash, open_i2c and open_spi can
         have the pod's bus engine. The next EXT access opens it again."""
-        own, self._own_i2c = self._own_i2c, None
-        if own is not None and not own.closed:
-            try:
-                own.close()
-            except Exception:  # the pod may be gone (close() on a dead connection)
-                pass
+        if self.chip.bus == "i2c":
+            self._pod._release_own_i2c()
         spi, self._own_spi = self._own_spi, None
         if spi is not None and not spi.closed:
             try:

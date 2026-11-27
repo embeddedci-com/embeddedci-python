@@ -14,7 +14,7 @@ Rail limits: the internal rail (eFuse 1, 5 V) trips at about 2.0 A and the exter
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .errors import BenchPodError
 
@@ -60,6 +60,44 @@ class PowerProfile:
     def avg_power(self) -> float:
         """Average power in watts (energy over duration)."""
         return self.energy / self.duration if self.duration > 0 else 0.0
+
+    @classmethod
+    def from_readings(cls, readings: Sequence[Tuple[float, Any]], *, adc_rate_hz: float = 0.0,
+                      keep_samples: int = 0, truncated: bool = False) -> "PowerProfile":
+        """A profile from an external monitor's ``(t seconds, CurrentReading)`` pairs
+        (:meth:`BenchPod.measure_power(monitor=...) <embeddedci.benchpod.BenchPod.measure_power>` and
+        :meth:`BenchPod.power_profile(monitor=...) <embeddedci.benchpod.BenchPod.power_profile>`).
+        ``efuse`` is 0; energy and charge integrate the readings over their timestamps."""
+        if not readings:
+            raise BenchPodError("the current monitor returned no readings")
+        ts = [float(t) for t, _ in readings]
+        amps = [r.current for _, r in readings]
+        volts = [r.bus_voltage for _, r in readings]
+        n = len(readings)
+        dur = ts[-1] - ts[0]
+        charge = energy = 0.0
+        for i in range(1, n):
+            dt = ts[i] - ts[i - 1]
+            charge += (amps[i] + amps[i - 1]) / 2 * dt
+            energy += (amps[i] * volts[i] + amps[i - 1] * volts[i - 1]) / 2 * dt
+        if dur <= 0:   # one reading: no span to integrate over
+            dur = 0.0
+        trace: List[Tuple[float, float, float]] = list(zip(ts, amps, volts))
+        if keep_samples and n > keep_samples:
+            step = n / keep_samples
+            binned = []
+            for b in range(keep_samples):
+                lo, hi = int(b * step), max(int((b + 1) * step), int(b * step) + 1)
+                part = trace[lo:hi]
+                binned.append(tuple(sum(p[k] for p in part) / len(part) for k in range(3)))
+            trace = binned  # type: ignore[assignment]
+        elif not keep_samples:
+            trace = []
+        return cls(efuse=0, rate_hz=(n - 1) / dur if dur > 0 else 0.0, adc_rate_hz=adc_rate_hz, n=n,
+                   duration=dur, avg_current=charge / dur if dur > 0 else amps[0],
+                   min_current=min(amps), peak_current=max(amps), avg_voltage=sum(volts) / n,
+                   min_voltage=min(volts), max_voltage=max(volts), energy=energy, charge=charge,
+                   truncated=truncated, samples=tuple(trace))
 
     @classmethod
     def from_chunks(cls, chunks: Iterable[Dict[str, Any]]) -> "PowerProfile":

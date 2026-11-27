@@ -17,6 +17,22 @@
   module v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x): both mean the
   v4 board, and the USB-A port check accepts both. The error catalog and feature map follow the
   firmware change in a later sync.
+- **External INA current monitors, from the wiring profile.** For µA currents the pod's own monitors
+  cannot resolve (about 125 µA steps): a shunt in series between the target-power output and the DUT
+  and an INA breakout across it, driven over the pod's I2C master. The wiring profile has a new
+  `monitors` list (`Wiring.monitors`, `MonitorSpec`: `chip`, `addr`, `shunt_ohm`, and optionally `name`,
+  `channel`, `sda`, `scl`, `averaging`, `conversion_time`, `max_current`), validated when the profile is
+  built. Connecting attaches the profile's monitors (`BenchPod.monitors_status`), and
+  `measure_power(duration, monitor="ext")`, `power_profile(monitor=...)`, `power_status().monitors`
+  and `expansion().monitors` read them. `monitor=` with `efuse=` is a `ValueError`.
+  `save_wiring()` stores the monitors that are attached.
+- `expansion()` attaches an INA chip by hand (INA226, INA228, INA238, INA219, INA260, INA3221: new
+  `kind="current"` entries of `EXPANSION_CHIPS`; new arguments `shunt_ohm`, `channel`, `averaging`,
+  `conversion_time`, `max_current`, `name`): one chip per call, a call for an attached address
+  replaces it, `expansion(None, addr=...)` or `expansion(None, name=...)` detaches one monitor.
+  Host-tested only so far.
+- The SDK's own I2C session is shared by the GPIO expander and the monitors, and raw commands are
+  serialized by a lock so a monitor profile can sample in the background.
 
 ## 4.0.6
 

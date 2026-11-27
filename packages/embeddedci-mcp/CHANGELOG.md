@@ -13,6 +13,14 @@
   Needs embeddedci with `rail`.
 - Tool text: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog module
   v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x).
+- **External INA current monitors: µA currents, from the wiring profile.** The profile's new `monitors`
+  list (`chip`, `addr`, `shunt_ohm`, optional `name`, `channel`, `sda`, `scl`, `averaging`,
+  `conversion_time`, `max_current`) is attached on `connect`; `warnings` and the `wiring` result's
+  `monitors` say if one did not answer. `expansion` also attaches an INA chip by hand (one chip per
+  call; new `shunt_ohm`, `channel`, `averaging`, `conversion_time_s`, `max_current_a`, `name`) and its
+  `detach` takes `addr` or `name` for one monitor; its result lists the `monitors` with a live reading.
+  `measure_power` and `power_profile_start` take `monitor` (`ext` when one is attached, else its name;
+  with `efuse` it is an error), and `power_status` lists the `monitors`. No new tools. Host-tested only.
 
 ## 4.0.6
 

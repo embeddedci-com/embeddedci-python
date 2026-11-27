@@ -179,6 +179,9 @@ class PowerStatus:
     #: Pod + DUT internal rail in amps: what the USB input delivers. ``None`` unless the pod
     #: reported it (both monitors read).
     total_current: Optional[float] = None
+    #: The attached external INA monitors by name (:meth:`BenchPod.expansion`), live: ``ok`` is False
+    #: when a chip did not answer. Empty when none is attached.
+    monitors: Dict[str, RailPower] = field(default_factory=dict)
     raw: Dict[str, Any] = _raw()
 
     def rail(self, efuse: "Efuse | int") -> RailPower:
