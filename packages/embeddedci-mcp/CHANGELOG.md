@@ -2,15 +2,19 @@
 
 ## Unreleased
 
-- Power tools take one `rail` argument naming the output: `internal` (eFuse 1, 5 V), `external`
-  (eFuse 2), and on the digital board v4 `j1_3v3` / `j1_1v8` (J1 pins 17 and 18, on from boot,
+- **Power tools take one `supply` argument** naming the output: `5v` (the pod's 5 V, eFuse 1),
+  `external` (eFuse 2) and, on BenchPod v4, `3v3` / `1v8` (J1 pins 17 and 18, on from boot,
   independent of the eFuses and of resets, no current monitor). `power_on`, `power_off`,
   `measure_power`, `power_profile_start` and `power_cycle_and_capture` have it; omitted, it is the
-  wiring profile's rail, which can now be a J1 supply too (profile key `efuse`: 1, 2, `"j1_3v3"`,
-  `"j1_1v8"`). `efuse` (1 or 2) stays as the old name; passing both is an error. The power result
-  has `rail` (and `efuse`, null for a J1 supply), `power_status` has `j1_rails` (null on boards where
-  both pins are always on). A J1 supply in `measure_power` or `power_profile_start` is refused: no meter.
-  Needs embeddedci with `rail`.
+  wiring profile's supply (profile key `supply`; the older `efuse` 1 / 2 is still read). `efuse`
+  (1 or 2) stays as a deprecated argument; passing both is an error. The power result has `supply`
+  (and the deprecated `efuse`, null for 3v3 / 1v8), `power_status` has `supplies` by name (`5v`,
+  `external`, and on v4 `3v3` / `1v8` with just `enabled`) next to the deprecated `internal` /
+  `external`, `pod` and `monitors`. Power profile results have `supply` and `monitor` (and the
+  deprecated `efuse`, 0 for a monitor). A switched supply in `measure_power` or `power_profile_start`
+  is refused: no meter. The wiring result has `supply`. `flash` `target_power` takes a supply too
+  (1 and 2 stay as deprecated names). `set_la_voltage` returns `vref_out` (was `pin21`): the I/O
+  reference (VREF OUT). Needs the `embeddedci` that has `supply=`.
 - Tool text: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog module
   v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x).
 - **External INA current monitors: µA currents, from the wiring profile.** The profile's new `monitors`
@@ -19,8 +23,8 @@
   `monitors` say if one did not answer. `expansion` also attaches an INA chip by hand (one chip per
   call; new `shunt_ohm`, `channel`, `averaging`, `conversion_time_s`, `max_current_a`, `name`) and its
   `detach` takes `addr` or `name` for one monitor; its result lists the `monitors` with a live reading.
-  `measure_power` and `power_profile_start` take `monitor` (`ext` when one is attached, else its name;
-  with `efuse` it is an error), and `power_status` lists the `monitors`. No new tools. Host-tested only.
+  `measure_power` and `power_profile_start` take `monitor` (its name, or `true` when exactly one is
+  attached; with `supply` or `efuse` it is an error), and `power_status` lists the `monitors`. No new tools. Host-tested only.
 
 ## 4.0.6
 

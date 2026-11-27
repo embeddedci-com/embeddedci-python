@@ -87,7 +87,7 @@ def test_status_and_typed_state(connected):
     assert connected["capabilities"]["board"]
     # A bench pod on a computer's USB port is told about its 500 mA port; nothing else may warn.
     assert [w for w in connected["warnings"] if "default USB power" not in w] == []
-    assert "internal" in call("power_status")
+    assert "supplies" in call("power_status")
     channels = call("pull_status")["channels"]
     assert [c["direction"] for c in channels] == ["up"] * 6 + ["down"] * 2 + [None] * 6
     assert [c["supported"] for c in channels] == [["up"]] * 6 + [["down"]] * 2 + [[]] * 6
@@ -167,7 +167,7 @@ def test_digital_board_refuses_the_analog_tools(connected):
         with pytest.raises(ToolError, match=r"UnsupportedFeatureError: .*digital-only board"):
             call(tool, **args)
     call("dac_stop")  # the cleanup every agent runs still works
-    assert "internal" in call("power_status")
+    assert "supplies" in call("power_status")
 
 
 def test_logic_capture_and_decode(connected):
@@ -275,8 +275,8 @@ def test_rev3_tools(connected):
     try:
         r = call("set_la_voltage", la_voltage=1.8)
         assert (r["voltage"], r["readback"]) == (1.8, 1.8), r
-        # pin 21 only on digital v4, where it follows the bank to 1.8 V
-        assert (r.get("pin21") is None) == (not caps.get("vref_out")), r
+        # VREF OUT only on BenchPod v4, where it follows the bank to 1.8 V
+        assert (r.get("vref_out") is None) == (not caps.get("vref_out")), r
     finally:
         assert call("set_la_voltage", la_voltage=3.3)["readback"] == 3.3
     try:

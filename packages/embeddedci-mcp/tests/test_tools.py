@@ -305,13 +305,16 @@ def test_disconnect(connected):
 # -- power + flash ---------------------------------------------------------------------
 
 def test_power_tools(connected):
-    assert call("power_on", efuse=1, delay_s=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
-                                                     "profile": None, "la_voltage": 3.3, "rail": "internal"}
+    assert call("power_on", efuse=1, delay_s=0.5) == {"supply": "5v", "efuse": 1, "on": True, "delay": 0.5,
+                                                     "profile": None, "la_voltage": 3.3}
+    assert call("power_on", supply="5v")["supply"] == "5v"
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
-    assert status["internal"]["enabled"] is True and status["internal"]["bus_voltage"] == 5.01
-    assert status["internal"]["current"] == pytest.approx(0.042)
-    assert status["external"]["fault"] is True
+    assert status["supplies"]["5v"]["enabled"] is True and status["supplies"]["5v"]["bus_voltage"] == 5.01
+    assert status["supplies"]["5v"]["current"] == pytest.approx(0.042)
+    assert status["supplies"]["external"]["fault"] is True
+    assert set(status["supplies"]) == {"5v", "external"}
+    assert status["internal"] == status["supplies"]["5v"] and status["external"]["fault"] is True   # deprecated copies
     assert status["pod"] is None
     call("power_off")
     assert connected.power[1] is False
@@ -416,7 +419,7 @@ def test_flash_a_pin_programmer_target(connected, monkeypatch, target):
     assert seen["target"] == target and seen["file"] == "build/app.hex"
     assert (seen["device"], seen["clk"], seen["data"], seen["reset_pin"]) == ("ATtiny1616", 3, 4, 5)
     assert seen["erase"] == "page" and seen["dry_run"] is True and seen["reset"] is False
-    assert seen["check"] is False and seen["target_power"] == 1
+    assert seen["check"] is False and seen["target_power"] == "5v"
     assert "swclk" not in seen and "build" not in seen and "tck" not in seen
     assert result["ok"] is True and "ATtiny1616" in result["stdout_tail"]
 
@@ -1334,29 +1337,30 @@ def test_log_level_on_old_firmware_is_a_clean_error(fake_open, fake_transport, m
         call("log_level")
 
 
-def test_j1_rails(fake_open, fake_transport):
-    """power_on / power_off take rail j1_3v3 / j1_1v8 (digital board v4); power_status reports them;
-    efuse stays as the old name; both together is refused."""
+def test_switched_supplies(fake_open, fake_transport):
+    """power_on / power_off take supply 3v3 / 1v8 (BenchPod v4); power_status reports them;
+    efuse stays as the deprecated name; both together is refused."""
     fake_transport.features_rev = 22
-    fake_transport.j1_rails = {"v3v3": True, "v1v8": True}
+    fake_transport.switched = {"3v3": True, "1v8": True}
     call("connect", connection="192.168.1.50", la_voltage=3.3)
-    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": True}
-    off = call("power_off", rail="j1_1v8")
-    assert off["rail"] == "j1_1v8" and off["efuse"] is None and off["on"] is False
-    assert fake_transport.requests[-1] == {"cmd": "target_power", "rail": "j1_1v8", "enabled": False}
-    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": False}
-    assert call("power_on", rail="j1_1v8")["rail"] == "j1_1v8"
-    # the efuse rails were not touched
+    assert call("power_status")["supplies"]["3v3"] == {"enabled": True, "fault": None, "state_valid": None,
+                                                       "monitor_ok": None, "bus_voltage": None, "current": None}
+    off = call("power_off", supply="1v8")
+    assert off["supply"] == "1v8" and off["efuse"] is None and off["on"] is False
+    assert fake_transport.requests[-1] == {"cmd": "target_power", "supply": "1v8", "enabled": False}
+    assert call("power_status")["supplies"]["1v8"]["enabled"] is False
+    assert call("power_on", supply="1v8")["supply"] == "1v8"
+    # the efuses were not touched
     assert not any(c[0] == "target_power" for c in fake_transport.calls if c[0] != "command")
-    assert call("power_off", rail="external")["efuse"] == 2
-    assert call("power_off", efuse=1)["rail"] == "internal"
+    assert call("power_off", supply="external")["efuse"] == 2
+    assert call("power_off", efuse=1)["supply"] == "5v"
     with pytest.raises(Exception, match="not both"):
-        call("power_off", rail="internal", efuse=1)
+        call("power_off", supply="5v", efuse=1)
     with pytest.raises(Exception, match="no current monitor"):
-        call("measure_power", duration_s=1, rail="j1_3v3")
+        call("measure_power", duration_s=1, supply="3v3")
 
 
-def test_j1_rails_absent(connected):
-    assert call("power_status")["j1_rails"] is None
-    with pytest.raises(Exception, match="no switchable J1"):
-        call("power_on", rail="j1_3v3")
+def test_switched_supplies_absent(connected):
+    assert set(call("power_status")["supplies"]) == {"5v", "external"}
+    with pytest.raises(Exception, match="no switchable 3.3 V and 1.8 V"):
+        call("power_on", supply="3v3")

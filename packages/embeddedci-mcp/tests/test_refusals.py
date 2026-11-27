@@ -104,7 +104,7 @@ def test_status_warns_about_a_dac_pinout_mismatch(connected):
     assert not any("flat-cable" in w for w in call("status")["warnings"])
 
 
-def test_efuse_rails_are_named_the_same_everywhere():
+def test_supplies_are_named_the_same_everywhere():
     import anyio
 
     from embeddedci_mcp import guide, server
@@ -113,9 +113,9 @@ def test_efuse_rails_are_named_the_same_everywhere():
     texts = [guide.INSTRUCTIONS, guide.WIRING]
     texts += [f"{t.description} {t.inputSchema} {t.outputSchema}" for t in tools]
     joined = "\n".join(texts)
-    assert "internal 5 V (efuse 1)" in guide.INSTRUCTIONS and "external (efuse 2)" in guide.INSTRUCTIONS
-    assert "internal 5 V (efuse 1)" in guide.WIRING
-    for old in ("eFuse 1", "eFuse 2", "eFuse: 1", "= internal 5 V", "= external supply"):
+    assert "supply='5v'" in guide.INSTRUCTIONS and "supply='external'" in guide.INSTRUCTIONS
+    assert "supply='5v'" in guide.WIRING
+    for old in ("j1_3v3", "j1_1v8", "= internal 5 V", "= external supply", "internal 5 V (efuse 1)"):
         assert old not in joined, old
 
 

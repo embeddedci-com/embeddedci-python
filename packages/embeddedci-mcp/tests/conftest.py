@@ -133,7 +133,7 @@ class FakeTransport(Transport):
                 "adc_fullscale_mv": 4096, "api": 2, "min_client_api": 2,
                 "features_rev": getattr(self, "features_rev", 10),
                 "gateware": getattr(self, "gateware", None) or gw, "fpga_image": image,
-                "nrst_pin": "nrst_pin" in caps, "hw": ["dut_rails"] if self.j1_rails is not None else [], "analog": getattr(self, "analog", True)}
+                "nrst_pin": "nrst_pin" in caps, "hw": ["supply_3v3_1v8"] if self.switched is not None else [], "analog": getattr(self, "analog", True)}
 
     def ping(self) -> Any:
         return "pong"
@@ -194,15 +194,18 @@ class FakeTransport(Transport):
     def _cmd_target_status(self, req):
         return {"efuse1": {"enabled": int(self.power.get(1, False)), "fault": 0, "valid": 1},
                 "efuse2": {"enabled": 0, "fault": 1, "valid": 1}, "status_supported": True,
-                **({"j1_rails": dict(self.j1_rails)} if self.j1_rails is not None else {})}
+                "supplies": {
+                    "5v": {"enabled": int(self.power.get(1, False)), "fault": 0, "valid": 1},
+                    "external": {"enabled": 0, "fault": 1, "valid": 1},
+                    **({k: {"enabled": v} for k, v in self.switched.items()} if self.switched is not None else {})}}
 
-    #: Set to {"v3v3": True, "v1v8": True} to fake a digital v4 board with switchable J1 supplies.
-    j1_rails = None
+    #: Set to {"3v3": True, "1v8": True} to fake a BenchPod v4 with the switched 3.3 V and 1.8 V supplies.
+    switched = None
 
     def _cmd_target_power(self, req):
-        if "rail" in req and self.j1_rails is not None:
-            self.j1_rails["v3v3" if req["rail"] == "j1_3v3" else "v1v8"] = req["enabled"]
-        return {"rail": req.get("rail"), "enabled": req["enabled"]}
+        if "supply" in req and self.switched is not None:
+            self.switched[req["supply"]] = req["enabled"]
+        return {"supply": req.get("supply"), "enabled": req["enabled"]}
 
     #: Set to a pod reading to fake a board with the pod's own current monitor.
     pod_power = None

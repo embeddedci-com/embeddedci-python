@@ -69,7 +69,7 @@ def test_measure_power_reports_statistics_in_si_units(connected):
     result = call("measure_power", duration_s=1.0)
     assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 0, "duration_ms": 1000}
-    assert result["efuse"] == 1 and result["n"] == 950
+    assert result["efuse"] == 1 and result["supply"] == "5v" and result["monitor"] is None and result["n"] == 950
     # the delivered rate, with the sensor's configured conversion rate beside it
     assert result["rate_hz"] == 364.0 and result["adc_rate_hz"] == 950.0
     assert result["duration"] == 1.0
@@ -100,7 +100,8 @@ def test_measure_power_downsamples_a_long_trace(connected):
 
 def test_power_profile_session_brackets_other_calls(connected):
     started = call("power_profile_start", rate_hz=500, max_duration_s=5)
-    assert started == {"running": True, "efuse": 1, "rate_hz": 500.0, "max_duration": 5.0}
+    assert started == {"running": True, "supply": "5v", "monitor": None, "efuse": 1, "rate_hz": 500.0,
+                       "max_duration": 5.0}
     assert connected.requests[-1] == {"cmd": "power_profile", "efuse": 1, "sample_rate_hz": 500,
                                       "keep_samples": 4096, "max_duration_ms": 5000,
                                       "action": "start"}
