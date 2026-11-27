@@ -353,6 +353,27 @@ bp.set_log_level("debug")   # one of LOG_LEVELS: "error", "warn", "info", "debug
 Another name raises `ValueError` without asking the pod; older firmware raises
 `UnsupportedFeatureError` (it has no levels and prints everything).
 
+### Reboot
+
+`bp.reboot()` restarts the pod: it stops the DAC and control loop, switches the DUT supplies off and
+restarts the processor (`mode="soft"`, the default). The pod answers, then drops the connection; a
+reply or a dropped connection both count as success. By default the call waits up to `timeout`
+seconds (60) for the pod to answer again over the same connection (LAN, `usb`, `usb:<name>` or
+`embeddedci:<name>`), takes the pod lease again, sends the wiring profile's pin directions and I/O
+voltage again, and returns the new `status`.
+
+```python
+status = bp.reboot()                  # soft, waits; returns the status of the restarted pod
+bp.reboot(wait=False)                 # returns {"reboot": "soft"} at once; ping() until it answers
+bp.reboot("hard")                     # power-cycles the pod, on a pod that can (REBOOT_MODES)
+```
+
+Everything the pod held in RAM is gone after a reboot: pulls, the DAC, sensors, open sessions. A
+`mode` other than `"soft"` or `"hard"` raises `ValueError`. `"hard"` on a pod that cannot power-cycle
+itself (every pod today; `status` lists `power_cycle` in `hw` when one can) raises `FirmwareError` with
+code `BP0093`; unplug the pod's power instead. The USB console connection has no `reboot`: use `usb`
+or the network. A pod that does not come back in time raises `TransportTimeout`.
+
 ### MAC addresses (managed networks)
 
 A lab network that hands out addresses only to registered devices needs the pod's MACs first.

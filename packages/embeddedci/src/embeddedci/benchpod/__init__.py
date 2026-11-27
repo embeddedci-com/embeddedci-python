@@ -29,7 +29,7 @@ from . import sensors
 from .can import CanBus, CanFrame, CanReadResult
 from .capabilities import Capabilities
 from .ci import BuildReporter, NoopBuildReporter, make_build_reporter
-from .client import LOG_LEVELS, BenchPod
+from .client import LOG_LEVELS, REBOOT_MODES, BenchPod
 from .sensors import (
     SENSOR_LIBRARY_VERSION,
     DefinitionError,
@@ -217,6 +217,8 @@ __all__ = [
     "BenchPod",
     # console log level
     "LOG_LEVELS",
+    # reboot
+    "REBOOT_MODES",
     # wiring profile
     "Wiring",
     "header_map",
