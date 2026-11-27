@@ -1,5 +1,13 @@
 # Changelog — `embeddedci-mcp`
 
+## Unreleased
+
+- **`reboot` tool** (`mode` `soft` or `hard`, default `soft`): restarts the pod, waits until it answers
+  again (up to 60 s) and returns the firmware version and I/O voltage. It closes the UART, CAN and
+  I2C sessions and a running power profile first, since the restart ends them. `hard` power-cycles
+  the pod and is refused with `BP0093` on a pod that cannot (none today). Needs embeddedci 4.0.8
+  (`BenchPod.reboot`) and pod firmware with `reboot`.
+
 ## 4.0.7
 
 - **Power tools take one `supply` argument** naming the output: `5v` (the pod's 5 V, eFuse 1),

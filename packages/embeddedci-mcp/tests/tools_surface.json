@@ -4699,6 +4699,31 @@
       "type": "object"
     }
   },
+  "reboot": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Reboot the pod"
+    },
+    "input": {
+      "properties": {
+        "mode": {
+          "default": "soft",
+          "description": "soft restarts the processor. hard power-cycles the pod itself and works only on a pod that can (status lists power_cycle in hw; none today): BP0093 otherwise.",
+          "enum": [
+            "soft",
+            "hard"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "rebootArguments",
+      "type": "object"
+    }
+  },
   "replay": {
     "annotations": {
       "destructiveHint": true,

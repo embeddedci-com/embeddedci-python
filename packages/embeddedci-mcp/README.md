@@ -314,6 +314,12 @@ version the SDK pins (0.1.0, bundled) unless `BENCHPOD_SENSOR_LIBRARY`, the CLI'
 | `usb_network` | Read the pod's USB network setting, or turn the adapter off over the USB link. Only the device changes it; turning it back on is `benchpod usb-network on` on the USB console. | `enabled=false` |
 | `log_level` | Read or set how much the pod prints on its USB console (firmware newer than 3.10.12): `error`, `warn`, `info` (the default) or `debug`, which adds every command trace and the reconnect retry detail. Stored on the pod. | `level` |
 
+### Reboot
+
+| Tool | Purpose | Parameters |
+| --- | --- | --- |
+| `reboot` | Restart the pod and wait until it answers again (up to 60 s). `soft` restarts the processor: the DAC, DUT power, pulls, sensors and open sessions are gone, the wiring profile's pin directions and I/O voltage are sent again. `hard` power-cycles the pod, only on a pod that can (none today; BP0093). | `mode=soft` |
+
 ### GPIO on the LA pins
 
 | Tool | Purpose | Parameters |

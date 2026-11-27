@@ -1040,6 +1040,15 @@ class LogLevelResult(BaseModel):
     level: str = Field(description='"error", "warn", "info" (the default) or "debug". Stored on the pod.')
 
 
+class RebootResult(BaseModel):
+    """The pod restarted and answered again."""
+    mode: str = Field(description='"soft" or "hard".')
+    firmware: Optional[str] = Field(None, description="Firmware version the pod runs now.")
+    la_voltage: Optional[float] = Field(None, description=(
+        "The I/O voltage the pod has after the restart, from the wiring profile; null when it has none."))
+    note: str = Field("", description="What the restart cleared and what to set again.")
+
+
 class UsbInterfaceInfo(BaseModel):
     number: int
     alt: int
