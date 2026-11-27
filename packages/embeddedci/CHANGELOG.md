@@ -1,5 +1,11 @@
 # Changelog — `embeddedci`
 
+## Unreleased
+
+- **New refusal code `BP0092` (`power_supply_not_on_pod`).** `target_power` for `"3v3"` or `"1v8"` on a pod
+  without the switched supplies (any board but BenchPod v4) raises `FirmwareError` with this code instead
+  of `WiringError` (`BP0089` stays for wiring profiles).
+
 ## 4.0.7
 
 - **`supply=` names every power output**, one word for what the DUT gets, on `power_on`, `power_off`,
