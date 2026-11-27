@@ -5089,9 +5089,9 @@ class BenchPod:
             raise ValueError("shunt_ohm is the shunt resistor in ohms, e.g. shunt_ohm=10.0")
         elif isinstance(shunt, bool) or not isinstance(shunt, (int, float)) or not 0 < float(shunt) <= 1e6:
             raise ValueError(f"shunt_ohm is in ohms, greater than 0, got {shunt!r}")
-        if name is not None and (not isinstance(name, str) or not name.strip() or name.strip().lower() == "ext"
+        if name is not None and (not isinstance(name, str) or not name.strip()
                                  or _expansion.ext_index(name) is not None):
-            raise ValueError(f"name {name!r} is not usable (empty, 'ext' or EXTn)")
+            raise ValueError(f"name {name!r} is not usable (empty, or EXTn, an expander pin name)")
         hz_i = int(hz if hz is not None else block.get("hz") or 400_000)
         if isinstance(hz, bool) or not _i2c_master.HZ_MIN <= hz_i <= _i2c_master.HZ_MAX:
             raise ValueError(f"hz must be {_i2c_master.HZ_MIN}..{_i2c_master.HZ_MAX}, got {hz!r}")

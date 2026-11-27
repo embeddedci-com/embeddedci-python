@@ -177,10 +177,9 @@ class MonitorSpec:
                 self.shunt_ohm, (int, float)) or not 0 < self.shunt_ohm <= 1e6:
             errs.append(f"{prefix}.shunt_ohm is required: the shunt resistor in ohms (greater than 0), "
                         f"got {self.shunt_ohm!r}")
-        if self.name is not None and (not isinstance(self.name, str) or not _MONITOR_NAME.match(self.name)
-                                      or self.name.lower() == "ext"):
+        if self.name is not None and (not isinstance(self.name, str) or not _MONITOR_NAME.match(self.name)):
             errs.append(f"{prefix}.name must start with a letter, use letters, digits and _ . @ -, be at "
-                        f"most 32 characters and not be 'ext', got {self.name!r}")
+                        f"most 32 characters, got {self.name!r}")
         if self.channel is not None and (not _is_int(self.channel) or not 1 <= self.channel <= chip.channels
                                          or (chip.channels == 1 and self.channel != 1)):
             errs.append(f"{prefix}.channel is 1..{chip.channels} for the {chip.name}, got {self.channel!r}")

@@ -250,8 +250,8 @@ def test_monitor_selection():
     assert bp._monitor("ina226@0x41").addr == 0x41
     with pytest.raises(ValueError, match="no current monitor named 'x'"):
         bp._monitor("x")
-    with pytest.raises(ValueError, match="name 'ext' is not usable|not usable"):
-        bp.expansion("ina226", addr=0x42, shunt_ohm=10, name="ext")
+    with pytest.raises(ValueError, match="not usable"):        # EXTn are expander pin names
+        bp.expansion("ina226", addr=0x42, shunt_ohm=10, name="EXT3")
 
 
 def test_measure_power_monitor_and_profile_session():
@@ -344,7 +344,7 @@ def test_wiring_monitors_validate_and_round_trip():
         ({"chip": "ina226", "addr": 64}, "shunt_ohm is required"),
         ({"chip": "ina260", "addr": 64, "shunt_ohm": 10}, "has its own 2 mohm shunt"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "channel": 2}, "channel is 1..1"),
-        ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "name": "ext"}, "name must start with a letter"),
+        ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "name": "9volt"}, "name must start with a letter"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "averaging": 3}, "averaging is one of 1, 4, 16"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1, "sda": 3, "scl": 3}, "sda and scl must be different"),
         ({"chip": "ina226", "addr": 64, "shunt_ohm": 1000, "max_current": 1}, "takes at most 81.92 mV"),
