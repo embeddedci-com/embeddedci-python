@@ -737,6 +737,14 @@ def _power_state(env: DetectEnv) -> Tuple[Optional[bool], str]:
     """``(on, words)``: whether the profile's rail (any rail without one) is enabled."""
     ts = env.target_status()
     rail = env.wiring.efuse
+    if isinstance(rail, str):   # a J1 supply (digital board v4): on or off, no fault state
+        j1 = getattr(ts, "j1_rails", None)
+        if j1 is None:
+            return None, f"the pod cannot read the state of {rail}"
+        on = j1.v3v3 if rail == "j1_3v3" else j1.v1v8
+        if on:
+            return True, f"the {rail} supply on J1 is on"
+        return False, f"target power is off ({rail} on J1): power the target (power_on) and detect again"
     states = [(rail, ts.efuse(rail))] if rail else [(1, ts.internal), (2, ts.external)]
     name = {1: "internal 5 V (efuse 1)", 2: "external (efuse 2)"}
     if not getattr(ts, "supported", True):

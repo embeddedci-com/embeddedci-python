@@ -112,6 +112,21 @@ class EfuseState:
 
 
 @dataclass(frozen=True)
+class J1Rails:
+    """The two switched supply pins on J1 of the digital board v4: ``v3v3`` is pin 17 (+3.3 V) and
+    ``v1v8`` pin 18 (+1.8 V); ``True`` when on. Both are on from boot."""
+
+    v3v3: bool
+    v1v8: bool
+
+    @classmethod
+    def from_reply(cls, d: Any) -> Optional["J1Rails"]:
+        if not isinstance(d, dict):
+            return None
+        return cls(v3v3=d.get("v3v3") is True, v1v8=d.get("v1v8") is True)
+
+
+@dataclass(frozen=True)
 class TargetStatus:
     """Both eFuse rails (``BenchPod.target_status``)."""
 
@@ -119,6 +134,8 @@ class TargetStatus:
     external: EfuseState
     #: False on boards that cannot read the eFuse state back.
     supported: bool = True
+    #: J1 pins 17 and 18 on the digital board v4 (``None`` on boards where both are always on).
+    j1_rails: Optional[J1Rails] = None
     raw: Dict[str, Any] = _raw()
 
     def efuse(self, efuse: "Efuse | int") -> EfuseState:
@@ -135,7 +152,8 @@ class TargetStatus:
                               valid=bool(e.get("valid", 0)))
 
         return cls(internal=one("efuse1"), external=one("efuse2"),
-                   supported=bool(d.get("status_supported", True)), raw=d)
+                   supported=bool(d.get("status_supported", True)),
+                   j1_rails=J1Rails.from_reply(d.get("j1_rails")), raw=d)
 
 
 @dataclass(frozen=True)

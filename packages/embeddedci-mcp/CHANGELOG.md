@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Power tools take one `rail` argument naming the output: `internal` (eFuse 1, 5 V), `external`
+  (eFuse 2), and on the digital board v4 `j1_3v3` / `j1_1v8` (J1 pins 17 and 18, on from boot,
+  independent of the eFuses and of resets, no current monitor). `power_on`, `power_off`,
+  `measure_power`, `power_profile_start` and `power_cycle_and_capture` have it; omitted, it is the
+  wiring profile's rail, which can now be a J1 supply too (profile key `efuse`: 1, 2, `"j1_3v3"`,
+  `"j1_1v8"`). `efuse` (1 or 2) stays as the old name; passing both is an error. The power result
+  has `rail` (and `efuse`, null for a J1 supply), `power_status` has `j1_rails` (null on boards where
+  both pins are always on). A J1 supply in `measure_power` or `power_profile_start` is refused: no meter.
+  Needs embeddedci with `rail`.
 - Tool text: the digital board v3r4 is now called v4, and analog module v3r5 is v4 (analog module
   v3r4 keeps its name). `board_rev` may be `"v4"` or `"v3r4"` (firmware 4.0.x).
 

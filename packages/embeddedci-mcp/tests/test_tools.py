@@ -306,7 +306,7 @@ def test_disconnect(connected):
 
 def test_power_tools(connected):
     assert call("power_on", efuse=1, delay_s=0.5) == {"efuse": 1, "on": True, "delay": 0.5,
-                                                     "profile": None, "la_voltage": 3.3}
+                                                     "profile": None, "la_voltage": 3.3, "rail": "internal"}
     assert ("target_power", 1, True, 500) in connected.calls
     status = call("power_status")
     assert status["internal"]["enabled"] is True and status["internal"]["bus_voltage"] == 5.01
@@ -1332,3 +1332,31 @@ def test_log_level_on_old_firmware_is_a_clean_error(fake_open, fake_transport, m
     monkeypatch.setattr(pod, "log_level", old, raising=False)
     with pytest.raises(ToolError, match="newer pod firmware"):
         call("log_level")
+
+
+def test_j1_rails(fake_open, fake_transport):
+    """power_on / power_off take rail j1_3v3 / j1_1v8 (digital board v4); power_status reports them;
+    efuse stays as the old name; both together is refused."""
+    fake_transport.features_rev = 22
+    fake_transport.j1_rails = {"v3v3": True, "v1v8": True}
+    call("connect", connection="192.168.1.50", la_voltage=3.3)
+    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": True}
+    off = call("power_off", rail="j1_1v8")
+    assert off["rail"] == "j1_1v8" and off["efuse"] is None and off["on"] is False
+    assert fake_transport.requests[-1] == {"cmd": "target_power", "rail": "j1_1v8", "enabled": False}
+    assert call("power_status")["j1_rails"] == {"v3v3": True, "v1v8": False}
+    assert call("power_on", rail="j1_1v8")["rail"] == "j1_1v8"
+    # the efuse rails were not touched
+    assert not any(c[0] == "target_power" for c in fake_transport.calls if c[0] != "command")
+    assert call("power_off", rail="external")["efuse"] == 2
+    assert call("power_off", efuse=1)["rail"] == "internal"
+    with pytest.raises(Exception, match="not both"):
+        call("power_off", rail="internal", efuse=1)
+    with pytest.raises(Exception, match="no current monitor"):
+        call("measure_power", duration_s=1, rail="j1_3v3")
+
+
+def test_j1_rails_absent(connected):
+    assert call("power_status")["j1_rails"] is None
+    with pytest.raises(Exception, match="no switchable J1"):
+        call("power_on", rail="j1_3v3")

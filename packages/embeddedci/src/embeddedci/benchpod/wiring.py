@@ -134,7 +134,10 @@ class Wiring:
     """
 
     la_mv: Optional[int] = None
-    efuse: Optional[int] = None
+    #: The profile's target-power rail: ``1`` (internal 5 V), ``2`` (external), or on the digital
+    #: board v4 ``"j1_3v3"`` / ``"j1_1v8"`` (the switched J1 pins 17 and 18). Every power call that
+    #: names no rail uses it. Stored under the key ``efuse``; 1 and 2 stay numbers.
+    efuse: Optional[Union[int, str]] = None
     uart_rx: Optional[int] = None
     uart_tx: Optional[int] = None
     uart_baud: int = 115200
@@ -243,6 +246,8 @@ class Wiring:
         unknown: List[str] = []
         for key, value in data.items():
             if key in scalar:
+                if key == "efuse" and value in ("internal", "external"):
+                    value = 1 if value == "internal" else 2   # stored as the number older tools read
                 kwargs[key] = value
             elif key == "signals":
                 kwargs["signals"] = tuple(_parse_signals(value, unknown))
@@ -417,7 +422,8 @@ class Wiring:
         pins = self.pins()
         dirs = self.pin_dut_dirs()
         io = f"{self.la_voltage:g} V" if self.la_voltage is not None else "not set"
-        rail = f"eFuse {self.efuse}" if self.efuse is not None else "not set"
+        rail = ("not set" if self.efuse is None else f"J1 {self.efuse[3:].replace('v', '.')} V pin"
+                if isinstance(self.efuse, str) else f"eFuse {self.efuse}")
         lines = [f"LA I/O {io}, target power {rail}"]
         for la in range(1, 15):
             hw = PULL_TABLE.get(la)
@@ -435,8 +441,10 @@ class Wiring:
         if self.la_mv is not None and (not _is_int(self.la_mv) or self.la_mv not in (1800, 3300, 5000)):
             errs.append(f"la_mv must be 1800, 3300 or 5000 (5 V: digital board v4; or None: not set), "
                         f"got {self.la_mv!r}")
-        if self.efuse is not None and (not _is_int(self.efuse) or self.efuse not in (1, 2)):
-            errs.append(f"efuse must be 1 (internal) or 2 (external) (or None: not set), got {self.efuse!r}")
+        if self.efuse is not None and not (
+                (_is_int(self.efuse) and self.efuse in (1, 2)) or self.efuse in ("j1_3v3", "j1_1v8")):
+            errs.append(f"efuse (the target-power rail) must be 1 (internal), 2 (external), 'j1_3v3' or "
+                        f"'j1_1v8' (J1 supplies, digital board v4) (or None: not set), got {self.efuse!r}")
         if not _is_int(self.uart_baud) or not 300 <= self.uart_baud <= 4_000_000:
             errs.append(f"uart_baud must be 300..4000000, got {self.uart_baud!r}")
         if self.uart_parity not in ("none", "even", "odd"):

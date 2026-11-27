@@ -4089,7 +4089,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "points": {
@@ -4099,6 +4099,25 @@
           "minimum": 0,
           "title": "Points",
           "type": "integer"
+        },
+        "rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "internal",
+                "external",
+                "j1_3v3",
+                "j1_1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
+          "title": "Rail"
         },
         "rate_hz": {
           "default": 500.0,
@@ -4171,7 +4190,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "off_settle_s": {
@@ -4198,6 +4217,25 @@
           "default": null,
           "description": "Parity bit after the 8 data bits; omit for the profile's uart_parity (none unless set). Anything but 8N1 needs firmware 3.10.8+ (gateware v56).",
           "title": "Parity"
+        },
+        "rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "internal",
+                "external",
+                "j1_3v3",
+                "j1_1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
+          "title": "Rail"
         },
         "rx": {
           "anyOf": [
@@ -4317,8 +4355,27 @@
             }
           ],
           "default": null,
-          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
+        },
+        "rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "internal",
+                "external",
+                "j1_3v3",
+                "j1_1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
+          "title": "Rail"
         }
       },
       "title": "power_offArguments",
@@ -4362,8 +4419,27 @@
             }
           ],
           "default": null,
-          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
+        },
+        "rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "internal",
+                "external",
+                "j1_3v3",
+                "j1_1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
+          "title": "Rail"
         },
         "wiring_profile": {
           "anyOf": [
@@ -4407,7 +4483,7 @@
             }
           ],
           "default": null,
-          "description": "Target-power rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
+          "description": "Deprecated, use rail: internal 5 V (efuse 1) or external (efuse 2). Omit for the wiring profile's rail.",
           "title": "Efuse"
         },
         "max_duration_s": {
@@ -4417,6 +4493,25 @@
           "maximum": 600,
           "title": "Max Duration S",
           "type": "number"
+        },
+        "rail": {
+          "anyOf": [
+            {
+              "enum": [
+                "internal",
+                "external",
+                "j1_3v3",
+                "j1_1v8"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The power output: internal (internal 5 V, efuse 1), external (external, efuse 2) or, on a digital board v4, j1_3v3 (J1 pin 17, +3.3 V, about 1.45 A limit) or j1_1v8 (J1 pin 18, +1.8 V). Both J1 supplies are on from boot and independent of the eFuses and of resets; the J1 supplies have no current monitor. Omit for the wiring profile's rail (wiring shows it; power_status says whether the board has the J1 supplies).",
+          "title": "Rail"
         },
         "rate_hz": {
           "default": 500.0,

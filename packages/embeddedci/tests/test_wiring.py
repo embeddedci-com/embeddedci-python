@@ -265,10 +265,10 @@ class FakePod:
     def __init__(self, connection, **kwargs):
         self.capabilities = type("C", (), {"la_pins": False})()
         self.wiring = Wiring(efuse=2)
-    def power_on(self, efuse):
-        powered.append(("on", efuse))
-    def power_off(self, efuse):
-        powered.append(("off", efuse))
+    def power_on(self, rail=None):
+        powered.append(("on", rail))
+    def power_off(self, rail=None):
+        powered.append(("off", rail))
     def close(self):
         pass
 
