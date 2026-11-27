@@ -114,8 +114,9 @@ from .constants import (
     warn_efuse,
 )
 from .connection import resolve_connection
-from .errors import (BenchPodError, ClientTooOldError, DirectionConflictError, FirmwareError, FirmwareTooOldError,
-                     FlashError, PullDirectionError, UnsupportedFeatureError,
+from .errors import (BenchPodError, ClientTooOldError, ConnectionClosedError, DirectionConflictError,
+                     FirmwareError, FirmwareTooOldError, FlashError, PermissionDeniedError, PodLeasedError,
+                     PullDirectionError, TransportError, TransportTimeout, UnsupportedFeatureError,
                      UsbHostUnavailableError, UsbTimeout, classify_firmware_error, firmware_error)
 from .flash import FlashResult
 from .gpio import LA_DIRS, ExtPin, GpioPin, LaPinState
@@ -265,6 +266,19 @@ def _seconds_to_ms(value: Optional[float], name: str) -> int:
 
 #: The pod's console log levels, quietest first (:meth:`BenchPod.set_log_level`).
 LOG_LEVELS = ("error", "warn", "info", "debug")
+
+
+#: The modes of :meth:`BenchPod.reboot`: ``soft`` restarts the processor, ``hard`` also switches
+#: the pod's own power off and on (only a pod with the circuit for it, see :meth:`BenchPod.reboot`).
+REBOOT_MODES = ("soft", "hard")
+#: How long :meth:`BenchPod.reboot` waits for the pod to answer again, in seconds.
+REBOOT_WAIT_TIMEOUT = 60.0
+#: The pod keeps answering for ~0.4 s after the reply (its reset is deferred so the reply flushes),
+#: and its network is down for seconds after that: poll from this long after the send.
+_REBOOT_FIRST_POLL_S = 1.5
+_REBOOT_POLL_S = 1.0
+#: Connect budget of one poll while waiting (the transport's own retry budget is 10 s).
+_REBOOT_DIAL_S = 2.0
 
 
 def _log_level_from_reply(data: Any) -> str:
@@ -1815,6 +1829,113 @@ class BenchPod:
             raise ValueError(f"level must be one of {', '.join(LOG_LEVELS)}, got {level!r}")
         self._require_capability("log_level", "Console log levels")
         return _log_level_from_reply(self.command({"cmd": "log_level", "set": name}))
+
+    # -- reboot -------------------------------------------------------------
+
+    def reboot(self, mode: str = "soft", *, wait: bool = True,
+               timeout: float = REBOOT_WAIT_TIMEOUT) -> Dict[str, Any]:
+        """Restart the pod (``{"cmd":"reboot"}``).
+
+        ``mode="soft"`` (default) stops the DAC and control loop, switches the DUT supplies off and
+        restarts the processor. ``mode="hard"`` power-cycles the pod itself; no pod has that circuit
+        yet, so it raises :class:`FirmwareError` with code ``BP0093`` (``status`` lists
+        ``power_cycle`` in ``hw`` on a pod that has it). Anything else raises :class:`ValueError`.
+
+        The pod answers ``{"reboot": "soft"}`` and then drops the connection a moment later; a reply
+        or a dropped connection right after the send both mean it worked. With ``wait=True``
+        (default) this then waits up to ``timeout`` seconds for the pod to answer again over the
+        same connection (LAN address, USB network or cloud), takes the pod lease again, and
+        returns the new ``status``; a pod that does not come back raises :class:`TransportTimeout`.
+        With ``wait=False`` it returns ``{"reboot": mode}`` at once and this object is not usable
+        until the pod is back (call :meth:`ping` until it answers).
+
+        The pod starts from its stored settings: the I/O voltage, pin directions and pulls, the
+        DAC, sensors and open sessions are gone. The wiring profile's pin directions and I/O
+        voltage are sent again; set anything else again. The USB console connection
+        (``connection="/dev/cu.usb..."``) has no ``reboot`` command: use ``"usb"`` or the network.
+        Firmware without ``reboot`` (feature ``reboot``) raises :class:`UnsupportedFeatureError`.
+        """
+        name = str(mode).strip().lower() if isinstance(mode, str) else ""
+        if name not in REBOOT_MODES:
+            raise ValueError(f"mode must be one of {', '.join(REBOOT_MODES)}, got {mode!r}")
+        if wait and not timeout > 0:
+            raise ValueError(f"timeout must be > 0 seconds, got {timeout!r}")
+        # The pod must answer first: a dropped connection after the send is only a success
+        # when the send reached it (an unreachable pod stays an error).
+        self.ping()
+        if type(self._transport).__name__ != "SerialTransport":   # the console says what it lacks itself
+            self._require_capability("reboot", "reboot")
+        self._yield_expansion_bus()
+        sent_at = time.monotonic()
+        try:
+            self.command({"cmd": "reboot", "mode": name})
+        except (ConnectionClosedError, TransportTimeout) as exc:
+            _log.debug("reboot(%s): the connection ended after the send (%s): the pod restarted", name, exc)
+        except (PermissionDeniedError, PodLeasedError):
+            raise
+        except TransportError as exc:
+            # The cloud reports a pod that left mid-command as a server or tunnel error.
+            if not isinstance(self._transport, CloudTransport):
+                raise
+            _log.debug("reboot(%s): the cloud lost the pod after the send (%s)", name, exc)
+        self._after_reboot()
+        if not wait:
+            return {"reboot": name}
+        self._wait_for_pod(sent_at, timeout)
+        return self._finish_reboot()
+
+    def _after_reboot(self) -> None:
+        """Forget what the restart wiped: capabilities, the routed DAC path, the ADC range note."""
+        self._caps = None
+        self._routed_dac_path = None
+        self._adc_low_auto = False
+        self._current_out_span = None
+        self._monitors.clear()
+        self._monitors_synced = False
+
+    def _wait_for_pod(self, sent_at: float, timeout: float) -> None:
+        """Poll until the pod answers a ping again, at most ``timeout`` s after ``sent_at``."""
+        deadline = sent_at + timeout
+        time.sleep(max(0.0, min(_REBOOT_FIRST_POLL_S, deadline - time.monotonic())))
+        transport = self._transport
+        dial = getattr(transport, "dial_timeout", None)
+        last: Optional[BaseException] = None
+        try:
+            if dial is not None:
+                transport.dial_timeout = min(dial, _REBOOT_DIAL_S)  # type: ignore[attr-defined]
+            while True:
+                try:
+                    if transport.ping() == "pong":
+                        return
+                except BenchPodError as exc:   # refused, offline, timed out: not back yet
+                    last = exc
+                if time.monotonic() + _REBOOT_POLL_S > deadline:
+                    break
+                time.sleep(_REBOOT_POLL_S)
+        finally:
+            if dial is not None:
+                transport.dial_timeout = dial  # type: ignore[attr-defined]
+        why = f" (last error: {last})" if last is not None else ""
+        raise TransportTimeout(f"reboot: the pod did not answer again within {timeout:g} s{why}")
+
+    def _finish_reboot(self) -> Dict[str, Any]:
+        """The pod is back: take the lease again, send the wiring's pin directions and I/O
+        voltage as connect does, and return the new status."""
+        if self._pod_lease is not None and self._pod_lease.active:
+            try:
+                self._pod_lease._renew()    # the restart cleared it: this takes it again (BP0027)
+            except Exception as exc:  # noqa: BLE001 - the heartbeat tries again
+                _log.debug("reboot: pod lease not taken again yet: %s", exc)
+        status = self.status()
+        try:
+            self._auto_pin_directions()
+            self._auto_la_voltage()
+            self._sync_profile_monitors()
+        except ClientTooOldError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a convenience, as on connect
+            _log.debug("reboot: the wiring was not sent again: %s", exc)
+        return status
 
     # -- LAN TLS ------------------------------------------------------------
 

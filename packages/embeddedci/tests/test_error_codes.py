@@ -111,6 +111,7 @@ CODED: Dict[str, Any] = {
     "BP0090": (FirmwareError, {}),
     "BP0091": (FirmwareError, {}),
     "BP0092": (FirmwareError, {}),
+    "BP0093": (FirmwareError, {}),
 }
 
 

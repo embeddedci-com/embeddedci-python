@@ -678,6 +678,7 @@ _BY_CODE: Dict[str, Tuple[type, _FieldsFn]] = {
     "BP0090": (FirmwareError, _NO_FIELDS),                       # power_no_meter {supply}
     "BP0091": (FirmwareError, _NO_FIELDS),                       # power_supply_and_efuse
     "BP0092": (FirmwareError, _NO_FIELDS),                       # power_supply_not_on_pod {supply}
+    "BP0093": (FirmwareError, _NO_FIELDS),                       # reboot_hard_not_on_pod
 }
 
 

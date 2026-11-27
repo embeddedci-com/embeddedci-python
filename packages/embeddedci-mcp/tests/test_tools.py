@@ -30,7 +30,7 @@ EXPECTED_TOOLS = {
     "sensor_set", "sensor_stimulus_load", "sensor_stimulus_start", "sensor_stimulus_stop",
     "sensor_fault", "sensor_fault_clear", "sensor_stop", "sensor_status", "sensor_regs",
     "sensor_capture",
-    "set_pull", "pull_status", "usb_network", "log_level", "lan_tls",
+    "set_pull", "pull_status", "usb_network", "log_level", "lan_tls", "reboot",
     "analog_path", "dac_output", "current_out", "adc_read", "adc_range", "calibration", "calibrate", "calibrate_dac", "calibrate_adc_gain",
     "capture_adc", "capture_la", "capture_correlated", "decode_la", "la_timing",
     "generate", "dac_stop", "replay", "list_waveforms",
@@ -1301,6 +1301,39 @@ def test_lan_tls_reads_and_changes(fake_open, fake_transport, monkeypatch):
     call("lan_tls", https_only=True)
     call("lan_tls", regenerate=True)
     assert seen == ["read", True, "regen"]
+
+
+def test_reboot_waits_and_closes_the_sessions(fake_open, fake_transport, monkeypatch):
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+    seen = []
+    monkeypatch.setattr(pod, "reboot", lambda mode="soft": seen.append(mode) or {"version": "4.0.8"},
+                        raising=False)
+    SESSION.power_profile = object()  # type: ignore[assignment]
+    res = call("reboot")
+    assert seen == ["soft"]
+    assert res["mode"] == "soft" and res["firmware"] == "4.0.8" and "Set them again" in res["note"]
+    assert SESSION.power_profile is None
+    assert call("reboot", mode="hard")["mode"] == "hard" and seen == ["soft", "hard"]
+
+
+def test_reboot_hard_without_the_circuit_is_a_clean_error(fake_open, fake_transport, monkeypatch):
+    from embeddedci.benchpod.errors import firmware_error
+    call("connect", connection="usb", la_voltage=3.3)
+    pod = SESSION.require()
+
+    def refuse(mode="soft"):
+        raise firmware_error("", cmd="reboot", code="BP0093")
+
+    monkeypatch.setattr(pod, "reboot", refuse, raising=False)
+    with pytest.raises(ToolError, match="BP0093"):
+        call("reboot", mode="hard")
+
+
+def test_reboot_rejects_another_mode(fake_open, fake_transport):
+    call("connect", connection="usb", la_voltage=3.3)
+    with pytest.raises(ToolError):
+        call("reboot", mode="warm")
 
 
 def test_usb_network_reads_and_turns_off(fake_open, fake_transport, monkeypatch):

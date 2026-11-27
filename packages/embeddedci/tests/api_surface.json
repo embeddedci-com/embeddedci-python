@@ -169,6 +169,7 @@
     "power_status": "(self) -> 'PowerStatus'",
     "pull_state": "(self, la: 'Union[Pin, int]') -> 'PullState'",
     "read_gpio": "(self, la: 'Union[Pin, int, str]') -> 'int'",
+    "reboot": "(self, mode: 'str' = 'soft', *, wait: 'bool' = True, timeout: 'float' = 60.0) -> 'Dict[str, Any]'",
     "refresh_capabilities": "(self) -> 'Capabilities'",
     "regenerate_lan_tls": "(self) -> \"'LanTls'\"",
     "release_gpio": "(self, *las: 'Union[Pin, int, str]') -> 'None'",
@@ -1125,6 +1126,7 @@
     "none": "(cls, la: 'int', raw: 'Optional[Dict[str, Any]]' = None) -> \"'PullState'\"",
     "state": "property"
   },
+  "REBOOT_MODES": "('soft', 'hard')",
   "RailPower": {
     "__fields__": [
       "ok",
@@ -1849,6 +1851,7 @@
     "PullConflictError",
     "PullDirectionError",
     "PullState",
+    "REBOOT_MODES",
     "RailPower",
     "ReplayHandle",
     "ReplayMapping",

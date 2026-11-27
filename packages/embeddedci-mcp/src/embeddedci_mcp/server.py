@@ -2248,6 +2248,38 @@ async def log_level(
     return await _call(op)
 
 
+@mcp.tool(annotations=_ann("Reboot the pod", destructive=True))
+async def reboot(
+    mode: Annotated[Literal["soft", "hard"], Field(description=(
+        "soft restarts the processor. hard power-cycles the pod itself and works only on a pod "
+        "that can (status lists power_cycle in hw; none today): BP0093 otherwise."))] = "soft",
+    ctx: Context = None,  # type: ignore[assignment]
+) -> m.RebootResult:
+    """Restart the pod and wait until it answers again (up to 60 s). Use it for a stuck pod, for
+    example captures that answer busy, or an error that says to reboot the pod. The DAC, DUT
+    power, pulls, sensors and open UART, CAN and I2C sessions are gone afterwards; the wiring
+    profile's pin directions and I/O voltage are sent again. BP0093 (hard on a pod that cannot
+    power-cycle): use soft, or ask the user to unplug the pod's power. Needs pod firmware with
+    reboot."""
+    def op() -> m.RebootResult:
+        pod = SESSION.require()
+        SESSION.close_uart()      # the pod's sessions end with the restart
+        SESSION.close_can()
+        SESSION.close_i2c()
+        SESSION.power_profile = None
+        status = pod.reboot(mode)
+        fw = status.get("version") if isinstance(status, dict) else None
+        try:
+            la = pod.get_la_voltage().voltage
+        except BenchPodError:
+            la = None
+        return m.RebootResult(mode=mode, firmware=str(fw) if fw else None, la_voltage=la,
+                              note="The pod restarted: DAC, DUT power, pulls, sensors and sessions "
+                                   "are off. Set them again.")
+
+    return await _call_reporting(ctx, "rebooting", op)
+
+
 @mcp.tool(annotations=_ann("LAN TLS", destructive=True))
 async def lan_tls(
     https_only: Annotated[Optional[bool], Field(description=(

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`bp.reboot(mode="soft", *, wait=True, timeout=60)` restarts the pod** (`{"cmd":"reboot"}`).
+  A reply or a connection that drops right after the send is success. With `wait=True` it waits for
+  the pod to answer again over the same connection (LAN, USB network or cloud), takes the pod lease
+  again, sends the wiring's pin directions and I/O voltage again and returns the new `status`;
+  `wait=False` returns `{"reboot": mode}`. `REBOOT_MODES` is `("soft", "hard")`; another mode is a
+  `ValueError`. `"hard"` on a pod that cannot power-cycle itself raises `FirmwareError` code `BP0093`
+  (`reboot_hard_not_on_pod`); no pod can yet. Needs firmware with `reboot`; older firmware raises
+  its unknown-command refusal.
+
 - **New refusal code `BP0092` (`power_supply_not_on_pod`).** `target_power` for `"3v3"` or `"1v8"` on a pod
   without the switched supplies (any board but BenchPod v4) raises `FirmwareError` with this code instead
   of `WiringError` (`BP0089` stays for wiring profiles).
